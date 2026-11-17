@@ -478,8 +478,9 @@ fn lane_main(sh: &Arc<Shared>, lane: &Arc<Lane>, opts: &ShardOpts, seq0: u32) {
         }
         // стоянка всей биржи: новые линии на том же пути так же плохи, замены только съедают бюджет — старая линия держится, кроме одной пробной на шард (возрастная пересменка идёт);
         // потолок замен пути на шард: возрастная пересменка идёт всегда (биржа рвёт старую сессию), остальные — не чаще `REPLACE_CAP` за `CAP_WINDOW`; пробная замена, упёршаяся в потолок, не сгорает
+        let dark0 = storm::dark(&sh.metrics);
         let gate = match storm::admit_dark(
-            storm::dark(&sh.metrics),
+            dark0,
             old,
             sh.storm.as_deref(),
             &sh.storm_probe,
@@ -528,9 +529,14 @@ fn lane_main(sh: &Arc<Shared>, lane: &Arc<Lane>, opts: &ShardOpts, seq0: u32) {
         let patient = strict.is_some() && bad;
         // пробная замена режимом не прекращается; прекращается только замена, начатая до включения режима
         let probe = gate == StormGate::Probe;
+        // тёмным шард был хоть раз за поиск пути — режим эту замену не прекращает: когда она сама начнёт нести кадры, пауза данных кончится, но старой линии, которую можно было бы держать, нет
+        let dark_seen = std::cell::Cell::new(dark0);
         let storm_on = || {
+            if storm::dark(&sh.metrics) {
+                dark_seen.set(true);
+            }
             !old && !probe
-                && !storm::dark(&sh.metrics)
+                && !dark_seen.get()
                 && sh.storm.as_deref().is_some_and(storm::Storm::is_on)
         };
         while !accepted.load(Relaxed)
@@ -539,6 +545,11 @@ fn lane_main(sh: &Arc<Shared>, lane: &Arc<Lane>, opts: &ShardOpts, seq0: u32) {
             && !storm_on()
         {
             thread::sleep(Duration::from_millis(100));
+            // старая линия могла умереть, пока замена ищет путь: шард тёмным становится по живому состоянию линии, а не по тому, каким оно было на входе в замену (TK-582)
+            if let Some(a) = sh.metrics.lane_carry.get(lane.k) {
+                let w = sh.watch();
+                a.store(w.is_open(cur.seq) && !w.is_degraded(cur.seq), Relaxed);
+            }
         }
         if !accepted.load(Relaxed) && !sh.stop.load(Relaxed) && storm_on() {
             // режим включился, пока замена искала путь: поиск прекращается, старая линия несёт поток

@@ -618,8 +618,8 @@ fn a_shard_is_impaired_only_with_a_data_pause_or_no_carrying_line() {
     assert!(storm::impaired(&m));
 }
 
-/// TK-582 (остановки Binance 16.11 21:18–22:21): шард, у которого ни одна линия не несёт поток, тёмный даже при открытых соединениях; режим «стоянка» и потолок замен
-/// такой шард не держат (у них держать нечем: старая линия мертва), потолки при этом не занимаются; со светлой линией решает прежний `admit`.
+/// TK-582 (остановки Binance 16.11 21:18–22:21): тёмный шард (пауза данных, ни одна линия не несёт поток) — режим «стоянка» и потолок замен такой шард не держат
+/// (у них держать нечем: старая линия мертва), потолки при этом не занимаются; у светлого решает прежний `admit`.
 #[test]
 fn a_dark_shard_is_admitted_through_the_storm_hold_and_the_replace_cap() {
     use storm::{admit_dark, Admit};
@@ -648,45 +648,114 @@ fn a_dark_shard_is_admitted_through_the_storm_hold_and_the_replace_cap() {
     );
 }
 
+/// Тёмный шард — пауза данных И ни одна линия не несёт поток: одни флаги линий (испорчена, но кадры идут) шард не гасят — режим «стоянка» такую линию держит.
 #[test]
-fn a_shard_with_open_connections_but_no_carrying_line_is_dark() {
+fn a_shard_is_dark_only_with_a_data_pause_and_no_carrying_line() {
     let m = ShardMetrics::new("book00", 0, 64, 16);
-    assert!(storm::dark(&m), "без соединений");
+    assert!(!storm::dark(&m), "нет паузы данных (кадры идут) — светлый");
     m.connected.store(2, Relaxed);
-    assert!(storm::dark(&m), "соединения открыты, обе линии испорчены");
-    m.lane_carry[1].store(true, Relaxed);
-    assert!(!storm::dark(&m), "одна линия несёт — шард светлый");
-    m.lane_carry[1].store(false, Relaxed);
+    assert!(
+        !storm::dark(&m),
+        "соединения открыты, обе линии испорчены, но паузы данных нет (кадры идут по испорченной) — светлый"
+    );
     m.in_gap.store(true, Relaxed);
     assert!(
         storm::dark(&m),
-        "пауза данных сама по себе не делает шард светлым"
+        "пауза данных и ни одна линия не несёт — тёмный"
+    );
+    m.lane_carry[1].store(true, Relaxed);
+    assert!(
+        !storm::dark(&m),
+        "пауза, но одна линия несёт поток — светлый (её либо дождутся, либо испортит правило молчащей линии)"
+    );
+    m.lane_carry[1].store(false, Relaxed);
+    m.in_gap.store(false, Relaxed);
+    assert!(
+        !storm::dark(&m),
+        "пауза кончилась (замена принесла кадры) — светлый"
     );
 }
 
-/// Ожидание потолка отбраковок не держит тёмный шард: сон кончается, как только ни одна линия не несёт поток; у светлого шарда ждёт весь срок.
+/// Ожидание потолка отбраковок не держит тёмный шард: сон кончается, как только пауза данных и ни одна линия не несёт поток; у светлого шарда ждёт весь срок.
 #[test]
 fn the_reject_wait_ends_when_the_shard_turns_dark_and_runs_in_full_otherwise() {
     use super::shard::sleep_unless_dark;
     use std::sync::atomic::AtomicBool;
     let stop = AtomicBool::new(false);
     let m = ShardMetrics::new("book00", 0, 64, 16);
+    m.in_gap.store(true, Relaxed);
     let t0 = Instant::now();
     sleep_unless_dark(&stop, &m, Duration::from_secs(30));
     assert!(t0.elapsed() < Duration::from_secs(1), "тёмный шард не ждёт");
-    m.lane_carry[0].store(true, Relaxed);
+    m.in_gap.store(false, Relaxed);
     let t1 = Instant::now();
     sleep_unless_dark(&stop, &m, Duration::from_millis(300));
     assert!(
         t1.elapsed() >= Duration::from_millis(290),
-        "светлый шард ждёт весь срок"
+        "кадры идут (нет паузы данных) — ждёт весь срок, как светлый"
+    );
+    m.in_gap.store(true, Relaxed);
+    m.lane_carry[0].store(true, Relaxed);
+    let t2 = Instant::now();
+    sleep_unless_dark(&stop, &m, Duration::from_millis(300));
+    assert!(
+        t2.elapsed() >= Duration::from_millis(290),
+        "пауза, но линия несёт — ждёт весь срок"
     );
     stop.store(true, Relaxed);
-    let t2 = Instant::now();
+    let t3 = Instant::now();
     sleep_unless_dark(&stop, &m, Duration::from_secs(30));
     assert!(
-        t2.elapsed() < Duration::from_secs(1),
+        t3.elapsed() < Duration::from_secs(1),
         "остановка прерывает сон"
+    );
+}
+
+/// Единственный источник: принятые соединения за окно принесли меньше 1/10 кадров проверяемого (или ни одного).
+#[test]
+fn the_probed_connection_is_the_sole_source_when_accepted_ones_bring_almost_nothing() {
+    use super::path::sole_source;
+    assert!(sole_source(500, 0), "принятых кадров нет — единственный");
+    assert!(sole_source(500, 49), "49 из 500 — меньше десятой доли");
+    assert!(
+        !sole_source(500, 50),
+        "50 из 500 — ровно десятая доля: другой источник есть"
+    );
+    assert!(!sole_source(500, 480), "оба несли поток");
+    assert!(!sole_source(0, 0), "кадров не было совсем — решать нечем");
+    assert!(
+        !sole_source(10, u64::MAX),
+        "переполнение не делает источник единственным"
+    );
+}
+
+/// Вердикт окна проверки: чистый — принят; медленный на тёмном шарде или единственном источнике — принят «как есть» с причиной; иначе отбракован.
+#[test]
+fn a_slow_window_is_accepted_only_on_a_dark_shard_or_for_the_sole_source() {
+    use super::path::{window_verdict, Window};
+    assert_eq!(window_verdict(true, false, 500, 500), Window::Ok);
+    assert_eq!(
+        window_verdict(true, true, 500, 0),
+        Window::Ok,
+        "чистый путь принят и на тёмном"
+    );
+    assert_eq!(
+        window_verdict(false, true, 500, 500),
+        Window::SlowAccepted("dark")
+    );
+    assert_eq!(
+        window_verdict(false, false, 500, 0),
+        Window::SlowAccepted("sole_source")
+    );
+    assert_eq!(
+        window_verdict(false, false, 500, 480),
+        Window::Rejected,
+        "медленный путь при живом другом источнике отбраковывается, как раньше"
+    );
+    assert_eq!(
+        window_verdict(false, false, 0, 0),
+        Window::Rejected,
+        "без кадров соединение единственным не считается"
     );
 }
 

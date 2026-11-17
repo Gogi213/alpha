@@ -22,7 +22,7 @@ use super::fresh::GRACE_S;
 use super::gzip::Gunzip;
 use super::metrics::ShardMetrics;
 use super::net::{self, Conn};
-use super::path::{PathProbe, PathWatch};
+use super::path::{window_verdict, PathProbe, PathWatch, Window};
 use super::reactor::ReactorHandle;
 use super::ring::{Item, Payload, RingTx};
 use super::storm;
@@ -348,6 +348,13 @@ fn body(
     }
 }
 
+/// Кадры принятых (не проверяемых) соединений шарда с начала процесса.
+fn trusted_frames(m: &ShardMetrics) -> u64 {
+    m.frames
+        .load(Relaxed)
+        .saturating_sub(m.frames_probing.load(Relaxed))
+}
+
 /// Состояние чтения одной сессии: общее для потока приёма (`read_loop`) и реактора. Кадры, метки, пинг/pong, окно проверки пути — те же правила.
 pub struct Rx {
     lane: u8,
@@ -355,6 +362,12 @@ pub struct Rx {
     probe: Option<PathProbe>,
     accepted: Option<Arc<AtomicBool>>,
     n: u64,
+    /// Путь сессии ещё проверяется (от создания до приёма): её кадры считаются в `ShardMetrics::frames_probing`. `probe_open` — окно замера лага открыто (после пропуска снапшота подписки),
+    /// `probe_own` — кадры сессии с начала окна, `trusted_base` — кадры принятых соединений шарда на начало окна: по ним решается «единственный источник» (`path::sole_source`).
+    probing: bool,
+    probe_open: bool,
+    probe_own: u64,
+    trusted_base: u64,
     last_ping: Instant,
     ping_sent: Option<(Instant, [u8; 8])>,
     /// Диагностика пинга: сколько мкс занял `ws.send(Ping)` и ушёл ли он в сокет сразу (`false`) или остался в очереди записи (`true`).
@@ -415,6 +428,10 @@ impl Rx {
                 .then(|| PathProbe::with_window(t_loop, sh.probe_window.0, sh.probe_window.1)),
             accepted,
             n: 0,
+            probing: probe,
+            probe_open: false,
+            probe_own: 0,
+            trusted_base: 0,
             last_ping: t_loop,
             ping_sent: None,
             ping_send_us: 0,
@@ -534,6 +551,8 @@ impl Rx {
             self.last_ping = t;
             self.last_frame = t;
             if self.probe_wanted {
+                self.probe_open = false;
+                self.probe_own = 0;
                 self.probe = Some(PathProbe::with_window(
                     t,
                     sh.probe_window.0,
@@ -779,27 +798,31 @@ impl Rx {
             if p.finished(now) {
                 let clean = p.clean();
                 let (cnt, p50, p99) = p.summary();
-                // тёмный шард (ни одна линия не несёт поток): соединение с данными, пусть медленное, лучше разрыва — принимаем, замена на чистый путь потом по `mark_slow` (TK-582)
-                let dark = !clean && storm::dark(&sh.metrics);
-                let verdict = if clean {
-                    "path_ok"
-                } else if dark {
-                    "path_slow_accepted"
-                } else {
-                    "path_rejected"
+                // медленный путь на тёмном шарде (данные стоят, ни одна линия не несёт поток) или у единственного источника данных (принятые соединения за окно почти ничего не принесли):
+                // соединение с данными, пусть запоздавшими, лучше пустого шарда — принимаем, замена на чистый путь потом по `mark_slow` (TK-582)
+                let own = self.probe_own;
+                let others = trusted_frames(&sh.metrics).saturating_sub(self.trusted_base);
+                let verdict = window_verdict(clean, storm::dark(&sh.metrics), own, others);
+                let mut ev = json!({"session": seq, "n": cnt, "p50_ms": p50.map(f64::round), "p99_ms": p99.map(f64::round), "own": own, "others": others});
+                let name = match verdict {
+                    Window::Ok => "path_ok",
+                    Window::SlowAccepted(why) => {
+                        if let Some(o) = ev.as_object_mut() {
+                            o.insert("why".to_string(), json!(why));
+                        }
+                        "path_slow_accepted"
+                    }
+                    Window::Rejected => "path_rejected",
                 };
-                let mut ev = json!({"session": seq, "n": cnt, "p50_ms": p50.map(f64::round), "p99_ms": p99.map(f64::round)});
-                if let (true, Some(o)) = (dark, ev.as_object_mut()) {
-                    o.insert("why".to_string(), json!("dark"));
-                }
-                sh.events.emit(verdict, ev);
-                if !clean && !dark {
+                sh.events.emit(name, ev);
+                if verdict == Window::Rejected {
                     return Some(Outcome::PathRejected);
                 }
-                if dark {
+                if matches!(verdict, Window::SlowAccepted(_)) {
                     sh.watch().mark_slow(seq);
                 }
                 self.probe = None;
+                self.probing = false;
                 if let Some(a) = self.accepted.as_ref() {
                     a.store(true, Relaxed);
                 }
@@ -850,6 +873,9 @@ impl Rx {
         let m = &sh.metrics;
         self.n += 1;
         let n = self.n;
+        if self.probing {
+            m.frames_probing.fetch_add(1, Relaxed);
+        }
         m.frames.fetch_add(1, Relaxed);
         m.bytes
             .fetch_add(u64::try_from(data.len()).unwrap_or(0), Relaxed);
@@ -875,6 +901,11 @@ impl Rx {
         }
         if let Some(p) = self.probe.as_mut() {
             if p.collecting(t_read) {
+                if !self.probe_open {
+                    self.probe_open = true;
+                    self.trusted_base = trusted_frames(m);
+                }
+                self.probe_own += 1;
                 p.add(sh.exch.lag_ms(&data, rx));
             }
         }

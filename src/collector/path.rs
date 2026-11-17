@@ -45,6 +45,39 @@ pub fn path_verdict(lags: &mut [f64]) -> bool {
         && percentile(lags, 0.99).is_some_and(|v| v <= PROBE_P99_MS)
 }
 
+/// Другие (уже принятые) соединения шарда принесли за окно проверки меньше такой доли кадров проверяемого соединения (1/`SOLE_SHARE`): оно — единственный источник данных шарда.
+pub const SOLE_SHARE: u64 = 10;
+
+/// Проверяемое соединение — единственный источник данных шарда: кадров от принятых соединений за окно меньше 1/`SOLE_SHARE` его собственных. Отбраковка такого соединения оставила бы шард
+/// без данных (TK-582, §5.2: 13 пауз, 1 056 шард-с); данные с задержкой пишутся по времени биржи, пустой шард — потеря.
+pub fn sole_source(own: u64, others: u64) -> bool {
+    own > 0 && others.saturating_mul(SOLE_SHARE) < own
+}
+
+/// Итог окна проверки пути.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Window {
+    /// Путь чистый.
+    Ok,
+    /// Путь медленный, но принят: `why` — «dark» (данные шарда стоят и ни одна линия не несёт поток) или «sole_source» (соединение — единственный источник); замена на чистый путь — `mark_slow`.
+    SlowAccepted(&'static str),
+    /// Путь медленный, у шарда есть другой источник данных: соединение закрывается, шард ищет другой путь.
+    Rejected,
+}
+
+/// Вердикт окна проверки: чистый — принят; медленный на тёмном шарде или единственном источнике — принят как есть; иначе отбракован.
+pub fn window_verdict(clean: bool, dark: bool, own: u64, others: u64) -> Window {
+    if clean {
+        Window::Ok
+    } else if dark {
+        Window::SlowAccepted("dark")
+    } else if sole_source(own, others) {
+        Window::SlowAccepted("sole_source")
+    } else {
+        Window::Rejected
+    }
+}
+
 pub struct PathProbe {
     t0: Instant,
     skip_s: f64,

@@ -1,0 +1,15 @@
+22:18:00 book  76% | trade  95% | mark 100% | lanes alive book 68/34 trade 36/18
+22:18:20 book  82% | trade  83% | mark 100% | lanes alive book 68/34 trade 36/18
+22:18:40 book  66% | trade  64% | mark  96% | lanes alive book 68/34 trade 36/18
+22:19:00 book  96% | trade 143% | mark  76% | lanes alive book 68/34 trade 36/18
+22:19:20 book  27% | trade 103% | mark  11% | lanes alive book 68/34 trade 36/18
+22:19:40 book  38% | trade  65% | mark  21% | lanes alive book 59/34 trade 36/18
+22:20:00 book  81% | trade 101% | mark  42% | lanes alive book 44/34 trade 36/18
+22:20:20 book  50% | trade  72% | mark 101% | lanes alive book 44/34 trade 36/18
+22:20:40 book  47% | trade  75% | mark 100% | lanes alive book 44/34 trade 36/18
+22:21:00 book  70% | trade 100% | mark 150% | lanes alive book 52/34 trade 36/18
+22:21:20 book  77% | trade  95% | mark 139% | lanes alive book 56/34 trade 36/18
+22:21:40 book  55% | trade  66% | mark 100% | lanes alive book 56/34 trade 36/18
+22:22:00 book  73% | trade  94% | mark 100% | lanes alive book 56/34 trade 36/18
+22:22:20 book  66% | trade 101% | mark 100% | lanes alive book 56/34 trade 36/18
+22:22:40 book 121% | trade 123% | mark 100% | lanes alive book 66/34 trade 36/18

@@ -1,0 +1,5 @@
+Counter({'connected': 865, 'path_rejected_rtt': 524, 'error': 15})
+max in any 300s window (proxy): 196 21:20:15
+S1 proxy in 300s window during stop: min 94 max 195
+S2 proxy in 300s window during stop: min 166 max 190
+S3 proxy in 300s window during stop: min 149 max 166

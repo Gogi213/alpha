@@ -3982,6 +3982,345 @@ fn storm_probe_replacement_is_not_aborted_and_the_degraded_line_is_switched() {
     assert!(j["holds"].as_u64().unwrap() >= 1);
 }
 
+/// Сценарий соединения источника `spawn_scripted`: сколько кадров книги (каждые 2 мс; `None` — без конца), на сколько мс метка биржи отстаёт от приёма, отвечает ли на ping.
+struct Script {
+    frames: Option<usize>,
+    lag_ms: i64,
+    answers_pings: bool,
+}
+
+/// Источник по сценарию: соединение номер `n` (с 1) ведёт себя как `script(n)` (TK-582: тёмный шард, единственный источник, молчащая линия).
+fn spawn_scripted(
+    listener: TcpListener,
+    stop: Arc<AtomicBool>,
+    script: fn(usize) -> Script,
+) -> std::thread::JoinHandle<()> {
+    std::thread::spawn(move || {
+        listener.set_nonblocking(true).unwrap();
+        let mut conns = Vec::new();
+        let mut n = 0usize;
+        while !stop.load(Relaxed) {
+            match listener.accept() {
+                Ok((s, _)) => {
+                    n += 1;
+                    let sc = script(n);
+                    s.set_nonblocking(false).unwrap();
+                    let stop = Arc::clone(&stop);
+                    conns.push(std::thread::spawn(move || {
+                        let Ok(mut ws) = tungstenite::accept(s) else {
+                            return;
+                        };
+                        if ws.read().is_err() {
+                            return;
+                        }
+                        let _ = ws
+                            .get_ref()
+                            .set_read_timeout(Some(Duration::from_millis(2)));
+                        let mut u = 0i64;
+                        while !stop.load(Relaxed) {
+                            if sc
+                                .frames
+                                .is_none_or(|f| usize::try_from(u).unwrap_or(0) < f)
+                            {
+                                u += 1;
+                                let e = super::events::now_ms() - sc.lag_ms;
+                                if ws.send(tungstenite::Message::text(bn_book(u, e))).is_err() {
+                                    return;
+                                }
+                            }
+                            if sc.answers_pings {
+                                // чтение отвечает pong на наш ping; у источника без ответа соединение молчит и не отзывается
+                                match ws.read() {
+                                    Err(tungstenite::Error::Io(e))
+                                        if matches!(
+                                            e.kind(),
+                                            std::io::ErrorKind::WouldBlock
+                                                | std::io::ErrorKind::TimedOut
+                                        ) => {}
+                                    Err(_) => return,
+                                    Ok(_) => {}
+                                }
+                                let _ = ws.flush();
+                            } else {
+                                std::thread::sleep(Duration::from_millis(2));
+                            }
+                        }
+                    }));
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                    std::thread::sleep(Duration::from_millis(5))
+                }
+                Err(_) => break,
+            }
+        }
+        for c in conns {
+            let _ = c.join();
+        }
+    })
+}
+
+/// Шард с одной линией на источнике `script`: ждёт, пока `until(каталог событий)`, не дольше `max`, дорабатывает ещё `settle`, останавливается; возвращает каталог событий, счётчики шарда и время ожидания.
+fn run_scripted_shard(
+    script: fn(usize) -> Script,
+    tune: impl FnOnce(&mut ShardOpts),
+    until: impl Fn(&Path) -> bool,
+    settle: Duration,
+    max: Duration,
+) -> (tempfile::TempDir, Arc<ShardMetrics>, Duration) {
+    // начало монотонного времени шарда заводится первым обращением: если им станет пачка кадров, у кадров `mono = 0` (приём раньше начала), «кадров не было» — и пауза данных не найдётся
+    let _ = super::shard::mono_ms();
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let stop_src = Arc::new(AtomicBool::new(false));
+    let src = spawn_scripted(listener, Arc::clone(&stop_src), script);
+    let dir = tempfile::tempdir().unwrap();
+    let (mut opts, plan) = book_shard(dir.path(), port, (0.2, 0.5));
+    tune(&mut opts);
+    let exch: Arc<dyn Exchange> = Arc::new(Binance);
+    let stop = Arc::new(AtomicBool::new(false));
+    let budget = Arc::new(Budget::new(50, Duration::from_secs(300)));
+    let h = spawn_shard(
+        &exch,
+        &plan,
+        &[vec![Entrance::new("127.0.0.1", Family::V4)]],
+        &opts,
+        &budget,
+        &stop,
+    )
+    .unwrap();
+    let metrics = Arc::clone(&h.metrics);
+    let t0 = Instant::now();
+    while !until(dir.path()) && t0.elapsed() < max {
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    let took = t0.elapsed();
+    std::thread::sleep(settle);
+    stop.store(true, Relaxed);
+    h.join();
+    stop_src.store(true, Relaxed);
+    src.join().unwrap();
+    (dir, metrics, took)
+}
+
+/// Номера строк журнала шарда с событием `name` (порядок записи).
+fn event_lines(dir: &Path, name: &str) -> Vec<usize> {
+    std::fs::read_to_string(dir.join("events-book00.jsonl"))
+        .unwrap_or_default()
+        .lines()
+        .enumerate()
+        .filter(|(_, l)| l.contains(&format!("\"ev\":\"{name}\"")))
+        .map(|(i, _)| i)
+        .collect()
+}
+
+/// TK-582 §5.2: единственное соединение шарда, пусть медленное (метка биржи на 2 с старее приёма), не отбраковывается — данные с задержкой пишутся по времени биржи, пустой шард — потеря.
+/// Принятые соединения за окно кадров не принесли → `path_slow_accepted` с причиной `sole_source`, замена на чистый путь потом.
+#[test]
+fn the_only_data_source_is_not_rejected_for_a_slow_path() {
+    let (dir, m, _) = run_scripted_shard(
+        |_| Script {
+            frames: None,
+            lag_ms: 2000,
+            answers_pings: false,
+        },
+        |o| o.cold_probe = true,
+        |d| count_events(d, "path_slow_accepted") >= 1,
+        Duration::ZERO,
+        Duration::from_secs(15),
+    );
+    let ev = events_named(dir.path(), "path_slow_accepted");
+    assert!(!ev.is_empty(), "медленный единственный путь принят");
+    assert_eq!(ev[0]["why"], "sole_source", "{ev:?}");
+    assert!(ev[0]["own"].as_u64().unwrap() > 50, "{ev:?}");
+    assert_eq!(ev[0]["others"], 0, "{ev:?}");
+    // первый вердикт окна — приём (позже замена на чистый путь может быть отбракована: тот же лаг, но первое соединение уже несёт поток)
+    assert!(
+        event_lines(dir.path(), "path_rejected")
+            .first()
+            .is_none_or(|r| *r > event_lines(dir.path(), "path_slow_accepted")[0]),
+        "до приёма отбраковки не было"
+    );
+    assert!(m.writer().records > 50, "поток записывается");
+}
+
+/// Контроль: пока другое (принятое) соединение шарда несёт кадры, медленный кандидат отбраковывается как прежде (`path_rejected`), `sole_source` не срабатывает.
+/// Первое соединение — чистые кадры без pong (линия портится по таймауту, кадры идут); замена — с лагом 2 с.
+#[test]
+fn a_slow_path_is_rejected_while_another_connection_delivers() {
+    let (dir, _m, _) = run_scripted_shard(
+        |n| Script {
+            frames: None,
+            lag_ms: if n == 1 { 0 } else { 2000 },
+            answers_pings: false,
+        },
+        |o| o.ping = (Duration::from_millis(500), Duration::from_secs(1)),
+        |d| count_events(d, "path_rejected") >= 1,
+        Duration::ZERO,
+        Duration::from_secs(20),
+    );
+    let rej = events_named(dir.path(), "path_rejected");
+    assert!(!rej.is_empty(), "медленная замена отбракована");
+    assert!(
+        rej[0]["others"].as_u64().unwrap() * 10 >= rej[0]["own"].as_u64().unwrap(),
+        "первое соединение несло кадры: {rej:?}"
+    );
+    assert!(
+        events_named(dir.path(), "path_slow_accepted")
+            .iter()
+            .all(|e| e["why"] != "sole_source"),
+        "единственным источником кандидат не был"
+    );
+}
+
+/// TK-582: линия, молчащая в паузе данных всего шарда, портится за 4–7 с (`SILENT_LINE` + наш пинг без pong ≥ `SILENT_PONG`), не дожидаясь `PING_TIMEOUT` (здесь 60 с).
+#[test]
+fn a_silent_line_in_a_data_pause_is_degraded_without_waiting_for_the_ping_timeout() {
+    let (dir, _m, took) = run_scripted_shard(
+        |_| Script {
+            frames: Some(50),
+            lag_ms: 0,
+            answers_pings: false,
+        },
+        |o| o.ping = (Duration::from_millis(500), Duration::from_secs(60)),
+        |d| count_events(d, "ping_degraded") >= 1,
+        Duration::ZERO,
+        Duration::from_secs(15),
+    );
+    let ev = events_named(dir.path(), "ping_degraded");
+    assert!(!ev.is_empty(), "линия испорчена");
+    assert_eq!(ev[0]["why"], "silent_in_gap", "{ev:?}");
+    assert!(
+        took >= Duration::from_secs(4) && took < Duration::from_secs(8),
+        "обнаружение за 4–7 с: {took:?}"
+    );
+}
+
+/// Тихий рынок линию не портит: пауза данных есть (`gap`), но линия отвечает pong на наш пинг — `ping_degraded` нет.
+#[test]
+fn a_quiet_market_does_not_degrade_a_line_that_answers_pings() {
+    let (dir, _m, _) = run_scripted_shard(
+        |_| Script {
+            frames: Some(50),
+            lag_ms: 0,
+            answers_pings: true,
+        },
+        |o| o.ping = (Duration::from_millis(500), Duration::from_secs(60)),
+        |d| count_events(d, "gap") >= 1,
+        Duration::from_secs(5),
+        Duration::from_secs(15),
+    );
+    assert_eq!(count_events(dir.path(), "gap"), 1, "пауза данных была");
+    assert_eq!(count_events(dir.path(), "ping_degraded"), 0);
+}
+
+/// Ход событий шарда для сообщений проверок: «+мс от первого: событие[причина]».
+fn event_trace(dir: &Path) -> String {
+    let ev: Vec<serde_json::Value> = std::fs::read_to_string(dir.join("events-book00.jsonl"))
+        .unwrap_or_default()
+        .lines()
+        .filter_map(|l| serde_json::from_str(l).ok())
+        .collect();
+    let t0 = ev.first().and_then(|e| e["ts_ms"].as_i64()).unwrap_or(0);
+    ev.iter()
+        .map(|e| {
+            format!(
+                "+{}:{}{}",
+                e["ts_ms"].as_i64().unwrap_or(0) - t0,
+                e["ev"].as_str().unwrap_or("?"),
+                e["why"]
+                    .as_str()
+                    .map(|w| format!("[{w}]"))
+                    .unwrap_or_default()
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// Событие `then` есть после первого события `first` (по порядку записи в журнал).
+fn event_after(dir: &Path, first: &str, then: &str) -> bool {
+    let f = event_lines(dir, first);
+    let t = event_lines(dir, then);
+    f.first().is_some_and(|f| t.last().is_some_and(|t| t > f))
+}
+
+/// Тёмный шард (пауза данных, линия испорчена) принимает первое соединение, не проверяя RTT: порог 0 мс отбраковывает любое подключение светлого шарда (первая замена — улучшение пути
+/// медленного первого соединения — отбракована 6 раз и ждёт потолок 300 с), но с темнотой шарда ожидание кончается и замена проходит без отбраковок RTT.
+#[test]
+fn a_dark_shard_takes_the_first_connection_without_the_rtt_check() {
+    let (dir, m, took) = run_scripted_shard(
+        |n| Script {
+            frames: if n == 1 { Some(50) } else { None },
+            lag_ms: 0,
+            answers_pings: false,
+        },
+        |o| {
+            o.ping = (Duration::from_millis(500), Duration::from_secs(60));
+            o.rtt_max_ms = 0.0;
+            o.overlap = Duration::from_millis(300);
+        },
+        |d| count_events(d, "path_switch") + count_events(d, "path_upgrade") >= 1,
+        Duration::ZERO,
+        Duration::from_secs(25),
+    );
+    let trace = format!(
+        "{} | connected={} frames={} in_gap={} probing={}",
+        event_trace(dir.path()),
+        m.connected.load(Relaxed),
+        m.frames.load(Relaxed),
+        m.in_gap.load(Relaxed),
+        m.frames_probing.load(Relaxed)
+    );
+    assert_eq!(
+        events_named(dir.path(), "ping_degraded")
+            .first()
+            .map(|e| e["why"].clone()),
+        Some(json!("silent_in_gap")),
+        "{trace}"
+    );
+    assert!(
+        count_events(dir.path(), "path_switch") + count_events(dir.path(), "path_upgrade") >= 1,
+        "замена прошла за {took:?}, потолок отбраковок не держал: {trace}"
+    );
+    assert!(
+        !event_after(dir.path(), "ping_degraded", "path_rejected_rtt"),
+        "после остановки данных RTT не проверялся: {trace}"
+    );
+    assert!(
+        count_events(dir.path(), "path_rejected_rtt") >= 1,
+        "до остановки светлый шард проверялся по RTT"
+    );
+    assert!(m.writer().records > 100, "после замены поток идёт");
+}
+
+/// Контроль: испорченная линия (нет pong), по которой кадры идут, шард не гасит — замена и после `ping_degraded` проверяется по RTT (порог 0 мс отбраковывает), смены линии нет.
+#[test]
+fn a_degraded_line_with_flowing_frames_keeps_the_rtt_check() {
+    let (dir, _m, _) = run_scripted_shard(
+        |_| Script {
+            frames: None,
+            lag_ms: 0,
+            answers_pings: false,
+        },
+        |o| {
+            o.ping = (Duration::from_millis(500), Duration::from_secs(1));
+            o.rtt_max_ms = 0.0;
+            o.overlap = Duration::from_millis(300);
+        },
+        |d| event_after(d, "ping_degraded", "path_rejected_rtt"),
+        Duration::from_secs(1),
+        Duration::from_secs(20),
+    );
+    assert!(
+        event_after(dir.path(), "ping_degraded", "path_rejected_rtt"),
+        "светлый шард и после порчи линии проверяется по RTT"
+    );
+    // замена так и не подключилась (`path_upgrade` при остановке шарда — не смена линии: цикл замены выходит по `stop`)
+    let trace = event_trace(dir.path());
+    assert_eq!(count_events(dir.path(), "path_switch"), 0, "{trace}");
+    assert_eq!(count_events(dir.path(), "connected"), 1, "{trace}");
+}
+
 /// Ни pong, ни кадров — путь испорчен: помечается `degraded` (шард откроет замену).
 #[test]
 fn silence_without_pong_marks_the_session_degraded() {

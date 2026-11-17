@@ -1,0 +1,9 @@
+mark00 slots 540
+E1 slots 10 L0only 0 L1only 3 both 2 none 5
+E2 slots 10 L0only 0 L1only 2 both 6 none 2
+E3 slots 8 L0only 0 L1only 0 both 5 none 3
+E4 slots 10 L0only 2 L1only 0 both 6 none 2
+E5 slots 6 L0only 0 L1only 0 both 3 none 3
+E6 slots 6 L0only 0 L1only 0 both 4 none 2
+E7 slots 6 L0only 0 L1only 0 both 4 none 2
+all 21:00-22:30 540 L0only 40 L1only 26 both 442 none 32

@@ -4,10 +4,15 @@
 а когда — путь к одной бирже. Только стандартная библиотека; ICMP — сырой сокет (нужен root); один поток на цель, нагрузка < 1 % ядра.
 
 Строка: {"ts":<unix с>,"n":"<цель>","rtt":<мс или null>,"e":"<ошибка, если rtt null>"}; в начале файла и при смене адреса — {"meta":…}.
+
+TK-582 (17.11): две пробы длинного пути до AWS Токио — адрес из пула fstream Binance (не CloudFront: выбирается адрес с RTT подключения ≥ 150 мс или с таймаутом) и Gate
+(fx-ws.gateio.ws, AWS Токио напрямую) — пишутся в отдельный ряд /data/netwatch/long-<день UTC>.jsonl. Страница здоровья читает только <день>.jsonl, поэтому её слоты сети
+(доля потерь по всем целям файла) от новых проб не меняются; разбор — по обоим рядам, метки времени общие.
 """
 import argparse
 import json
 import os
+import re
 import select
 import socket
 import struct
@@ -22,6 +27,12 @@ TCP_TARGETS = [
     ("bingx", "open-api-swap.bingx.com", 443),  # CloudFront
     ("okx", "ws.okx.com", 443),                # Cloudflare
 ]
+# TK-582: пробы длинного пути в отдельный ряд — (имя, хост, порт, минимальный RTT подключения выбираемого адреса, мс); 0 — первый IPv4 имени, как у остальных целей
+LONG_TARGETS = [
+    ("binance_fs", "fstream.binance.com", 443, 150.0),   # имя отдаёт и CloudFront (короткий путь, 49–90 мс), и пул AWS Токио (236–260 мс): нужен второй
+    ("gate_ws", "fx-ws.gateio.ws", 443, 0.0),            # AWS Токио напрямую
+]
+LONG_PREFIX = "long-"
 NEUTRAL = ("neutral", "8.8.8.8")
 TCP_TIMEOUT = 3.0
 ICMP_TIMEOUT = 2.0
@@ -32,6 +43,29 @@ RESOLVE_AFTER_FAILS = 30
 def resolve4(host):
     infos = socket.getaddrinfo(host, None, socket.AF_INET, socket.SOCK_STREAM)
     return infos[0][4][0]
+
+
+def resolve4_all(host):
+    """Все IPv4 имени в порядке ответа, без повторов."""
+    out = []
+    for info in socket.getaddrinfo(host, None, socket.AF_INET, socket.SOCK_STREAM):
+        if info[4][0] not in out:
+            out.append(info[4][0])
+    return out
+
+
+def tcp_rtt(ip, port):
+    """(RTT TCP-подключения в мс, None) или (None, "timeout" | текст ошибки)."""
+    t0 = time.monotonic()
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.settimeout(TCP_TIMEOUT)
+    try:
+        s.connect((ip, port))
+        return round((time.monotonic() - t0) * 1000, 2), None
+    except OSError as e:
+        return None, ("timeout" if isinstance(e, socket.timeout) else str(e)[:60])
+    finally:
+        s.close()
 
 
 def default_gateway():
@@ -51,9 +85,20 @@ def checksum(b):
 class Out:
     """Дневной файл jsonl; запись под замком, строки сбрасываются сразу (сторож живёт неделями, потеря хвоста при сбое недопустима)."""
 
-    def __init__(self, root):
-        self.root, self.day, self.f, self.lock = root, None, None, threading.Lock()
+    def __init__(self, root, prefix=""):
+        self.root, self.prefix, self.day, self.f, self.lock = root, prefix, None, None, threading.Lock()
         os.makedirs(root, exist_ok=True)
+
+    def last_ip(self, name, days=7):
+        """Адрес цели из последней строки meta в рядах этого писателя (новые файлы первыми): перезапуск сторожа не меняет адреса и не рвёт ряд; None — записей нет."""
+        pat = re.compile(rb'"meta":\{"n":"' + re.escape(name.encode()) + rb'","host":"[^"]*","ip":"([0-9.]+)"')
+        files = sorted((f for f in os.listdir(self.root) if f.startswith(self.prefix) and f[len(self.prefix):len(self.prefix) + 1].isdigit()), reverse=True)
+        for f in files[:days]:
+            with open(os.path.join(self.root, f), "rb") as fh:
+                found = pat.findall(fh.read())
+            if found:
+                return found[-1].decode()
+        return None
 
     def write(self, obj):
         line = json.dumps(obj, separators=(",", ":"), ensure_ascii=False) + "\n"
@@ -62,7 +107,7 @@ class Out:
             if day != self.day:
                 if self.f:
                     self.f.close()
-                self.f = open(os.path.join(self.root, day + ".jsonl"), "a", buffering=1, encoding="utf-8")
+                self.f = open(os.path.join(self.root, self.prefix + day + ".jsonl"), "a", buffering=1, encoding="utf-8")
                 self.day = day
             self.f.write(line)
 
@@ -79,16 +124,32 @@ def paced(period, step):
         time.sleep(max(0.0, nxt - time.monotonic()))
 
 
-def tcp_worker(out, name, host, port):
-    state = {"ip": None, "fails": 0}
+def pick_long(host, port, min_rtt):
+    """Адрес из ответа имени с длинным путём: подключение с RTT ≥ min_rtt мс или таймаут (путь, возможно, как раз мёртв); ближние адреса (CloudFront) пропускаются."""
+    for ip in resolve4_all(host):
+        rtt, err = tcp_rtt(ip, port)
+        if (rtt is not None and rtt >= min_rtt) or err == "timeout":
+            return ip
+    return None
+
+
+def tcp_worker(out, name, host, port, min_rtt=0.0):
+    state = {"ip": out.last_ip(name), "fails": 0, "none_ts": 0.0}
+    if state["ip"]:
+        out.write({"meta": {"n": name, "host": host, "ip": state["ip"], "port": port, "ts": round(time.time(), 3), "restored": True}})
 
     def pick():
         try:
-            state["ip"] = resolve4(host)
-            out.write({"meta": {"n": name, "host": host, "ip": state["ip"], "port": port, "ts": round(time.time(), 3)}})
+            state["ip"] = resolve4(host) if min_rtt <= 0 else pick_long(host, port, min_rtt)
         except OSError as e:
             state["ip"] = None
             out.write({"ts": round(time.time(), 3), "n": name, "rtt": None, "e": "resolve:" + str(e)[:60]})
+            return
+        if state["ip"] is not None:
+            out.write({"meta": {"n": name, "host": host, "ip": state["ip"], "port": port, "ts": round(time.time(), 3)}})
+        elif time.time() - state["none_ts"] >= 60:   # нет адреса с длинным путём: не потери, замеров нет; запись раз в минуту
+            state["none_ts"] = time.time()
+            out.write({"meta": {"n": name, "host": host, "pick": "none", "min_rtt": min_rtt, "ts": round(time.time(), 3)}})
 
     def step():
         if state["ip"] is None:
@@ -152,7 +213,9 @@ def main():
     ap.add_argument("--out", default="/data/netwatch")
     a = ap.parse_args()
     out = Out(a.out)
+    out_long = Out(a.out, LONG_PREFIX)
     threads = [threading.Thread(target=tcp_worker, args=(out, n, h, p), daemon=True, name="tcp-" + n) for n, h, p in TCP_TARGETS]
+    threads += [threading.Thread(target=tcp_worker, args=(out_long, n, h, p, r), daemon=True, name="tcp-" + n) for n, h, p, r in LONG_TARGETS]
     threads.append(threading.Thread(target=icmp_worker, args=(out, "gateway", default_gateway()), daemon=True, name="icmp-gw"))
     threads.append(threading.Thread(target=icmp_worker, args=(out, NEUTRAL[0], NEUTRAL[1]), daemon=True, name="icmp-neutral"))
     for t in threads:

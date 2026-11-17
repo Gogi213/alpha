@@ -319,6 +319,8 @@ pub struct ShardMetrics {
     pub name: String,
     pub started_ms: i64,
     pub frames: AtomicU64,
+    /// Из `frames` — кадры сессий, чей путь ещё проверяется (окно проверки): остальные — «надёжные», по ним решается, единственный ли источник данных проверяемое соединение (`path::window_verdict`).
+    pub frames_probing: AtomicU64,
     pub bytes: AtomicU64,
     pub last_frame_ms: AtomicI64,
     pub last_frame_mono_ms: AtomicU64,
@@ -359,6 +361,7 @@ impl ShardMetrics {
             name: name.to_string(),
             started_ms,
             frames: AtomicU64::new(0),
+            frames_probing: AtomicU64::new(0),
             bytes: AtomicU64::new(0),
             last_frame_ms: AtomicI64::new(0),
             last_frame_mono_ms: AtomicU64::new(0),

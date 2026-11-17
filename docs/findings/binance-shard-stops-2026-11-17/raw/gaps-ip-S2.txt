@@ -1,0 +1,14 @@
+book00 21:50:46-21:52:58  131s L1/844282/18.177.39.53:ws_end-17(fin_without_close_frame) error-17() NEW:L0/54.65.10.92@+131 L1/18.177.39.53@+133 path_rejected=1
+book05 21:50:24-21:52:57  153s L0/844275/52.199.140.44:T-28(fresh,ldr152,un0,bo0) T-13(fresh,ldr500,un0,bo0) T+2(alive,ldr1740,un0,bo0) D+2 L1/844275/54.249.36.225:T-28(fresh,ldr4,un0,bo0) T-13(alive,ldr4624,un0,bo0) D-13 NEW:L1/16.76.58.55@+153 
+book06 21:49:44-21:52:54  190s L0/844278/57.180.82.89:T-6(fresh,ldr148,un0,bo0) T+9(alive,ldr9904,un1,bo4) D+9 NEW:L0/52.68.40.51@+190 path_switch=1
+book08 21:49:59-21:52:57  178s L0/844274/13.192.10.199:T-21(fresh,ldr4,un0,bo0) T-6(fresh,ldr148,un0,bo0) T+9(alive,ldr9880,un1,bo4) D+9 NEW:L0/3.114.19.88@+177 
+book09 21:49:58-21:53:04  186s L1/844276/13.192.10.199:T-20(fresh,ldr116,un0,bo0) T-5(fresh,ldr136,un0,bo0) T+10(silent,ldr10236,un0,bo0) D+10 NEW:L0/13.114.13.209@+186 L1/54.65.10.92@+186 
+book10 21:49:11-21:52:58  227s L1/844275/?:T-30(silent,ldr10044,un0,bo0) D-30 NEW:L0/54.65.10.92@+227 path_rejected=1
+book11 21:50:30-21:52:57  147s L0/844275/54.248.127.242:T-22(fresh,ldr196,un0,bo0) ws_end-17(fin_without_close_frame) error-17() NEW:L1/52.68.40.51@+147 path_rejected=1
+book12 21:49:43-21:52:57  194s L0/844275/13.192.10.199:T-6(fresh,ldr148,un0,bo0) T+9(alive,ldr9940,un1,bo4) D+9 NEW:L0/13.114.13.209@+193 storm_hold=1
+book13 21:49:51-21:53:04  193s L0/844272/13.192.10.199:ws_end-26(fin_without_close_frame) error-26() T-8(fresh,ldr208,un0,bo0) T+7(alive,ldr7264,un0,bo0) D+7 NEW:L1/54.65.10.92@+193 L0/54.65.75.187@+193 L1/18.177.39.53@+194 
+book14 21:50:38-21:52:57  139s L1/844280/57.180.82.89:T-30(fresh,ldr100,un0,bo0) T-15(silent,ldr13200,un0,bo0) D-15 NEW:L1/54.65.10.92@+139 L0/18.177.39.53@+140 path_rejected=1
+book15 21:52:21-21:52:59   37s L0/844274/57.181.65.104:T-21(fresh,ldr36,un0,bo0) T-6(fresh,ldr148,un0,bo0) T+9(alive,ldr9760,un1,bo4) D+9 NEW:L0/13.114.13.209@+37 L1/54.65.10.92@+38 
+book16 21:50:32-21:52:53  140s L0/844274/52.196.181.170:T-21(fresh,ldr80,un0,bo0) T-6(fresh,ldr8,un0,bo0) T+9(alive,ldr9852,un1,bo4) D+9 NEW:L0/54.65.10.92@+140 L1/54.248.127.242@+141 
+mark00 21:49:41-21:49:52   10s L0/844273/52.196.181.170:ws_end-20(fin_without_close_frame) error-20() T-3(alive,ldr832,un0,bo0) D-3 NEW: 
+mark00 21:50:40-21:52:59  139s NEW:L0/3.114.19.88@+139 
