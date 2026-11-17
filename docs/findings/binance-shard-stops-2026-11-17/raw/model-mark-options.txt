@@ -1,0 +1,10 @@
+mark00 gaps >= 8 s in episodes: ep dur t_det first(+s,kind,rtt/p50) rejrtt rej cap_w | saveB(accept first handshake, +2 s model) saveA(detect at 4 s / 7 s) saveAB(4 s / 7 s)
+21:05:50 E1     67 td=13 first=+24 path_rejected_rtt 308.0 rejrtt=6 rej=0 cap=270 | B   42 A  9/ 6 AB  51/ 48
+21:15:04 E2     38 td=11 first=+12 path_rejected_rtt 321.0 rejrtt=3 rej=0 cap=0 | B   24 A  7/ 4 AB  31/ 28
+21:25:23 E3     33 td=15 first=+16 path_rejected_rtt 1472.0 rejrtt=2 rej=0 cap=0 | B   15 A 11/ 8 AB  25/ 22
+21:34:06 E4     18 td=11 first=+12 path_rejected_rtt 1276.0 rejrtt=2 rej=0 cap=0 | B    3 A  7/ 4 AB  10/  7
+21:34:24 E4     15 td=-7 first=- rejrtt=0 rej=0 cap=0 | B    0 A  0/ 0 AB   0/  0
+21:47:46 E5     37 td=7 first=+12 path_rejected_rtt 4388.0 rejrtt=5 rej=0 cap=0 | B   23 A  3/ 0 AB  26/ 23
+22:03:41 E6     33 td=14 first=+15 path_rejected_rtt 1366.0 rejrtt=1 rej=0 cap=0 | B   15 A 10/ 7 AB  25/ 22
+22:15:44 E7     34 td=14 first=+14 path_rejected_rtt 371.0 rejrtt=6 rej=0 cap=291 | B   17 A 10/ 7 AB  27/ 24
+{'dur': 274, 'B': 139, 'A4': 57, 'A7': 36, 'AB4': 196, 'AB7': 175}

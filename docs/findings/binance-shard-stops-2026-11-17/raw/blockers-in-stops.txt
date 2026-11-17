@@ -1,0 +1,21 @@
+S1 all 23 gaps 1108s
+   storm_hold in [gs-300s,ge]: 23 gaps 1108s
+   replace_capped: 6 gaps 608s
+   path_reject_capped: 15 gaps 546s
+   any of the three: 23 gaps 1108s
+   none logged: 0 gaps 0s
+   reject at start (partner dead): 5 gaps 287s
+S2 all 23 gaps 2117s
+   storm_hold in [gs-300s,ge]: 21 gaps 1732s
+   replace_capped: 0 gaps 0s
+   path_reject_capped: 22 gaps 1963s
+   any of the three: 23 gaps 2117s
+   none logged: 0 gaps 0s
+   reject at start (partner dead): 5 gaps 650s
+S3 all 7 gaps 417s
+   storm_hold in [gs-300s,ge]: 5 gaps 407s
+   replace_capped: 0 gaps 0s
+   path_reject_capped: 2 gaps 10s
+   any of the three: 7 gaps 417s
+   none logged: 0 gaps 0s
+   reject at start (partner dead): 0 gaps 0s
