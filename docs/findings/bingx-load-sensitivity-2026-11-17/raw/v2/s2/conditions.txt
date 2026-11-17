@@ -1,0 +1,13 @@
+Tue Nov 17 01:24:11 UTC 2026
+ 01:24:11 up 9 days,  4:47,  8 users,  load average: 15.38, 15.68, 15.70
+               total        used        free      shared  buff/cache   available
+Mem:              62           7           0           0          55          55
+Swap:              0           0           0
+    PID  NI %CPU   RSS     ELAPSED COMMAND
+3475534  15  0.2 1324132  01:37:11 python3 hold_marks.py 1794483446000 1794850000000 /data/arb-hold/v4/marks.pkl 2
+3174980  15  9.2 745152 1-01:21:20 /usr/bin/python3 /opt/arb-tab/tools/arb_stats/arb_daemon.py run /data/arb-tab/live 3
+3493995  15 40.9 711868      23:18 python3 hold_parse.py /data/arb-hold/b3 5
+3497632  19 99.0 644256      00:12 /opt/rbuild/rustup/toolchains/1.93.1-x86_64-unknown-linux-gnu/bin/clippy-driver /opt/rbuild/rustup/toolchains/1.93.1-x86_64-unknown-linux-gnu/bin/rustc --crate-name 
+3497630  19 97.3 540740      00:12 /opt/rbuild/rustup/toolchains/1.93.1-x86_64-unknown-linux-gnu/bin/clippy-driver /opt/rbuild/rustup/toolchains/1.93.1-x86_64-unknown-linux-gnu/bin/rustc --crate-name 
+3494091  15 39.9 535724      22:19 python3 hold_parse.py /data/arb-hold/b3 5
+3326459   0 34.5 321912   09:33:12 /data/collect/alpha-collect-ab1 collect run --exchange binance --root /data/collect/binance/data --health /data/turbo-probe/soak-binance/health.json --lanes 2 --neve

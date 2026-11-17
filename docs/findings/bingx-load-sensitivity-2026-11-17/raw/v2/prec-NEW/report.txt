@@ -1,0 +1,60 @@
+     5.80%  alpha-new2         [.] <alpha::collector::writer::Sink as alpha::collector::exchange::Out>::rec                                                              -      -            
+     4.88%  alpha-new2         [.] alpha::collector::writer::ShardWriter::step                                                                                           -      -            
+     4.13%  alpha-new2         [.] alpha::collector::reactor::run                                                                                                        -      -            
+     2.82%  alpha-new2         [.] alpha::collector::codec::Encoder::record                                                                                              -      -            
+     2.55%  alpha-new2         [.] alpha::collector::inflate::Tiny::unpack                                                                                               -      -            
+     1.98%  alpha-new2         [.] alpha::collector::ring::RingTx::push                                                                                                  -      -            
+     1.83%  alpha-new2         [.] alpha::collector::session::Rx::deliver                                                                                                -      -            
+     1.60%  alpha-new2         [.] alpha::collector::ring::RingRx::take                                                                                                  -      -            
+     1.51%  libc.so.6          [.] 0x000000000016ae39                                                                                                                    -      -            
+     1.42%  alpha-new2         [.] bytes::bytes_mut::shared_v_drop                                                                                                       -      -            
+     1.41%  [kernel.kallsyms]  [k] rep_movs_alternative                                                                                                                  -      -            
+     1.37%  alpha-new2         [.] rustls::conn::ConnectionCore<Data>::process_new_packets                                                                               -      -            
+     1.31%  libc.so.6          [.] malloc                                                                                                                                -      -            
+     1.21%  alpha-new2         [.] alpha::collector::session::Rx::tick                                                                                                   -      -            
+     1.19%  alpha-new2         [.] alpha::collector::inflate::block                                                                                                      -      -            
+     1.19%  alpha-new2         [.] alpha::collector::scan::parse_object                                                                                                  -      -            
+     1.04%  alpha-new2         [.] tungstenite::protocol::WebSocketContext::read                                                                                         -      -            
+     1.04%  alpha-new2         [.] alpha::collector::inflate::build                                                                                                      -      -            
+     1.01%  alpha-new2         [.] _ZN6rustls4conn28ConnectionCommon$LT$Data$GT$11complete_io17h3bcee92e1cd979d6E.llvm.13051165354078330570                              -      -            
+     1.00%  alpha-new2         [.] _aesni_ctr32_ghash_6x                                                                                                                 -      -            
+     0.92%  alpha-new2         [.] crc32fast::specialized::pclmulqdq::calculate                                                                                          -      -            
+     0.85%  alpha-new2         [.] tungstenite::protocol::frame::FrameCodec::read_frame                                                                                  -      -            
+     0.83%  alpha-new2         [.] <rustls::stream::Stream<C,T> as std::io::Read>::read                                                                                  -      -            
+     0.78%  alpha-new2         [.] ring_core_0_17_14__aes_hw_ctr32_encrypt_blocks                                                                                        -      -            
+     0.76%  alpha-new2         [.] <alpha::collector::net::RxSock as std::io::Read>::read                                                                                -      -            
+     0.76%  alpha-new2         [.] <rustls::crypto::ring::tls13::Tls13MessageDecrypter as rustls::crypto::cipher::MessageDecrypter>::decrypt                             -      -            
+     0.76%  alpha-new2         [.] ring_core_0_17_14__gcm_ghash_avx                                                                                                      -      -            
+     0.74%  alpha-new2         [.] tungstenite::protocol::frame::frame::FrameHeader::parse_internal                                                                      -      -            
+     0.72%  alpha-new2         [.] alpha::collector::session::Rx::message                                                                                                -      -            
+     0.69%  alpha-new2         [.] alpha::collector::scan::Cur::nested                                                                                                   -      -            
+     0.68%  alpha-new2         [.] _ZN5alpha9collector6worker10WorkerCore4tick17hcf4ff22aa7e1a011E.llvm.11189905761864500991                                             -      -            
+     0.59%  alpha-new2         [.] <alpha::collector::bingx::BingxParser as alpha::collector::exchange::Parser>::parse                                                   -      -            
+     0.58%  alpha-new2         [.] alpha::collector::bingx::trades                                                                                                       -      -            
+     0.58%  alpha-new2         [.] rustls::msgs::message::outbound::read_opaque_message_header                                                                           -      -            
+     0.56%  alpha-new2         [.] alpha::collector::scan::slots                                                                                                         -      -            
+     0.55%  alpha-new2         [.] ring::aead::aes_gcm::open                                                                                                             -      -            
+     0.54%  alpha-new2         [.] alpha::collector::gzip::Gunzip::unpack                                                                                                -      -            
+     0.52%  alpha-new2         [.] rustls::vecbuf::ChunkVecBuffer::is_full                                                                                               -      -            
+     0.51%  libc.so.6          [.] 0x000000000016b2c0                                                                                                                    -      -            
+     0.50%  alpha-new2         [.] <rustls::msgs::message::Message as core::convert::TryFrom<rustls::msgs::message::inbound::InboundPlainMessage>>::try_from             -      -            
+     0.50%  alpha-new2         [.] ring::aead::aes_gcm::aeshwclmulmovbe::open                                                                                            -      -            
+     0.50%  alpha-new2         [.] ring::aead::algorithm::aes_gcm_open                                                                                                   -      -            
+     0.47%  [kernel.kallsyms]  [k] tcp_poll                                                                                                                              -      -            
+     0.47%  [kernel.kallsyms]  [k] aa_sk_perm                                                                                                                            -      -            
+     0.46%  [kernel.kallsyms]  [k] fdget                                                                                                                                 -      -            
+     0.45%  alpha-new2         [.] rustls::msgs::deframer::buffers::DeframerVecBuffer::read                                                                              -      -            
+     0.44%  [kernel.kallsyms]  [k] tcp_recvmsg_locked                                                                                                                    -      -            
+     0.42%  alpha-new2         [.] std::time::Instant::now                                                                                                               -      -            
+     0.41%  [kernel.kallsyms]  [k] memset_orig                                                                                                                           -      -            
+     0.40%  alpha-new2         [.] alloc::vec::Vec<T,A>::retain_mut                                                                                                      -      -            
+     0.39%  libc.so.6          [.] clock_gettime                                                                                                                         -      -            
+     0.39%  alpha-new2         [.] _ZN4core3ptr46drop_in_place$LT$tungstenite..error..Error$GT$17hbdf979b59f4d862cE.llvm.11189905761864500991                            -      -            
+     0.38%  alpha-new2         [.] ring::cpu::intel::featureflags::get_or_init                                                                                           -      -            
+     0.37%  alpha-new2         [.] rustls::common_state::CommonState::current_io_state                                                                                   -      -            
+     0.36%  alpha-new2         [.] ring_core_0_17_14__aesni_gcm_decrypt                                                                                                  -      -            
+     0.36%  alpha-new2         [.] <tungstenite::protocol::frame::coding::OpCode as core::convert::From<u8>>::from                                                       -      -            
+     0.35%  [kernel.kallsyms]  [k] __tcp_transmit_skb                                                                                                                    -      -            
+     0.35%  [kernel.kallsyms]  [k] entry_SYSCALL_64                                                                                                                      -      -            
+     0.33%  alpha-new2         [.] alpha::collector::session::Rx::flush                                                                                                  -      -            
+     0.33%  alpha-new2         [.] alpha::collector::writer::Core::ensure_file                                                                                           -      -            

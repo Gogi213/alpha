@@ -16,7 +16,7 @@ for lab, sel in (("весь журнал (13.11–16.11)", rows), ("с нача�
     C = collections.Counter(r["ev"] for r in sel)
     print(f"== {lab}: {T(sel[0])} … {T(sel[-1])}")
     print({k: v for k, v in sorted(C.items()) if k.startswith("path") or k in ("ping_degraded", "timeout", "replace_capped", "switch_timeout")})
-    po = [r for r in sel if r["ev"] == "path_ok"]
+    po = [r for r in sel if r["ev"] == "path_ok" and r.get("p50_ms") is not None and r.get("p99_ms") is not None]
     by = collections.defaultdict(list)
     for r in po: by[r["shard"].rstrip("0123456789")].append(r)
     for k, v in sorted(by.items()):
@@ -28,5 +28,5 @@ for lab, sel in (("весь журнал (13.11–16.11)", rows), ("с нача�
     pd = {(r["shard"], r["session"]) for r in rows if r["ev"] == "ping_degraded"}
     miss = [r for r in sw if (r["shard"], r["old_session"]) not in pd]
     print(f"  path_switch {len(sw)}: со ping_degraded на старой сессии {len(sw) - len(miss)}, без {len(miss)}", [(T(r), r["shard"]) for r in miss])
-near = sorted((r for r in rows if r["ev"] == "path_ok" and r["p50_ms"] >= 300), key=lambda r: r["ts_ms"])
+near = sorted((r for r in rows if r["ev"] == "path_ok" and r.get("p50_ms") is not None and r["p50_ms"] >= 300), key=lambda r: r["ts_ms"])
 print("path_ok с p50 ≥ 300 мс (запас ≤ 50 мс):", [(T(r), r["shard"], r["p50_ms"]) for r in near])
