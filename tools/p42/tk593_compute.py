@@ -123,7 +123,7 @@ def main():
                 checks.append({"side": side, "dir": f"{sh}->{th}", "what": f"auc_{mn}", "src": float(src[mn].auc), "got": T.auc(v, yT)})
             # кривая обучения: те же параметры, больше итераций; точка остановки it3 выбрана на обучающей половине
             nit = 3 * it3
-            lc = CatBoostClassifier(iterations=nit, depth=3, **CB)
+            lc = CatBoostClassifier(iterations=nit, depth=3, leaf_estimation_iterations=1, **CB)  # авто-значение зависит от числа итераций (10 при 3×it3, 1 у модели TK-592)
             lc.fit(XS, yS, eval_set=(XT, yT), use_best_model=False)
             ev = lc.get_evals_result()
             s3_lc = lc.predict_proba(XT, ntree_end=it3)[:, 1]
@@ -197,7 +197,7 @@ def main():
     res["checks"] = checks
     res["seconds"] = time.time() - t0
     json.dump(clean(res), open(out_path, "w"), ensure_ascii=False, allow_nan=False)
-    bad = [c for c in checks if abs(c["src"] - c["got"]) > 1e-9 and not c["what"].startswith("lc_prefix")]
+    bad = [c for c in checks if abs(c["src"] - c["got"]) > 1e-9]
     print("checks", len(checks), "расхождений", len(bad), bad[:5], flush=True)
 
 
