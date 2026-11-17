@@ -1402,6 +1402,19 @@ pub struct TickResult {
     pub lot2: [u64; 4],
 }
 
+impl TickResult {
+    /// Пустой результат (режим `P42_SIGSX_ONLY`, §13.18: только сигналы и дампы, без портфеля и без сделок).
+    pub fn empty() -> TickResult {
+        TickResult {
+            trades: Vec::new(),
+            entry_rej: Vec::new(),
+            daily: [0.0; COUNT_DAYS],
+            coinday: BTreeMap::new(),
+            rej: [0; 6],
+        }
+    }
+}
+
 struct Open {
     exit_ms: i64,
     sym: usize,
