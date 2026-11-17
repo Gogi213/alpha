@@ -37,7 +37,7 @@ NAN = float("nan")
 
 def px_e8(s: str) -> int:
     a, _, b = s.partition(".")
-    if len(b) <= 8:
+    if len(b) <= 8 and "E" not in s and "e" not in s:
         return int(a + b.ljust(8, "0"))
     return int((Decimal(s) * 100000000).to_integral_value(ROUND_HALF_EVEN))
 
@@ -471,11 +471,48 @@ def run_units(W):
     return bad
 
 
+def run_strict(W):
+    """Все эпизоды U1: (а) основная метка при окне «строго после sig_ms» против «после сигнальной сделки» (как в таблице); (б) выбросы цен в окне
+    [sig − 60 мин, sig + 240 мин]: сделки с ценой ≤ 0,2·LP или ≥ 5·LP (нефизично — признак порчи данных); (в) сверка столбца o_x1_t60 с пересчётом по тем же функциям."""
+    ep = pd.read_parquet(f"{W}/episodes.parquet", columns=["univ", "side", "sym", "ep_id", "sig_ms", "lp_e8", "dist_e8", "ok_t60", "o_x1_t60"])
+    u1 = ep[ep.univ == "U1"]
+    res = {"episodes": 0, "strict_diff": [], "outlier": [], "recompute_mismatch": 0, "locate_fail": 0}
+    for sym, g in u1.groupby("sym"):
+        tk = L.Ticks(TRADES, sym)
+        for e in g.itertuples():
+            s = 1 if e.side == "long" else -1
+            sig, absR = int(e.sig_ms), int(e.lp_e8)
+            Rv = s * absR
+            t, p, _ = tk.span(sig - 60 * L.MIN_MS, sig + 240 * L.MIN_MS)
+            P = s * p
+            k = L.find_signal_tick(t, P, sig, Rv, int(e.dist_e8))
+            if k is None:
+                res["locate_fail"] += 1
+                continue
+            res["episodes"] += 1
+            if (p <= absR * 0.2).any() or (p >= absR * 5).any():
+                res["outlier"].append({"ep": e.ep_id, "min_px_e8": int(p.min()), "max_px_e8": int(p.max()), "lp_e8": absR})
+            if not e.ok_t60:
+                continue
+            xa = L.ceil_mul(absR, 10000, 1_000_000)
+            end = int(np.searchsorted(t, sig + 60 * L.MIN_MS, "right"))
+            o_tab = L.outcome(P[k + 1:end], Rv, xa)[0]
+            o_str = L.outcome(P[int(np.searchsorted(t, sig, "right")):end], Rv, xa)[0]
+            res["recompute_mismatch"] += int(o_tab != int(e.o_x1_t60))
+            if o_tab != o_str:
+                res["strict_diff"].append({"ep": e.ep_id, "side": e.side, "table": o_tab, "strict": o_str})
+    res["strict_diff_n"] = len(res["strict_diff"])
+    res["outlier_n"] = len(res["outlier"])
+    json.dump(res, open(f"{W}/gate2_strict.json", "w"), ensure_ascii=False, indent=1, default=str)
+    print({k: (len(v) if isinstance(v, list) else v) for k, v in res.items()})
+    return bool(res["recompute_mismatch"] or res["locate_fail"])
+
+
 def main():
     W, eng, mode = sys.argv[1], sys.argv[2], sys.argv[3]
     n = int(sys.argv[sys.argv.index("--n") + 1]) if "--n" in sys.argv else 40
     univ = sys.argv[sys.argv.index("--univ") + 1] if "--univ" in sys.argv else "U1"
-    bad = {"label": lambda: run_label(W, eng, n, univ), "nolook": lambda: run_nolook(W, eng, n), "units": lambda: run_units(W)}[mode]()
+    bad = {"label": lambda: run_label(W, eng, n, univ), "nolook": lambda: run_nolook(W, eng, n), "units": lambda: run_units(W), "strict": lambda: run_strict(W)}[mode]()
     sys.exit(1 if bad else 0)
 
 
