@@ -11,7 +11,7 @@
 
 use super::data::{
     day_string, parse_dec, Sym, COUNT_DAYS, DAYS_TOTAL, HALF_DAYS, MIN_MS, N_MIN, SCALE, START_DAY,
-    START_MIN, T0_MS,
+    START_MIN,
 };
 use super::levels::{build_levels, Level};
 use super::params::{ExitCfg, LevelCfg, PortCfg, SigCfg};
@@ -124,7 +124,7 @@ pub fn parse_px(b: &[u8]) -> Option<i64> {
 
 /// CSV суток (`agg_trade_id,price,quantity,first_trade_id,last_trade_id,transact_time,is_buyer_maker`) → сделки.
 pub fn parse_trades(mut rd: impl BufRead, day: usize, st: &mut LoadStat) -> Result<Vec<Tick>> {
-    let base = T0_MS + day as i64 * DAY_MS;
+    let base = super::data::t0_ms() + day as i64 * DAY_MS;
     let mut v: Vec<Tick> = Vec::new();
     let mut line: Vec<u8> = Vec::with_capacity(128);
     let mut prev = 0u32;
