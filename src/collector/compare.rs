@@ -23,6 +23,11 @@ pub struct CompareArgs {
     /// Каталог вывода B.
     #[arg(long)]
     pub b: PathBuf,
+    /// Только записи с приёмом (`rx`) в этом отрезке, мс UTC: память сравнения растёт с числом записей, сутки нескольких шардов книги не помещаются (TK-582 v3: 14 ГБ на 10 ч двух шардов).
+    #[arg(long)]
+    pub from_ms: Option<i64>,
+    #[arg(long)]
+    pub to_ms: Option<i64>,
 }
 
 type Key = (u8, String, i64);
@@ -49,7 +54,7 @@ fn h(parts: &[&str]) -> String {
     parts.join("\t")
 }
 
-fn load(root: &Path) -> (Map, [u64; 3], i64, i64) {
+fn load(root: &Path, from_ns: i64, to_ns: i64) -> (Map, [u64; 3], i64, i64) {
     let mut m: Map = HashMap::new();
     let mut rows = [0u64; 3];
     let (mut t0, mut t1) = (i64::MAX, i64::MIN);
@@ -76,6 +81,8 @@ fn load(root: &Path) -> (Map, [u64; 3], i64, i64) {
                 continue;
             };
             let Ok(rec) = d.line(text) else { continue };
+            // отрезок: строка разобрана (кодировщик держит состояние по символам), но в память не идёт
+            let in_span = |rx: i64| rx >= from_ns && rx <= to_ns;
             let (key, rx, ph) = match rec {
                 Decoded::Book {
                     rx_ns,
@@ -89,23 +96,20 @@ fn load(root: &Path) -> (Map, [u64; 3], i64, i64) {
                     asz,
                     bn,
                     an,
-                } => {
-                    rows[0] += 1;
-                    (
-                        (b'b', sym, u),
-                        rx_ns,
-                        h(&[
-                            &e.to_string(),
-                            &t.to_string(),
-                            &bid,
-                            &bsz,
-                            &ask,
-                            &asz,
-                            &bn,
-                            &an,
-                        ]),
-                    )
-                }
+                } => (
+                    (b'b', sym, u),
+                    rx_ns,
+                    h(&[
+                        &e.to_string(),
+                        &t.to_string(),
+                        &bid,
+                        &bsz,
+                        &ask,
+                        &asz,
+                        &bn,
+                        &an,
+                    ]),
+                ),
                 Decoded::Trade {
                     rx_ns,
                     e,
@@ -120,25 +124,22 @@ fn load(root: &Path) -> (Map, [u64; 3], i64, i64) {
                     nq,
                     x,
                     i,
-                } => {
-                    rows[1] += 1;
-                    (
-                        (b't', sym, a),
-                        rx_ns,
-                        h(&[
-                            &e.to_string(),
-                            &t.to_string(),
-                            &p,
-                            &q,
-                            &f.to_string(),
-                            &l.to_string(),
-                            &m.to_string(),
-                            &nq,
-                            &x,
-                            &i,
-                        ]),
-                    )
-                }
+                } => (
+                    (b't', sym, a),
+                    rx_ns,
+                    h(&[
+                        &e.to_string(),
+                        &t.to_string(),
+                        &p,
+                        &q,
+                        &f.to_string(),
+                        &l.to_string(),
+                        &m.to_string(),
+                        &nq,
+                        &x,
+                        &i,
+                    ]),
+                ),
                 Decoded::Mark {
                     rx_ns,
                     e,
@@ -149,16 +150,23 @@ fn load(root: &Path) -> (Map, [u64; 3], i64, i64) {
                     i,
                     r,
                     t,
-                } => {
-                    rows[2] += 1;
-                    (
-                        (b'm', sym, e),
-                        rx_ns,
-                        h(&[&p, &ap, &pp, &i, &r, &t.to_string()]),
-                    )
-                }
+                } => (
+                    (b'm', sym, e),
+                    rx_ns,
+                    h(&[&p, &ap, &pp, &i, &r, &t.to_string()]),
+                ),
                 _ => continue,
             };
+            if !in_span(rx) {
+                continue;
+            }
+            if let Some(r) = rows.get_mut(match key.0 {
+                b'b' => 0,
+                b't' => 1,
+                _ => 2,
+            }) {
+                *r += 1;
+            }
             t0 = t0.min(rx);
             t1 = t1.max(rx);
             let e = m.entry(key).or_insert((rx, ph));
@@ -169,8 +177,13 @@ fn load(root: &Path) -> (Map, [u64; 3], i64, i64) {
 }
 
 pub fn run(a: &CompareArgs) {
-    let (ma, ra, a0, a1) = load(&a.a);
-    let (mb, rb, b0, b1) = load(&a.b);
+    let ms = 1_000_000;
+    let (from_ns, to_ns) = (
+        a.from_ms.map_or(i64::MIN, |t| t.saturating_mul(ms)),
+        a.to_ms.map_or(i64::MAX, |t| t.saturating_mul(ms)),
+    );
+    let (ma, ra, a0, a1) = load(&a.a, from_ns, to_ns);
+    let (mb, rb, b0, b1) = load(&a.b, from_ns, to_ns);
     let trim = 10_000_000_000i64;
     let (lo, hi) = (a0.max(b0) + trim, a1.min(b1) - trim);
     println!(

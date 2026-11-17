@@ -4334,9 +4334,14 @@ fn a_degraded_line_with_flowing_frames_keeps_the_rtt_check() {
 /// без потолка). До остановки данных `cold_probe`-шард проверяется по RTT (порог 0 мс отбраковывает; после 12 отбраковок подряд путь принимается), после — `path_rejected_rtt` нет.
 #[test]
 fn a_dark_shard_skips_the_rtt_check_even_with_cold_probe() {
+    // источник считает каждое принятое TCP-подключение: `PROBE_MAX_REJECTS` отбракованных по RTT рукопожатий не доходят до подписки, первым несущим кадры становится следующее
     let (dir, _m, took) = run_scripted_shard(
         |n| Script {
-            frames: if n == 1 { Some(50) } else { None },
+            frames: if n == super::path::PROBE_MAX_REJECTS as usize + 1 {
+                Some(50)
+            } else {
+                None
+            },
             lag_ms: 0,
             answers_pings: false,
         },
@@ -4359,9 +4364,27 @@ fn a_dark_shard_skips_the_rtt_check_even_with_cold_probe() {
         event_after(dir.path(), "ping_degraded", "connected"),
         "замена тёмного шарда подключилась за {took:?}: {trace}"
     );
+    // первая замена после порчи линии принята как есть (`path_slow_accepted`, причина `uncovered`), без отбраковок RTT между порчей и приёмом; отбраковки позже — улучшение пути (`path_upgrade`) светлого шарда
+    let degraded = event_lines(dir.path(), "ping_degraded")[0];
+    let accepted = event_lines(dir.path(), "path_slow_accepted")
+        .into_iter()
+        .find(|l| *l > degraded);
     assert!(
-        !event_after(dir.path(), "ping_degraded", "path_rejected_rtt"),
-        "тёмный шард принял соединение без проверки RTT: {trace}"
+        accepted.is_some(),
+        "замена принята без проверки RTT: {trace}"
+    );
+    assert!(
+        event_lines(dir.path(), "path_rejected_rtt")
+            .iter()
+            .all(|l| *l < degraded || Some(*l) > accepted),
+        "тёмный шард не проверял RTT: {trace}"
+    );
+    assert_eq!(
+        events_named(dir.path(), "path_slow_accepted")
+            .last()
+            .map(|e| e["why"].clone()),
+        Some(json!("uncovered")),
+        "{trace}"
     );
 }
 
@@ -4392,14 +4415,10 @@ fn the_carry_flag_follows_both_sessions_during_the_overlap() {
         took < Duration::from_secs(12),
         "шард потемнел за {took:?} (перекрытие 15 с): {trace}"
     );
-    assert_eq!(
-        count_events(dir.path(), "rotated"),
-        0,
-        "измерено внутри перекрытия: {trace}"
-    );
+    // `rotated` пишется и при остановке шарда посреди перекрытия — по нему момент не проверить; обе сессии (старая и принятая новая) испорчены как молчащие
     assert!(
-        count_events(dir.path(), "connected") >= 2,
-        "замена по возрасту принята: {trace}"
+        count_events(dir.path(), "ping_degraded") >= 2,
+        "замена по возрасту принята и тоже испорчена: {trace}"
     );
 }
 
