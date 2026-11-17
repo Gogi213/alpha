@@ -6,9 +6,9 @@ use super::levels::{build_levels, Level};
 use super::params::Params;
 use super::tests::{flat, level_world, lv_params, mirror, px, run_scan, set, sym, BORN};
 use super::tick::{
-    candidates, exit_natr, first_signal, fresh_ok, minute_range, parse_px, parse_trades, run_tick,
-    settle_tick, signals_for_coin, sim_stream, tp_lots, tp_mult_m, LoadStat, TLeg, TSig, Tick,
-    TickCtr, TickOut, TradeSrc, DAY_MS,
+    candidates, entry_decision, exit_natr, first_signal, fresh_ok, minute_range, parse_px,
+    parse_trades, run_tick, settle_tick, signals_for_coin, sim_fill, sim_stream, tp_lots,
+    tp_mult_m, EntryDec, EntryRej, LoadStat, TLeg, TSig, Tick, TickCtr, TickOut, TradeSrc, DAY_MS,
 };
 use super::trade::{ExitKind, NOTIONAL_U};
 use super::Side;
@@ -531,6 +531,7 @@ fn reentry_modes_consume_level_per_protocol() {
             t: t as u32,
             day: (t / 1440) as u16,
             idx: ticks.len() as u32 + 1,
+            lp: px(100.0),
             ws: false,
         });
         ticks.push(tk(t, 0, 99.6, false));
@@ -1314,4 +1315,260 @@ fn fresh_keys_parse_and_validate_and_minute_engine_flag() {
             "{bad}"
         );
     }
+}
+
+// ───────────────────────────── §13.16: вход по ленте «как на момент сигнала + lat» ─────────────────────────────
+
+const EDAY: usize = 20;
+
+fn et(off: u32, price: f64, bm: bool) -> Tick {
+    Tick {
+        px: px(price),
+        off,
+        bm,
+    }
+}
+
+fn esig(k: usize, lp: f64) -> TSig {
+    TSig {
+        ms: EDAY as i64 * DAY_MS + 1000,
+        sym: 0,
+        level: 0,
+        dist: 0,
+        t: 0,
+        day: EDAY as u16,
+        idx: k as u32,
+        lp: px(lp),
+        ws: false,
+    }
+}
+
+fn esrc(ticks: Vec<Tick>) -> MemSrc {
+    let mut m = HashMap::new();
+    m.insert(("TEST".to_string(), EDAY), Arc::new(ticks));
+    MemSrc(m)
+}
+
+fn etape_cfg(w: i64, x: i64) -> super::params::ExitCfg {
+    let mut ex = ex_test();
+    ex.lat_ms = 4;
+    ex.ent_w_ms = w;
+    ex.ent_x_bp = x;
+    ex
+}
+
+fn esym() -> Sym {
+    Sym::from_cols("TEST", flat(10, 100.0), Vec::new())
+}
+
+#[test]
+fn tape_entry_keys_parse_and_default_to_old_entry() {
+    let (_, p) = super::params::parse_variant("x ew=50 ex=2").expect("разбор");
+    assert_eq!((p.exit.ent_w_ms, p.exit.ent_x_bp), (50, 2));
+    assert!(p.exit.tape_entry());
+    let (_, p) = super::params::parse_variant("x lat=4").expect("разбор");
+    assert!(!p.exit.tape_entry());
+    assert!(super::params::parse_variant("x ew=-1").is_err());
+    assert!(super::params::parse_variant("x ex=-1").is_err());
+    let src = esrc(vec![et(1000, 99.0, false)]);
+    let dec = entry_decision(&src, &esym(), Side::Long, &esig(0, 100.0), &etape_cfg(0, 0));
+    assert_eq!(dec, EntryDec::Next, "ew = 0 — прежний вход");
+}
+
+#[test]
+fn tape_entry_proxy_is_last_trade_of_side_at_or_before_t() {
+    // сигнал в 1000 мс (идёт сделка 0), T = 1004
+    let ticks = vec![
+        et(1000, 99.00, false), // сигнальная: покупатель-тейкер
+        et(1002, 98.90, true),  // продавец-тейкер: лонгу не подходит
+        et(1004, 99.10, false), // ровно T — берётся
+        et(1005, 99.50, false), // после T — не берётся
+    ];
+    let src = esrc(ticks);
+    let sg = esig(0, 100.0);
+    let t = EDAY as i64 * DAY_MS + 1004;
+    assert_eq!(
+        entry_decision(&src, &esym(), Side::Long, &sg, &etape_cfg(100, 0)),
+        EntryDec::Fill {
+            ms: t,
+            p0: px(99.10)
+        }
+    );
+    // шорт: продавец-тейкер ≤ T; цена в раме отрицательна, уровень шорта 98,0 (цена 98,90 выше уровня — до пробоя)
+    let mut shg = esig(0, 98.0);
+    shg.lp = -px(98.0);
+    let dec = entry_decision(&src, &esym(), Side::Short, &shg, &etape_cfg(100, 0));
+    assert_eq!(
+        dec,
+        EntryDec::Fill {
+            ms: t,
+            p0: -px(98.90)
+        }
+    );
+}
+
+#[test]
+fn tape_entry_age_limit_is_inclusive_and_missing_side_is_stale() {
+    let ticks = vec![et(500, 99.0, false), et(1000, 98.0, true)];
+    let src = esrc(ticks);
+    let sg = esig(1, 100.0);
+    // последняя сделка покупателя — 500 мс; T = 1004 → возраст 504
+    let d = |w| entry_decision(&src, &esym(), Side::Long, &sg, &etape_cfg(w, 0));
+    assert_eq!(
+        d(504),
+        EntryDec::Fill {
+            ms: EDAY as i64 * DAY_MS + 1004,
+            p0: px(99.0)
+        },
+        "ровно W — допускается"
+    );
+    assert_eq!(
+        d(503),
+        EntryDec::Reject(EntryRej::Stale),
+        "W − 1 — нет исхода"
+    );
+    // сделок стороны вообще нет
+    let src = esrc(vec![et(1000, 98.0, true)]);
+    assert_eq!(
+        entry_decision(
+            &src,
+            &esym(),
+            Side::Long,
+            &esig(0, 100.0),
+            &etape_cfg(5000, 0)
+        ),
+        EntryDec::Reject(EntryRej::Stale)
+    );
+}
+
+#[test]
+fn tape_entry_looks_back_into_previous_day_within_age() {
+    let mut m = HashMap::new();
+    m.insert(
+        ("TEST".to_string(), EDAY - 1),
+        Arc::new(vec![et(DAY_MS as u32 - 10, 99.0, false)]),
+    );
+    m.insert(
+        ("TEST".to_string(), EDAY),
+        Arc::new(vec![et(1, 98.0, true)]),
+    );
+    let src = MemSrc(m);
+    let mut sg = esig(0, 100.0);
+    sg.ms = EDAY as i64 * DAY_MS + 1;
+    // T = день + 5; сделка предыдущих суток за 15 мс до T
+    let dec = entry_decision(&src, &esym(), Side::Long, &sg, &etape_cfg(15, 0));
+    assert_eq!(
+        dec,
+        EntryDec::Fill {
+            ms: EDAY as i64 * DAY_MS + 5,
+            p0: px(99.0)
+        }
+    );
+    assert_eq!(
+        entry_decision(&src, &esym(), Side::Long, &sg, &etape_cfg(14, 0)),
+        EntryDec::Reject(EntryRej::Stale)
+    );
+}
+
+#[test]
+fn tape_entry_beyond_level_rule_x_bp_and_short_mirror() {
+    // лонг: уровень 100,0
+    let long = |p: f64, x: i64| {
+        let src = esrc(vec![et(1000, p, false)]);
+        entry_decision(
+            &src,
+            &esym(),
+            Side::Long,
+            &esig(0, 100.0),
+            &etape_cfg(100, x),
+        )
+    };
+    assert!(
+        matches!(long(100.0, 0), EntryDec::Fill { .. }),
+        "на уровне при X = 0 — допускается"
+    );
+    assert_eq!(
+        long(100.01, 0),
+        EntryDec::Reject(EntryRej::Beyond),
+        "выше уровня — отказ"
+    );
+    assert!(
+        matches!(long(100.01, 1), EntryDec::Fill { .. }),
+        "1 бп = 0,01: допускается при X = 1"
+    );
+    assert_eq!(long(100.02, 1), EntryDec::Reject(EntryRej::Beyond));
+    // шорт: уровень 100,0 в раме −100,0; сделка продавца-тейкера
+    let short = |p: f64, x: i64| {
+        let src = esrc(vec![et(1000, p, true)]);
+        let mut sg = esig(0, 100.0);
+        sg.lp = -px(100.0);
+        entry_decision(&src, &esym(), Side::Short, &sg, &etape_cfg(100, x))
+    };
+    assert!(matches!(short(100.0, 0), EntryDec::Fill { .. }));
+    assert_eq!(
+        short(99.99, 0),
+        EntryDec::Reject(EntryRej::Beyond),
+        "ниже уровня шорта — отказ"
+    );
+    assert!(matches!(short(99.99, 1), EntryDec::Fill { .. }));
+}
+
+#[test]
+fn sim_fill_enters_at_t_and_exits_only_on_trades_after_t() {
+    let ex = etape_cfg(100, 0);
+    // вход в 1004 по 100,0; сделки до T и ровно в T выходами не бывают; ниже стопа 5 % после T — выход
+    let ticks = vec![(1000, 80.0, false), (1004, 80.0, true), (1010, 90.0, true)];
+    let out = sim_fill(&mut stream(ticks), 1004, px(100.0), Side::Long, NATR, &ex);
+    assert_eq!(out.entry_ms, 1004);
+    assert_eq!(out.entry_px, px(100.0), "slip = 0 в ex_test");
+    assert_eq!(out.exit_ms, 1010);
+    assert_eq!(out.kind, ExitKind::HardStop);
+}
+
+#[test]
+fn tape_entry_rejection_does_not_consume_level_and_is_listed() {
+    // цена-заменитель за уровнем → отказ с причиной; уровень не расходуется; в счётчике «нет исхода»
+    let p = lv_params();
+    let mut ex = p.exit.clone();
+    ex.lat_ms = 4;
+    ex.ent_w_ms = 100;
+    ex.ent_x_bp = 0;
+    let t1 = BORN + 100;
+    let mut c = level_world();
+    for m in t1 - 5..t1 + 2 {
+        set(&mut c, m, 99.5, 99.6, 99.4, 99.5); // NATR выхода > 0
+    }
+    let s = Sym::from_cols("TEST", c, Vec::new());
+    let base = (t1 as i64 % 1440) * MIN_MS;
+    let mk = |off: i64, price: f64, bm: bool| Tick {
+        px: px(price),
+        off: (base + off) as u32,
+        bm,
+    };
+    let ticks = vec![
+        mk(0, 99.6, false),
+        mk(10_000, 100.20, false), // за уровнем 100,05
+        mk(10_010, 100.30, false),
+        mk(20_000, 90.0, true),
+    ];
+    let mut m = HashMap::new();
+    m.insert(("TEST".to_string(), t1 / 1440), Arc::new(ticks));
+    let src = MemSrc(m);
+    let sg = TSig {
+        ms: (t1 as i64 / 1440) * DAY_MS + base + 10_000,
+        sym: 0,
+        level: 0,
+        dist: 0,
+        t: t1 as u32,
+        day: (t1 / 1440) as u16,
+        idx: 1,
+        lp: px(100.05),
+        ws: false,
+    };
+    let syms = [s];
+    let r = run_tick(&syms, &[sg], Side::Long, &ex, &p.port, &src);
+    assert!(r.trades.is_empty());
+    assert_eq!(r.entry_rej, vec![(0, 0, sg.ms, EntryRej::Beyond)]);
+    assert_eq!(r.rej[5], 1, "в счётчике «нет исхода»");
+    assert_eq!(r.rej[0], 0, "уровень не расходуется");
 }

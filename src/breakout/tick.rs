@@ -309,6 +309,8 @@ pub struct TSig {
     pub t: u32,
     pub day: u16,
     pub idx: u32,
+    /// §13.16: цена версии уровня в минуте сигнала, длинная рама (`s·цена`, ×1e8).
+    pub lp: i64,
     /// §13.13 (`ap = 2`): цена пришла в зону сверху (сигнал помечен, не отвергнут).
     pub ws: bool,
 }
@@ -564,6 +566,7 @@ pub fn signals_for_coin(
                     t: c.t,
                     day: day as u16,
                     idx: k as u32,
+                    lp: c.lp,
                     ws,
                 });
                 ctrs[j].signals[half_of_day(day)] += 1;
@@ -829,6 +832,39 @@ pub fn sim_stream(
             break (ms, s * px);
         }
     };
+    Some(sim_tail(next, entry_ms, p0, side, natr_e8, ex))
+}
+
+/// §13.16: вход заполнен в момент `entry_ms` по цене `p0` (рама); выходы — по сделкам со временем строго после `entry_ms`.
+pub fn sim_fill(
+    next: &mut dyn FnMut() -> Option<(i64, i64, bool)>,
+    entry_ms: i64,
+    p0: i64,
+    side: Side,
+    natr_e8: i64,
+    ex: &ExitCfg,
+) -> TickOut {
+    let mut after = || -> Option<(i64, i64, bool)> {
+        loop {
+            let t = next()?;
+            if t.0 > entry_ms {
+                return Some(t);
+            }
+        }
+    };
+    sim_tail(&mut after, entry_ms, p0, side, natr_e8, ex)
+}
+
+/// Позиция после входа: цена входа `p0` (рама) ± проскальзывание, тейки, стоп, трейл по потоку `next` (сделки после входа).
+fn sim_tail(
+    next: &mut dyn FnMut() -> Option<(i64, i64, bool)>,
+    entry_ms: i64,
+    p0: i64,
+    side: Side,
+    natr_e8: i64,
+    ex: &ExitCfg,
+) -> TickOut {
+    let s = side.s();
     let e = p0 + frac(p0.abs(), ex.slip_bps, 10_000);
     let mut pos = Pos::new(s, e, p0, natr_e8, ex);
     let mut cur_day = (entry_ms / DAY_MS) as usize;
@@ -870,7 +906,7 @@ pub fn sim_stream(
         u: pos.rem,
         maker: false,
     });
-    Some(TickOut {
+    TickOut {
         entry_ms,
         entry_px: s * e,
         legs,
@@ -878,7 +914,7 @@ pub fn sim_stream(
         kind,
         takes: pos.next_tp as u32,
         marks,
-    })
+    }
 }
 
 pub fn simulate_tick(
@@ -891,6 +927,123 @@ pub fn simulate_tick(
 ) -> Option<TickOut> {
     let mut cur = Cursor::new(src, &sym.name, usize::from(sig.day), sig.idx as usize + 1);
     sim_stream(&mut || cur.next_tick(), sig.ms, side, natr_e8, ex)
+}
+
+/// Причина отказа входа по ленте (§13.16).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EntryRej {
+    /// Цена-заменитель уже за уровнем больше чем на X бп.
+    Beyond,
+    /// Нет сделки стороны входа со временем ≤ `сигнал + lat` не старше W мс.
+    Stale,
+}
+
+/// Решение о входе для сигнала (§13.16).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EntryDec {
+    /// `ew = 0`: прежний вход — следующая сделка стороны (§13.2 п. 2).
+    Next,
+    /// Вход в момент `ms` по цене `p0` (рама).
+    Fill {
+        ms: i64,
+        p0: i64,
+    },
+    Reject(EntryRej),
+}
+
+/// Последняя сделка стороны входа (лонг — покупатель-тейкер, `bm = false`; шорт — `bm = true`) со временем ≤ `t_abs` (мс от
+/// 01.09) не старше `cap_ms`: (цена ×1e8, возраст мс). `ticks` — сутки `day`; при исчерпании суток в пределах возраста — предыдущие.
+pub fn tape_last_side(
+    src: &dyn TradeSrc,
+    name: &str,
+    day: usize,
+    ticks: &[Tick],
+    t_abs: i64,
+    taker_bm: bool,
+    cap_ms: i64,
+) -> Option<(i64, i64)> {
+    let t_off = t_abs - day as i64 * DAY_MS;
+    let hi = ticks.partition_point(|x| i64::from(x.off) <= t_off);
+    for tk in ticks[..hi].iter().rev() {
+        let age = t_off - i64::from(tk.off);
+        if age > cap_ms {
+            return None;
+        }
+        if tk.bm == taker_bm {
+            return Some((tk.px, age));
+        }
+    }
+    let v = src.day(name, day.checked_sub(1)?)?;
+    for tk in v.iter().rev() {
+        let age = t_off + DAY_MS - i64::from(tk.off);
+        if age > cap_ms {
+            return None;
+        }
+        if tk.bm == taker_bm {
+            return Some((tk.px, age));
+        }
+    }
+    None
+}
+
+/// §13.16: вход по ленте «как на момент сигнала + `lat`»: цена-заменитель — последняя сделка стороны ≤ `T` не старше W; за уровнем
+/// больше чем на X бп — отказ.
+pub fn entry_decision(
+    src: &dyn TradeSrc,
+    sym: &Sym,
+    side: Side,
+    sig: &TSig,
+    ex: &ExitCfg,
+) -> EntryDec {
+    if !ex.tape_entry() {
+        return EntryDec::Next;
+    }
+    let day = usize::from(sig.day);
+    let Some(ticks) = src.day(&sym.name, day) else {
+        return EntryDec::Reject(EntryRej::Stale);
+    };
+    let t = sig.ms + ex.lat_ms;
+    let Some((px, _)) = tape_last_side(
+        src,
+        &sym.name,
+        day,
+        &ticks,
+        t,
+        side == Side::Short,
+        ex.ent_w_ms,
+    ) else {
+        return EntryDec::Reject(EntryRej::Stale);
+    };
+    let p = side.s() * px;
+    if i128::from(p - sig.lp) * 10_000 > i128::from(ex.ent_x_bp) * i128::from(sig.lp.abs()) {
+        return EntryDec::Reject(EntryRej::Beyond);
+    }
+    EntryDec::Fill { ms: t, p0: p }
+}
+
+/// Вход прежней модели для сигнала (§13.2 п. 2): (время, цена ×1e8 без проскальзывания) первой сделки стороны со временем
+/// ≥ `сигнал + lat` после сигнальной; справочно для сравнения с §13.16.
+pub fn old_entry(
+    src: &dyn TradeSrc,
+    sym: &Sym,
+    side: Side,
+    sig: &TSig,
+    ex: &ExitCfg,
+) -> Option<(i64, i64)> {
+    let mut cur = Cursor::new(src, &sym.name, usize::from(sig.day), sig.idx as usize + 1);
+    let taker_bm = side == Side::Short;
+    while let Some((ms, px, bm)) = cur.next_tick() {
+        if ms >= sig.ms + ex.lat_ms && bm == taker_bm {
+            return Some((ms, px));
+        }
+    }
+    None
+}
+
+/// Цена входа прежней модели с проскальзыванием (`px` — настоящая цена сделки, ×1e8).
+fn with_slip(side: Side, px: i64, slip_bps: i64) -> i64 {
+    let p0 = side.s() * px;
+    side.s() * (p0 + frac(p0.abs(), slip_bps, 10_000))
 }
 
 /// Деньги сделки (как `portfolio::settle`, но по времени сделок): валовая, комиссии, фандинг, суточные приращения.
@@ -993,11 +1146,15 @@ pub struct TickTrade {
     pub dist: u32,
     /// §13.13: сигнал помечен `ap = 2` (цена пришла в зону сверху).
     pub ws: bool,
+    /// §13.16 (только при `ew > 0`): вход прежней модели для этого сигнала — (время мс от 01.09, цена ×1e8 с проскальзыванием).
+    pub old_entry: Option<(i64, i64)>,
 }
 
 #[derive(Debug, Clone)]
 pub struct TickResult {
     pub trades: Vec<TickTrade>,
+    /// §13.16: отвергнутые входом сигналы (монета, уровень, `sig_ms`, причина).
+    pub entry_rej: Vec<(u16, u32, i64, EntryRej)>,
     pub daily: [f64; COUNT_DAYS],
     pub coinday: BTreeMap<(u16, usize), f64>,
     /// Отказы: уровень израсходован, монета занята, пауза монеты, общая пауза, потолок P, нет исхода.
@@ -1023,6 +1180,7 @@ pub fn run_tick(
     let ns = syms.len();
     let mut res = TickResult {
         trades: Vec::new(),
+        entry_rej: Vec::new(),
         daily: [0.0; COUNT_DAYS],
         coinday: BTreeMap::new(),
         rej: [0; 6],
@@ -1093,8 +1251,21 @@ pub fn run_tick(
         }
         let sym = &syms[si];
         let natr = exit_natr(sym, ex, sg.t as usize);
+        let mut dec = EntryDec::Next;
         let tr = if natr > 0 {
-            simulate_tick(src, sym, side, sg, natr, ex)
+            dec = entry_decision(src, sym, side, sg, ex);
+            match dec {
+                EntryDec::Next => simulate_tick(src, sym, side, sg, natr, ex),
+                EntryDec::Fill { ms, p0 } => {
+                    let mut cur =
+                        Cursor::new(src, &sym.name, usize::from(sg.day), sg.idx as usize + 1);
+                    Some(sim_fill(&mut || cur.next_tick(), ms, p0, side, natr, ex))
+                }
+                EntryDec::Reject(why) => {
+                    res.entry_rej.push((sg.sym, sg.level, sg.ms, why));
+                    None
+                }
+            }
         } else {
             None
         };
@@ -1136,6 +1307,12 @@ pub fn run_tick(
             natr_e8: natr,
             dist: sg.dist,
             ws: sg.ws,
+            old_entry: if matches!(dec, EntryDec::Fill { .. }) {
+                old_entry(src, sym, side, sg, ex)
+                    .map(|(ms, px)| (ms, with_slip(side, px, ex.slip_bps)))
+            } else {
+                None
+            },
         });
     }
     res

@@ -4,9 +4,11 @@
 
 use super::data::{self, Sym, HALF_DAYS, MIN_MS, START_DAY};
 use super::levels::build_levels_tracked;
+use super::params::ExitCfg;
 use super::params::{parse_variant, Params, SigCfg};
 use super::tick::{
-    run_tick, signals_for_coin, sort_tsigs, TSig, TickCtr, TickResult, ZipSrc, DAY_MS,
+    old_entry, run_tick, signals_for_coin, sort_tsigs, tape_last_side, EntryRej, TSig, TickCtr,
+    TickResult, TradeSrc, ZipSrc, DAY_MS,
 };
 use super::{par_map, Side};
 use anyhow::{bail, Context, Result};
@@ -64,6 +66,72 @@ fn write_outputs(dir: &Path, syms: &[Sym], side: Side, r: &TickResult) -> Result
     Ok(())
 }
 
+/// §13.16: отвергнутые входом по ленте сигналы — `<side>-entryrej.csv` (только при `ew > 0`).
+fn write_entry_rej(dir: &Path, syms: &[Sym], side: Side, r: &TickResult) -> Result<()> {
+    let mut t = String::from("sym,level,sig_ms,why\n");
+    for (si, level, ms, why) in &r.entry_rej {
+        let w = match why {
+            EntryRej::Beyond => "beyond",
+            EntryRej::Stale => "stale",
+        };
+        let _ = writeln!(t, "{},{level},{ms},{w}", syms[*si as usize].name);
+    }
+    fs::write(dir.join(format!("{}-entryrej.csv", side.name())), t)?;
+    Ok(())
+}
+
+/// Окно возраста для справочной колонки заменителя в `P42_SIGS`, мс (верхняя граница сетки калибровки §13.16).
+const SIGS_CAP_MS: i64 = 5000;
+
+/// `P42_SIGS=<сутки от>:<сутки до>` (сутки от 01.09): по каждому сигналу задания — `<side>-sigs.csv` для калибровки §13.16: монета,
+/// уровень, время сигнала, цена уровня, цена и возраст последней сделки стороны ≤ `сигнал + lat` (окно 5 с), вход прежней модели.
+fn write_sigs(
+    dir: &Path,
+    syms: &[Sym],
+    side: Side,
+    sigs: &[TSig],
+    ex: &ExitCfg,
+    src: &dyn TradeSrc,
+    days: (usize, usize),
+) -> Result<()> {
+    let mut t = String::from(
+        "sym,level,sig_ms,level_px_e8,proxy_px_e8,proxy_age_ms,old_entry_ms,old_entry_px_e8\n",
+    );
+    for sg in sigs {
+        let d = usize::from(sg.day);
+        if d < days.0 || d > days.1 {
+            continue;
+        }
+        let sym = &syms[sg.sym as usize];
+        let proxy = src.day(&sym.name, d).and_then(|ticks| {
+            tape_last_side(
+                src,
+                &sym.name,
+                d,
+                &ticks,
+                sg.ms + ex.lat_ms,
+                side == Side::Short,
+                SIGS_CAP_MS,
+            )
+        });
+        let old = old_entry(src, sym, side, sg, ex);
+        let _ = writeln!(
+            t,
+            "{},{},{},{},{},{},{},{}",
+            sym.name,
+            sg.level,
+            sg.ms,
+            side.s() * sg.lp,
+            proxy.map_or(String::new(), |(p, _)| p.to_string()),
+            proxy.map_or(String::new(), |(_, a)| a.to_string()),
+            old.map_or(String::new(), |(m, _)| m.to_string()),
+            old.map_or(String::new(), |(_, p)| p.to_string()),
+        );
+    }
+    fs::write(dir.join(format!("{}-sigs.csv", side.name())), t)?;
+    Ok(())
+}
+
 /// `P42_DETAIL=1`: построчно (JSONL) всё, что нужно для графика сделки — уровень на сигнале с членами, ноги, NATR.
 fn write_detail(dir: &Path, syms: &[Sym], side: Side, p: &Params, r: &TickResult) -> Result<()> {
     let mut cache: HashMap<u16, Vec<super::levels::Level>> = HashMap::new();
@@ -91,6 +159,10 @@ fn write_detail(dir: &Path, syms: &[Sym], side: Side, p: &Params, r: &TickResult
         });
         if p.sig.ap != 0 {
             rec["ws"] = serde_json::Value::Bool(x.ws);
+        }
+        if let Some((ms, px)) = x.old_entry {
+            rec["old_entry_ms"] = ms.into();
+            rec["old_entry_px_e8"] = px.into();
         }
         t.push_str(&rec.to_string());
         t.push('\n');
@@ -215,6 +287,15 @@ pub fn run(
             };
             let r = run_tick(&syms, &sigs[j], side, &p.exit, &p.port, &src);
             write_outputs(&dir, &syms, side, &r)?;
+            if p.exit.tape_entry() {
+                write_entry_rej(&dir, &syms, side, &r)?;
+            }
+            if let Some(v) = std::env::var_os("P42_SIGS") {
+                let v = v.to_string_lossy().into_owned();
+                let (a, b) = v.split_once(':').context("P42_SIGS=<от>:<до>")?;
+                let days = (a.parse::<usize>()?, b.parse::<usize>()?);
+                write_sigs(&dir, &syms, side, &sigs[j], &p.exit, &src, days)?;
+            }
             if std::env::var_os("P42_DETAIL").is_some() {
                 write_detail(&dir, &syms, side, p, &r)?;
             }
@@ -243,6 +324,11 @@ pub fn run(
             });
             if p.sig.ap != 0 {
                 meta["ap_wrong_signals"] = ctr[j].ap_wrong.into();
+            }
+            if p.exit.tape_entry() {
+                let n_of = |w: EntryRej| r.entry_rej.iter().filter(|x| x.3 == w).count();
+                meta["entry_rej_[beyond,stale]"] =
+                    serde_json::json!([n_of(EntryRej::Beyond), n_of(EntryRej::Stale)]);
             }
             let k = done.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
             eprintln!(

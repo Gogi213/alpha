@@ -265,6 +265,9 @@ fn run(
         if v.1.exit.take_grid_opts() {
             bail!("tpg/tpk/ns считает только `breakout tick`: {line}");
         }
+        if v.1.exit.ent_w_ms != 0 || v.1.exit.ent_x_bp != 0 {
+            bail!("ew/ex (вход по ленте) считает только `breakout tick`: {line}");
+        }
         vs.push(v);
     }
     if vs.is_empty() {

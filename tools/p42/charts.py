@@ -79,8 +79,9 @@ def load_trades(detail_dir, only=None):
         for line in open(f, encoding="utf-8"):
             r = json.loads(line)
             r["id"] = f"{side[0].upper()}{r['i'] + 1:04d}_{r['sym']}"
-            for k in ("entry_ms", "exit_ms", "sig_ms"):  # движок пишет мс от 01.09 00:00 UTC → абсолютные
-                r[k] += T0
+            for k in ("entry_ms", "exit_ms", "sig_ms", "old_entry_ms"):  # движок пишет мс от 01.09 00:00 UTC → абсолютные
+                if k in r:  # old_entry_* — только у клеток с входом по ленте (§13.16)
+                    r[k] += T0
             for g in r["legs"]:
                 g[0] += T0
             out.append(r)
@@ -199,8 +200,17 @@ def features(r, tk, a):
     f["entry_utc"] = datetime.fromtimestamp((em) / 1000, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
     f["entry_gmt4"] = datetime.fromtimestamp((em + GMT4) / 1000, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
     f["day"] = int((em - T0) // DAY - START_DAY)
-    f["sig_to_fill_s"] = round((em - sm) / 1000, 3)  # от сделки-сигнала до сделки, по которой исполнен вход
-    f["is_new"] = None if OLD_KEYS is None else (r["sym"], r["side"], em) not in OLD_KEYS
+    f["sig_to_fill_s"] = round((em - sm) / 1000, 3)  # от сделки-сигнала до входа (по ленте §13.16 — `lat`; прежняя модель — до сделки, по которой исполнен вход)
+    f["is_new"] = None if OLD_KEYS is None else (r["sym"], r["side"], sm) not in OLD_KEYS
+    f["entry_model"] = "лента" if "old_entry_ms" in r else "следующая сделка"
+    f["sig_ms_abs"] = sm
+    if "old_entry_ms" in r:  # §13.16: вход прежней модели на этом же сигнале — время и цена, разность цен (+ = новая хуже)
+        oe = r["old_entry_px_e8"] / 1e8
+        f["old_entry_gmt4"] = datetime.fromtimestamp((r["old_entry_ms"] + GMT4) / 1000, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+        f["old_entry_px"] = oe
+        f["old_sig_to_fill_s"] = round((r["old_entry_ms"] - sm) / 1000, 3)
+        f["entry_diff_bp"] = round(s * (e - oe) / oe * 1e4, 3)
+        f["old_entry_beyond_level"] = bool(s * oe >= s * L)
     f.update(fresh_admission(r, a))
     f["half"] = "A" if f["day"] < 30 else "B"
     f["level_px"] = L
@@ -286,9 +296,13 @@ def features(r, tk, a):
     entry_fee = NOTIONAL * TAKER_BPS / 1e4
     f["chk_fee_diff"] = abs(sum(x["fee"] for x in legs) + entry_fee - r["fees"])
     f["chk_gross_diff"] = abs(sum(x["gross"] for x in legs) - r["gross"])
-    at = t == em
     p0 = e / (1 + s * 1e-4)
-    f["chk_entry_tick"] = bool(at.any() and (np.abs(p[at] - p0) <= 1.5e-8 + 1e-9 * p0).any())
+    if "old_entry_ms" in r:  # §13.16: цена входа = цена последней сделки стороны (агрессор на стороне входа) со временем ≤ времени входа
+        side_t = (t <= em) & (bm == (s < 0))
+        f["chk_entry_tick"] = bool(side_t.any() and abs(p[side_t][-1] - p0) <= 1.5e-8 + 1e-9 * p0)
+    else:
+        at = t == em
+        f["chk_entry_tick"] = bool(at.any() and (np.abs(p[at] - p0) <= 1.5e-8 + 1e-9 * p0).any())
     return f
 
 
@@ -310,7 +324,7 @@ def cmd_features(a):
     global OLD_KEYS
     os.makedirs(os.path.join(a.work, "ticks"), exist_ok=True)
     if a.old:
-        OLD_KEYS = {(x["sym"], x["side"], x["entry_ms"]) for x in load_trades(a.old)}
+        OLD_KEYS = {(x["sym"], x["side"], x["sig_ms"]) for x in load_trades(a.old)}
     only = set(a.only.split(",")) if a.only else None
     trades = load_trades(a.detail, only)
     print(f"сделок {len(trades)}", flush=True)
@@ -700,7 +714,12 @@ def field_items(r, legs, ln, touches, e, L, ft):
     s = 1 if r["side"] == "long" else -1
     acol = "#0a8f3c" if s > 0 else "#d03b3b"
     it = [dict(ys=[L], text=f"уровень {fmt_px(L)}", color=INK, bold=True),
-          dict(ys=[e], text=f"вход {fmt_px(e)} · {fmt_hms(r['entry_ms'], r['entry_ms'])}", color=acol, bold=True)]
+          dict(ys=[e], text=f"вход {fmt_px(e)} · {fmt_hms(r['entry_ms'], r['entry_ms'])}" + (f".{r['entry_ms'] % 1000:03d}" if "old_entry_ms" in r else ""),
+               color=acol, bold=True)]
+    if "old_entry_ms" in r:  # §13.16: вход прежней модели («следующая сделка») на том же сигнале — для сравнения
+        oe = r["old_entry_px_e8"] / 1e8
+        it.append(dict(ys=[oe], text=f"прежний вход {fmt_px(oe)} · {fmt_hms(r['old_entry_ms'], r['entry_ms'])} (+{(r['old_entry_ms'] - r['entry_ms']) / 1000:.3f} с)",
+                       color="#8a6d00", bold=False))
     last = legs[-1]
     stop_txt = f"стоп −5 % {fmt_px(ln['hard'])}"
     if r["kind"] == "stop":
@@ -760,6 +779,8 @@ def render(r, kl, tk, out_png, plt):
     xc = (t - T0) / MIN + 0.5
     draw_candles(ax, xc, o, h_, l_, c, px, max(0.5, min(1.0, px * 0.35)))
     pxs = [g["px"] for g in legs] + [e, L, ln["hard"]] + [d["px"] for d in touches]
+    if "old_entry_ms" in r:
+        pxs.append(r["old_entry_px_e8"] / 1e8)
     ymin, ymax = min(np.nanmin(l_), min(pxs)), max(np.nanmax(h_), max(pxs))
     pad = (ymax - ymin) * 0.10
     ax.set_ylim(ymin - pad, ymax + pad)
@@ -801,6 +822,8 @@ def render(r, kl, tk, out_png, plt):
         if r["kind"] == "be":
             ax.plot([be_end], [legs[-1]["px"]], marker="|", ms=9, mew=1.2 * PXW, color=C_BE, ls="none", zorder=10)
     seg(e, vis(xx), acol, 1.5, 24)  # вход: от времени входа до времени выхода; поверх маркеров касаний
+    if "old_entry_ms" in r:  # §13.16: ромб — где вошла бы прежняя модель («следующая сделка стороны»)
+        ax.plot([(r["old_entry_ms"] - T0) / MIN], [r["old_entry_px_e8"] / 1e8], marker="D", ms=7, mfc="white", mec="#8a6d00", mew=1.6, ls="none", zorder=26)
 
     # касания — маленькие маркеры с номерами (пивоты движка залиты)
     for d in touches:
@@ -906,6 +929,7 @@ th{position:sticky;top:var(--barh,70px);background:#f4f3ef;cursor:pointer;user-s
 th.l,td.l{text-align:left}th .ar{color:var(--acc)}tbody tr{cursor:pointer}tbody tr:hover{background:#eef4fc}
 .pos{color:var(--pos)}.neg{color:var(--neg)}
 .tag{display:inline-block;padding:0 7px;border-radius:9px;font-size:12px;border:1px solid #c9c8c2}
+.t-gone{border-color:#d03b3b;color:#a02222}.t-newm{border-color:#2a78d6;color:#1b5aa8}.t-cm{border-color:#c9c8c2;color:#6b6a66}
 .t-stop{border-color:#d03b3b;color:#a02222}.t-be{border-color:#6250d6;color:#4a3aa7}.t-trail{border-color:#1baf7a;color:#0b7a55}.t-forced{border-color:#6b6a66;color:#6b6a66}
 .fl{text-align:center;padding:5px 4px}.fl b{color:#c33}.flh{text-align:center}
 #st{padding:6px 18px 10px;border-bottom:1px solid var(--line);font-size:13px}#st summary{cursor:pointer;color:var(--ink2)}
@@ -930,6 +954,7 @@ th.l,td.l{text-align:left}th .ar{color:var(--acc)}tbody tr{cursor:pointer}tbody 
 <label>Флаг уровня<select id="f_flag"><option value="">не важно</option><option value="any">любой</option><option value="none">нет флагов</option><option>A</option><option>B</option><option>C</option><option>D</option><option>E</option><option>F</option><option>G</option><option value="A_post">A после рождения</option></select></label>
 <label>Новая<select id="f_new"><option value="">не важно</option><option value="1">новая (нет в старой b0)</option><option value="0">была в старой b0</option></select></label>
 <label>Сигнал→вход ≥, с<input type="number" id="f_dly" step="any"></label>
+<label>Метка<select id="f_mark"><option value="cur">сделки нового входа</option><option value="common">общие со старым</option><option value="new">появились</option><option value="gone">исчезли (были при старом входе)</option><option value="all">все (в т. ч. исчезли)</option></select></label>
 <label>Допуск §13.14<select id="f_adm"><option value="">не важно</option><option value="a">только касание ≤ 4 ч</option><option value="b">проторговка (в т. ч. оба)</option><option value="both">оба условия</option><option value="none">ни одно</option></select></label>
 <button id="reset">Сброс</button><span id="cnt"></span></div>
 <details id="st" open><summary>Флаги уровня A–G — статистика (клик по строке — фильтр, клик по id — три примера)</summary><div id="stb"></div></details>
@@ -938,7 +963,7 @@ th.l,td.l{text-align:left}th .ar{color:var(--acc)}tbody tr{cursor:pointer}tbody 
 <script>
 const D=__DATA__;
 const COLS=[["#","n",0],["Монета","sym",1],["Сторона","side_ru",1],["Вход (GMT+4)","entry_gmt4",1],["Исход","outcome",1],["Тейков","takes",0],["$ итог","net_usd",0],["бп итог","net_bps",0],
-["Держали","hold_s",0],["Сигнал→вход, с","sig_to_fill_s",0],["NATR %","natr_pct",0],["До уровня, бп","dist_entry_bps",0],["Возраст ур., ч","age_h",0],["Пивотов","n_pivots",0],["Касаний","touches",0],["MFE 30м, бп","mfe_30m_bps",0],["MAE 30м, бп","mae_30m_bps",0],["Пересёк","crossed",1],
+["Держали","hold_s",0],["Сигнал→вход, с","sig_to_fill_s",0],["Прежний вход (GMT+4)","old_entry_gmt4",1],["Цена прежнего","old_entry_px",0],["Цена нового","entry_px",0],["Δ цены, бп","entry_diff_bp",0],["Метка","mark",1],["NATR %","natr_pct",0],["До уровня, бп","dist_entry_bps",0],["Возраст ур., ч","age_h",0],["Пивотов","n_pivots",0],["Касаний","touches",0],["MFE 30м, бп","mfe_30m_bps",0],["MAE 30м, бп","mae_30m_bps",0],["Пересёк","crossed",1],
 ["Новая","is_new",2],["Допуск","adm",1],["A","flag_A",2],["B","flag_B",2],["C","flag_C",2],["D","flag_D",2],["E","flag_E",2],["F","flag_F",2],["G","flag_G",2]];
 const FT=__FLAGTXT__,ST=__FLAGS__;
 const OUTR={stop:"стоп","be":"безубыток",trail:"трейл",forced:"принуд."};
@@ -948,10 +973,12 @@ const outs=[...new Set(D.map(d=>d.exit_kind))];const so=document.getElementById(
 let sk="entry_gmt4",sd=1,view=[],nav=[],cur=-1;
 const hdr=document.getElementById("hdr");COLS.forEach(([t,k,l])=>{const th=document.createElement("th");th.className=l===1?"l":l===2?"flh":"";if(l===2)th.title=k==="adm"?"какое условие §13.14 допускает сделку: касание уровня не старше 4 ч (а) и/или проторговка 120 мин (б); «нет» — правило не применялось (набор без §13.14)":k==="is_new"?"новая: сделки нет в прежней базе b0 (появилась под pk=1: освободился слот или не наступила пауза)":FT[k.slice(5)];th.innerHTML=t+' <span class="ar"></span>';th.onclick=()=>{if(sk===k)sd=-sd;else{sk=k;sd=1}render()};th.dataset.k=k;hdr.appendChild(th)});
 const $=id=>document.getElementById(id);
-function filt(){const q=$("f_sym").value.trim().toUpperCase(),sd_=$("f_side").value,o=$("f_out").value,h=$("f_half").value,mn=$("f_min").value,mx=$("f_max").value,d1=$("f_d1").value,d2=$("f_d2").value,c=$("f_cross").value,fg=$("f_flag").value,nw=$("f_new").value,dl=$("f_dly").value,am=$("f_adm").value;
-return D.filter(d=>(!fg||(fg==="any"?d.n_flags>0:fg==="none"?d.n_flags===0:d["flag_"+fg]))&&(!q||d.sym.includes(q))&&(!sd_||d.side===sd_)&&(!o||d.exit_kind===o)&&(!h||d.half===h)&&(mn===""||d.net_usd>=+mn)&&(mx===""||d.net_usd<=+mx)&&(!d1||d.date>=d1)&&(!d2||d.date<=d2)&&(c===""||(c==="1")===d.crossed_30m)&&(nw===""||(nw==="1")===d.is_new)&&(dl===""||d.sig_to_fill_s>=+dl)&&(am===""||(am==="a"&&d.adm==="касание")||(am==="b"&&d.adm_cons)||(am==="both"&&d.adm==="оба")||(am==="none"&&d.adm==="нет")))}
+function filt(){const q=$("f_sym").value.trim().toUpperCase(),sd_=$("f_side").value,o=$("f_out").value,h=$("f_half").value,mn=$("f_min").value,mx=$("f_max").value,d1=$("f_d1").value,d2=$("f_d2").value,c=$("f_cross").value,fg=$("f_flag").value,nw=$("f_new").value,dl=$("f_dly").value,am=$("f_adm").value,mk=$("f_mark").value;
+return D.filter(d=>(mk==="all"||(mk==="gone"?d.mark==="исчезла":mk==="common"?d.mark==="общая":mk==="new"?d.mark==="появилась":d.mark!=="исчезла"))&&(!fg||(fg==="any"?d.n_flags>0:fg==="none"?d.n_flags===0:d["flag_"+fg]))&&(!q||d.sym.includes(q))&&(!sd_||d.side===sd_)&&(!o||d.exit_kind===o)&&(!h||d.half===h)&&(mn===""||d.net_usd>=+mn)&&(mx===""||d.net_usd<=+mx)&&(!d1||d.date>=d1)&&(!d2||d.date<=d2)&&(c===""||(c==="1")===d.crossed_30m)&&(nw===""||(nw==="1")===d.is_new)&&(dl===""||d.sig_to_fill_s>=+dl)&&(am===""||(am==="a"&&d.adm==="касание")||(am==="b"&&d.adm_cons)||(am==="both"&&d.adm==="оба")||(am==="none"&&d.adm==="нет")))}
 function cell(d,k){const v=d[k];if(k.startsWith("flag_")||k==="is_new")return v?"<b>●</b>":"";switch(k){case"net_usd":return `<span class="${v>=0?"pos":"neg"}">${v.toFixed(2)}</span>`;case"net_bps":return `<span class="${v>=0?"pos":"neg"}">${v.toFixed(1)}</span>`;
-case"outcome":return `<span class="tag t-${d.exit_kind}">${OUTR[d.exit_kind]||d.exit_kind}${d.takes>0&&d.exit_kind!=="forced"?" + тейки":""}</span>`;case"hold_s":return fmtDur(v);case"sig_to_fill_s":return v.toFixed(3);case"entry_gmt4":return v.slice(8,10)+"."+v.slice(5,7)+" "+v.slice(11,19);
+case"outcome":return `<span class="tag t-${d.exit_kind}">${OUTR[d.exit_kind]||d.exit_kind}${d.takes>0&&d.exit_kind!=="forced"?" + тейки":""}</span>`;case"hold_s":return fmtDur(v);case"sig_to_fill_s":return v==null?"—":v.toFixed(3);case"entry_gmt4":return v.slice(8,10)+"."+v.slice(5,7)+" "+v.slice(11,23);
+case"old_entry_gmt4":return v==null?"—":v.slice(8,10)+"."+v.slice(5,7)+" "+v.slice(11,23);case"old_entry_px":case"entry_px":return v==null||(k==="entry_px"&&d.mark==="исчезла")?"—":String(+(+v).toPrecision(6));
+case"entry_diff_bp":return v==null?"—":`<span class="${v>0?"neg":v<0?"pos":""}">${v.toFixed(2)}</span>`;case"mark":return v?`<span class="tag t-${v==="исчезла"?"gone":v==="появилась"?"newm":"cm"}" title="${d.mark_why||""}">${v}</span>`:"";
 case"natr_pct":case"age_h":return v.toFixed(2);case"dist_entry_bps":case"mfe_30m_bps":case"mae_30m_bps":return v==null?"—":v.toFixed(1);default:return v==null?"—":v}}
 function render(){view=filt();view.sort((a,b)=>{const x=a[sk],y=b[sk];return (x<y?-1:x>y?1:0)*sd||a.n-b.n});
 document.querySelectorAll("#hdr th").forEach(th=>th.querySelector(".ar").textContent=th.dataset.k===sk?(sd>0?"▲":"▼"):"");
@@ -966,8 +993,8 @@ $("stb").onclick=e=>{const a=e.target.closest("a");if(a){e.stopPropagation();nav
 const tr=e.target.closest("tr.fr");if(tr){const k=tr.dataset.k;$("f_flag").value=["A","B","C","D","E","F","G","A_post","any","none"].includes(k)?k:"";$("f_new").value=k==="new"?"1":"";$("f_dly").value=k==="slow"?"1":"";$("f_adm").value=({adm_a:"a",adm_b:"b",adm_none:"none"})[k]||"";render()}}})();
 $("tb").onclick=e=>{const tr=e.target.closest("tr");if(tr){nav=view;open(+tr.dataset.i)}};
 function flagLine(d){if(!d.n_flags)return " · флагов уровня нет";const t=[];if(d.flag_A)t.push(`A прокол ${d.pierce_over_bps.toFixed(1)} бп, закрытий за уровнем ${d.pierce_close_n}`+(d.flag_A_post?` (после рождения: ${d.pierce_over_bps_post.toFixed(1)} бп, ${d.pierce_close_n_post})`:" (только до рождения уровня)"));if(d.flag_B)t.push(`B пивоты ${d.min_pivot_gap_min} мин друг от друга`);if(d.flag_C)t.push(`C уровень известен ${d.level_known_min} мин`);if(d.flag_D)t.push(`D диапазон ${d.spike_range_natr.toFixed(1)} NATR`);if(d.flag_E)t.push(`E разброс ${d.pivot_spread_bps.toFixed(1)} бп`+(d.level_vs_mean_e8?`, цена ≠ среднему на ${d.level_vs_mean_e8} e8`:""));if(d.flag_F)t.push(`F пивот не экстремум (${d.pivot_not_extreme_n})`);if(d.flag_G)t.push(`G закрытий за уровнем ${d.late_close_beyond_n}, до ${d.late_close_over_bps.toFixed(1)} бп`);return " · флаги: "+t.join("; ")}
-function open(i){if(i<0||i>=nav.length)return;cur=i;const d=nav[i];const im=$("m_i"),iw=document.querySelector(".imgw");im.onload=()=>{iw.scrollLeft=Math.max(0,(d.ex||0)-iw.clientWidth*0.35);iw.scrollTop=0};im.src="charts/"+d.id+".png";$("m_a").href="charts/"+d.id+".png";$("m_t").textContent=`${d.sym} ${d.side_ru} ${d.entry_gmt4.slice(0,19)}`;
-$("m_s").textContent=`${d.net_usd.toFixed(2)} $ · ${d.net_bps.toFixed(1)} бп · ${OUTR[d.exit_kind]} · держали ${fmtDur(d.hold_s)} · касаний ${d.touches} · ${i+1}/${nav.length}`+` · сигнал→вход ${d.sig_to_fill_s.toFixed(3)} с`+flagLine(d)+(d.is_new?" · новая (нет в старой b0)":"");$("modal").classList.add("on")}
+function open(i){if(i<0||i>=nav.length)return;cur=i;const d=nav[i];const im=$("m_i"),iw=document.querySelector(".imgw");im.onload=()=>{iw.scrollLeft=Math.max(0,(d.ex||0)-iw.clientWidth*0.35);iw.scrollTop=0};const src=d.img||("charts/"+d.id+".png");im.src=src;$("m_a").href=src;$("m_t").textContent=`${d.sym} ${d.side_ru} ${d.entry_gmt4.slice(0,19)}`;
+$("m_s").textContent=`${d.net_usd.toFixed(2)} $ · ${d.net_bps.toFixed(1)} бп · ${OUTR[d.exit_kind]} · держали ${fmtDur(d.hold_s)} · касаний ${d.touches} · ${i+1}/${nav.length}`+` · сигнал→вход ${d.sig_to_fill_s.toFixed(3)} с`+flagLine(d)+(d.mark==="исчезла"?" · ИСЧЕЗЛА при новом входе ("+d.mark_why+"); график прежнего входа":d.mark==="появилась"?" · появилась (нет при старом входе)":"")+(d.entry_diff_bp!=null?` · цена входа новая − прежняя ${d.entry_diff_bp.toFixed(2)} бп`:"");$("modal").classList.add("on")}
 document.addEventListener("keydown",e=>{if(!$("modal").classList.contains("on"))return;if(e.key==="Escape")$("modal").classList.remove("on");else if(e.key==="ArrowRight")open(cur+1);else if(e.key==="ArrowLeft")open(cur-1);else if(e.key==="z"||e.key==="Z")$("modal").classList.toggle("fit")});
 $("modal").onclick=e=>{if(e.target.id==="modal"||e.target.classList.contains("imgw"))$("modal").classList.remove("on")};
 document.querySelectorAll(".bar input,.bar select").forEach(el=>el.oninput=render);$("reset").onclick=()=>{document.querySelectorAll(".bar input,.bar select").forEach(el=>el.value="");render()};
@@ -1053,19 +1080,48 @@ def cmd_index(a):
     for fn in os.listdir(cdir) if os.path.isdir(cdir) else []:
         if fn.startswith("_meta_"):
             meta.update(json.load(open(os.path.join(cdir, fn))))
-    data = [{k: r[k] for k in keep} for r in rows]
+    extra = ["entry_px", "entry_model", "old_entry_gmt4", "old_entry_px", "entry_diff_bp", "old_sig_to_fill_s", "old_entry_beyond_level", "entry_beyond_level"]
+    data = [{**{k: r[k] for k in keep}, **{k: r.get(k) for k in extra}} for r in rows]
+    for d, r in zip(data, rows):
+        d["mark"] = ("появилась" if r["is_new"] else "общая") if r.get("is_new") is not None else ""
     pknote = ""
-    if a.old:  # прежняя база b0: «новая» — нет среди сделок b0; «исчезла» — сделка b0, которой нет в новой базе
-        new_keys = {(r["sym"], r["side"], r["entry_ms"]) for r in load_trades(a.detail)}
-        old_keys = {(r["sym"], r["side"], r["entry_ms"]) for r in load_trades(a.old)}
-        pknote = (f"Набор = {a.name}: {len(new_keys)} сделок; из прежних {len(old_keys)} (b0) исчезло {len(old_keys - new_keys)}, "
-                  f"новых (нет в старой b0) {len(new_keys - old_keys)}.")
+    if a.old:  # прежний набор: «появилась» — нет среди сделок прежнего набора; «исчезла» — сделка прежнего набора, которой нет в новом (ключ — монета, сторона, время сигнала)
+        new_keys = {(r["sym"], r["side"], r["sig_ms"]) for r in load_trades(a.detail)}
+        old_tr = load_trades(a.old)
+        old_keys = {(r["sym"], r["side"], r["sig_ms"]) for r in old_tr}
+        pknote = (f"Набор = {a.name}: {len(new_keys)} сделок; из прежних {len(old_keys)} (вход «следующая сделка», 15.11) исчезло {len(old_keys - new_keys)}, "
+                  f"появилось новых {len(new_keys - old_keys)}.")
+        if a.oldfeat:  # исчезнувшие — строки с графиком прежнего набора (подпапка), причина — из <сторона>-entryrej.csv прогона
+            rj = {}
+            for side in ("long", "short"):
+                p = os.path.join(a.rej, f"{side}-entryrej.csv") if a.rej else ""
+                if p and os.path.exists(p):
+                    for x in csv.DictReader(open(p, encoding="utf-8")):
+                        rj[(x["sym"], side, int(x["sig_ms"]) + T0)] = x["why"]
+            why_ru = {"beyond": "отвергнута: цена уже за уровнем", "stale": "отвергнута: нет сделки стороны не старше W мс"}
+            oldfeat = {x["id"]: x for x in (json.loads(l) for l in open(a.oldfeat, encoding="utf-8"))}
+            cnt = defaultdict(int)
+            for r in old_tr:
+                k = (r["sym"], r["side"], r["sig_ms"])
+                if k in new_keys:
+                    continue
+                f = oldfeat[r["id"]]
+                reason = why_ru.get(rj.get(k), "сигнал не дошёл до входа: слот, пауза или монета заняты (портфель изменился)")
+                cnt[reason] += 1
+                row = {k2: f.get(k2) for k2 in keep}
+                row.update(id="X_" + r["id"], img=f"{a.oldcharts}/{r['id']}.png", mark="исчезла", mark_why=reason, ex=0, w=0,
+                           old_entry_gmt4=f["entry_gmt4"], old_entry_px=f["entry_px"], entry_px=None, entry_diff_bp=None, sig_to_fill_s=None,
+                           old_sig_to_fill_s=f["sig_to_fill_s"], entry_model="следующая сделка")
+                data.append(row)
+            pknote += " Исчезли: " + "; ".join(f"{n} — {w}" for w, n in sorted(cnt.items())) + "."
     for d in data:
+        if d.get("mark") == "исчезла":
+            continue
         m = meta.get(d["id"])
         d["ex"], d["w"] = (m[2], m[0]) if m else (0, 0)
     for d in data:
         for k, v in d.items():
-            if isinstance(v, float):
+            if isinstance(v, float) and k not in ("entry_px", "old_entry_px"):
                 d[k] = round(v, 4)
     os.makedirs(a.pub, exist_ok=True)
     st = flagstats(rows)
@@ -1091,6 +1147,9 @@ def main():
     p = sub.add_parser("index")
     p.add_argument("work"); p.add_argument("pub"); p.add_argument("--charts")
     p.add_argument("--detail", default="out"); p.add_argument("--name", default="b0 + pk=1", help="название набора в заголовке"); p.add_argument("--old", help="каталог с b0_lx4/<сторона>-detail.jsonl прежней базы b0")
+    p.add_argument("--oldfeat", help="features.jsonl прежнего набора — по нему строки исчезнувших сделок (§13.16)")
+    p.add_argument("--oldcharts", default="старый вход 15.11/charts", help="путь к графикам прежнего набора относительно index.html")
+    p.add_argument("--rej", help="каталог клетки нового входа с <сторона>-entryrej.csv — причина «исчезла»")
     p = sub.add_parser("flagstats")
     p.add_argument("work")
     a = ap.parse_args()
