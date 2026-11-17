@@ -544,6 +544,7 @@ impl Exchange for Okx {
         Ok(Turnover {
             qv,
             meta: meta.into_iter().collect(),
+            listed: listed_of(&instruments),
         })
     }
 
@@ -622,10 +623,19 @@ fn universe<'a>(
         .iter()
         .filter_map(|s| {
             let id = text(s, "instId")?;
-            Some((id.to_string(), *turnover.get(id)?))
+            Some((id.to_string(), turnover.get(id).copied().unwrap_or(0.0)))
         })
         .collect();
     (live, qv)
+}
+
+/// `instruments` — `/public/instruments?instType=SWAP`: все линейные USDT-контракты списка при любом состоянии (`suspend`, `preopen`; `Turnover::listed`).
+pub fn listed_of(instruments: &[Value]) -> std::collections::BTreeSet<String> {
+    instruments
+        .iter()
+        .filter(|s| text(s, "ctType") == Some("linear") && text(s, "settleCcy") == Some("USDT"))
+        .filter_map(|s| Some(text(s, "instId")?.to_string()))
+        .collect()
 }
 
 /// Метаданные (`META_KEYS`) и оборот (округлён до цента) контрактов, прошедших `keep`.

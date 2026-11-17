@@ -26,7 +26,7 @@ use super::health::{build, write_atomic, HealthCtx, ProcSampler, DEFAULT_BOOK_WI
 use super::hostinfo::HostInfo;
 use super::livepool::{
     kind_of, spread_plans, Layout, LivePool, Op, PoolFile, PoolState, SavedState, Weights,
-    DEFAULT_HOLD_S, DEFAULT_REFRESH_S,
+    DEFAULT_HOLD_S, DEFAULT_MIN_QUOTE_VOLUME, DEFAULT_REFRESH_S,
 };
 use super::metrics::STATS_PERIOD_S;
 use super::net;
@@ -86,7 +86,9 @@ pub struct RunArgs {
     /// Потоков на соединение (0 — по умолчанию вида: Binance книга 32 / сделки 64, Bybit 80).
     #[arg(long, default_value_t = 0)]
     pub streams_per_conn: usize,
-    #[arg(long, default_value_t = 300_000.0)]
+    /// Нижний порог оборота за сутки, $ (по умолчанию 0: в подписке всё, что биржа перечисляет как торгуемое; до TK-584 было 300 000 — на перезапусках 16.11 ночью
+    /// выпадали тонкие символы (Bybit 89, Gate 68, OKX 26): `docs/findings/symbols-drop-after-restart-2026-11-17.md`).
+    #[arg(long, default_value_t = DEFAULT_MIN_QUOTE_VOLUME)]
     pub min_quote_volume: f64,
     /// Сколько крупнейших по обороту не брать в пул (по умолчанию 0: собираем всё, что торгуется выше порога; до 16.11 Binance и Bybit исключали 10).
     #[arg(long)]
@@ -427,7 +429,7 @@ pub fn run(args: &RunArgs) -> anyhow::Result<()> {
         match exch.load_turnover() {
             Ok(t) => {
                 if let Some(saved) = SavedState::load(&args.root) {
-                    held = saved.held(&pool, now_ms(), args.pool_hold_s, &t.qv);
+                    held = saved.held(&pool, now_ms(), args.pool_hold_s, &t.qv, &t.listed);
                     if !held.is_empty() {
                         pool.extend(held.keys().cloned());
                         pool.sort();

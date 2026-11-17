@@ -406,6 +406,7 @@ impl Exchange for Bingx {
         Ok(Turnover {
             qv,
             meta: meta.into_iter().collect(),
+            listed: listed_of(&contracts),
         })
     }
 
@@ -477,10 +478,20 @@ fn universe<'a>(
         .iter()
         .filter_map(|c| {
             let sym = text(c, "symbol")?;
-            Some((sym.to_string(), *turnover.get(sym)?))
+            Some((sym.to_string(), turnover.get(sym).copied().unwrap_or(0.0)))
         })
         .collect();
     (live, qv)
+}
+
+/// `contracts` — `/quote/contracts`: все USDT-контракты списка при любом статусе (`status=25` — «запрещено открывать»; `Turnover::listed`): биржа по ним продолжает слать
+/// нулевую книгу (замер TK-584: 40 контрактов `status=25`, рынок закрыт).
+pub fn listed_of(contracts: &[Value]) -> std::collections::BTreeSet<String> {
+    contracts
+        .iter()
+        .filter(|c| text(c, "currency") == Some("USDT"))
+        .filter_map(|c| Some(text(c, "symbol")?.to_string()))
+        .collect()
 }
 
 /// Параметры контракта (`META_KEYS`) и оборот (округлён до цента) символов, прошедших `keep`.

@@ -1,7 +1,7 @@
 //! Тесты доработок после пул-фикса (16.11): независимый счётчик «не подписано», нагрузка символов и раскладка по ней, состояние пула между запусками,
 //! режим «стоянка всей биржи», тревога бюджета подключений, дозапрос потерянных сделок.
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering::Relaxed};
 use std::sync::mpsc::channel;
 use std::sync::Arc;
@@ -440,13 +440,19 @@ fn saved_state_round_trips_and_keeps_only_symbols_still_inside_the_hold() {
         .map(|(s, v)| (s.to_string(), v))
         .into();
     // сейчас 60 000 с; выдержка 24 ч = 86 400 с: BUSDT и GONEUSDT внутри, OLDUSDT (метка 0,1 с) — тоже внутри; AUSDT в пуле; GONEUSDT не торгуется
-    let held = st.held(&["AUSDT".to_string()], 60_000_000, 86_400, &tradable);
+    let held = st.held(
+        &["AUSDT".to_string()],
+        60_000_000,
+        86_400,
+        &tradable,
+        &BTreeSet::new(),
+    );
     assert_eq!(
         held.keys().cloned().collect::<Vec<_>>(),
         vec!["BUSDT".to_string(), "OLDUSDT".to_string()]
     );
     // выдержка истекла для старой метки
-    let held = st.held(&[], 200_000_000, 86_400, &tradable);
+    let held = st.held(&[], 200_000_000, 86_400, &tradable, &BTreeSet::new());
     assert!(held.is_empty());
     assert!(SavedState::load(&dir.path().join("nope")).is_none());
 }
@@ -492,7 +498,7 @@ fn live_pool_saves_state_after_each_poll_and_exposes_the_eligible_list() {
     let _ = lp.apply(
         &super::exchange::Turnover {
             qv,
-            meta: BTreeMap::new(),
+            ..Default::default()
         },
         60_000,
     );

@@ -366,7 +366,7 @@ fn live_pool_logs_every_change_with_a_timestamp_in_the_run_file() {
     qv.insert("BARDUSDT".into(), 165_800_000.0);
     let t = Turnover {
         qv: qv.clone(),
-        meta: BTreeMap::new(),
+        ..Turnover::default()
     };
     let a = lp.apply(&t, 10 * 60_000);
     assert_eq!(a.changes.len(), 1);
@@ -399,7 +399,7 @@ fn live_pool_logs_every_change_with_a_timestamp_in_the_run_file() {
     qv.insert("S000USDT".into(), 1_000.0);
     let t = Turnover {
         qv: qv.clone(),
-        meta: BTreeMap::new(),
+        ..Turnover::default()
     };
     assert!(
         lp.apply(&t, 10 * 60_000 + 23 * H).changes.is_empty(),
@@ -436,7 +436,14 @@ fn contract_meta_of_a_new_symbol_reaches_the_pool_file() {
     let mut qv: BTreeMap<String, f64> = pool.iter().map(|s| (s.clone(), 1e6)).collect();
     qv.insert("NEW-USDT-SWAP".into(), 2e6);
     let meta = BTreeMap::from([("NEW-USDT-SWAP".to_string(), json!({"ctVal": "0.01"}))]);
-    lp.apply(&Turnover { qv, meta }, 5000);
+    lp.apply(
+        &Turnover {
+            qv,
+            meta,
+            ..Turnover::default()
+        },
+        5000,
+    );
     let doc = read_json(&per_run);
     assert_eq!(doc["meta"]["NEW-USDT-SWAP"]["ctVal"], "0.01");
     assert_eq!(doc["meta"]["C000-USDT-SWAP"]["ctVal"], "1");
@@ -474,7 +481,7 @@ fn rest_failure_is_counted_and_keeps_the_pool() {
     let a = lp.apply(
         &Turnover {
             qv: qv_of(&[("S000USDT", 1e6)]),
-            meta: BTreeMap::new(),
+            ..Turnover::default()
         },
         2000,
     );

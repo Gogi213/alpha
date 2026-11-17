@@ -370,6 +370,7 @@ impl Exchange for Bybit {
         Ok(Turnover {
             qv: turnover_of(&instruments, &list),
             meta: BTreeMap::new(),
+            listed: listed_of(&instruments),
         })
     }
 
@@ -468,7 +469,19 @@ fn rest_pool_inputs() -> Result<(Vec<serde_json::Value>, serde_json::Value), Str
     Ok((instruments, list))
 }
 
-/// `instruments` — instruments-info['list'], `tickers` — tickers['list'] (turnover24h, $): оборот торгуемых USDT-бессрочных.
+/// `instruments` — instruments-info['list']: все USDT-бессрочные списка при любом статусе (`Turnover::listed`).
+pub fn listed_of(instruments: &[serde_json::Value]) -> std::collections::BTreeSet<String> {
+    instruments
+        .iter()
+        .filter(|s| {
+            s.get("contractType").and_then(|x| x.as_str()) == Some("LinearPerpetual")
+                && s.get("quoteCoin").and_then(|x| x.as_str()) == Some("USDT")
+        })
+        .filter_map(|s| Some(s.get("symbol")?.as_str()?.to_string()))
+        .collect()
+}
+
+/// `instruments` — instruments-info['list'], `tickers` — tickers['list'] (turnover24h, $): оборот торгуемых USDT-бессрочных (без тикера — 0: торгуемый контракт в пуле остаётся).
 pub fn turnover_of(
     instruments: &[serde_json::Value],
     tickers: &serde_json::Value,
@@ -494,7 +507,7 @@ pub fn turnover_of(
         })
         .filter_map(|s| {
             let name = s.get("symbol")?.as_str()?;
-            Some((name.to_string(), *qv.get(name)?))
+            Some((name.to_string(), qv.get(name).copied().unwrap_or(0.0)))
         })
         .collect()
 }

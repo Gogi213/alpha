@@ -28,6 +28,9 @@ use super::writer::day_string;
 pub const DEFAULT_REFRESH_S: u64 = 300;
 /// Гистерезис выхода по умолчанию, с (приказ 16.11: символ держится не меньше суток после ухода под порог).
 pub const DEFAULT_HOLD_S: u64 = 24 * 3600;
+/// Нижний порог оборота по умолчанию, $ (TK-584: 0 — в подписке все контракты, которые биржа перечисляет как торгуемые; прежние 300 000 — слова владельца 11.11 «стартовый объем наверно от 300к»,
+/// а на перезапусках 16.11 ночью под порог попадали тонкие символы (Bybit 89, Gate 68, OKX 26); порог остаётся ручкой `--min-quote-volume`).
+pub const DEFAULT_MIN_QUOTE_VOLUME: f64 = 0.0;
 /// Ответ REST короче половины текущего состава считается сбоем (обрезанная выдача), пересмотр пропускается.
 const SHORT_RESPONSE_RATIO: usize = 2;
 
@@ -656,14 +659,16 @@ impl SavedState {
         )
     }
 
-    /// Символы прежнего запуска, которых нет в пуле, но под порогом они держатся меньше `hold_s` и контракт ещё торгуется: их метки переходят в новый запуск,
-    /// и перезапуск не сокращает 24-часовую выдержку.
+    /// Символы прежнего запуска, которых нет в пуле, но под порогом (или со статусом «не торгуется») они держатся меньше `hold_s`, а биржа контракт ещё перечисляет
+    /// (`tradable` — торгуемые с оборотом, `listed` — весь список при любом статусе): их метки переходят в новый запуск, и перезапуск не сокращает 24-часовую выдержку.
+    /// Внутри запуска символ без торговли держится те же сутки (`PoolState::review`), поэтому на перезапуске он не должен выпадать: у BingX 17.11 выпало 59 контрактов `status=25`.
     pub fn held(
         &self,
         pool: &[String],
         now_ms: i64,
         hold_s: u64,
         tradable: &BTreeMap<String, f64>,
+        listed: &std::collections::BTreeSet<String>,
     ) -> BTreeMap<String, i64> {
         let hold_ms = i64::try_from(hold_s.saturating_mul(1000)).unwrap_or(i64::MAX);
         let in_pool: std::collections::HashSet<&str> = pool.iter().map(String::as_str).collect();
@@ -672,7 +677,7 @@ impl SavedState {
             .filter(|(s, t)| {
                 !in_pool.contains(s.as_str())
                     && now_ms.saturating_sub(**t) < hold_ms
-                    && tradable.contains_key(*s)
+                    && (tradable.contains_key(*s) || listed.contains(*s))
             })
             .map(|(s, t)| (s.clone(), *t))
             .collect()

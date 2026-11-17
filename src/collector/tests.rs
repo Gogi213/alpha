@@ -4178,6 +4178,14 @@ fn run_args(extra: &[&str], exchange: &str) -> RunArgs {
     W::parse_from(v).a
 }
 
+/// TK-584: порог оборота по умолчанию 0 — в подписке всё торгуемое; прежние 300 000 — явным флагом.
+#[test]
+fn min_quote_volume_defaults_to_every_trading_contract() {
+    assert!(run_args(&[], "gate").min_quote_volume.abs() < 1e-9);
+    let explicit = run_args(&["--min-quote-volume", "300000"], "gate");
+    assert!((explicit.min_quote_volume - 300_000.0).abs() < 1e-9);
+}
+
 /// Входы линий по умолчанию у всех бирж без IPv6 (и запасного), с `--allow-ipv6` запасные IPv6 возвращаются; только-IPv6 линия без флага — ошибка.
 #[test]
 fn default_lines_have_no_ipv6_entrance_without_the_flag() {

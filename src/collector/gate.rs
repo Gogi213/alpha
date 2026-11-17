@@ -468,6 +468,7 @@ impl Exchange for Gate {
         Ok(Turnover {
             qv,
             meta: meta.into_iter().collect(),
+            listed: listed_of(&contracts),
         })
     }
 
@@ -543,10 +544,18 @@ fn universe<'a>(
         .iter()
         .filter_map(|c| {
             let name = text(c, "name")?;
-            Some((name.to_string(), *turnover.get(name)?))
+            Some((name.to_string(), turnover.get(name).copied().unwrap_or(0.0)))
         })
         .collect();
     (live, qv)
+}
+
+/// `contracts` — `/futures/usdt/contracts`: все контракты списка при любом статусе (`delisting`, `prelaunch`; `Turnover::listed`).
+pub fn listed_of(contracts: &[Value]) -> std::collections::BTreeSet<String> {
+    contracts
+        .iter()
+        .filter_map(|c| Some(text(c, "name")?.to_string()))
+        .collect()
 }
 
 /// Параметры контракта (`META_KEYS`) и оборот (округлён до цента) контрактов, прошедших `keep`.

@@ -74,6 +74,8 @@ pub const VERSION: &str = match option_env!("ALPHA_COMMIT") {
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
+mod tests_allsymbols;
+#[cfg(test)]
 mod tests_followups;
 #[cfg(test)]
 mod tests_gzip;

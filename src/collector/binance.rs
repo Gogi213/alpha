@@ -404,6 +404,7 @@ impl Exchange for Binance {
         Ok(Turnover {
             qv: turnover_of(&info, &tickers),
             meta: BTreeMap::new(),
+            listed: listed_of(&info),
         })
     }
 }
@@ -417,7 +418,21 @@ fn method_messages(method: &str, streams: &[String]) -> Vec<String> {
         .collect()
 }
 
-/// `info` — ответ exchangeInfo, `tickers` — ticker/24hr: оборот за сутки торгуемых бессрочных USDT-контрактов.
+/// `info` — ответ exchangeInfo: все бессрочные USDT-контракты списка при любом статусе (`Turnover::listed`).
+pub fn listed_of(info: &serde_json::Value) -> std::collections::BTreeSet<String> {
+    info.get("symbols")
+        .and_then(|x| x.as_array())
+        .into_iter()
+        .flatten()
+        .filter(|s| {
+            s.get("contractType").and_then(|x| x.as_str()) == Some("PERPETUAL")
+                && s.get("quoteAsset").and_then(|x| x.as_str()) == Some("USDT")
+        })
+        .filter_map(|s| Some(s.get("symbol")?.as_str()?.to_string()))
+        .collect()
+}
+
+/// `info` — ответ exchangeInfo, `tickers` — ticker/24hr: оборот за сутки торгуемых бессрочных USDT-контрактов (без тикера — 0: торгуемый контракт в пуле остаётся).
 pub fn turnover_of(info: &serde_json::Value, tickers: &serde_json::Value) -> BTreeMap<String, f64> {
     let mut qv: BTreeMap<String, f64> = BTreeMap::new();
     for t in tickers.as_array().into_iter().flatten() {
@@ -442,7 +457,7 @@ pub fn turnover_of(info: &serde_json::Value, tickers: &serde_json::Value) -> BTr
         })
         .filter_map(|s| {
             let name = s.get("symbol")?.as_str()?;
-            Some((name.to_string(), *qv.get(name)?))
+            Some((name.to_string(), qv.get(name).copied().unwrap_or(0.0)))
         })
         .collect()
 }
