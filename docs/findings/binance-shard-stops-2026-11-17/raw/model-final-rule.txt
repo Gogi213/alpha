@@ -1,0 +1,31 @@
+replacement time after detection, free pauses with known detection: n=21 median 4.9 s p90 15.9 s
+class group n dark_s | blocked n | sole-source n s | saved best (detect 4 s, replace median) / worst (7 s, p90)
+ALL   all   387   8080 | 256 | 11  1049 |  5452 (67%) /  3881 (48%)
+ALL   book  229   6068 | 152 |  9   998 |  4498 (74%) /  3415 (56%)
+ALL   mark   39    578 |  29 |  1     4 |   335 (58%) /   228 (40%)
+ALL   trade 119   1434 |  75 |  1    46 |   618 (43%) /   238 (17%)
+E     all   314   4293 | 191 |  2    77 |  2077 (48%) /   811 (19%)
+S     all    62   3689 |  62 |  8   931 |  3327 (90%) /  3029 (82%)
+other all    11     98 |   3 |  1    41 |    47 (48%) /    41 (41%)
+by window (all groups)
+E1     n= 71 dark  1335 s saved   836 (63%) /   461 (35%)
+E2     n= 40 dark   441 s saved   187 (42%) /    44 (10%)
+E3     n= 37 dark   581 s saved   309 (53%) /    84 (15%)
+E4     n= 48 dark   519 s saved   200 (39%) /    48 ( 9%)
+E5     n= 47 dark   638 s saved   263 (41%) /    72 (11%)
+E6     n= 36 dark   432 s saved   193 (45%) /    67 (15%)
+E7     n= 35 dark   347 s saved    89 (26%) /    36 (10%)
+S1     n= 23 dark  1108 s saved   976 (88%) /   874 (79%)
+S2     n= 32 dark  2163 s saved  1988 (92%) /  1862 (86%)
+S3     n=  7 dark   418 s saved   363 (87%) /   293 (70%)
+other  n= 11 dark    98 s saved    47 (48%) /    41 (41%)
+mark00 pauses >= 8 s in episodes (model of the final rule; v1 AB 4 s/7 s for comparison)
+21:05:50 E1     67 td=13 first=+24 path_rejected_rtt -> end 16/19 s, saved 51/48
+21:15:04 E2     38 td=11 first=+12 path_rejected_rtt -> end 7/10 s, saved 31/28
+21:25:23 E3     33 td=15 first=+16 path_rejected_rtt -> end 8/11 s, saved 25/22
+21:34:06 E4     18 td=11 first=+12 path_rejected_rtt -> end 8/11 s, saved 10/7
+21:34:24 E4     15 td=0 first=- -> end 8/15 s, saved 7/0
+21:47:46 E5     37 td=7 first=+12 path_rejected_rtt -> end 10/13 s, saved 26/23
+22:03:41 E6     33 td=14 first=+15 path_rejected_rtt -> end 7/10 s, saved 25/22
+22:15:44 E7     34 td=14 first=+14 path_rejected_rtt -> end 7/10 s, saved 27/24
+{'dur': 274, 'best': 203, 'worst': 175}
