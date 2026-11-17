@@ -5,7 +5,7 @@
 NATR выхода). Минутки — `/data/klines/binance/<МОНЕТА>/<день>.csv`, сделки — `/data/aggtrades/binance/...zip`.
 
   python3 charts.py features <detail_dir> <work_dir> [--only id,id] [--workers 2] [--old <detail_dir_b0>]   # features.jsonl/csv + кэш тиков
-  python3 charts.py render   <detail_dir> <work_dir> [--only id,id] [--out DIR]     # PNG на сделку
+  python3 charts.py render   <detail_dir> <work_dir> [--only id,id] [--out DIR]     # две PNG на сделку: <id>.png (обзор) и <id>_zoom.png (приближение)
   python3 charts.py index    <work_dir> <pub_dir> [--old <detail_dir_b0>]           # index.html + features.csv/jsonl + flagstats
   python3 charts.py flagstats <work_dir>                                            # статистика флагов A…G → flagstats.md/json
 """
@@ -44,6 +44,8 @@ SIDE_RU = {"long": "лонг", "short": "шорт"}
 UP, DOWN = "#b3c1d3", "#5a626d"
 INK, INK2, GRID = "#0b0b0b", "#52514e", "#e4e3df"
 C_TAKE, C_BE, C_TRAIL, C_STOP, C_FORCED = "#008300", "#6250d6", "#0f9fb0", "#d03b3b", "#6b6a66"
+C_CROSS = "#e07b00"  # переходы цены через уровень (приближение)
+CROSS_MAX = 60  # не больше стольких отметок переходов на графике
 KIND_COLOR = {"stop": C_STOP, "be": C_BE, "trail": C_TRAIL, "forced": C_FORCED}
 
 
@@ -567,6 +569,10 @@ def fmt_hms(ms, ref):
     return d.strftime("%H:%M:%S" if d.date() == r.date() else "%d.%m %H:%M:%S")
 
 
+def fmt_hms_ms(ms, ref):
+    return fmt_hms(ms, ref) + f".{ms % 1000:03d}"
+
+
 def fmt_min(m, secs=False):
     """Минута с 01.09 → «дд.мм ЧЧ:ММ» GMT+4."""
     return datetime.fromtimestamp((T0 + m * MIN + GMT4) / 1000, tz=timezone.utc).strftime("%d.%m %H:%M")
@@ -626,10 +632,43 @@ def find_touches(r, a):
     return items, first_m, me
 
 
+def level_crossings(r, tk, kl, x0, x1):
+    """Переходы цены через уровень после его рождения в окне минут [x0, x1): [(x в минутах, ms | None, +1 за уровень / −1 обратно)].
+    «За уровнем» — лонг: цена ≥ уровня, шорт: цена ≤ уровня. По сделкам — там, где есть кэш тиков ([вход − 120 с, вход + 30 мин]);
+    вне его — по минуткам: начало серии минут, где экстремум дошёл до уровня (+1; ms = None, точность до минуты)."""
+    s = 1 if r["side"] == "long" else -1
+    lp = s * r["level_px_e8"] / 1e8
+    born = int(r["born"])
+    t, p, _ = tk
+    ev, ma, mb, last = [], None, None, False
+    if len(t):
+        beyond = s * p >= lp
+        last = bool(beyond[-1])
+        for i in np.nonzero(beyond[1:] != beyond[:-1])[0] + 1:
+            if (t[i] - T0) // MIN >= born and x0 <= (t[i] - T0) / MIN < x1:
+                ev.append(((t[i] - T0) / MIN, int(t[i]), 1 if beyond[i] else -1))
+        ma, mb = int((t[0] - T0) // MIN), int((t[-1] - T0) // MIN)
+    ext = kl[1] if s > 0 else -kl[2]
+    run = False
+    for m in range(max(x0, born), min(x1, ext.shape[0])):
+        if ma is not None and ma <= m <= mb:
+            run = last  # дальше серия продолжается с состояния на последней сделке кэша
+            continue
+        v = ext[m]
+        if v != v:
+            continue
+        hit = bool(v >= lp)
+        if hit and not run:
+            ev.append((m + 0.5, None, 1))
+        run = hit
+    ev.sort(key=lambda e: e[0])
+    return ev
+
+
 # ───────────────────────────── рисование ─────────────────────────────
 
 
-EXIT = dict(n_tp=8, t_low=1000, t_high=5000, a=2000, rr=2000, s_pm=5000)  # база b0: NATR в тысячных, стоп в тысячных %
+EXIT =dict(n_tp=8, t_low=1000, t_high=5000, a=2000, rr=2000, s_pm=5000)  # база b0: NATR в тысячных, стоп в тысячных %
 
 
 def exit_lines(r, tk, kl, legs):
@@ -709,33 +748,47 @@ def dodge(ds, lo, hi, gap=LH):
     return ys
 
 
-def field_items(r, legs, ln, touches, e, L, ft):
-    """Подписи правого поля: items — линии графика [{ys: [цены], text, color, bold}], rows — список касаний."""
+def field_items(r, legs, ln, touches, e, L, ft, zoom=False, cross=None):
+    """Подписи правого поля: items — линии графика [{ys: [цены], text, color, bold}], rows — список касаний.
+    zoom — приближение: каждый тейк и выход отдельной строкой, с временем до мс; cross — переходы уровня (см. level_crossings)."""
     s = 1 if r["side"] == "long" else -1
     acol = "#0a8f3c" if s > 0 else "#d03b3b"
-    it = [dict(ys=[L], text=f"уровень {fmt_px(L)}", color=INK, bold=True),
-          dict(ys=[e], text=f"вход {fmt_px(e)} · {fmt_hms(r['entry_ms'], r['entry_ms'])}" + (f".{r['entry_ms'] % 1000:03d}" if "old_entry_ms" in r else ""),
+    em = r["entry_ms"]
+    tm = (lambda ms: " · " + fmt_hms_ms(ms, em)) if zoom else (lambda ms: "")
+    born_txt = f" · возник {fmt_min(r['born'])}" + (" (цена версии на сигнале)" if len(r["members"]) > 2 else "")
+    it = [dict(ys=[L], text=f"уровень {fmt_px(L)}{born_txt}", color=INK, bold=True),
+          dict(ys=[e], text=f"вход {fmt_px(e)} · {fmt_hms(em, em)}" + (f".{em % 1000:03d}" if "old_entry_ms" in r else ""),
                color=acol, bold=True)]
     if "old_entry_ms" in r:  # §13.16: вход прежней модели («следующая сделка») на том же сигнале — для сравнения
         oe = r["old_entry_px_e8"] / 1e8
-        it.append(dict(ys=[oe], text=f"прежний вход {fmt_px(oe)} · {fmt_hms(r['old_entry_ms'], r['entry_ms'])} (+{(r['old_entry_ms'] - r['entry_ms']) / 1000:.3f} с)",
+        it.append(dict(ys=[oe], text=f"прежний вход {fmt_px(oe)} · {fmt_hms(r['old_entry_ms'], em)} (+{(r['old_entry_ms'] - em) / 1000:.3f} с)",
                        color="#8a6d00", bold=False))
     last = legs[-1]
     stop_txt = f"стоп −5 % {fmt_px(ln['hard'])}"
     if r["kind"] == "stop":
-        stop_txt += f" {usd(last['net'])}"
+        stop_txt += (f" · выход {fmt_px(last['px'])}{tm(last['ms'])}" if zoom else "") + f" {usd(last['net'])}"
     elif ft is not None:
         stop_txt += ", после тейка 1 → вход"
     it.append(dict(ys=[ln["hard"]], text=stop_txt, color=C_STOP, bold=False))
     tk = [g for g in legs if g["kind"] == "take"]
-    if len(tk) > 3:
+    if len(tk) > 3 and not zoom:
         it.append(dict(ys=[g["px"] for g in tk], bold=False, color=C_TAKE,
                        text=f"тейк 1–{len(tk)} {fmt_px(tk[0]['px'])}…{fmt_px(tk[-1]['px'])} {usd(sum(g['net'] for g in tk))}"))
     else:
-        it += [dict(ys=[g["px"]], text=f"{g['label']} {fmt_px(g['px'])} {usd(g['net'])}", color=C_TAKE, bold=False) for g in tk]
+        it += [dict(ys=[g["px"]], text=f"{g['label']} {fmt_px(g['px'])}{tm(g['ms'])} {usd(g['net'])}", color=C_TAKE, bold=False) for g in tk]
     if r["kind"] != "stop":
         name = "принуд." if r["kind"] == "forced" else KIND_RU[r["kind"]]
-        it.append(dict(ys=[last["px"]], text=f"{name} {fmt_px(last['px'])} {usd(last['net'])}", color=KIND_COLOR[r["kind"]], bold=False))
+        it.append(dict(ys=[last["px"]], text=f"{name} {fmt_px(last['px'])}{tm(last['ms'])} {usd(last['net'])}", color=KIND_COLOR[r["kind"]], bold=False))
+    if cross is not None:
+        after = [c for c in cross if c[0] >= (em - T0) / MIN - 1e-9 and c[2] > 0]
+        if after:
+            c = after[0]
+            when = fmt_hms_ms(c[1], em) if c[1] is not None else f"{fmt_min(int(c[0]))} (минутка)"
+            txt = f"вышла за уровень {when}"
+        else:
+            txt = "после входа за уровень не выходила"
+        txt += f" · переходов в окне {len(cross)}" + (f" (показаны {CROSS_MAX})" if len(cross) > CROSS_MAX else "")
+        it.append(dict(ys=[L], text=txt, color=C_CROSS, bold=False))
     rows = []
     for d in touches:
         kind = "пивот" if d["pivot"] else "касание"
@@ -744,57 +797,88 @@ def field_items(r, legs, ln, touches, e, L, ft):
     return it, rows
 
 
-def render(r, kl, tk, out_png, plt):
+def render(r, kl, tk, out_png, plt, zoom=False):
+    """График сделки. Обзор — от 1-го пивота до выхода + 30 мин; zoom — приближение: от 30 мин до сигнала до 30 мин после выхода
+    (всегда ≥ 1 ч), минутные свечи, каждый тейк и выход маркером с ценой и временем, переходы цены через уровень.
+    Линия уровня и полоса ±τ — от рождения уровня (`born` движка), не от первого пивота; пивоты — маркеры."""
     from matplotlib.lines import Line2D
     from matplotlib.ticker import FixedLocator, FuncFormatter
 
     s = 1 if r["side"] == "long" else -1
     L = r["level_px_e8"] / 1e8
     e = r["entry_px_e8"] / 1e8
-    em, xm = r["entry_ms"], r["exit_ms"]
+    em, xm, sm = r["entry_ms"], r["exit_ms"], r["sig_ms"]
+    born = int(r["born"])
     legs = legs_of(r)
     touches, first_m, me = find_touches(r, kl)
     hold = (xm - em) / 1000
-    x0 = first_m - 30
     x1 = int((xm - T0) // MIN) + 1 + 30
+    x0 = max(int((sm - T0) // MIN) - 30, 0) if zoom else first_m - 30
+    x1 = min(max(x1, x0 + 60), kl.shape[1])
     n = x1 - x0
+    if zoom:
+        touches = [d for d in touches if x0 <= d["m"] < x1]
+        cross = level_crossings(r, tk, kl, x0, x1)
+    else:
+        cross = None
     ln = exit_lines(r, tk, kl, legs)
     ft = ln["first_take"]
-    items, rows = field_items(r, legs, ln, touches, e, L, ft)
+    items, rows = field_items(r, legs, ln, touches, e, L, ft, zoom, cross)
+    ex = (em - T0) / MIN
+    xx = (xm - T0) / MIN
+    xs = (sm - T0) / MIN
+    pxs = [g["px"] for g in legs] + [e, L] + [d["px"] for d in touches]
+    if "old_entry_ms" in r:
+        pxs.append(r["old_entry_px_e8"] / 1e8)
+    t, o, h_, l_, c = agg_bars(kl, x0, x1, 1)
+    ymin, ymax = min(np.nanmin(l_), min(pxs)), max(np.nanmax(h_), max(pxs))
+    show_hard = True
+    if zoom and r["kind"] != "stop" and not (ymin <= ln["hard"] <= ymax):  # приближение: стоп −5 % далеко — осью не растягиваем
+        show_hard = False
+        items = [i for i in items if not (i["color"] == C_STOP and i["ys"] == [ln["hard"]])]
+    else:
+        ymin, ymax = min(ymin, ln["hard"]), max(ymax, ln["hard"])
     # правое поле вне графика: ширина — по самой длинной подписи
     GAP = 34  # от графика до текста: место под выноски
     FIELD = int(GAP + max([text_w(i["text"], 9.5, "bold" if i["bold"] else "normal") for i in items] +
                           [text_w(i["text"], 8.5, "bold" if i["bold"] else "normal") for i in rows] + [150]) + 18)
     PADR = 60
     LEFT, TOP, BOT = 95, 78, 62
-    px = max(1.2, min(6.0, max(3.0, 1120.0 / n), (24000 - LEFT - FIELD - PADR) / n))
-    axw = max(n * px + PADR, 1500)
+    if zoom:
+        px = max(1.0, min(14.0, 1400.0 / n, (24000 - LEFT - FIELD - PADR) / n))
+        axw = max(n * px + PADR, 1100)
+    else:
+        px = max(1.2, min(6.0, max(3.0, 1120.0 / n), (24000 - LEFT - FIELD - PADR) / n))
+        axw = max(n * px + PADR, 1500)
     axh = max(700, (len(items) + len(rows) + 3) * LH + 20)
     W, H = int(LEFT + axw + FIELD), axh + TOP + BOT
     fig = plt.figure(figsize=(W / 80, H / 80), dpi=80)
     ax = fig.add_axes([LEFT / W, BOT / H, axw / W, axh / H])
     xr = axw / px
 
-    t, o, h_, l_, c = agg_bars(kl, x0, x1, 1)
     xc = (t - T0) / MIN + 0.5
     draw_candles(ax, xc, o, h_, l_, c, px, max(0.5, min(1.0, px * 0.35)))
-    pxs = [g["px"] for g in legs] + [e, L, ln["hard"]] + [d["px"] for d in touches]
-    if "old_entry_ms" in r:
-        pxs.append(r["old_entry_px_e8"] / 1e8)
-    ymin, ymax = min(np.nanmin(l_), min(pxs)), max(np.nanmax(h_), max(pxs))
     pad = (ymax - ymin) * 0.10
     ax.set_ylim(ymin - pad, ymax + pad)
     ax.set_xlim(x0, x0 + xr)
-    ex = (em - T0) / MIN
-    xx = (xm - T0) / MIN
-    fx = first_m + 0.5
     xend = x0 + xr
+    lx = max(born, x0)  # линия и полоса — с рождения уровня
 
-    # полоса допуска (тонкая), уровень: жирная линия от первого касания до входа, дальше тонко
-    ax.axhspan(L * (1 - CFG["tau"]), L * (1 + CFG["tau"]), xmin=(fx - x0) / xr, color="#9a998f", alpha=0.20, lw=0, zorder=1)
-    ax.hlines(L, fx, ex, color=INK, lw=3.0, zorder=6)
+    # полоса допуска (тонкая), уровень: жирная линия от рождения до входа, дальше тонко
+    ax.axhspan(L * (1 - CFG["tau"]), L * (1 + CFG["tau"]), xmin=(lx - x0) / xr, color="#9a998f", alpha=0.20, lw=0, zorder=1)
+    ax.hlines(L, lx, ex, color=INK, lw=3.0, zorder=6)
     ax.hlines(L, ex, xend, color=INK, lw=1.0, ls=(0, (4, 3)), zorder=5)
     ax.axvspan(ex, max(xx, ex + 1.0), color="#6b6a66", alpha=0.13, lw=0, zorder=2)
+    # вертикальные метки: рождение уровня (если в окне), сигнал (приближение)
+    lab = dict(fontsize=8.5, color=INK2, zorder=30, transform=ax.get_xaxis_transform(), bbox=dict(fc="#fcfcfb", ec="none", alpha=0.85, pad=1.5))
+    if x0 <= born < xend:
+        ax.axvline(born, color=INK2, lw=1.2, ls=(0, (1, 2)), zorder=4)
+        right = (born - x0) / xr > 0.8
+        ax.text(born, 0.985, fmt_min(born) + " уровень возник" if right else "уровень возник " + fmt_min(born),
+                ha="right" if right else "left", va="top", **lab)
+    if zoom:
+        ax.axvline(xs, color=INK2, lw=1.0, ls=(0, (3, 3)), zorder=4)
+        ax.text(xs, 0.945, "сигнал " + fmt_hms_ms(sm, em), ha="left", va="top", **lab)
 
     def vis(xe):  # отрезок короче 12 px не рисуем: время исполнения — засечкой на конце
         return max(xe, ex + 12 / px)
@@ -813,11 +897,13 @@ def render(r, kl, tk, out_png, plt):
             seg(g["px"], vis(xx), KIND_COLOR[g["kind"]], 1.0, 8)
     # стоп: −5 % до 1-го тейка (или до выхода), дальше ступенька в точку входа
     ds = (0, (5, 3))
-    seg(ln["hard"], vis(ft if ft is not None else xx), C_STOP, 1.2, 9, ls=ds, tick=r["kind"] == "stop" and ft is None)
+    if show_hard:
+        seg(ln["hard"], vis(ft if ft is not None else xx), C_STOP, 1.2, 9, ls=ds, tick=r["kind"] == "stop" and ft is None)
     if ft is not None:
         tr = [pt for pt in ln["trail"] if pt[0] < xx]
         be_end = vis(min(tr[0][0], xx) if tr else xx)
-        ax.vlines(ft, min(ln["hard"], e), max(ln["hard"], e), color=C_STOP, lw=1.2 * PXW, ls=ds, zorder=9)
+        if show_hard:
+            ax.vlines(ft, min(ln["hard"], e), max(ln["hard"], e), color=C_STOP, lw=1.2 * PXW, ls=ds, zorder=9)
         ax.hlines(e, ft, max(be_end, ft + 12 / px), color=C_STOP, lw=1.2 * PXW, ls=ds, zorder=9)
         if r["kind"] == "be":
             ax.plot([be_end], [legs[-1]["px"]], marker="|", ms=9, mew=1.2 * PXW, color=C_BE, ls="none", zorder=10)
@@ -831,6 +917,20 @@ def render(r, kl, tk, out_png, plt):
         ax.plot([tx], [d["px"]], marker="o", ms=13, mfc=INK if d["pivot"] else "white", mec=INK, mew=1.3, ls="none", zorder=21)
         ax.text(tx, d["px"], str(d["n"]), ha="center", va="center", fontsize=6.5 if d["n"] < 10 else 5.5, fontweight="bold",
                 color="white" if d["pivot"] else INK, zorder=23)
+
+    if zoom:  # переходы цены через уровень; вход, тейки, выход — маркеры по точному времени и цене
+        for cx, _, _ in cross[:CROSS_MAX]:
+            ax.plot([cx], [L], marker="X", ms=9, mfc=C_CROSS, mec="white", mew=0.9, ls="none", zorder=27)
+        ax.plot([ex], [e], marker="^" if s > 0 else "v", ms=11, mfc=acol, mec="white", mew=1.0, ls="none", zorder=28)
+        for g in legs:
+            gx = (g["ms"] - T0) / MIN
+            if g["kind"] == "take":
+                ax.plot([gx], [g["px"]], marker="o", ms=13, mfc=C_TAKE, mec="white", mew=1.0, ls="none", zorder=28)
+                ax.text(gx, g["px"], str(g["n"] + 1), ha="center", va="center", fontsize=6.5, fontweight="bold", color="white", zorder=29)
+            else:
+                ax.plot([gx], [g["px"]], marker="s", ms=11, mfc=KIND_COLOR[g["kind"]], mec="white", mew=1.0, ls="none", zorder=28)
+                if g["kind"] in ("stop", "be"):
+                    ax.hlines(g["px"], gx, xend, color=KIND_COLOR[g["kind"]], lw=0.7, ls=(0, (1, 3)), alpha=0.55, zorder=7)
 
     # оси
     step = tick_step(px)
@@ -863,8 +963,8 @@ def render(r, kl, tk, out_png, plt):
     for it, v, y in zip(items, yd, ys):
         col = it["color"]
 
-        def line(xs, yv):
-            fig.add_artist(Line2D([q / W for q in xs], [q / H for q in yv], color=col, lw=0.8, alpha=0.6, transform=fig.transFigure))
+        def line(xs_, yv):
+            fig.add_artist(Line2D([q / W for q in xs_], [q / H for q in yv], color=col, lw=0.8, alpha=0.6, transform=fig.transFigure))
 
         for yy in v:
             line([xr_px, xr_px + 10], [yy, yy])
@@ -874,7 +974,8 @@ def render(r, kl, tk, out_png, plt):
         fig.text(tx_ / W, y / H, it["text"], fontsize=9.5, fontweight="bold" if it["bold"] else "normal", color=col, va="center", ha="left")
     if rows:
         top_y = hi if where == "top" else lo + hb
-        fig.text(tx_ / W, (top_y - LH / 2) / H, f"касания ({len(rows)}):", fontsize=8.5, fontweight="bold", color=INK2, va="center", ha="left")
+        fig.text(tx_ / W, (top_y - LH / 2) / H, f"касания в окне ({len(rows)}):" if zoom else f"касания ({len(rows)}):",
+                 fontsize=8.5, fontweight="bold", color=INK2, va="center", ha="left")
         for k, row in enumerate(rows, 1):
             fig.text(tx_ / W, (top_y - LH / 2 - k * LH) / H, row["text"], fontsize=8.5, fontweight="bold" if row["bold"] else "normal",
                      color=INK, va="center", ha="left")
@@ -882,7 +983,7 @@ def render(r, kl, tk, out_png, plt):
     net_usd, net_bps = r["net"], r["net"] / NOTIONAL * 1e4
     day = datetime.fromtimestamp((em + GMT4) / 1000, tz=timezone.utc).strftime("%d.%m.%Y")
     title = (f"{r['sym']} · {SIDE_RU[r['side']]} · {day} · итог {net_usd:+.2f} $ ({net_bps:+.1f} бп) · "
-             f"{KIND_RU[r['kind']]} · держали {fmt_dur(hold)} · касаний {len(touches)}")
+             f"{KIND_RU[r['kind']]} · держали {fmt_dur(hold)} · касаний {len(touches)}" + (" · приближение" if zoom else ""))
     fig.text(20 / W, 1 - 30 / H, title, fontsize=16, color=INK, fontweight="bold", va="center")
     fig.savefig(out_png, dpi=80)
     plt.close(fig)
@@ -901,8 +1002,11 @@ def cmd_render(a):
     for sym, rs in sorted(by_sym.items()):
         kl = klines(sym)
         for r in rs:
-            W, H, ex, nt = render(r, kl, load_ticks(a.work, r["id"]), os.path.join(a.out, f"{r['id']}.png"), plt)
+            tk = load_ticks(a.work, r["id"])
+            W, H, ex, nt = render(r, kl, tk, os.path.join(a.out, f"{r['id']}.png"), plt)
             meta[r["id"]] = [W, H, ex, nt]
+            W, H, ex, nt = render(r, kl, tk, os.path.join(a.out, f"{r['id']}_zoom.png"), plt, zoom=True)
+            meta[r["id"] + "_zoom"] = [W, H, ex, nt]
             n += 1
             if n % 25 == 0:
                 print(f"PNG {n}/{len(trades)}", flush=True)
@@ -938,11 +1042,12 @@ th.l,td.l{text-align:left}th .ar{color:var(--acc)}tbody tr{cursor:pointer}tbody 
 #modal{display:none;position:fixed;inset:0;background:rgba(15,15,15,.82);z-index:20}#modal.on{display:flex;flex-direction:column;align-items:center}
 #modal .top{color:#eee;padding:8px 14px;font-size:13px;display:flex;gap:16px;align-items:center;width:100%}
 #modal .top b{font-size:15px}#modal .top .sp{margin-left:auto}
-#modal .imgw{flex:1;min-height:0;width:100%;overflow:auto;text-align:center}#modal img{max-width:100%;max-height:100%;background:#fff}
-#modal.fit img{max-width:100%;max-height:calc(100vh - 44px)}#modal:not(.fit) img{max-width:none;max-height:none}
+#modal .top{background:#1b1b1b}#modal .imgw{flex:1;min-height:0;width:100%;overflow-y:auto;background:#262626}#modal .pn h4{margin:6px 14px 4px;color:#ddd;font-size:13px;font-weight:600}
+#modal .sc{overflow-x:auto;text-align:center;margin-bottom:10px}#modal img{background:#fff;vertical-align:top}
+#modal.fit img{max-width:100%;height:auto}#modal:not(.fit) img{max-width:none;max-height:none}
 </style></head><body>
 <header><h1>П-42 · пробой уровня · сделки: __NAME__ (тики 4 мс, 566 монет, 15.09–13.11)</h1>
-<div class="sub">Одна сделка — одна строка. Клик по строке — график (откроется на входе, широкую картинку листать мышью/колесом с Shift); ← → листают отфильтрованный список, Esc — закрыть, Z — вписать в окно / полный размер. Время — GMT+4; позиция $500; комиссии по тарифу владельца. Графики: вход — линия на цене входа (зелёная лонг / красная шорт), тейки — тонкие зелёные отрезки, трейл — бирюзовый, стоп — красный пунктир; подписи и касания — справа. __PKNOTE__</div></header>
+<div class="sub">Одна сделка — одна строка. Клик по строке — два графика: сверху приближение (от 30 мин до сигнала до 30 мин после выхода, минутные свечи: ▲▼ вход, зелёные кружки — тейки, квадрат — выход, оранжевые × — переходы цены через уровень), ниже обзор (от первого пивота до выхода; широкую картинку листать мышью/колесом с Shift); ← → листают отфильтрованный список, Esc — закрыть, Z — вписать в окно / полный размер. Время — GMT+4; позиция $500; комиссии по тарифу владельца. Линия уровня и полоса ±τ — с рождения уровня (вертикальная пунктирная метка), пивоты — чёрные кружки. Вход — линия на цене входа (зелёная лонг / красная шорт), тейки — тонкие зелёные отрезки, трейл — бирюзовый, стоп — красный пунктир; подписи и касания — справа. __PKNOTE__</div></header>
 <div class="bar" id="bar">
 <label>Монета<input type="text" id="f_sym" placeholder="BTC…"></label>
 <label>Сторона<select id="f_side"><option value="">все</option><option value="long">лонг</option><option value="short">шорт</option></select></label>
@@ -959,19 +1064,20 @@ th.l,td.l{text-align:left}th .ar{color:var(--acc)}tbody tr{cursor:pointer}tbody 
 <button id="reset">Сброс</button><span id="cnt"></span></div>
 <details id="st" open><summary>Флаги уровня A–G — статистика (клик по строке — фильтр, клик по id — три примера)</summary><div id="stb"></div></details>
 <table><thead><tr id="hdr"></tr></thead><tbody id="tb"></tbody></table>
-<div id="modal"><div class="top"><b id="m_t"></b><span id="m_s"></span><span class="sp">← → · Esc · Z масштаб · <a id="m_a" style="color:#9cf" target="_blank">открыть файл</a></span></div><div class="imgw"><img id="m_i"></div></div>
+<div id="modal"><div class="top"><b id="m_t"></b><span id="m_s"></span><span class="sp">← → · Esc · Z масштаб · <a id="m_az" style="color:#9cf" target="_blank">приближение</a> · <a id="m_a" style="color:#9cf" target="_blank">обзор</a></span></div><div class="imgw"><div class="pn" id="pz"><h4>Приближение: от 30 мин до сигнала до 30 мин после выхода</h4><div class="sc" id="sz"><img id="m_z"></div></div><div class="pn"><h4 id="po_h">Обзор: от первого пивота до выхода</h4><div class="sc" id="so"><img id="m_i"></div></div></div></div>
 <script>
 const D=__DATA__;
 const COLS=[["#","n",0],["Монета","sym",1],["Сторона","side_ru",1],["Вход (GMT+4)","entry_gmt4",1],["Исход","outcome",1],["Тейков","takes",0],["$ итог","net_usd",0],["бп итог","net_bps",0],
-["Держали","hold_s",0],["Сигнал→вход, с","sig_to_fill_s",0],["Прежний вход (GMT+4)","old_entry_gmt4",1],["Цена прежнего","old_entry_px",0],["Цена нового","entry_px",0],["Δ цены, бп","entry_diff_bp",0],["Метка","mark",1],["NATR %","natr_pct",0],["До уровня, бп","dist_entry_bps",0],["Возраст ур., ч","age_h",0],["Пивотов","n_pivots",0],["Касаний","touches",0],["MFE 30м, бп","mfe_30m_bps",0],["MAE 30м, бп","mae_30m_bps",0],["Пересёк","crossed",1],
+["Держали","hold_s",0],["Сигнал→вход, с","sig_to_fill_s",0],["Прежний вход (GMT+4)","old_entry_gmt4",1],["Цена прежнего","old_entry_px",0],["Цена нового","entry_px",0],["Δ цены, бп","entry_diff_bp",0],["Метка","mark",1],["NATR %","natr_pct",0],["До уровня, бп","dist_entry_bps",0],["Возраст ур., ч","age_h",0],["Пивотов","n_pivots",0],["Касаний","touches",0],["разброс отскоков, bp","pivot_spread_bps",0],["касание до входа, мин","last_touch_age_min",0],["MFE 30м, бп","mfe_30m_bps",0],["MAE 30м, бп","mae_30m_bps",0],["Пересёк","crossed",1],
 ["Новая","is_new",2],["Допуск","adm",1],["A","flag_A",2],["B","flag_B",2],["C","flag_C",2],["D","flag_D",2],["E","flag_E",2],["F","flag_F",2],["G","flag_G",2]];
 const FT=__FLAGTXT__,ST=__FLAGS__;
+const TIPS={pivot_spread_bps:"разброс цен пивотов (отскоков) уровня: (макс − мин) / среднее, бп; уровень — среднее пивотов, допуск каждого τ = 20 бп от среднего, для двух пивотов разброс до 40 бп",last_touch_age_min:"минут от последнего касания уровня до минуты входа; касание — минута, где high (лонг) / low (шорт) дошёл до нижней (верхней) границы полосы ±τ; считаются и пивоты, и подход цены к уровню перед сигналом"};
 const OUTR={stop:"стоп","be":"безубыток",trail:"трейл",forced:"принуд."};
 D.forEach((d,i)=>{d.n=i+1;d.side_ru=d.side==="long"?"лонг":"шорт";d.age_h=d.level_age_min/60;d.crossed=d.crossed_30m?"да":"нет";d.date=d.entry_gmt4.slice(0,10)});
 const fmtDur=s=>{s=Math.round(s);if(s<60)return s+" с";if(s<3600)return Math.floor(s/60)+" мин "+String(s%60).padStart(2,"0")+" с";const h=Math.floor(s/3600);if(h<48)return h+" ч "+String(Math.floor(s%3600/60)).padStart(2,"0")+" мин";return Math.floor(h/24)+" сут. "+(h%24)+" ч"};
 const outs=[...new Set(D.map(d=>d.exit_kind))];const so=document.getElementById("f_out");outs.forEach(o=>{const e=document.createElement("option");e.value=o;e.textContent=OUTR[o]||o;so.appendChild(e)});
 let sk="entry_gmt4",sd=1,view=[],nav=[],cur=-1;
-const hdr=document.getElementById("hdr");COLS.forEach(([t,k,l])=>{const th=document.createElement("th");th.className=l===1?"l":l===2?"flh":"";if(l===2)th.title=k==="adm"?"какое условие §13.14 допускает сделку: касание уровня не старше 4 ч (а) и/или проторговка 120 мин (б); «нет» — правило не применялось (набор без §13.14)":k==="is_new"?"новая: сделки нет в прежней базе b0 (появилась под pk=1: освободился слот или не наступила пауза)":FT[k.slice(5)];th.innerHTML=t+' <span class="ar"></span>';th.onclick=()=>{if(sk===k)sd=-sd;else{sk=k;sd=1}render()};th.dataset.k=k;hdr.appendChild(th)});
+const hdr=document.getElementById("hdr");COLS.forEach(([t,k,l])=>{const th=document.createElement("th");th.className=l===1?"l":l===2?"flh":"";if(TIPS[k])th.title=TIPS[k];if(l===2)th.title=k==="adm"?"какое условие §13.14 допускает сделку: касание уровня не старше 4 ч (а) и/или проторговка 120 мин (б); «нет» — правило не применялось (набор без §13.14)":k==="is_new"?"новая: сделки нет в прежней базе b0 (появилась под pk=1: освободился слот или не наступила пауза)":FT[k.slice(5)];th.innerHTML=t+' <span class="ar"></span>';th.onclick=()=>{if(sk===k)sd=-sd;else{sk=k;sd=1}render()};th.dataset.k=k;hdr.appendChild(th)});
 const $=id=>document.getElementById(id);
 function filt(){const q=$("f_sym").value.trim().toUpperCase(),sd_=$("f_side").value,o=$("f_out").value,h=$("f_half").value,mn=$("f_min").value,mx=$("f_max").value,d1=$("f_d1").value,d2=$("f_d2").value,c=$("f_cross").value,fg=$("f_flag").value,nw=$("f_new").value,dl=$("f_dly").value,am=$("f_adm").value,mk=$("f_mark").value;
 return D.filter(d=>(mk==="all"||(mk==="gone"?d.mark==="исчезла":mk==="common"?d.mark==="общая":mk==="new"?d.mark==="появилась":d.mark!=="исчезла"))&&(!fg||(fg==="any"?d.n_flags>0:fg==="none"?d.n_flags===0:d["flag_"+fg]))&&(!q||d.sym.includes(q))&&(!sd_||d.side===sd_)&&(!o||d.exit_kind===o)&&(!h||d.half===h)&&(mn===""||d.net_usd>=+mn)&&(mx===""||d.net_usd<=+mx)&&(!d1||d.date>=d1)&&(!d2||d.date<=d2)&&(c===""||(c==="1")===d.crossed_30m)&&(nw===""||(nw==="1")===d.is_new)&&(dl===""||d.sig_to_fill_s>=+dl)&&(am===""||(am==="a"&&d.adm==="касание")||(am==="b"&&d.adm_cons)||(am==="both"&&d.adm==="оба")||(am==="none"&&d.adm==="нет")))}
@@ -979,7 +1085,7 @@ function cell(d,k){const v=d[k];if(k.startsWith("flag_")||k==="is_new")return v?
 case"outcome":return `<span class="tag t-${d.exit_kind}">${OUTR[d.exit_kind]||d.exit_kind}${d.takes>0&&d.exit_kind!=="forced"?" + тейки":""}</span>`;case"hold_s":return fmtDur(v);case"sig_to_fill_s":return v==null?"—":v.toFixed(3);case"entry_gmt4":return v.slice(8,10)+"."+v.slice(5,7)+" "+v.slice(11,23);
 case"old_entry_gmt4":return v==null?"—":v.slice(8,10)+"."+v.slice(5,7)+" "+v.slice(11,23);case"old_entry_px":case"entry_px":return v==null||(k==="entry_px"&&d.mark==="исчезла")?"—":String(+(+v).toPrecision(6));
 case"entry_diff_bp":return v==null?"—":`<span class="${v>0?"neg":v<0?"pos":""}">${v.toFixed(2)}</span>`;case"mark":return v?`<span class="tag t-${v==="исчезла"?"gone":v==="появилась"?"newm":"cm"}" title="${d.mark_why||""}">${v}</span>`:"";
-case"natr_pct":case"age_h":return v.toFixed(2);case"dist_entry_bps":case"mfe_30m_bps":case"mae_30m_bps":return v==null?"—":v.toFixed(1);default:return v==null?"—":v}}
+case"natr_pct":case"age_h":return v.toFixed(2);case"dist_entry_bps":case"pivot_spread_bps":case"mfe_30m_bps":case"mae_30m_bps":return v==null?"—":v.toFixed(1);default:return v==null?"—":v}}
 function render(){view=filt();view.sort((a,b)=>{const x=a[sk],y=b[sk];return (x<y?-1:x>y?1:0)*sd||a.n-b.n});
 document.querySelectorAll("#hdr th").forEach(th=>th.querySelector(".ar").textContent=th.dataset.k===sk?(sd>0?"▲":"▼"):"");
 $("tb").innerHTML=view.map((d,i)=>"<tr data-i='"+i+"'>"+COLS.map(([t,k,l])=>`<td class="${l===1?"l":l===2?"fl":""}">${cell(d,k)}</td>`).join("")+"</tr>").join("");
@@ -993,10 +1099,12 @@ $("stb").onclick=e=>{const a=e.target.closest("a");if(a){e.stopPropagation();nav
 const tr=e.target.closest("tr.fr");if(tr){const k=tr.dataset.k;$("f_flag").value=["A","B","C","D","E","F","G","A_post","any","none"].includes(k)?k:"";$("f_new").value=k==="new"?"1":"";$("f_dly").value=k==="slow"?"1":"";$("f_adm").value=({adm_a:"a",adm_b:"b",adm_none:"none"})[k]||"";render()}}})();
 $("tb").onclick=e=>{const tr=e.target.closest("tr");if(tr){nav=view;open(+tr.dataset.i)}};
 function flagLine(d){if(!d.n_flags)return " · флагов уровня нет";const t=[];if(d.flag_A)t.push(`A прокол ${d.pierce_over_bps.toFixed(1)} бп, закрытий за уровнем ${d.pierce_close_n}`+(d.flag_A_post?` (после рождения: ${d.pierce_over_bps_post.toFixed(1)} бп, ${d.pierce_close_n_post})`:" (только до рождения уровня)"));if(d.flag_B)t.push(`B пивоты ${d.min_pivot_gap_min} мин друг от друга`);if(d.flag_C)t.push(`C уровень известен ${d.level_known_min} мин`);if(d.flag_D)t.push(`D диапазон ${d.spike_range_natr.toFixed(1)} NATR`);if(d.flag_E)t.push(`E разброс ${d.pivot_spread_bps.toFixed(1)} бп`+(d.level_vs_mean_e8?`, цена ≠ среднему на ${d.level_vs_mean_e8} e8`:""));if(d.flag_F)t.push(`F пивот не экстремум (${d.pivot_not_extreme_n})`);if(d.flag_G)t.push(`G закрытий за уровнем ${d.late_close_beyond_n}, до ${d.late_close_over_bps.toFixed(1)} бп`);return " · флаги: "+t.join("; ")}
-function open(i){if(i<0||i>=nav.length)return;cur=i;const d=nav[i];const im=$("m_i"),iw=document.querySelector(".imgw");im.onload=()=>{iw.scrollLeft=Math.max(0,(d.ex||0)-iw.clientWidth*0.35);iw.scrollTop=0};const src=d.img||("charts/"+d.id+".png");im.src=src;$("m_a").href=src;$("m_t").textContent=`${d.sym} ${d.side_ru} ${d.entry_gmt4.slice(0,19)}`;
+function open(i){if(i<0||i>=nav.length)return;cur=i;const d=nav[i];const im=$("m_i"),so=$("so"),iz=$("m_z"),sz=$("sz");document.querySelector(".imgw").scrollTop=0;im.onload=()=>{so.scrollLeft=Math.max(0,(d.ex||0)-so.clientWidth*0.35)};const src=d.img||("charts/"+d.id+".png");im.src=src;$("m_a").href=src;
+if(d.zoom){$("pz").style.display="";iz.onload=()=>{sz.scrollLeft=Math.max(0,(d.zex||0)-sz.clientWidth*0.35)};iz.src=d.zoom;$("m_az").href=d.zoom;$("m_az").style.display=""}else{$("pz").style.display="none";iz.removeAttribute("src");$("m_az").style.display="none"}
+$("po_h").textContent=d.mark==="исчезла"?"График прежнего набора (вход «следующая сделка», 15.11): от первого пивота до выхода":"Обзор: от первого пивота до выхода";$("m_t").textContent=`${d.sym} ${d.side_ru} ${d.entry_gmt4.slice(0,19)}`;
 $("m_s").textContent=`${d.net_usd.toFixed(2)} $ · ${d.net_bps.toFixed(1)} бп · ${OUTR[d.exit_kind]} · держали ${fmtDur(d.hold_s)} · касаний ${d.touches} · ${i+1}/${nav.length}`+(d.sig_to_fill_s!=null?` · сигнал→вход ${d.sig_to_fill_s.toFixed(3)} с`:d.old_sig_to_fill_s!=null?` · прежний вход: сигнал→вход ${(+d.old_sig_to_fill_s).toFixed(3)} с`:"")+flagLine(d)+(d.mark==="исчезла"?" · ИСЧЕЗЛА при новом входе ("+d.mark_why+"); график прежнего входа":d.mark==="появилась"?" · появилась (нет при старом входе)":"")+(d.entry_diff_bp!=null?` · цена входа новая − прежняя ${d.entry_diff_bp.toFixed(2)} бп`:"");$("modal").classList.add("on")}
 document.addEventListener("keydown",e=>{if(!$("modal").classList.contains("on"))return;if(e.key==="Escape")$("modal").classList.remove("on");else if(e.key==="ArrowRight")open(cur+1);else if(e.key==="ArrowLeft")open(cur-1);else if(e.key==="z"||e.key==="Z")$("modal").classList.toggle("fit")});
-$("modal").onclick=e=>{if(e.target.id==="modal"||e.target.classList.contains("imgw"))$("modal").classList.remove("on")};
+$("modal").onclick=e=>{if(e.target.id==="modal"||e.target.classList.contains("imgw")||e.target.classList.contains("sc"))$("modal").classList.remove("on")};
 document.querySelectorAll(".bar input,.bar select").forEach(el=>el.oninput=render);$("reset").onclick=()=>{document.querySelectorAll(".bar input,.bar select").forEach(el=>el.value="");render()};
 document.documentElement.style.setProperty("--barh",document.getElementById("bar").offsetHeight+"px");render();
 </script></body></html>
@@ -1074,7 +1182,7 @@ def cmd_index(a):
     keep = ["id", "side", "sym", "entry_gmt4", "half", "day", "exit_kind", "takes", "outcome", "net_usd", "net_bps", "hold_s",
             "natr_pct", "dist_entry_bps", "level_age_min", "n_pivots", "touches", "mfe_30m_bps", "mae_30m_bps", "crossed_30m",
             "flags", "n_flags", "sig_to_fill_s", "is_new", "adm", "adm_touch", "adm_cons", "cons_minutes", "pierce_over_bps", "pierce_close_n", "min_pivot_gap_min", "level_known_min", "spike_range_natr",
-            "pierce_over_bps_post", "pierce_close_n_post", "flag_A_post", "pivot_spread_bps", "spread_gt_2tau", "level_vs_mean_e8", "pivot_not_extreme_n", "late_close_beyond_n", "late_close_over_bps"] + ["flag_" + c for c in FLAGS]
+            "pierce_over_bps_post", "pierce_close_n_post", "flag_A_post", "pivot_spread_bps", "last_touch_age_min", "spread_gt_2tau", "level_vs_mean_e8", "pivot_not_extreme_n", "late_close_beyond_n", "late_close_over_bps"] + ["flag_" + c for c in FLAGS]
     meta = {}
     cdir = a.charts or os.path.join(a.pub, "charts")
     for fn in os.listdir(cdir) if os.path.isdir(cdir) else []:
@@ -1119,6 +1227,9 @@ def cmd_index(a):
             continue
         m = meta.get(d["id"])
         d["ex"], d["w"] = (m[2], m[0]) if m else (0, 0)
+        z = meta.get(d["id"] + "_zoom")
+        if z:  # приближение: charts/<id>_zoom.png; zex — x входа в пикселях картинки (по нему окно прокручивается)
+            d["zoom"], d["zex"] = f"charts/{d['id']}_zoom.png", z[2]
     for d in data:
         for k, v in d.items():
             if isinstance(v, float) and k not in ("entry_px", "old_entry_px"):
