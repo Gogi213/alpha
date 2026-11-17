@@ -618,6 +618,78 @@ fn a_shard_is_impaired_only_with_a_data_pause_or_no_carrying_line() {
     assert!(storm::impaired(&m));
 }
 
+/// TK-582 (остановки Binance 16.11 21:18–22:21): шард, у которого ни одна линия не несёт поток, тёмный даже при открытых соединениях; режим «стоянка» и потолок замен
+/// такой шард не держат (у них держать нечем: старая линия мертва), потолки при этом не занимаются; со светлой линией решает прежний `admit`.
+#[test]
+fn a_dark_shard_is_admitted_through_the_storm_hold_and_the_replace_cap() {
+    use storm::{admit_dark, Admit};
+    let now = Instant::now();
+    let s = Storm::default();
+    s.evaluate(5, 6, 0);
+    let probe = Cap::new(1, storm::PROBE_PERIOD);
+    let replace = Cap::new(1, Duration::from_secs(300));
+    assert!(
+        probe.take(now) && replace.take(now),
+        "пробная и потолок замен исчерпаны"
+    );
+    assert_eq!(
+        admit_dark(false, false, Some(&s), &probe, &replace, now),
+        Admit::Hold,
+        "светлый шард: режим держит старую линию"
+    );
+    assert_eq!(
+        admit_dark(true, false, Some(&s), &probe, &replace, now),
+        Admit::Go(StormGate::Open),
+        "тёмный шард идёт через режим и потолок"
+    );
+    assert!(
+        probe.wait(now) > Duration::ZERO && replace.wait(now) > Duration::ZERO,
+        "тёмная замена ничего не заняла в потолках"
+    );
+}
+
+#[test]
+fn a_shard_with_open_connections_but_no_carrying_line_is_dark() {
+    let m = ShardMetrics::new("book00", 0, 64, 16);
+    assert!(storm::dark(&m), "без соединений");
+    m.connected.store(2, Relaxed);
+    assert!(storm::dark(&m), "соединения открыты, обе линии испорчены");
+    m.lane_carry[1].store(true, Relaxed);
+    assert!(!storm::dark(&m), "одна линия несёт — шард светлый");
+    m.lane_carry[1].store(false, Relaxed);
+    m.in_gap.store(true, Relaxed);
+    assert!(
+        storm::dark(&m),
+        "пауза данных сама по себе не делает шард светлым"
+    );
+}
+
+/// Ожидание потолка отбраковок не держит тёмный шард: сон кончается, как только ни одна линия не несёт поток; у светлого шарда ждёт весь срок.
+#[test]
+fn the_reject_wait_ends_when_the_shard_turns_dark_and_runs_in_full_otherwise() {
+    use super::shard::sleep_unless_dark;
+    use std::sync::atomic::AtomicBool;
+    let stop = AtomicBool::new(false);
+    let m = ShardMetrics::new("book00", 0, 64, 16);
+    let t0 = Instant::now();
+    sleep_unless_dark(&stop, &m, Duration::from_secs(30));
+    assert!(t0.elapsed() < Duration::from_secs(1), "тёмный шард не ждёт");
+    m.lane_carry[0].store(true, Relaxed);
+    let t1 = Instant::now();
+    sleep_unless_dark(&stop, &m, Duration::from_millis(300));
+    assert!(
+        t1.elapsed() >= Duration::from_millis(290),
+        "светлый шард ждёт весь срок"
+    );
+    stop.store(true, Relaxed);
+    let t2 = Instant::now();
+    sleep_unless_dark(&stop, &m, Duration::from_secs(30));
+    assert!(
+        t2.elapsed() < Duration::from_secs(1),
+        "остановка прерывает сон"
+    );
+}
+
 /// Воспроизведение Б1 (проверка 16.11, прогон по событиям 14–16.11, Gate 15.11 15:28): у каждого из 9 шардов одна линия испорчена (`ping_degraded`), вторая здорова. Режим держит замены
 /// испорченных линий; по прежнему правилу («испорчена хоть одна линия») все 9 шардов остаются «испорченными», пока линии не закрыты, — режим не выключается. По новому правилу шард
 /// испорчен, только если у него нет здоровой линии: режим выключается через минуту, хотя испорченные линии не заменены.

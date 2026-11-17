@@ -25,6 +25,7 @@ use super::net::{self, Conn};
 use super::path::{PathProbe, PathWatch};
 use super::reactor::ReactorHandle;
 use super::ring::{Item, Payload, RingTx};
+use super::storm;
 
 /// Абсолютный порог отбраковки пути по RTT рукопожатия, назначаемое (TK-527, замер: два маршрута, выбираются портом источника;
 /// быстрый ≤ ~293 мс — чисто, медленный ≥ ~347 мс — лаг 1–14 с и ретрансмиты; у Python такой же порог 300 мс → 0 поздних).
@@ -35,6 +36,10 @@ pub const PING_PERIOD: Duration = Duration::from_secs(5);
 const SLOW_PONG: Duration = Duration::from_secs(1);
 /// Порог «таймаут» страницы здоровья (нет pong), назначаемое.
 pub const PING_TIMEOUT: Duration = Duration::from_secs(10);
+/// Линия молчит столько, пока и весь шард в паузе (`gap`), — она испорчена, не дожидаясь `PING_TIMEOUT` (TK-582: обнаружение 10–14 с → 4–7 с), назначаемое.
+pub const SILENT_LINE: Duration = Duration::from_secs(4);
+/// ...и наш пинг без pong уже столько: живая линия отвечает за RTT (≈ 0,25 с), тихий рынок сам линию не портит, назначаемое.
+pub const SILENT_PONG: Duration = Duration::from_secs(2);
 /// Данные свежие, если последний кадр линии моложе этого срока; при `--no-pong-only-degrade` нет pong при свежих данных линию не портит (журнал `timeout` и счётчики health остаются).
 pub const FRESH_DATA: Duration = Duration::from_secs(2);
 /// Тик чтения: период, с которым поток просыпается без кадров (пинг, остановка, проверка пути).
@@ -220,7 +225,8 @@ pub fn run(
     lane: u8,
 ) -> Outcome {
     // шард без соединения берёт место в бюджете раньше второй линии и замен покрытых шардов
-    let uncovered = || sh.metrics.connected.load(Relaxed) <= 0;
+    // и шард, у которого соединения открыты, но ни одно не несёт поток (все линии испорчены): ему путь принимается как есть, как шарду без соединения (TK-582)
+    let uncovered = || sh.metrics.connected.load(Relaxed) <= 0 || storm::dark(&sh.metrics);
     let Some(waited) = sh.budget.acquire(&[&sh.stop, cancel], &uncovered) else {
         return Outcome::Closed;
     };
@@ -711,6 +717,19 @@ impl Rx {
                 return Some(out);
             }
         }
+        if self.pings_on
+            && self.sub.is_none()
+            && sh.metrics.in_gap.load(Relaxed)
+            && now.duration_since(self.last_frame) >= SILENT_LINE
+            && self
+                .ping_sent
+                .is_some_and(|(t0, _)| now.duration_since(t0) >= SILENT_PONG)
+        {
+            sh.events.emit("ping_degraded", json!({"session": seq, "why": "silent_in_gap", "since_frame_ms": u64::try_from(now.duration_since(self.last_frame).as_millis()).unwrap_or(u64::MAX)}));
+            sh.watch().mark_degraded(seq);
+            self.pings_on = false;
+            self.ping_sent = None;
+        }
         if self.pings_on && self.sub.is_none() {
             match self.ping_sent {
                 None if now.duration_since(self.last_ping) >= sh.ping.0 => {
@@ -760,9 +779,25 @@ impl Rx {
             if p.finished(now) {
                 let clean = p.clean();
                 let (cnt, p50, p99) = p.summary();
-                sh.events.emit(if clean { "path_ok" } else { "path_rejected" }, json!({"session": seq, "n": cnt, "p50_ms": p50.map(f64::round), "p99_ms": p99.map(f64::round)}));
-                if !clean {
+                // тёмный шард (ни одна линия не несёт поток): соединение с данными, пусть медленное, лучше разрыва — принимаем, замена на чистый путь потом по `mark_slow` (TK-582)
+                let dark = !clean && storm::dark(&sh.metrics);
+                let verdict = if clean {
+                    "path_ok"
+                } else if dark {
+                    "path_slow_accepted"
+                } else {
+                    "path_rejected"
+                };
+                let mut ev = json!({"session": seq, "n": cnt, "p50_ms": p50.map(f64::round), "p99_ms": p99.map(f64::round)});
+                if let (true, Some(o)) = (dark, ev.as_object_mut()) {
+                    o.insert("why".to_string(), json!("dark"));
+                }
+                sh.events.emit(verdict, ev);
+                if !clean && !dark {
                     return Some(Outcome::PathRejected);
+                }
+                if dark {
+                    sh.watch().mark_slow(seq);
                 }
                 self.probe = None;
                 if let Some(a) = self.accepted.as_ref() {

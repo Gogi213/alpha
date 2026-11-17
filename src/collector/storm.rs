@@ -119,6 +119,27 @@ pub enum Admit {
     Capped,
 }
 
+/// Шард тёмный: ни одна его линия не несёт поток (все испорчены или закрыты). Старой линии, которая «несёт поток», нет — держать её режимом, потолком замен
+/// или отбраковкой пути нечем (TK-582: остановки Binance 16.11 — обе линии мертвы, замена ждала потолок 130–290 с, 3 689 шард-с за три остановки).
+pub fn dark(m: &ShardMetrics) -> bool {
+    !m.lane_carry.iter().any(|b| b.load(Relaxed))
+}
+
+/// Допуск замены тёмного шарда: режим «стоянка» и потолок замен его не держат (бюджет подключений остаётся жёстким пределом), у светлого — `admit`.
+pub fn admit_dark(
+    dark: bool,
+    old: bool,
+    storm: Option<&Storm>,
+    probe: &Cap,
+    replace: &Cap,
+    now: Instant,
+) -> Admit {
+    if dark {
+        return Admit::Go(StormGate::Open);
+    }
+    admit(old, storm, probe, replace, now)
+}
+
 /// Допуск замены: возрастная пересменка идёт всегда; остальные проходят режим «стоянка» (`storm`, пробная — `probe`) и потолок замен (`replace`).
 /// Пробная замена, не прошедшая потолок замен, возвращается в `probe`: потолок не сжигает её на `PROBE_PERIOD` (проверка 16.11).
 pub fn admit(old: bool, storm: Option<&Storm>, probe: &Cap, replace: &Cap, now: Instant) -> Admit {

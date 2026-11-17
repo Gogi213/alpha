@@ -244,6 +244,22 @@ impl Lane {
     }
 }
 
+/// Сон, который прерывается, как только шард стал тёмным (ни одна линия не несёт поток): ожидание потолка отбраковок не держит шард без данных (TK-582).
+fn sleep_stop_unless_dark(sh: &Shared, d: Duration) {
+    sleep_unless_dark(&sh.stop, &sh.metrics, d);
+}
+
+pub(crate) fn sleep_unless_dark(stop: &AtomicBool, m: &ShardMetrics, d: Duration) {
+    let end = Instant::now() + d;
+    while !stop.load(Relaxed) && !storm::dark(m) {
+        let left = end.saturating_duration_since(Instant::now());
+        if left.is_zero() {
+            return;
+        }
+        thread::sleep(left.min(Duration::from_millis(100)));
+    }
+}
+
 fn sleep_stop(sh: &Shared, d: Duration) {
     let end = Instant::now() + d;
     while !sh.stop.load(Relaxed) {
@@ -298,10 +314,10 @@ fn session_forever(
                         "path_reject_capped",
                         json!({"session": seq, "rejects": rejects, "wait_s": wait.as_secs()}),
                     );
-                    sleep_stop(sh, wait);
+                    sleep_stop_unless_dark(sh, wait);
                 }
                 if let Some(pause) = strict.filter(|_| rejects.is_multiple_of(PROBE_MAX_REJECTS)) {
-                    sleep_stop(sh, pause);
+                    sleep_stop_unless_dark(sh, pause);
                 }
                 continue;
             }
@@ -462,7 +478,8 @@ fn lane_main(sh: &Arc<Shared>, lane: &Arc<Lane>, opts: &ShardOpts, seq0: u32) {
         }
         // стоянка всей биржи: новые линии на том же пути так же плохи, замены только съедают бюджет — старая линия держится, кроме одной пробной на шард (возрастная пересменка идёт);
         // потолок замен пути на шард: возрастная пересменка идёт всегда (биржа рвёт старую сессию), остальные — не чаще `REPLACE_CAP` за `CAP_WINDOW`; пробная замена, упёршаяся в потолок, не сгорает
-        let gate = match storm::admit(
+        let gate = match storm::admit_dark(
+            storm::dark(&sh.metrics),
             old,
             sh.storm.as_deref(),
             &sh.storm_probe,
@@ -511,7 +528,11 @@ fn lane_main(sh: &Arc<Shared>, lane: &Arc<Lane>, opts: &ShardOpts, seq0: u32) {
         let patient = strict.is_some() && bad;
         // пробная замена режимом не прекращается; прекращается только замена, начатая до включения режима
         let probe = gate == StormGate::Probe;
-        let storm_on = || !old && !probe && sh.storm.as_deref().is_some_and(storm::Storm::is_on);
+        let storm_on = || {
+            !old && !probe
+                && !storm::dark(&sh.metrics)
+                && sh.storm.as_deref().is_some_and(storm::Storm::is_on)
+        };
         while !accepted.load(Relaxed)
             && !sh.stop.load(Relaxed)
             && (patient || t0.elapsed() < opts.switch_wait)
