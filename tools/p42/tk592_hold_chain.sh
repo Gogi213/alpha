@@ -12,6 +12,7 @@ log() { echo "$(date -u +%T) $*" >> "$W/hold.log"; }
 fail() { log "СТОП: $*"; echo 1 > "$W/hold.rc"; exit 1; }
 : > "$W/hold.log"
 bash $PY/tk592_hold_prep.sh >> "$W/hold.log" 2>&1 || fail prep
+if [ "${HOLD_SKIP_ENGINE:-0}" != 1 ]; then
 log "convert"
 rm -rf "$W/cache"
 $BIN breakout convert --src "$W/klines" --out "$W/cache" --threads 6 >> "$W/hold.log" 2>&1 || fail convert
@@ -22,6 +23,9 @@ printf 'b0 lat=4 latx=4\nb0p0 lat=4 latx=4 natr_min=0 t1h=0\n' > "$W/variants-ho
 rm -rf "$W/out/eng"
 env P42_SIGSX=14:79 P42_LEVELS=1 P42_SIGSX_ONLY=1 $BIN breakout tick --cache "$W/cache" --trades "$W/aggtrades" --variants "$W/variants-hold.txt" \
   --symbols "$(cat /data/p42-t566/symbols.txt)" --out "$W/out/eng" --threads 6 > "$W/eng.log" 2>&1 || fail "движок"
+else
+log "HOLD_SKIP_ENGINE=1: кэш и движок не пересчитываются (проверка хвоста цепочки)"
+fi
 log "ворота sigsx / levels против v19"
 python3 $PY/tk592_hold_gates.py sigsx /data/p42-t588/out/eng "$W/out/eng" "$W/gate_sigsx.json" >> "$W/hold.log" 2>&1 || fail "sigsx/levels не совпали с v19"
 log "эпизоды (сутки ≥ 74)"

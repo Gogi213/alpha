@@ -1,7 +1,7 @@
 """П-42 §13.18 п. 12 (TK-592): ворота расширенной сетки суток — v20 против v19 на сутках 14…73 (метки и признаки отложенных суток не открываются).
 
-  python3 tk592_hold_gates.py cache <старый кэш> <новый кэш> <выход.json>   — колонки минуток первых 74 суток и строки фандинга совпадают байт в байт
-  python3 tk592_hold_gates.py sigsx <старый out/eng> <новый out/eng> <выход.json> — `sigsx` (сигналы суток ≤ 73) и `levels` (уровни, закончившиеся до 74 суток; префикс версий) совпадают
+  python3 tk592_hold_gates.py cache <старый кэш> <новый кэш> <выход.json>   — колонки минуток первых 74 суток совпадают байт в байт; строки фандинга — старые точный префикс новых, добавленные только с суток 74
+  python3 tk592_hold_gates.py sigsx <старый out/eng> <новый out/eng> <выход.json> — `sigsx` (сигналы суток ≤ 73; столбец `end` — совпадает либо у v19 u32::MAX, у v20 ≥ 74 суток) и `levels` (уровни, закончившиеся до 74 суток; префикс версий) совпадают
 Расхождение — ненулевой код возврата.
 """
 from __future__ import annotations
@@ -37,7 +37,9 @@ def gate_cache(old, new, out):
         n += 1
         co, fo, ro = read_b42(f"{old}/{fn}", OLD_N)
         cn, fn_, rn = read_b42(f"{new}/{fn}", NEW_N)
-        if not np.array_equal(co, cn[:, :OLD_N]) or fo != fn_ or ro != rn:
+        # фандинг (первое поле строки — минута от T0): старые строки — точный префикс новых, добавленные — только с суток 74 (минута ≥ OLD_N) (v20 читает funding.csv до конца расширенной сетки)
+        extra = np.frombuffer(rn[fo * 24:], dtype="<i8").reshape(-1, 3)[:, 0] if fn_ > fo else np.empty(0, dtype="<i8")
+        if not np.array_equal(co, cn[:, :OLD_N]) or fn_ < fo or rn[:fo * 24] != ro or (extra < OLD_N).any():
             bad.append(fn)
     # хвост: суток 74… в новом кэше нет данных до отложенных (14.11 → сутки 74)
     json.dump({"coins": n, "mismatch": bad}, open(out, "w"), ensure_ascii=False)
@@ -73,7 +75,10 @@ def gate_sigsx(old, new, out):
             key = ["sym", "level", "sig_ms"]
             a = o.sort_values(key).reset_index(drop=True)
             b = nn_old.sort_values(key).reset_index(drop=True)
-            same = len(a) == len(b) and a.equals(b)
+            # `end` строки сигнала = конец уровня: у уровня, жившего на 13.11, у v19 это u32::MAX (до конца сетки), у v20 — настоящая минута ≥ 74 суток; остальные столбцы — байт в байт
+            ea, eb = a["end"].astype("int64"), b["end"].astype("int64") if len(a) == len(b) else None
+            end_ok = len(a) == len(b) and bool(((ea == eb) | ((ea == 2 ** 32 - 1) & (eb >= OLD_N))).all())
+            same = len(a) == len(b) and a.drop(columns="end").equals(b.drop(columns="end")) and end_ok
             info[f"{var}/{side}/sigsx"] = {"old": len(a), "new_le73": len(b), "new_total": len(nn), "equal": bool(same)}
             if not same:
                 bad.append(f"{var}/{side}/sigsx")

@@ -167,7 +167,7 @@ def main():
             res[f"reach|{side}|{dn}"] = {"reached": float(r.mean()), "t_med": float(t.median()), "t_mean": float(t.mean()), "t_p90": float(t.quantile(.9)),
                                          "mae_med": float(mae.median()), "mae_mean": float(mae.mean()), "mae_p90": float(mae.quantile(.9))}
     open(f"{out}/fix588.md", "w", encoding="utf-8").write("\n".join(lines) + "\n")
-    json.dump(res, open(f"{out}/fix588.json", "w", ensure_ascii=False), default=lambda o: o.item() if hasattr(o, "item") else str(o))
+    json.dump(res, open(f"{out}/fix588.json", "w", encoding="utf-8"), ensure_ascii=False, default=lambda o: o.item() if hasattr(o, "item") else str(o))
     print("\n".join(lines))
 
 

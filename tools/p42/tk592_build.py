@@ -112,6 +112,7 @@ def main():
     a = ap.parse_args()
     t0 = time.time()
     e = pd.read_parquet(a.episodes)
+    e = e.drop(columns=[c for c in ("zv2h", "zv6h") if c in e.columns])  # кэш-цепочка отложенных суток уже кладёт zv*; здесь пересчитываются тем же кодом
     sel = (e.univ == a.univ) & e.ok_t60 & e.tick_ok & (e.day >= a.min_day) & (e.day <= a.max_day)
     if a.univ == "U0":
         sel &= e.indep == 1
