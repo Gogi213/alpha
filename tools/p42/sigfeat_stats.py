@@ -85,9 +85,13 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("work")
     ap.add_argument("--boot", type=int, default=2000)
+    ap.add_argument("--subset", default="", choices=["", "indep"], help="indep — набор чувствительности «независимые подходы» (дополнение §13.17 от 17.11): gap_prev_sig_min > 60 мин или нет предыдущего сигнала")
     a = ap.parse_args()
     W = a.work
+    SUF = "_indep" if a.subset else ""
     ep = pd.read_parquet(f"{W}/episodes.parquet")
+    if a.subset:
+        ep = ep[ep["indep"]].reset_index(drop=True)
     res = {"n_features": {"primary": len(PRIM), "explore": len(EXPLORE)}}
     rng = np.random.default_rng(588)
     md = []
@@ -117,7 +121,7 @@ def main():
             cnt = dd[col].value_counts()
             n = len(dd)
             grid_rows.append({"side": side, "ref": "extreme", "label": f"X={xn.replace('p', ',')}%", "T": 60, "n": n, **{OUTC[o]: cnt.get(o, 0) / n if n else np.nan for o in OUTC}})
-    pd.DataFrame(grid_rows).to_csv(f"{W}/grid.csv", index=False)
+    pd.DataFrame(grid_rows).to_csv(f"{W}/grid{SUF}.csv", index=False)
     # ── основной анализ по сторонам
     for side in SIDES:
         d = U1[(U1.side == side) & U1["ok_t60"]].reset_index(drop=True)
@@ -268,7 +272,7 @@ def main():
             r["sparse"][f"{univ}_auc_emp6h"] = auc(du["emp6h"].to_numpy().astype(float), yu)
             r["sparse"][f"{univ}_auc_moment_part"] = auc(xm, yu)
             r["sparse"][f"{univ}_n"] = int(len(du))
-        # ── сделки ow_e по Z
+        # ── сделки ow_e по Z (только основной набор)
         tw = pd.read_parquet(f"{W}/trades_ow_e.parquet")
         tw = tw[tw.side == side]
         sp = r["sparse"]["U1_emp6h_top20"]
@@ -278,7 +282,8 @@ def main():
         def pnl(df):
             return {"n": int(len(df)), "sum": float(df["net"].sum()), "mean": float(df["net"].mean()) if len(df) else np.nan, "stop_share": float((df["kind"] == "stop").mean()) if len(df) else np.nan,
                     "neg_sum": float(df.loc[df["net"] < 0, "net"].sum()), "neg_share": float((df["net"] < 0).mean()) if len(df) else np.nan}
-        r["trades_ow_e"] = {"all": pnl(tw), "Z": pnl(tw[tz]), "rest": pnl(tw[~tz]), "no_value": int(tw["emp6h"].isna().sum())}
+        if not a.subset:
+            r["trades_ow_e"] = {"all": pnl(tw), "Z": pnl(tw[tz]), "rest": pnl(tw[~tz]), "no_value": int(tw["emp6h"].isna().sum())}
         # ── подход к уровню: достижение расстояний
         appr = {}
         for dn in ("0p2", "0p1", "0p05"):
@@ -302,11 +307,15 @@ def main():
         # ── число эпизодов / повторные
         sg = pd.read_parquet(f"{W}/signals_all.parquet")
         sg = sg[(sg.univ == "U1") & (sg.side == side)]
-        r["signals"] = {"signals_u1": int(len(sg)), "episodes_u1": int(sg["ep_first"].sum()), "levels_with_signal": int(sg.groupby(["sym", "level"]).ngroups),
+        r["signals"] = {"gap_lt60_episodes": int((ep[(ep.univ == "U1") & (ep.side == side)]["gap_prev_sig_min"] < 60).sum()), "signals_u1": int(len(sg)), "episodes_u1": int(sg["ep_first"].sum()), "levels_with_signal": int(sg.groupby(["sym", "level"]).ngroups),
                         "repeat_episodes": int(sg["ep_first"].sum() - sg.groupby(["sym", "level"]).ngroups)}
     # ── собрать таблицы
-    pd.concat(auc_rows).to_csv(f"{W}/auc.csv", index=False)
-    pd.DataFrame(quint_rows).to_csv(f"{W}/quintiles.csv", index=False)
+    pd.concat(auc_rows).to_csv(f"{W}/auc{SUF}.csv", index=False)
+    pd.DataFrame(quint_rows).to_csv(f"{W}/quintiles{SUF}.csv", index=False)
+    if a.subset:
+        json.dump(res, open(f"{W}/results{SUF}.json", "w", encoding="utf-8"), ensure_ascii=False, indent=1, default=float)
+        print("готово (набор чувствительности)")
+        return
     # ── пересечения без сигнала
     cr = pd.read_csv(f"{W}/crossings.csv.gz")
     res["crossings"] = {}

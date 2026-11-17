@@ -37,8 +37,34 @@ def trades(src):
     return pd.concat(out, ignore_index=True)
 
 
+def add_gap(ep: pd.DataFrame, sig: pd.DataFrame) -> pd.DataFrame:
+    """`gap_prev_sig_min` — минут от предыдущего сигнала того же уровня до первого сигнала эпизода (нет предыдущего — NaN); `indep` — «независимый подход»:
+    предыдущего сигнала нет или разрыв > 60 мин (набор чувствительности §13.17, дополнение 17.11)."""
+    s = sig.sort_values(["univ", "side", "sym", "level", "sig_ms"]).copy()
+    s["gap_prev_sig_min"] = s.groupby(["univ", "side", "sym", "level"])["sig_ms"].diff() / MIN_MS
+    key = s[s["ep_first"]][["univ", "side", "sym", "level", "ep_no", "gap_prev_sig_min"]]
+    n0 = len(ep)
+    ep = ep.drop(columns=["gap_prev_sig_min", "indep"], errors="ignore").merge(key, on=["univ", "side", "sym", "level", "ep_no"], how="left")
+    assert len(ep) == n0, "gap: дубли ключа эпизода"
+    ep["indep"] = ep["gap_prev_sig_min"].isna() | (ep["gap_prev_sig_min"] > 60)
+    return ep
+
+
+def gap_only(work):
+    """Дописывает gap_prev_sig_min / indep в готовую таблицу эпизодов (атомарной заменой файла)."""
+    ep = pd.read_parquet(f"{work}/episodes.parquet")
+    sig = pd.read_parquet(f"{work}/signals_all.parquet")
+    ep = add_gap(ep, sig)
+    ep.to_parquet(f"{work}/episodes.tmp.parquet")
+    os.replace(f"{work}/episodes.tmp.parquet", f"{work}/episodes.parquet")
+    ep.to_csv(f"{work}/episodes.csv.gz", index=False)
+    print({u: {s: [int(((ep.univ == u) & (ep.side == s)).sum()), int(((ep.univ == u) & (ep.side == s) & ep.indep).sum())] for s in ("long", "short")} for u in ("U1", "U0")})
+
+
 def main():
     eng, work = sys.argv[1], sys.argv[2]
+    if len(sys.argv) > 3 and sys.argv[3] == "--gap-only":
+        return gap_only(work)
     ep = pd.read_parquet(f"{work}/episodes_raw.parquet")
     sig = pd.read_parquet(f"{work}/signals_all.parquet")
     tf = pd.read_parquet(f"{work}/trade_feats.parquet")
@@ -99,7 +125,7 @@ def main():
         sset = set(sy_arr[j0:i1].tolist()) - {me}
         psig.append(int(sum(pm[x] for x in sset)))
     ep["cosig15"], ep["peers7"], ep["peer_sig30"] = cos, p7, psig
-    ep = ep.drop(columns=["key"])
+    ep = add_gap(ep.drop(columns=["key"]), sig)
     ep.to_parquet(f"{work}/episodes.parquet")
     ep.to_csv(f"{work}/episodes.csv.gz", index=False)
     # сделки ow_e с признаками разреженности на сигнале сделки
