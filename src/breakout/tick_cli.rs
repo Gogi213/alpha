@@ -143,7 +143,8 @@ fn write_sigsx(
     days: (usize, usize),
 ) -> Result<()> {
     let mut cache: HashMap<u16, Vec<super::levels::Level>> = HashMap::new();
-    let mut t = String::from("sym,level,sig_ms,dist_e8,level_px_e8,born,end,first_bar,members\n");
+    let mut t =
+        String::from("sym,level,sig_ms,dist_e8,level_px_e8,born,end,first_bar,natr_e8,members\n");
     for sg in sigs {
         let d = usize::from(sg.day);
         if d < days.0 || d > days.1 {

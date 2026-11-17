@@ -20,7 +20,7 @@ PRIMARY = {"чистый/зона": ["pierce_ep", "spread_tau"], "разреже
            "корреляция BTC/ETH": ["c5_btc_7d", "c5_eth_7d"]}
 PRIM = [f for v in PRIMARY.values() for f in v]
 NUMERIC = ["n_piv", "spread_bp", "spread_tau", "ext_gap_bp", "age_h", "since_born_h", "pierce_ep", "pierce_max_bp", "touch_ep", "since_touch_h",
-           "depth_min_bp", "depth_mean_bp", "dist_bp",
+           "depth_min_bp", "depth_mean_bp", "dist_bp", "since_touch_prior_h", "approach_dur_min",
            "emp2h", "emp6h", "flat60", "tpm15", "tpm60", "gap60_s",
            "mv5", "mv15", "mv60", "maxmv1", "maxrng15", "cons60", "cons120",
            "c1_btc_6h", "c1_eth_6h", "c5_btc_24h", "c5_eth_24h", "c5_btc_7d", "c5_eth_7d", "c15_btc_24h", "c15_eth_24h", "c15_btc_7d", "c15_eth_7d",

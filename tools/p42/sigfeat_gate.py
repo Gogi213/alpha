@@ -7,6 +7,9 @@ import sys
 
 import pandas as pd
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from sigfeat_lib import read_levels_csv, read_sigsx
+
 ENG = sys.argv[1]
 E16 = "/data/p42-t566/out/e16"
 OLD = {"b0": f"{E16}/b0", "b0pk": "/data/p42-t566/out/ow/b0pk", "ow": f"{E16}/ow"}
@@ -40,8 +43,8 @@ for v in ("b0", "b0p0", "b0pk", "ow"):
 # сигналы ↔ уровни
 for v in ("b0", "b0p0"):
     for side in ("long", "short"):
-        sg = pd.read_csv(f"{ENG}/{v}/{side}-sigsx.csv", dtype={"members": str})
-        lv = pd.read_csv(f"{ENG}/{v}/{side}-levels.csv", dtype={"segs": str, "members": str})
+        sg = read_sigsx(f"{ENG}/{v}/{side}-sigsx.csv")
+        lv = read_levels_csv(f"{ENG}/{v}/{side}-levels.csv")
         key = lv.set_index(["sym", "level"])
         miss = born_bad = end_bad = fb_bad = price_bad = mean_bad = 0
         for r in sg.itertuples(index=False):

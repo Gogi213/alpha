@@ -103,6 +103,29 @@ class Ticks:
         return np.concatenate(ts), np.concatenate(ps), full
 
 
+SIGSX_COLS = ["sym", "level", "sig_ms", "dist_e8", "level_px_e8", "born", "end", "first_bar", "natr_e8", "members"]
+
+
+def read_sigsx(path: str, usecols=None):
+    """`<side>-sigsx.csv` дампа `P42_SIGSX`: в заголовке бинаря прогона нет `natr_e8` (ошибка заголовка, строки — 10 полей), читаем по именам."""
+    import pandas as pd
+    return pd.read_csv(path, header=0, names=SIGSX_COLS, usecols=usecols, dtype={"sym": str, "members": str})
+
+
+def read_levels_csv(path: str):
+    """`<side>-levels.csv` дампа `P42_LEVELS`: в поле `members` внутри версии члены через запятую, поэтому делим только первые 6 запятых."""
+    import pandas as pd
+    rows = []
+    with open(path, encoding="utf-8") as fh:
+        head = fh.readline().rstrip("\n").split(",")
+        for line in fh:
+            rows.append(line.rstrip("\n").split(",", 6))
+    df = pd.DataFrame(rows, columns=head)
+    for c in ("level", "born", "end", "first_bar"):
+        df[c] = df[c].astype(np.int64)
+    return df
+
+
 # ───────────────────────────── метка ─────────────────────────────
 
 def ceil_mul(absr: int, num: int, den: int) -> int:
@@ -277,6 +300,34 @@ def level_features(m: dict[str, np.ndarray], s: int, t: int, R: int, members: li
             depths.append((m["h"][rng].max() - p_) / p_ * 1e4)
     f["depth_min_bp"] = min(depths) if depths else float("nan")
     f["depth_mean_bp"] = float(np.mean(depths)) if depths else float("nan")
+    return f
+
+
+def fresh_prior_features(m: dict[str, np.ndarray], s: int, t: int, R: int, bars: list[int], first_bar: int, tf_min: int = 60) -> dict:
+    """Свежесть уровня без самого подхода (TK-587, 17.11): последнее касание ДО начала текущего подхода.
+    Начало подхода `a0` — минута после последней «ухода» минуты (с данными) перед `t`: low ≤ нижней границы зоны (дальше E под уровнем)
+    или high ≥ R (касание уровня) — то же определение «ухода», что у эпизодов. Касание — минута с high ≥ R − τ вне баров-членов, строго
+    раньше `a0`. since_touch_prior_h — часов от этого касания до `t`; касаний нет — от конца бара последнего члена (touch_prior_none = 1)."""
+    H, L, _, _ = long_frame(m, s)
+    p_lo = R - abs(R) * (E_E8 + 1) / SCALE
+    lo = max(first_bar * tf_min, 0)
+    seg = np.arange(lo, t)
+    data = m["o"][seg] != 0
+    away = data & ((L[seg] <= p_lo) | (H[seg] >= R))
+    idx = np.flatnonzero(away)
+    a0 = int(seg[idx[-1]]) + 1 if len(idx) else lo
+    excl = np.zeros(len(seg), bool)
+    for b in bars:
+        excl |= (seg >= b * tf_min) & (seg < (b + 1) * tf_min)
+    band = R - abs(R) * TAU_PM // 100_000
+    touch = data & ~excl & (H[seg] >= band) & (seg < a0)
+    f = {"approach_dur_min": float(t - a0)}
+    if touch.any():
+        f["since_touch_prior_h"] = (t - int(seg[touch][-1])) / 60.0
+        f["touch_prior_none"] = 0
+    else:
+        f["since_touch_prior_h"] = (t - (max(bars) + 1) * tf_min) / 60.0
+        f["touch_prior_none"] = 1
     return f
 
 

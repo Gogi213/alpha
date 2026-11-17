@@ -38,7 +38,7 @@ def parse_members(s: str):
 def load_sigsx(eng: str, variant: str) -> dict[tuple[str, int], pd.DataFrame]:
     out = {}
     for side, s in SIDES.items():
-        df = pd.read_csv(f"{eng}/{variant}/{side}-sigsx.csv", dtype={"sym": str, "members": str})
+        df = read_sigsx(f"{eng}/{variant}/{side}-sigsx.csv")
         df["side"] = s
         for sym, g in df.groupby("sym"):
             out[(sym, s)] = g.sort_values(["level", "sig_ms"]).reset_index(drop=True)
@@ -198,6 +198,7 @@ class Worker:
         # признаки
         lf = level_features(m, s, t, R, members, int(row.born), int(row.first_bar), int(row.dist_e8), natr_e8)
         out.update(lf)
+        out.update(fresh_prior_features(m, s, t, R, [x[0] for x in members], int(row.first_bar)))
         out.update(sparse_features(m, first_valid, t))
         out.update(tick_sparse_features(pre_t, sig_ms))
         natr_f = natr_e8 / SCALE
@@ -398,7 +399,7 @@ def _init(cfg):
 def _job(sym):
     t0 = time.time()
     r = _W.process(sym)
-    r[3]["sec"] = time.time() - t0
+    r[4]["sec"] = time.time() - t0
     return r
 
 
@@ -413,7 +414,7 @@ def main():
     t0 = time.time()
     cfg = {"sigs": {v: load_sigsx(a.eng, v) for v in ("b0", "b0p0")}, "levels": {}}
     for side, s in SIDES.items():
-        lv = pd.read_csv(f"{a.eng}/b0/{side}-levels.csv", dtype={"sym": str, "segs": str, "members": str})
+        lv = read_levels_csv(f"{a.eng}/b0/{side}-levels.csv")
         for sym, g in lv.groupby("sym"):
             cfg["levels"][(sym, s)] = g.reset_index(drop=True)
     cfg["traded"] = {}

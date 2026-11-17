@@ -118,6 +118,24 @@ class FeatureTests(unittest.TestCase):
         self.assertEqual(f["pierce_ep"], 1)
         self.assertEqual(f["pierce_max_bp"], 3 / px * 1e4)
 
+    def test_fresh_prior(self):
+        R = 100 * 100_000_000
+        for k in ("o", "h", "l", "c"):
+            self.m[k][:] = 9_975_000_000  # −0,25 %: в зоне E, вне полосы касания τ
+        self.m["h"][800] = 9_990_000_000  # касание до подхода (бар 13, не член)
+        self.m["l"][1000] = 9_900_000_000  # уход дальше E под уровень
+        self.m["h"][1020] = 9_990_000_000  # касание внутри подхода — не считается для «до подхода»
+        f = L.fresh_prior_features(self.m, 1, 1030, R, [10, 12], 10)
+        self.assertEqual(f["approach_dur_min"], 29.0)
+        self.assertAlmostEqual(f["since_touch_prior_h"], (1030 - 800) / 60.0)
+        self.assertEqual(f["touch_prior_none"], 0)
+        g = L.level_features(self.m, 1, 1030, R, [(10, R), (12, R)], 13 * 60, 10, 0, 1)
+        self.assertAlmostEqual(g["since_touch_h"], 10 / 60.0)  # «сырое» время с последнего касания — внутри подхода
+        self.m["h"][800] = 9_975_000_000
+        f = L.fresh_prior_features(self.m, 1, 1030, R, [10, 12], 10)
+        self.assertEqual(f["touch_prior_none"], 1)
+        self.assertAlmostEqual(f["since_touch_prior_h"], (1030 - 780) / 60.0)
+
     def test_sparse(self):
         o = self.m["o"]
         t = 2000
@@ -239,6 +257,8 @@ class FakeTicks:
 class EpisodeTests(unittest.TestCase):
     def build(self, ticks, sigs, m):
         w = RUN.Worker.__new__(RUN.Worker)
+        w.cfg = {"traded": {}}
+        w.trade_rows = []
         tk = FakeTicks(ticks)
         rows, eps = [], []
         w.episode = lambda sym, univ, side, s, row, ep_no, n_sig, last_ms, *a, **k: {"ep_no": ep_no, "n": n_sig, "sig": int(row.sig_ms)}

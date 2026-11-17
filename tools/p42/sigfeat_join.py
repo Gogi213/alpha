@@ -23,7 +23,7 @@ PEER_R = 0.6
 def keyset(eng, variant):
     ks = set()
     for side in ("long", "short"):
-        df = pd.read_csv(f"{eng}/{variant}/{side}-sigsx.csv", usecols=["sym", "sig_ms"])
+        df = read_sigsx(f"{eng}/{variant}/{side}-sigsx.csv", usecols=["sym", "sig_ms"])
         ks |= {(side, a, int(b)) for a, b in zip(df["sym"], df["sig_ms"])}
     return ks
 
