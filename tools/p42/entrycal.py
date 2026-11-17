@@ -125,7 +125,7 @@ def cmd_calc(d, bd, jout=None):
         for r in cal
         if r["proxy"] is not None and r["age"] <= wstar
     ]
-    delay = [r["old_ms"] - (r["sig_ms"] + T0) for r in cal if r["old_ms"] is not None]
+    delay = [r["old_ms"] - r["sig_ms"] for r in cal if r["old_ms"] is not None]
     conf = {"TP": 0, "FN_missed": 0, "FP": 0, "TN": 0, "no_proxy_truth_beyond": 0, "no_proxy_truth_inside": 0}
     for r in cal:
         truth = r["s"] * (r["real"] - r["lvl"]) > 0
