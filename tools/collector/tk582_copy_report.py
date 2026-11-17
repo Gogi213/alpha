@@ -71,6 +71,23 @@ def read_events(root, shard):
     return out
 
 
+def last_ts(root, shard):
+    """Последний замер шарда: хвост `stats-<шард>.jsonl` (строка раз в 10 с) — события шарда в тихое время редки и конец отрезка по ним не найти."""
+    try:
+        path = os.path.join(root, "stats-%s.jsonl" % shard)
+        with open(path, "rb") as fh:
+            fh.seek(max(0, os.path.getsize(path) - 20000))
+            lines = fh.read().decode("utf-8", errors="replace").splitlines()
+        for ln in reversed(lines):
+            try:
+                return int(json.loads(ln)["ts_ms"])
+            except (ValueError, KeyError):
+                continue
+    except OSError:
+        pass
+    return 0
+
+
 def shards_of(root):
     return sorted(os.path.basename(p)[7:-6] for p in glob.glob(os.path.join(root, "events-*.jsonl")))
 
@@ -285,7 +302,7 @@ def main():
     live_same = Set(a.live, live_shards)
     live_all = Set(a.live, shards_of(a.live))
     starts = [e["ts_ms"] for evs in copy.ev.values() for e in evs if e["ev"] == "started"]
-    ends = [evs[-1]["ts_ms"] for evs in copy.ev.values() if evs]
+    ends = [max(last_ts(a.copy, s), evs[-1]["ts_ms"] if evs else 0) for s, evs in copy.ev.items()]
     if not starts:
         sys.exit("в журнале копии нет `started`")
     t_start = max(starts)
@@ -355,7 +372,8 @@ def main():
     if a.compare_bin:
         res["compare"] = run_compare(a, shards, live_shards, lo, hi)
         c = res["compare"]
-        print("## Сравнение записей (`alpha collect compare`, сутки %s, файлов боевого %d / копии %d, rc %d, %d с)\n```\n%s\n```\n%s" % (c["day"], c["files_live"], c["files_copy"], c["rc"], c["sec"], c["out"], c["err"]))
+        print("## Сравнение записей (`alpha collect compare`, %s … %s UTC, дни %s, файлов боевого %d / копии %d, rc %d, %d с)" % (fmt_ms(c["from_ms"]), fmt_ms(c["to_ms"]), ",".join(c["days"]), c["files_live"], c["files_copy"], c["rc"], c["sec"]))
+        print("```\n%s\n```\n%s" % (c["out"], c["err"]))
     if a.json:
         json.dump(res, open(a.json, "w"), ensure_ascii=False, indent=1)
 
