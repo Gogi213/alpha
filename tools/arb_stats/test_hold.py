@@ -213,37 +213,64 @@ def test_stay_mark_before_uses_strictly_earlier_bucket():
     assert np.isnan(hy.mark_before(mk, "bybit", "X", 1.0, ts)).all()
 
 
-def test_stay_valid_prefix_and_label_windows():
+def test_stay_silence_intervals():
+    import hold_stay as hy
+    s, e = hy.union_intervals([(np.array([100, 500], np.int64), np.array([300, 600], np.int64)), (np.array([250, 900], np.int64), np.array([400, 1000], np.int64))])
+    assert s.tolist() == [100, 500, 900] and e.tolist() == [400, 600, 1000]
+    assert hy.silence_time(s, e, np.array([50, 100, 250, 450, 550, 2000])).tolist() == [0, 0, 150, 300, 350, 500]
+    assert hy.ticks_outside(s, e, np.array([100, 101, 399, 400, 450, 550, 900, 950, 1000], np.int64)).tolist() == [True, False, False, True, True, False, True, False, True]
+    es, ee = hy.union_intervals([])
+    assert not len(es) and hy.ticks_outside(es, ee, np.array([5], np.int64)).tolist() == [True] and hy.silence_time(es, ee, np.array([5])).tolist() == [0]
+
+
+def test_stay_label_windows():
     import hold_stay as hy
     T = np.arange(0, 41, dtype=np.int64) * 60_000
-    Tn = np.r_[T[1:], 41 * 60_000]
     M = np.full(41, 60.0)
     M[3] = -5.0                                    # возврат на 3-й минуте (валидный тик)
-    M[20] = -5.0                                   # возврат на 20-й минуте, но тик невалиден
+    M[20] = -5.0                                   # возврат на 20-й минуте, но тик внутри молчания сырья
     valid = np.ones(41, bool)
     valid[20] = False
-    ok = np.ones(41, bool)
-    vt = hy.valid_prefix(T, Tn, ok)
-    assert vt(np.int64(30 * 60_000)) == 30 * 60_000 and vt(np.int64(10 * 60_000 + 30_000)) == 10 * 60_000 + 30_000
-    t = np.array([0, 600_000, 0, 0, 600_000], np.int64)
-    st = np.array([0, 10, 0, 0, 10])
-    side = np.ones(5, int)
-    c0 = np.array([0.0, 0.0, 0.0, np.nan, 0.0])
-    hole = np.array([False, False, True, False, False])
-    t1 = 41 * 60_000
-    tau, cover, why, label = hy.label_units(T, M, valid, vt, t, st, side, c0, t1, hole)
+    t = np.array([0, 600_000, 0, 0, 0, 0, 700_000], np.int64)
+    st = np.array([0, 10, 0, 0, 0, 0, 11])
+    side = np.ones(7, int)
+    c0 = np.array([0.0, 0.0, 0.0, np.nan, 0.0, 0.0, 0.0])
+    hole = np.array([False, False, True, False, False, False, False])
+    cover = np.array([1.0, 1.0, 1.0, 1.0, 0.8, 1.0, 1.0])
+    raw_unknown = np.array([False, False, False, False, False, True, False])
+    tau, why, label = hy.label_units(T, M, valid, cover, t, st, side, c0, 41 * 60_000, hole, raw_unknown)
     assert tau[0] == 180_000 and label[0] == 1                         # возврат на валидном тике
-    assert np.isnan(tau[1]) and label[1] == 0 and why[1] == ""         # тик возврата невалиден: «остался»
+    assert np.isnan(tau[1]) and label[1] == 0 and why[1] == ""         # тик возврата внутри молчания сырья не считается: «остался»
     assert label[2] == -1 and why[2] == "hole"                         # окно метки пересекает дыру
     assert label[3] == -1 and why[3] == "c0"                           # центр NaN — не 0
-    assert label[4] == 0                                               # t + 30 мин = 40 мин ≤ t1
-    t = np.array([700_000], np.int64)                                  # 11:40 + 30 мин = 41:40 > t1
-    _, _, why, label = hy.label_units(T, M, valid, vt, t, np.array([11]), np.ones(1, int), np.array([0.0]), t1, np.zeros(1, bool))
-    assert why[0] == "tail" and label[0] == -1
-    ok2 = ok.copy()
-    ok2[5:12] = False                                                  # 7 мин из 30 без валидных обеих ног: доля 77 % < 95 %
-    _, cover, why, label = hy.label_units(T, M, valid, hy.valid_prefix(T, Tn, ok2), np.array([0], np.int64), np.array([0]), np.ones(1, int), np.array([0.0]), t1, np.zeros(1, bool))
-    assert why[0] == "cover" and label[0] == -1 and abs(cover[0] - 23 / 30) < 1e-9
+    assert label[4] == -1 and why[4] == "cover"                        # вне молчания 80 % < 95 %
+    assert label[5] == -1 and why[5] == "raw"                          # у ноги нет сырья
+    assert label[6] == -1 and why[6] == "tail"                         # 11:40 + 30 мин > конца окна
+
+
+def test_stay_quiet_price_is_valid_while_raw_flows():
+    """Лучшая цена ноги стоит 10 мин, но записи (смены размера) идут — молчания нет: окно валидно целиком. Молчание сырья 3 мин в окне 30 мин — 90 % < 95 %."""
+    import hold_stay as hy
+    s, e = hy.union_intervals([(np.array([], np.int64), np.array([], np.int64))])
+    cover = 1.0 - (hy.silence_time(s, e, np.array([1_800_000])) - hy.silence_time(s, e, np.array([0]))) / hy.HORIZON_MS
+    assert cover[0] == 1.0
+    s, e = hy.union_intervals([(np.array([600_000], np.int64), np.array([780_000], np.int64))])
+    cover = 1.0 - (hy.silence_time(s, e, np.array([1_800_000])) - hy.silence_time(s, e, np.array([0]))) / hy.HORIZON_MS
+    assert abs(cover[0] - 0.9) < 1e-12 and cover[0] < hy.COVER_MIN
+
+
+def test_stay_design_indicators_from_fit_only():
+    import hold_stay as hy
+    import pandas as pd
+    rng = np.random.default_rng(2)
+    tr = pd.DataFrame({f: rng.normal(size=50) for f in hy.FEATURES})
+    te = pd.DataFrame({f: rng.normal(size=20) for f in hy.FEATURES})
+    te.loc[0, "depth"] = np.nan
+    a, b = hy.design(tr, te)
+    assert a.shape[1] == b.shape[1] == len(hy.FEATURES)               # пропуск только в проверке — индикатора нет
+    tr.loc[3, "depth"] = np.nan
+    a, b = hy.design(tr, te)
+    assert a.shape[1] == b.shape[1] == len(hy.FEATURES) + 1           # пропуск в подборе — индикатор в обоих
 
 
 def test_stay_missing_feature_means_converges():

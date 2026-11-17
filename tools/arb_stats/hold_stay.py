@@ -1,8 +1,8 @@
 """«Разошлись и остались» против «расходятся и сходятся»: метка и признаки в момент начала расхождения (протокол docs/findings/arb-holding-stay-protocol-2026-11-17.md, записан до счёта; v2 после проверки протокола).
 
 Единица — эпизод вида «от центра», θ = 50 bps, строгий вариант, ≥ 5 с; не снят слоями gap / stale (сырьё) / tradfi / delist / funding, посчитанными на отрезке [t − запас, t + 5 с] (не по всему эпизоду, п. Б1).
-Метка (смотрит вперёд, только для оценки): c0 = центр на начале; τ = первый ВАЛИДНЫЙ тик (обе ноги не старше CAP) после начала, где сторона · (M − c0) ≤ 0; «сходится» — τ − начало ≤ 30 мин, иначе «остался».
-Метка −1 (не известно, в оценку не идёт): c0 = NaN; до конца окна < 30 мин; окно [t, t + 30 мин] пересекает dead / обрыв / аудит любой ноги; доля валидного времени обеих ног в окне < 95 % (п. Б2).
+Метка (смотрит вперёд, только для оценки): c0 = центр на начале; τ = первый ВАЛИДНЫЙ тик (вне молчания сырья любой ноги > 5 с) после начала, где сторона · (M − c0) ≤ 0; «сходится» — τ − начало ≤ 30 мин, иначе «остался».
+Метка −1 (не известно, в оценку не идёт): c0 = NaN; до конца окна < 30 мин; окно [t, t + 30 мин] пересекает dead / обрыв / аудит любой ноги; символ ноги без сырья (raw); доля времени вне молчания сырья (> 5 с, rawgaps, любая нога) в окне < 95 % (п. Б2, П1: «нет данных» = молчание ВСЕХ записей символа, а не неизменная лучшая цена).
 Признаки — по данным не позже начала эпизода; mark — только ведра строго раньше ведра начала (п. Б3).
 Запуск: python3 hold_stay.py build <flagged.pkl> <книги (с parsed/)> <marks.pkl[,…]> <trades.pkl> <dead.json> <аудит collect-gap> <rawgaps.pkl> <выход.pkl> [PAR]   — строит таблицу единиц;
         python3 hold_stay.py eval <stay.pkl> <выход.md>                                                     — оценка по протоколу (разбиение по суткам, эмбарго, базы, бутстреп по монетам).
@@ -27,7 +27,8 @@ TH, VIEW = 50.0, "c"
 HORIZON_MS = 1_800_000                 # «сходится» — возврат за 30 мин
 HIST_MS = 6 * 3_600_000
 DECIDE_MS = 5_000                      # единица существует при длительности ≥ 5 с: правило применимо на t + 5 с (признаки — на t, консервативно)
-COVER_MIN = 0.95                       # доля валидного времени обеих ног в окне метки
+COVER_MIN = 0.95                       # доля времени вне молчания сырья (любая нога) в окне метки
+COVER_SCOPE = 0.10                     # доля единиц, снятых по покрытию, в трети ликвидности, выше которой вердикт — «только пары с покрытием ≥ 95 %»
 MIN_DAY_MS = 12 * 3_600_000            # сутки с покрытием окна < 12 ч не берутся
 EMBARGO_FIT_MS = HIST_MS + HORIZON_MS  # единицы подбора ближе 6 ч 30 мин к проверке выбрасываются
 EMBARGO_TEST_MS = HORIZON_MS           # единицы проверки ближе 30 мин к подбору выбрасываются
@@ -79,20 +80,39 @@ def trades_before(tr, ex, sym, ts, win=6):
     return float(n[lo:hi].sum())
 
 
-def valid_prefix(T, Tn, ok):
-    """Накопленное валидное время ряда событий T (интервал [T[k], Tn[k]) валиден, если ok[k]) -> функция x -> валидное время в [T[0], x]."""
-    cs = np.r_[0.0, np.cumsum((Tn - T) * ok)]
+def union_intervals(parts):
+    """Объединение интервалов молчания (p[], n[]) нескольких символов -> отсортированные непересекающиеся (s[], e[])."""
+    s = np.concatenate([np.asarray(p, np.int64) for p, _ in parts]) if parts else np.zeros(0, np.int64)
+    e = np.concatenate([np.asarray(n, np.int64) for _, n in parts]) if parts else np.zeros(0, np.int64)
+    if not len(s):
+        return s, e
+    o = np.argsort(s, kind="stable")
+    s, e = s[o], e[o]
+    new = np.r_[True, s[1:] > np.maximum.accumulate(e)[:-1]]
+    return s[new], np.maximum.reduceat(e, np.flatnonzero(new))
 
-    def vt(x):
-        x = np.asarray(x, np.int64)
-        k = np.clip(np.searchsorted(T, x, "right") - 1, 0, len(T) - 1)
-        return cs[k] + np.clip(x - T[k], 0, Tn[k] - T[k]) * ok[k]
-    return vt
+
+def silence_time(s, e, x):
+    """Суммарное время внутри интервалов молчания (s, e) до момента x (массив)."""
+    x = np.asarray(x, np.int64)
+    if not len(s):
+        return np.zeros(len(x))
+    cl = np.r_[0, np.cumsum(e - s)]
+    k = np.searchsorted(s, x, "right")
+    return cl[k] - np.where(k > 0, np.maximum(e[np.maximum(k - 1, 0)] - x, 0), 0)
 
 
-def label_units(T, M, valid, vt, t, st, side, c0, t1, hole):
-    """Метка единиц пары (все массивы по единицам, кроме рядов T/M/valid). -> tau (мс от начала или NaN), cover (доля валидного времени в окне 30 мин), why (причина −1 или ""), label (1 сходится / 0 остался / −1 не известно).
-    τ ищется только по валидным тикам (обе ноги не старше CAP); окно метки — одно и то же [t, t + 30 мин] для всех единиц."""
+def ticks_outside(s, e, T):
+    """Тик ряда T валиден, если не лежит строго внутри интервала молчания (s, e) какой-либо ноги."""
+    if not len(s):
+        return np.ones(len(T), bool)
+    i = np.searchsorted(s, T, "left") - 1
+    return ~((i >= 0) & (T < e[np.maximum(i, 0)]))
+
+
+def label_units(T, M, valid, cover, t, st, side, c0, t1, hole, raw_unknown):
+    """Метка единиц пары (массивы по единицам; ряды T / M / valid — по тикам). -> tau (мс от начала или NaN), why (причина −1 или ""), label (1 сходится / 0 остался / −1 не известно).
+    τ ищется только по валидным тикам (вне молчания сырья любой ноги > 5 с); окно метки — одно и то же [t, t + 30 мин] для всех единиц; cover — доля окна вне молчания."""
     n = len(t)
     tau = np.full(n, np.nan)
     for j in range(n):
@@ -102,14 +122,14 @@ def label_units(T, M, valid, vt, t, st, side, c0, t1, hole):
         seg = (side[j] * (M[st[j]:hi] - c0[j]) <= 0) & valid[st[j]:hi]
         if seg.any():
             tau[j] = T[st[j] + int(np.argmax(seg))] - t[j]
-    cover = (vt(t + HORIZON_MS) - vt(t)) / HORIZON_MS
     why = np.full(n, "", object)
     why[cover < COVER_MIN] = "cover"
+    why[raw_unknown] = "raw"
     why[hole] = "hole"
     why[t + HORIZON_MS > t1] = "tail"
     why[np.isnan(c0)] = "c0"
     label = np.where(why != "", -1, np.where(np.isfinite(tau), 1, 0))
-    return tau, cover, why, label
+    return tau, why, label
 
 
 def leg_audit(g, ex, sym):
@@ -127,10 +147,8 @@ def work_pair(key):
         books[ex] = maker_run.load_book(g["bwork"], ex, sym, mult, unit_of(ex, meta))
     A, B = books[a], books[b]
     T, S, Bu, ia, ib = core.pair_series(A, B, g["t1"])
-    valid = ((T - A["e"][ia]) <= core.CAP_MS) & ((T - B["e"][ib]) <= core.CAP_MS)
-    Tn = np.r_[T[1:], g["t1"]]
-    vt = valid_prefix(T, Tn, ((Tn - A["e"][ia]) <= core.CAP_MS) & ((Tn - B["e"][ib]) <= core.CAP_MS))
-    mins, _, sb, bb = core.minute_bars(T[valid], S[valid], Bu[valid])
+    cap_ok = ((T - A["e"][ia]) <= core.CAP_MS) & ((T - B["e"][ib]) <= core.CAP_MS)          # как в hold_scan: по таким тикам строится центр (c0 совпадает с таблицей)
+    mins, _, sb, bb = core.minute_bars(T[cap_ok], S[cap_ok], Bu[cap_ok])
     m0, cen = core.rolling_centre(mins, sb, bb, CENTRE_MIN, CENTRE_MIN // 2)
     cT = cen[np.clip(T // 60000 - m0, 0, len(cen) - 1)]
     M = (S + Bu) / 2
@@ -151,7 +169,19 @@ def work_pair(key):
         au = leg_audit(g, ex, sym)
         if au is not None:
             hole |= overlaps(*au, t, t + HORIZON_MS)
-    tau, cover, why, label = label_units(T, M, valid, vt, t, st, side, c0, g["t1"], hole)
+    # валидность окна метки — по молчанию СЫРЬЯ (все записи символа, rawgaps), не по возрасту лучшей цены: цена может честно стоять, пока расхождение держится на тихой монете
+    parts = []
+    for ex, sym in legs:
+        if (ex, sym) in g["raw"]["sym"]:
+            parts.append(g["raw"]["gaps"][(ex, sym)])
+            last = int(g["raw"]["sym"][(ex, sym)][2])
+            if g["t1"] - last > STALE_MS:
+                parts.append((np.array([last], np.int64), np.array([g["t1"]], np.int64)))       # символ перестал писаться до конца окна
+    s_iv, e_iv = union_intervals(parts)
+    valid = ticks_outside(s_iv, e_iv, T)
+    cover = 1.0 - (silence_time(s_iv, e_iv, t + HORIZON_MS) - silence_time(s_iv, e_iv, t)) / HORIZON_MS
+    raw_unknown = np.full(n, any((ex, sym) not in g["raw"]["sym"] for ex, sym in legs))
+    tau, why, label = label_units(T, M, valid, cover, t, st, side, c0, g["t1"], hole, raw_unknown)
     known_at = np.where(np.isfinite(tau), t + np.nan_to_num(tau), t + HORIZON_MS)    # когда метка прошлого эпизода становится известной
     # слои «подделки» на отрезке, одинаковом для всех единиц и известном к моменту решения: [t − запас, t + 5 с] (п. Б1)
     dec = t + DECIDE_MS
@@ -349,7 +379,7 @@ def design(tr, te):
         sd = np.nanstd(a) if np.isfinite(a).sum() > 1 and np.nanstd(a) > 0 else 1.0
         A.append((np.where(np.isfinite(a), a, med) - med) / sd)
         Bm.append((np.where(np.isfinite(b), b, med) - med) / sd)
-        if (~np.isfinite(a)).any() or (~np.isfinite(b)).any():
+        if (~np.isfinite(a)).any():                         # индикатор пропуска — по подбору, не по проверке
             A.append((~np.isfinite(a)).astype(float))
             Bm.append((~np.isfinite(b)).astype(float))
     return np.c_[tuple(A)], np.c_[tuple(Bm)]
@@ -428,10 +458,11 @@ def evaluate(path_in, path_out):
     L += ["| этап (единицы ≥ 5 с) | единиц |", "|---|---|", f"| всего | {len(st)} |", f"| в негодных сутках (< 12 ч покрытия) — не берутся | {int((~ok_units).sum())} |"]
     L += [f"| снято «подделкой» на [t − запас, t + 5 с]: {nm} | {int(st[c].sum())} |" for nm, c in (("gap / audit", "f_gap"), ("stale (сырьё)", "f_stale"), ("funding", "f_funding"), ("tradfi", "f_tradfi"), ("delist", "f_delist"))]
     L += [f"| снято слоями всего (на отрезке до решения) | {int(st['f_fake'].sum())} |", f"| для сравнения: снято слоями по всему эпизоду (v4) | {int(st['f_fake_old'].sum())} |"]
-    rest = st[~st["f_fake"] & ok_units]
-    L += [f"| остаток после слоёв (в годных сутках) | {len(rest)} |"]
-    for why, txt in (("c0", "центр NaN"), ("tail", "до конца окна < 30 мин"), ("hole", "окно метки пересекает dead / обрыв / аудит"), ("cover", "валидного времени обеих ног < 95 %")):
-        s = rest[rest["why"] == why]
+    lay = st[~st["f_fake"] & ok_units].copy()
+    L += [f"| остаток после слоёв (в годных сутках) | {len(lay)} |"]
+    for why, txt in (("c0", "центр NaN"), ("tail", "до конца окна < 30 мин"), ("hole", "окно метки пересекает dead / обрыв / аудит"), ("raw", "у одной из ног нет сырья (символа нет в rawgaps)"),
+                     ("cover", "времени вне молчания сырья (> 5 с, любая нога) < 95 %")):
+        s = lay[lay["why"] == why]
         L.append(f"| метка −1: {txt} (из них возврат был виден на валидных тиках: {int(np.isfinite(s['tau']).sum())}) | {len(s)} |")
     st = st[~st["f_fake"] & (st["label"] >= 0) & ok_units].copy()
     st["y"] = (st["label"] == 0).astype(int)               # 1 — «остался»
@@ -445,6 +476,7 @@ def evaluate(path_in, path_out):
     parts = {f"А: подбор — сутки {', '.join(names[k] for k in early)} → проверка — {', '.join(names[k] for k in late)}": ("ранние", "поздние"),
              f"Б: подбор — сутки {', '.join(names[k] for k in late)} → проверка — {', '.join(names[k] for k in early)}": ("поздние", "ранние")}
     res = {}
+    scope_narrow = False
     t_all = st["t"].to_numpy()
     for nm, (fit_b, test_b) in parts.items():
         fit_days, test_days = (early, late) if fit_b == "ранние" else (late, early)
@@ -454,6 +486,19 @@ def evaluate(path_in, path_out):
         tr, te = st[keep_fit].copy(), st[keep_te].copy()
         ytr, yte = tr["y"].to_numpy(), te["y"].to_numpy()
         L += [f"### {nm}", "", f"Подбор {len(tr)} ({int(ytr.sum())} остался; выброшено эмбарго {int(in_fit.sum() - keep_fit.sum())}), проверка {len(te)} ({int(yte.sum())} остался, {int((yte == 0).sum())} сходится; выброшено эмбарго {int(in_te.sum() - keep_te.sum())}). Доля «остался» в проверке: {100 * yte.mean():.1f} %.", ""]
+        lay_fit = lay["dayno"].isin(fit_days).to_numpy()
+        if lay_fit.any():                                    # метка −1 по покрытию по третям ликвидности (flow_min; пороги — по подбору): не режет ли правило тихие пары
+            qs = np.quantile(lay.loc[lay_fit, "flow_min"], [1 / 3, 2 / 3])
+            lay_d = lay[lay["dayno"].isin(fit_days + test_days)]
+            terc = np.digitize(lay_d["flow_min"].to_numpy(), qs)
+            trows = []
+            for k, tn in enumerate(("нижняя", "средняя", "верхняя")):
+                m = terc == k
+                n_, nc_, nr_ = int(m.sum()), int((lay_d["why"].to_numpy()[m] == "cover").sum()), int((lay_d["why"].to_numpy()[m] == "raw").sum())
+                scope_narrow |= nc_ / max(n_, 1) > COVER_SCOPE
+                trows.append({"треть ликвидности (flow_min)": tn, "порог flow_min": f"< {qs[0]:.2f}" if k == 0 else (f"{qs[0]:.2f}…{qs[1]:.2f}" if k == 1 else f"≥ {qs[1]:.2f}"), "единиц после слоёв": n_,
+                              "метка −1 по покрытию": nc_, "доля, %": round(100 * nc_ / max(n_, 1), 1), "метка −1: нет сырья": nr_})
+            L += [_md(pd.DataFrame(trows)), ""]
         if (yte == 1).sum() < MIN_STAY:
             L += [f"«Остался» в проверке {int(yte.sum())} < {MIN_STAY}: **не измеримо: мало случаев**; числа ниже приводятся с этой пометкой.", ""]
         coin_ids, cid = np.unique(te["coin"].to_numpy(), return_inverse=True)
@@ -517,6 +562,7 @@ def evaluate(path_in, path_out):
             verdict.append(f)
     L += [f"**Вердикт по правилу протокола (BA ≥ {BA_MIN}; нижняя скорр. граница BA по монетам > 0,5; нижняя скорр. граница прироста BA над edge0 и над долей «остался» у пары > 0; BA > 0,5 минимум в двух сутках проверки (при двух — в обеих); «остался» в проверке ≥ {MIN_STAY} — всё в обоих направлениях):** "
           + (", ".join(verdict) if verdict else ("не измеримо: мало случаев (в одной из частей «остался» < " + str(MIN_STAY) + ")" if unmeasurable else "ни один признак не годится")), "",
+          *([f"Охват вердикта: **только пары с покрытием ≥ 95 %** — метка −1 по покрытию сняла > {int(100 * COVER_SCOPE)} % единиц хотя бы в одной трети ликвидности (таблицы выше); решение не меняется, сужается охват.", ""] if scope_narrow else []),
           "Все числа — «найдено на этих данных»: признаки выбраны после прошлых взглядов на те же сутки (v1–v3), поправка — в счёте испытаний выше."]
     open(path_out, "w", encoding="utf-8").write("\n".join(L))
 
