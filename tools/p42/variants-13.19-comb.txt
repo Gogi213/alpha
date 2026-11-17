@@ -1,0 +1,7 @@
+# П-42 §13.19 (TK-591): сборка принятых значений (по стороне отдельная строка; лонг читается из comb_long, шорт — из comb_short); ow_e — контроль
+# запуск: P42_DETAIL=1 bash tools/p42/runentry.sh s19c tools/p42/variants-13.19-comb.txt /data/p42v2/bin/alpha-p42-v20
+ow_e lat=4 latx=4 pk=1 pb=1 fh=4 fk=120 fm=50 fb=0.5 ew=5 ex=0
+# long: tx20_x3 + rt02_20 (принятые семейства: выход по времени, выход при возврате)
+comb_long lat=4 latx=4 pk=1 pb=1 fh=4 fk=120 fm=50 fb=0.5 ew=5 ex=0 tt=20 tb=0.3 rf=0.2 rs=20
+# short: tx20_x1 + rt02_2 + bm1 + es15_e2_05 + e2_05 (принятые: время, возврат, безубыток, ближе к уровню с вторым входом, два входа)
+comb_short lat=4 latx=4 pk=1 pb=1 fh=4 fk=120 fm=50 fb=0.5 ew=5 ex=0 tt=20 tb=0.1 rf=0.2 rs=2 bm=1 e=0.15 e2=0.05

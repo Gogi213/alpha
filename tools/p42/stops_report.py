@@ -193,7 +193,8 @@ def combined_lines(out):
         if not picked:
             lines.append("# %s: приняты 0 семейств — сборки нет (кандидат = ow_e)" % side)
             continue
-        lines.append("comb_%s %s %s   # %s" % (side, BASE_LINE, " ".join("%s=%s" % kv for kv in keys.items()), "+".join(picked)))
+        lines.append("# %s: %s" % (side, "+".join(picked)))  # комментарий — отдельной строкой: разбор вариантов не знает «# …» в конце строки
+        lines.append("comb_%s %s %s" % (side, BASE_LINE, " ".join("%s=%s" % kv for kv in keys.items())))
     return lines
 
 
