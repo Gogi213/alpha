@@ -223,7 +223,12 @@ def gate_cells(table, pairs_dir, out, n=6):
         S = df[(df.side == side) & (df.half == sh)].reset_index(drop=True)
         add = fz["add"]
         r = S["d"].to_numpy() - add.predict(S)
-        for c in fz["shortlist"][:n]:
+        cells = fz["shortlist"][:n]
+        if not cells:  # шорт-лист пуст (0 клеток прошло BH) — ворота проверяют счёт клеток: берём n клеток с наименьшим p этого направления поиска
+            cs = pd.read_csv(f"{pairs_dir}/cells_search.csv")
+            cs = cs[(cs["side"] == side) & (cs["direction"] == f"{sh}->{'B' if sh == 'A' else 'A'}")].sort_values("p").head(n)
+            cells = cs.to_dict("records")
+        for c in cells:
             sc = c["scheme"]
             b1, b2 = fz["bk"][(c["f1"], sc)], fz["bk"][(c["f2"], sc)]
 
