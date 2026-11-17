@@ -94,12 +94,39 @@ def test_filter_helpers():
     assert hf.session_closed("forex", np.array([ms("2026-11-14 12:00")]))[0]
 
 
-def test_max_gap_raw_liveness():
+def test_max_free_gap_overlap_rule():
     import hold_filter as hf
-    e = np.array([1000, 2000, 3000, 9500, 10_000, 40_000], np.int64)
-    assert hf.max_gap(e, 2000, 10_000, pad=1000) == 6500            # 3000 → 9500
-    assert hf.max_gap(e, 12_000, 20_000, pad=1000) == 10_000        # записей нет: от a − pad до b + pad = 9
-    assert hf.max_gap(e, 1500, 2500, pad=500) == 1000
+    gp, gn = np.array([3000, 10_000, 100_000], np.int64), np.array([9500, 16_000, 140_000], np.int64)     # интервалы молчания символа > 5 с
+    a, b = np.array([2000, 9600, 16_000, 20_000, 120_000]), np.array([10_000, 9900, 17_000, 30_000, 121_000])
+    # эпизод [2000;10000] пересекает (3000;9500) 6500 и (10000;16000)? — p=10000 не < b=10000, нет; [9600;9900] внутри (3000;9500)? n=9500 < a — нет, пересечений нет;
+    # [16000;17000] — n=16000 не > a, нет; [20000;30000] — между интервалами, нет; [120000;121000] внутри (100000;140000) — 40000
+    assert hf.max_free_gap(gp, gn, a, b).tolist() == [6500, 0, 0, 0, 40_000]
+    assert hf.max_free_gap(np.array([], np.int64), np.array([], np.int64), a, b).tolist() == [0] * 5
+
+
+def test_rawgaps_intersection_of_files():
+    import hold_rawgaps as rg
+    f1 = (0, 12_000, np.array([0], np.int64), np.array([10_000], np.int64))               # записи 0, 10 с, 12 с
+    f2 = (5_000, 30_000, np.array([5_000], np.int64), np.array([30_000], np.int64))       # записи 5 с, 30 с
+    lo, hi = rg.free_intervals([f1, f2])
+    assert lo.tolist() == [12_000] and hi.tolist() == [30_000]                            # общие точки 0, 5, 10, 12, 30 с: молчание > 5 с только 12–30
+    f3 = (0, 40_000, np.array([0], np.int64), np.array([40_000], np.int64))
+    lo, hi = rg.free_intervals([f3])
+    assert lo.tolist() == [0] and hi.tolist() == [40_000]
+    lo, hi = rg.free_intervals([f1])
+    assert lo.tolist() == [0] and hi.tolist() == [10_000]
+
+
+def test_rolling_centre_window_params():
+    import core
+    mins = np.arange(100, 160)
+    sb = np.zeros((4, 60))
+    bb = np.zeros((4, 60))
+    bb[3, 30:] = 100.0 * 2                                       # середина закрытия: 0 до 30-й минуты, потом 100 bps (сдвиг уровня)
+    m0, c30 = core.rolling_centre(mins, sb, bb, 30, 15)
+    m0, c60 = core.rolling_centre(mins, sb, bb)
+    assert m0 == 100 and c30[59] == 100.0 and c60[59] == 0.0      # к 59-й минуте медиана 30-минутного окна — новый уровень, 60-минутного — старый
+    assert np.isnan(c30[10]) and not np.isnan(c30[16])           # нужно ≥ 15 баров
 
 
 def test_tolerant_bridges_short_dips_only():
@@ -131,24 +158,45 @@ def test_funding_over_hold_signs_and_bounds():
     assert np.isnan(f[0]) and np.isnan(n[0])                                                                      # выплаты символов не записаны — неизвестно
 
 
-def test_need_extra_subtracts_covered_windows():
-    import pandas as pd
-    import hold_filter as hf
-    df = pd.DataFrame({"f_gap": [False], "f_contract": [False], "f_tradfi": [False], "f_delist": [False], "ageA": [9000.0], "ageB": [0.0],
-                       "exA": ["bybit"], "symA": ["XUSDT"], "exB": ["okx"], "symB": ["X"], "t": [100_000.0], "dur": [2000.0]})
-    new = hf.need_windows(df, pad=10_000)
-    assert new == {("bybit", "XUSDT"): [(89_000, 112_000 + 1000)]}
-    old = {("bybit", "XUSDT"): [(80_000, 95_000), (105_000, 106_000)]}
-    ex = hf.need_extra(df, old)
-    assert ex == {("bybit", "XUSDT"): [(95_000, 105_000), (106_000, 113_000)]}
-    assert hf.need_extra(df, {("bybit", "XUSDT"): [(0, 200_000)]}) == {}
-
-
 def test_trade_row_live_gap_at_entry():
     import pandas as pd
     import hold_stats as hs_
     c = hs_.sim_cols(1, "c-t")
     sub = pd.DataFrame({"side": [1, -1, 1, -1], "day": [0, 0, 0, 0], c["net"]: [1.0, 2.0, -3.0, -4.0], c["gross"]: [13.6, 14.6, 9.6, 8.6], c["size"]: [100.0] * 4, c["tx"]: [1.0] * 4,
-                        c["edge_tx"]: [60.0, -70.0, 40.0, -40.0], c["c_tx"]: [0.0] * 4, c["te"]: [2.0] * 4, c["how"]: [1.0] * 4})
+                        c["edge_tx"]: [60.0, -70.0, 40.0, -40.0], c["c_tx"]: [0.0] * 4, c["te"]: [2.0] * 4, c["how"]: [1.0] * 4, c["pl"]: [-20.0] * 4, c["plsize"]: [100.0] * 4})
     r = hs_.trade_row(sub, 1, "c-t", 1.0, 1, 50.0, "z")
     assert r["разрыв ≥ θ на входе, %"] == 50.0 and r["net при живом разрыве, медиана bps"] == 1.5      # сторона +1: Sell = 60 ≥ 50; сторона −1: −Buy = 70 ≥ 50; остальные два — разрыв 40 < 50
+
+
+def test_simulate_centre_exit_in_zero_view_needs_deviation():
+    """«От нуля» + выход «к центру»: если в момент сигнала отклонения от центра нет (разрыв — обычный уровень пары), круг не открывается; при отклонении ≥ 50 bps — открывается."""
+    t0 = 1_000_000
+    # центр 120 bps (уровень пары), на сигнале разрыв 190 bps — отклонение 70 bps
+    T = np.arange(t0, t0 + 400_000, 1000, dtype=np.int64)
+    n = len(T)
+    S = np.full(n, 120.0)
+    S[100:200] = 190.0
+    Bu = S - 20.0
+    M = (S + Bu) / 2
+    cT = np.full(n, 120.0)
+    A = book([(int(t), 100.0, 100.1) for t in T])
+    B = book([(int(t), 100.0, 100.1) for t in T])
+    eps = np.zeros((1, len(hs.COLS)))
+    eps[0, hs.CI["t"]], eps[0, hs.CI["side"]], eps[0, hs.CI["i0"]] = T[100], 1, 100
+    r = hs.simulate(A, B, T, S, Bu, M, cT, t0 + 400_000, 50.0, "z", eps, 1000, "c-t", {}, t_lo=t0, seed=1)
+    assert np.isfinite(r[0, hs.SIM_COLS.index("tx")])               # отклонение 70 bps ≥ 50 — вход есть
+    S2 = S.copy()
+    S2[100:200] = 150.0                                         # отклонение 30 bps < 50 — вход запрещён
+    r2 = hs.simulate(A, B, T, S2, S2 - 20.0, (S2 + S2 - 20.0) / 2, cT, t0 + 400_000, 50.0, "z", eps, 1000, "c-t", {}, t_lo=t0, seed=1)
+    assert np.isnan(r2[0, hs.SIM_COLS.index("tx")])
+
+
+def test_placebo_pays_spread_and_fee():
+    """Случайный вход в ровной книге без движения цены: gross = −(спред A + спред B) в долях, net = gross − комиссия."""
+    t0 = 1_000_000
+    ev = [(t0 + 1000 * k, 100.0, 100.1) for k in range(500)]
+    A, B = book(ev), book(ev)
+    pl, ps = hs.placebo(A, B, t0, t0 + 500_000, np.array([t0 + 10_000]), np.array([t0 + 40_000]), np.array([1]), np.random.default_rng(3))
+    sp = (100.1 / 100.0 - 1) * 1e4
+    exp = (100.0 / 100.1 - 1) * 1e4 - (100.1 / 100.0 - 1) * 1e4 - hs.FEE_RT_BPS         # продать A по биду / купить B по оферу, обратно по оферу A / биду B
+    assert abs(pl[0] - exp) < 1e-6 and ps[0] == 400.0 and sp > 0

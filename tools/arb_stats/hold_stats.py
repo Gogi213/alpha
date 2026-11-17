@@ -17,6 +17,7 @@ KINDS = ("c-t", "z-t", "x1-t")
 SIZE_CAP = 100.0                      # $ на круг, как в прежних отчётах
 VIEW = {"z": "от нуля", "c": "от центра"}
 KIND_RU = {"c-t": "к центру", "z-t": "к нулю", "x1-t": "из − в +"}
+LAYER_RU = {"contract": "сдвиг (держится > 30 мин / постоянный)"}
 
 
 def fmt_s(s):
@@ -63,7 +64,7 @@ def counts_by_threshold(df, tab, cov, th, view):
 
 
 def duration_hist(df, th, view, mask=None):
-    edges = [1, 2, 5, 10, 30, 60, 120, 300, 600, 1800, 3600, 10 ** 9]
+    edges = [1, 2, 5, 10, 30, 60, 120, 300, 600, 1800 + 1e-3]
     sub = df[(df["th"] == th) & (df["view"] == view)]
     if mask is not None:
         sub = sub[mask[sub.index]]
@@ -86,26 +87,29 @@ def filter_table(df, th, view, thrs=(1, 5, 60, 600), layer_col="layer", keep_col
                 r.append(f"{int(s[keep_col].sum())}")
             else:
                 r.append(f"{int((s[layer_col] == name).sum())} ({int(s[stale_col if name == 'stale' else 'f_' + name].sum())})")
-        rows.append(r)
+        rows.append([LAYER_RU.get(name, name)] + r[1:])
     return pd.DataFrame(rows, columns=["причина: слой (затронуто)"] + [f"≥ {fmt_s(t)}" for t in thrs])
 
 
 def sim_cols(d, kind):
     p = f"{kind}_{d}_"
-    return {c: p + c for c in ("net", "gross", "size", "tx", "te", "edge_tx", "c_tx", "how")}
+    return {c: p + c for c in ("net", "gross", "size", "tx", "te", "edge_tx", "c_tx", "how", "pl", "plsize")}
 
 
 def trade_row(sub, d, kind, win_days, n_days=4, th=None, view=None):
+    """Строка исполнимости: круги, net, удержание, плацебо (случайные входы той же пары, стороны и удержания — hold_scan.placebo). $/сут — сумма $ (круг ≤ 100 $) / дни окна."""
     c = sim_cols(d, kind)
-    net, gross, size = sub[c["net"]].to_numpy(), sub[c["gross"]].to_numpy(), sub[c["size"]].to_numpy()
+    net, size = sub[c["net"]].to_numpy(), sub[c["size"]].to_numpy()
+    pl, plsize = sub[c["pl"]].to_numpy(), sub[c["plsize"]].to_numpy()
     entered = np.isfinite(sub[c["tx"]].to_numpy())
     closed = np.isfinite(net)
-    cap = np.minimum(size, SIZE_CAP)
-    usd = np.where(closed, cap * net / 1e4, 0.0)
-    plc = np.where(closed, cap * (-gross - FEE_RT_BPS) / 1e4, 0.0)
+    usd = np.where(closed, np.minimum(size, SIZE_CAP) * net / 1e4, 0.0)
+    plc = closed & np.isfinite(pl)
+    usd_pl = np.where(plc, np.minimum(np.nan_to_num(plsize), SIZE_CAP) * pl / 1e4, 0.0)
     days = sub["day"].to_numpy()
     per_day = [usd[days == k].sum() for k in range(n_days)]
     how = sub[c["how"]].to_numpy()
+    hold = (sub[c["te"]].to_numpy() - sub[c["tx"]].to_numpy()) / 1000
     out = {}
     if th is not None:                     # разрыв на момент входа ещё не меньше порога? (для «от центра» — относительно центра на входе)
         ex = sub["side"].to_numpy() * (sub[c["edge_tx"]].to_numpy() - (sub[c["c_tx"]].to_numpy() if view == "c" else 0.0))      # сторона −1: edge_tx — «Buy» (отрицательный при расхождении)
@@ -113,9 +117,12 @@ def trade_row(sub, d, kind, win_days, n_days=4, th=None, view=None):
             live = entered & (ex >= th)
         lc = live & closed
         out = {"разрыв ≥ θ на входе, %": round(100 * float(live.sum()) / max(int(entered.sum()), 1), 1), "net при живом разрыве, медиана bps": round(float(np.median(net[lc])), 1) if lc.any() else None}
-    return {"эпизодов": len(sub), "вошли": int(entered.sum()), **out, "закрыто по правилу": int((closed & (how == 1)).sum()), "по потолку 1 ч": int((closed & (how == 2)).sum()),
+    return {"эпизодов": len(sub), "вошли": int(entered.sum()), **out, "закрыто по правилу": int((closed & (how == 1)).sum()), "по потолку 30 мин": int((closed & (how == 2)).sum()),
+            "удержание, медиана с": round(float(np.median(hold[closed])), 1) if closed.any() else None, "удержание p90, с": round(float(np.quantile(hold[closed], 0.9)), 1) if closed.any() else None,
+            "закрыто сразу (≤ d + 0,5 с), %": round(100 * float((hold[closed] <= d + 0.5).mean()), 1) if closed.any() else None,
             "net, медиана bps": round(float(np.median(net[closed])), 1) if closed.any() else None, "доля круга > 0": round(float((net[closed] > 0).mean()), 2) if closed.any() else None,
-            "$/сут": round(float(usd.sum() / win_days), 1), "плацебо $/сут": round(float(plc.sum() / win_days), 1), "суток с плюсом": f"{int((np.array(per_day) > 0).sum())} из {len(per_day)}"}
+            "$/сут": round(float(usd.sum() / win_days), 1), "плацебо net, медиана bps": round(float(np.median(pl[plc])), 1) if plc.any() else None, "плацебо $/сут": round(float(usd_pl.sum() / win_days), 1),
+            "суток с плюсом": f"{int((np.array(per_day) > 0).sum())} из {len(per_day)}"}
 
 
 def trade_table(df, tab, th, view, mask=None, delays=DELAYS_S, kinds=KINDS):
@@ -145,16 +152,15 @@ def cases_csv(df, path):
 
 def pair_stats(sub, d, kind, win_days, n_days, win_h):
     """По парам (монета × биржи) для одной настройки (θ, вид уже выбраны в sub): круги, $/сут (≤ 100 $ на круг), $ по суткам, рейтинг и плацебо как в прежних отчётах
-    (кругов ≥ окно_ч / 6 и медиана net > 0 в каждых из суток покрытия; плацебо — тот же счёт для обратного знака: net_pl = −gross − комиссия)."""
+    (кругов ≥ окно_ч / 6 и медиана net > 0 в каждых из суток покрытия; плацебо — случайные входы той же пары, стороны и удержания с теми же спредом и комиссией)."""
     c = sim_cols(d, kind)
-    x = sub[["coin", "exA", "exB", "day", c["net"], c["gross"], c["size"]]].copy()
-    x.columns = ["coin", "exA", "exB", "day", "net", "gross", "size"]
+    x = sub[["coin", "exA", "exB", "day", c["net"], c["gross"], c["size"], c["pl"], c["plsize"]]].copy()
+    x.columns = ["coin", "exA", "exB", "day", "net", "gross", "size", "pl", "plsize"]
     x = x[np.isfinite(x["net"])]
     if not len(x):
         return pd.DataFrame()
     x["usd"] = np.minimum(x["size"], SIZE_CAP) * x["net"] / 1e4
-    x["pl"] = -x["gross"] - FEE_RT_BPS
-    x["usd_pl"] = np.minimum(x["size"], SIZE_CAP) * x["pl"] / 1e4
+    x["usd_pl"] = np.where(np.isfinite(x["pl"]), np.minimum(x["plsize"].fillna(0.0), SIZE_CAP) * x["pl"].fillna(0.0) / 1e4, 0.0)
     g = x.groupby(["coin", "exA", "exB"])
     out = g.agg(кругов=("net", "size"), net_мед=("net", "median"), usd=("usd", "sum"), usd_pl=("usd_pl", "sum"), size_мед=("size", "median")).reset_index()
     out["$/сут"] = out["usd"] / win_days

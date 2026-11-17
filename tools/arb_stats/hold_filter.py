@@ -4,14 +4,14 @@
   gap     — эпизод ± 2 мин пересекает пропуск сбора биржи любой из ног (gaps_scan ≥ 15 с, dead.json), обрыв Binance 15.11 18:12:18–18:14:20 UTC, обрыв пути 16.11 12:50–12:53 (UTC), или
             участок аудита collect-gap по символу ноги (границы −60 с / +120 с, как в проверке arb-cross-exit);
   stale   — (два прочтения: layer/keep — по сырью, layer_p/keep_p — по цене) любая нога молчала > 5 с в какой-то момент эпизода (слово владельца «нога устарела > 5 с»): по сырым записям книги, включая смены размера (hold_raw.py); stale_price — буквально «лучшая цена не менялась > 5 с»; stale60 — цена не менялась > 60 с;
-  contract— (от нуля) медиана разрыва пары за окно ≥ θ/2: пара весь период стоит со сдвигом (другой контракт: множитель, одноимённая другая монета, индекс), эпизод — не событие, а уровень;
+  contract— (от нуля) медиана разрыва пары за окно ≥ θ/2: пара весь период стоит со сдвигом (множитель, одноимённая другая монета, индекс — или просто постоянный уровень); эпизод — не событие, а уровень. В отчёте подпись «держится > 30 мин / постоянный сдвиг» (владелец 17.11), не «фейк»;
   tradfi  — биржа любой ноги относит символ к акциям / ETF / сырью / форексу / индексу И момент начала вне сессии (акции, ETF: вне пн–пт 14:30–21:00 UTC; сырьё, форекс, индекс: сб–вс);
   delist  — статус любой ноги «делистинг» (Binance SETTLING и поставка ≤ 3 суток от эпизода; Gate in_delisting; Bybit/Binance поставка раньше эпизода), пред-листинг;
   funding — в [начало − 2 мин; конец + 2 мин] у любой ноги начисление фандинга (по записям mark: смена времени T);
   mark    — mark-цены двух бирж не подтверждают разрыв: side · (mark_A / mark_B − 1 − база) < θ/2 (база — 0 или центр);
   trend   — (от центра) медиана середины за 10 мин до эпизода уже ушла от центра в сторону эпизода на ≥ θ/2: центр отстаёт от движущейся середины.
 Отдельно, не снимается: bingx — любая нога BingX (книга — снимки ≈ 2,6/с, метки на мс-масштабе не читаются).
-Запуск: python3 hold_filter.py <table.pkl> <symstatus.json> <dead.json> <audit_out_dir> <marks.pkl|-> <raw.pkl|-> <выход.pkl>; окна для hold_raw — «hold_filter.py need <flagged.pkl> <need.pkl>»
+Запуск: python3 hold_filter.py <table.pkl> <symstatus.json> <dead.json> <audit_out_dir> <marks.pkl[,marks2.pkl]|-> <rawgaps.pkl|-> <выход.pkl>; эпизоды длиннее 30 мин (LONG_MS) в выход не попадают, их число — tab["long"]
 """
 import csv
 import json
@@ -23,7 +23,7 @@ from pathlib import Path
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).parent))
-from hold_common import EX5, STALE_MS, all_meta, norm5  # noqa: E402
+from hold_common import DAYS, EX5, LONG_MS, STALE_MS, all_meta, norm5  # noqa: E402
 
 FILTERS = ("gap", "stale", "contract", "tradfi", "delist", "funding", "mark", "trend")
 GAP_MARGIN_MS = 120_000
@@ -87,13 +87,16 @@ def mark_at(m, ex, sym, mult, t_ms):
     return np.where(ok, d["p"][np.maximum(i, 0)] / mult, np.nan)
 
 
-def max_gap(e, a, b, pad=10_000):
-    """Наибольший промежуток между соседними записями (времена e, отсортированы) на отрезке [a, b]; границы — a − pad и b + pad (нет записей — вся длина)."""
-    lo, hi = np.searchsorted(e, a - pad, "left"), np.searchsorted(e, b + pad, "right")
-    seq = np.r_[a - pad, e[lo:hi], b + pad]
-    d = np.diff(seq)
-    ok = (seq[1:] > a) & (seq[:-1] < b)
-    return float(d[ok].max()) if ok.any() else 0.0
+def max_free_gap(gp, gn, a, b):
+    """Наибольший интервал молчания символа (p, n), пересекающий открытый отрезок (a, b) эпизода: n > a и p < b; интервалы отсортированы и не пересекаются. 0 — молчания > 5 с нет."""
+    out = np.zeros(len(a))
+    if not len(gp):
+        return out
+    ln = gn - gp
+    i0, i1 = np.searchsorted(gn, a, "right"), np.searchsorted(gp, b, "left")
+    for k in np.flatnonzero(i1 > i0):
+        out[k] = ln[i0[k]:i1[k]].max()
+    return out
 
 
 def apply(tab, symstatus, dead, audit, marks, raw=None):
@@ -103,7 +106,7 @@ def apply(tab, symstatus, dead, audit, marks, raw=None):
     t = df["t"].to_numpy()
     th = df["th"].to_numpy()
     side = df["side"].to_numpy()
-    meta = {ex: all_meta(ex, ["2026-11-13", "2026-11-14", "2026-11-15", "2026-11-16"]) for ex in EX5}
+    meta = {ex: all_meta(ex, DAYS) for ex in EX5}
     # символы и множители ног
     symA = np.empty(n, object)
     symB = np.empty(n, object)
@@ -134,18 +137,23 @@ def apply(tab, symstatus, dead, audit, marks, raw=None):
                 aud[ii] |= overlaps(s, e, t[ii], t_end[ii])
     df["f_gap"] = gap | aud
     df["f_audit"] = aud
-    # stale: f_stale_price — буквально «лучшая цена ноги не менялась > 5 с»; f_stale — нога молчала > 5 с по сырым записям (размеры тоже), если сырьё дано (иначе = f_stale_price)
+    # stale: f_stale_price — буквально «лучшая цена ноги не менялась > 5 с»; f_stale — нога молчала > 5 с по ВСЕМ сырым записям символа (в том числе смены только размера), если дан rawgaps (иначе = f_stale_price).
+    # «Нет записей» ≠ «молчит»: интервалы молчания строит hold_rawgaps по полному сырью всех запусков, а не по окнам эпизодов; символ, которого нет в сырье вовсе, даёт NaN (счёт «неизвестно»).
     df["f_stale_price"] = (df["ageA"] > STALE_MS) | (df["ageB"] > STALE_MS)
     df["f_stale60"] = (df["ageA"] > 60_000) | (df["ageB"] > 60_000)
     if raw is None:
         df["f_stale"] = df["f_stale_price"]
     else:
-        rgA, rgB = df["ageA"].to_numpy().astype(float).copy(), df["ageB"].to_numpy().astype(float).copy()
-        for col, ex_col, sym_col, rg in (("ageA", "exA", "symA", rgA), ("ageB", "exB", "symB", rgB)):
-            for i in np.flatnonzero(df[col].to_numpy() > STALE_MS):
-                e = raw.get((df[ex_col].iat[i], df[sym_col].iat[i]))
-                rg[i] = max_gap(e, t[i], t_end[i]) if e is not None else rg[i]
+        rgA, rgB = np.zeros(n), np.zeros(n)
+        for ex_col, sym_col, rg in (("exA", "symA", rgA), ("exB", "symB", rgB)):
+            for (ex, sym), ii in df.groupby([ex_col, sym_col]).indices.items():
+                if (ex, sym) not in raw["sym"]:
+                    rg[ii] = np.nan
+                    continue
+                gp, gn = raw["gaps"][(ex, sym)]
+                rg[ii] = max_free_gap(gp, gn, t[ii], t_end[ii])
         df["raw_gapA"], df["raw_gapB"] = rgA, rgB
+        df["raw_unknown"] = np.isnan(rgA) | np.isnan(rgB)
         df["f_stale"] = (rgA > STALE_MS) | (rgB > STALE_MS)
     # contract
     mm = np.array([abs(pairs[(c, a, b)]["M_med"] or 0.0) for c, a, b in zip(df["coin"], df["exA"], df["exB"])])
@@ -245,56 +253,9 @@ def funding_over_hold(df, marks, tx, te):
     return fund, npay
 
 
-def need_windows(df, pad=10_000):
-    """Окна сырых записей для проверки живости: ноги с возрастом цены > 5 с у эпизодов, не снятых раньше (gap, contract, tradfi, delist)."""
-    pre = ~(df["f_gap"] | df["f_contract"] | df["f_tradfi"] | df["f_delist"])
-    need = {}
-    for col, ex_col, sym_col in (("ageA", "exA", "symA"), ("ageB", "exB", "symB")):
-        m = pre & (df[col] > STALE_MS)
-        for ex, sym, a, b in zip(df.loc[m, ex_col], df.loc[m, sym_col], df.loc[m, "t"], df.loc[m, "t"] + df.loc[m, "dur"]):
-            need.setdefault((ex, sym), []).append((int(a) - pad - 1000, int(b) + pad + 1000))
-    return need
-
-
-def need_extra(df, old_need, pad=10_000):
-    """Окна сырых записей для df за вычетом уже покрытых окнами old_need (другой вариант эпизодов): -> {(биржа, символ): [(от, до), …]} только непокрытое."""
-    new = need_windows(df, pad)
-    out = {}
-    for key, iv in new.items():
-        old = sorted(old_need.get(key, []))
-        os_, oe = ([x[0] for x in merge_iv(old)], [x[1] for x in merge_iv(old)]) if old else ([], [])
-        for a, b in iv:
-            cur = a
-            i = np.searchsorted(oe, a, "right") if oe else 0
-            while i < len(os_) and os_[i] <= b and cur <= b:
-                if os_[i] > cur:
-                    out.setdefault(key, []).append((cur, os_[i]))
-                cur = max(cur, oe[i])
-                i += 1
-            if cur < b:
-                out.setdefault(key, []).append((cur, b))
-    return out
-
-
-def merge_iv(iv):
-    out = []
-    for a, b in sorted(iv):
-        if out and a <= out[-1][1]:
-            out[-1][1] = max(out[-1][1], b)
-        else:
-            out.append([a, b])
-    return out
-
-
 def load_raw(spec):
-    """Один или несколько pkl hold_raw через запятую -> объединённый словарь {(биржа, символ): отсортированные E}; «-» — нет."""
-    if spec == "-":
-        return None
-    out = {}
-    for path in spec.split(","):
-        for k, v in pickle.load(open(path, "rb")).items():
-            out[k] = v if k not in out else np.union1d(out[k], v)
-    return out
+    """pkl hold_rawgaps -> {"gaps", "span", "sym"}; «-» — нет."""
+    return None if spec == "-" else pickle.load(open(spec, "rb"))
 
 
 def load_marks(spec):
@@ -320,15 +281,14 @@ def main(tabp, symp, deadp, auditp, marksp, rawp, out):
     marks = load_marks(marksp)
     raw = load_raw(rawp)
     df = apply(tab, json.load(open(symp)), json.load(open(deadp)), load_audit(auditp), marks, raw)
-    pickle.dump({**tab, "df": df}, open(out, "wb"), protocol=4)
-    print({"episodes": len(df), "keep": int(df["keep"].sum()), **{f: int(df[f"f_{f}"].sum()) for f in FILTERS}})
+    long = df["dur"] > LONG_MS                  # владелец 17.11: что держится > 30 мин — неинтересно; вне охвата (одна строка со счётом), в таблицах и исполнимости их нет
+    cnt_long = {f"{th}|{v}": int(((df["th"] == th) & (df["view"] == v) & long).sum()) for th in sorted(df["th"].unique()) for v in ("z", "c")}
+    df_long = df[long].reset_index(drop=True)      # нужны только hold_stay (метка «остался» у эпизодов вида «от центра» дольше 30 мин)
+    df = df[~long].reset_index(drop=True)
+    pickle.dump({**tab, "df": df, "df_long": df_long, "long": cnt_long}, open(out, "wb"), protocol=4)
+    print({"episodes": len(df), "long_dropped": int(long.sum()), "keep": int(df["keep"].sum()), "keep_p": int(df["keep_p"].sum()), **{f: int(df[f"f_{f}"].sum()) for f in FILTERS},
+           "raw_unknown": int(df["raw_unknown"].sum()) if "raw_unknown" in df else None})
 
 
 if __name__ == "__main__":
-    if sys.argv[1] == "need":     # hold_filter.py need <flagged.pkl> <need.pkl> [<прежний need.pkl>] — с третьим аргументом только окна, не покрытые прежним
-        d = pickle.load(open(sys.argv[2], "rb"))["df"]
-        nw = need_extra(d, pickle.load(open(sys.argv[4], "rb"))) if len(sys.argv) > 4 else need_windows(d)
-        pickle.dump(nw, open(sys.argv[3], "wb"))
-        print({"keys": len(nw), "windows": sum(len(v) for v in nw.values())})
-    else:
-        main(*sys.argv[1:8])
+    main(*sys.argv[1:8])

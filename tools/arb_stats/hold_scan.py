@@ -1,7 +1,7 @@
 """Эпизоды расхождения, которые ДЕРЖАТСЯ непрерывно: пара (монета × две биржи), расхождение ≥ θ (0,5 % и 1 %) в двух видах.
 
   «от нуля» — исполнимый разрыв цен между биржами: sell-сторона по биду минус buy-сторона по оферу (Sell = bid_A/ask_B − 1 ≥ θ или −Buy = 1 − ask_A/bid_B ≥ θ), центр не нужен;
-  «от центра» — Sell − c ≥ θ или c − Buy ≥ θ, c — причинный авто-центр (медиана минутных баров ряда за прошлые 60 мин, core.rolling_centre).
+  «от центра» — Sell − c ≥ θ или c − Buy ≥ θ, c — причинный авто-центр (медиана минутных баров ряда за прошлые 30 мин, core.rolling_centre; сдвиг дольше 30 мин становится новым центром).
 Эпизод — подряд идущие моменты ряда (изменение лучшей цены любой из двух ног), где условие верно; длительность — от первого момента до первого момента без него (метка E).
 Хранятся ВСЕ эпизоды длительностью ≥ 1 с (слово владельца «все кейсы», без верхней границы); короче — только счётчики по порогам 1…500 мс.
 Устаревание НЕ режется (в отличие от tokyo_run): у каждого эпизода пишется наибольший возраст лучшей цены каждой ноги за эпизод — фильтр «нога устарела > 5 с» делает hold_filter.py.
@@ -25,7 +25,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).parent))
 import core  # noqa: E402
 import maker_run  # noqa: E402
-from hold_common import CAP_MS, EX5, FEE_RT_BPS, THETAS, build_coins, day_edges, unit_of  # noqa: E402
+from hold_common import CAP_MS, CENTRE_MIN, EX5, FEE_RT_BPS, THETAS, build_coins, day_edges, unit_of  # noqa: E402
 
 COLS = ("t", "dur", "side", "open", "i0", "ageA", "ageB", "nA", "nB", "size0", "sizemin", "edge0", "edgemax", "c0", "trend", "price", "priceB", "spA", "spB", "npts", "ndip", "tdip")
 CI = {c: i for i, c in enumerate(COLS)}
@@ -33,8 +33,10 @@ MIN_KEEP_MS = 1000
 SHORT_MS = (1, 10, 50, 100, 250, 500)
 DELAYS = (1000, 3000, 5000)
 KINDS = ("c-t", "z-t", "x1-t")
-SIM_COLS = ("net", "gross", "size", "tx", "te", "edge_tx", "c_tx", "how")   # how: 1 — закрыт по правилу выхода, 2 — по потолку удержания
-HOLD_CAP_MS = 3_600_000                    # потолок удержания позиции: 1 ч (дольше — закрытие по рынку), иначе «не закрыт» блокировал бы пару до конца окна
+SIM_COLS = ("net", "gross", "size", "tx", "te", "edge_tx", "c_tx", "how", "pl", "plsize")   # how: 1 — закрыт по правилу выхода, 2 — по потолку удержания; pl, plsize — плацебо (среднее net и размер по случайным входам)
+HOLD_CAP_MS = 1_800_000                    # потолок удержания позиции: 30 мин (дольше — закрытие по рынку; владелец 17.11: что держится > 30 мин — неинтересно)
+DEV_MIN_BPS = 50.0                         # «от нуля», выход «к центру»: вход только при отклонении от центра ≥ 50 bps в момент сигнала (иначе сигнал выхода уже стоит на входе)
+PLACEBO_K = 5                              # случайных входов на каждый настоящий круг
 TOL_MS = int(os.environ.get("HOLD_TOL_MS", "0"))      # 0 — строгие эпизоды; > 0 — допускающий вариант (провалы короче TOL_MS не рвут эпизод)
 DO_SIM = os.environ.get("HOLD_SIM", "1") != "0"
 MISMATCH_BPS = 1000.0                      # медиана разрыва пары ≥ 10 % — другой контракт (множитель, одноимённая другая монета): эпизодов не считаем
@@ -83,7 +85,7 @@ def scan_pair(A, B, t0, t1, thetas=THETAS, tol=None, sim=None):
     if valid.sum() < 50:
         return None
     mins, _, sb, bb = core.minute_bars(T[valid], S[valid], Bu[valid])
-    m0, cen = core.rolling_centre(mins, sb, bb)
+    m0, cen = core.rolling_centre(mins, sb, bb, CENTRE_MIN, CENTRE_MIN // 2)
     cT = cen[np.clip(T // 60000 - m0, 0, len(cen) - 1)]
     mid_min = np.full(len(cen), np.nan)
     mid_min[mins - m0] = (sb[3] + bb[3]) / 2
@@ -167,17 +169,52 @@ def exit_next(kind, side, S, Bu, M, cT, view, th, cache):
     return cache[key]
 
 
-def simulate(A, B, T, S, Bu, M, cT, t1, th, view, eps, d, kind, cache, fee=FEE_RT_BPS):
+def placebo(A, B, t_lo, t1, tx, te, side, rng, k=PLACEBO_K, fee=FEE_RT_BPS):
+    """Плацебо к настоящим кругам: те же пара, сторона и длительность удержания, но вход в СЛУЧАЙНЫЙ момент ряда (равномерно по [t_lo, t1 − удержание]), тейкером на обеих ногах по книге момента,
+    выход через то же удержание, та же комиссия — платится тот же спред. k случайных входов на круг; ноги с возрастом лучшей цены > CAP_MS в момент входа или выхода не считаются.
+    -> (среднее net по допустимым входам, средний размер вершины $) — массивы длины len(tx), NaN — нет допустимых."""
+    m = len(tx)
+    hold = (te - tx).astype(np.int64)
+    hi = (t1 - hold - 1).astype(float)
+    tx2 = (t_lo + rng.random((m, k)) * np.maximum(hi - t_lo, 0.0)[:, None]).astype(np.int64)
+    te2 = tx2 + hold[:, None]
+    Ae, Be = A["e"], B["e"]
+    ia, ib = np.searchsorted(Ae, tx2, "right") - 1, np.searchsorted(Be, tx2, "right") - 1
+    ja, jb = np.searchsorted(Ae, te2, "right") - 1, np.searchsorted(Be, te2, "right") - 1
+    ok = (ia >= 0) & (ib >= 0) & (ja >= 0) & (jb >= 0) & (hi[:, None] > t_lo)
+    ia, ib, ja, jb = (np.maximum(x, 0) for x in (ia, ib, ja, jb))
+    ok &= ((tx2 - Ae[ia]) <= CAP_MS) & ((tx2 - Be[ib]) <= CAP_MS) & ((te2 - Ae[ja]) <= CAP_MS) & ((te2 - Be[jb]) <= CAP_MS)
+    sd = side[:, None]
+    edge = np.where(sd > 0, (A["bid"][ia] / B["ask"][ib] - 1) * 1e4, (A["ask"][ia] / B["bid"][ib] - 1) * 1e4)
+    ex = np.where(sd > 0, (A["ask"][ja] / B["bid"][jb] - 1) * 1e4, (A["bid"][ja] / B["ask"][jb] - 1) * 1e4)
+    gross = np.where(sd > 0, edge - ex, ex - edge)
+    size = np.where(sd > 0, np.minimum(A["dbid"][ia], B["dask"][ib]), np.minimum(A["dask"][ia], B["dbid"][ib]))
+    net = np.where(ok, gross - fee, np.nan)
+    size = np.where(ok, size, np.nan)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)
+        return np.nanmean(net, axis=1), np.nanmean(size, axis=1)
+
+
+def simulate(A, B, T, S, Bu, M, cT, t1, th, view, eps, d, kind, cache, fee=FEE_RT_BPS, t_lo=None, seed=None):
     """Круги по эпизодам (в порядке времени): вход через d мс после сигнала первого момента эпизода тейкером на обеих ногах по книге момента входа, выход тейкером через d мс после сигнала.
-    Позиция занята до исполнения выхода (эпизод с сигналом раньше — пропускается); не закрытая за HOLD_CAP_MS закрывается по рынку (how = 2); не закрытая до t1 — занимает пару до конца. -> массив (len(eps), len(SIM_COLS)), NaN — нет круга / не закрыт."""
+    Позиция занята до исполнения выхода (эпизод с сигналом раньше — пропускается); не закрытая за HOLD_CAP_MS (30 мин) закрывается по рынку (how = 2); не закрытая до t1 — занимает пару до конца.
+    Вид «от нуля» + выход «к центру»: вход только если в момент сигнала отклонение от причинного центра ≥ DEV_MIN_BPS (иначе сигнал выхода уже стоит на входе — вырожденный круг).
+    Если задан seed — плацебо (случайные входы, см. placebo) пишется в столбцы pl, plsize. -> массив (len(eps), len(SIM_COLS)), NaN — нет круга / не закрыт."""
     n, m = len(T), len(eps)
     out = np.full((m, len(SIM_COLS)), np.nan)
     Ae, Be = A["e"], B["e"]
     t_free = -np.inf
+    need_dev = kind == "c-t" and view == "z"
     for j in range(m):
         ts, side = eps[j, CI["t"]], int(eps[j, CI["side"]])
         if ts < t_free:
             continue
+        if need_dev:
+            i0 = int(eps[j, CI["i0"]])
+            dev = (S[i0] - cT[i0]) if side > 0 else (cT[i0] - Bu[i0])
+            if not dev >= DEV_MIN_BPS:
+                continue
         tx = ts + d
         if tx >= t1:
             continue
@@ -200,6 +237,12 @@ def simulate(A, B, T, S, Bu, M, cT, t1, th, view, eps, d, kind, cache, fee=FEE_R
         gross = edge - (A["ask"][im2] / B["bid"][ib2] - 1) * 1e4 if side > 0 else (A["bid"][im2] / B["ask"][ib2] - 1) * 1e4 - edge
         out[j, [SIM_COLS.index("net"), SIM_COLS.index("gross"), SIM_COLS.index("te"), SIM_COLS.index("how")]] = (gross - fee, gross, te, how)
         t_free = te
+    if seed is not None:
+        c = np.flatnonzero(np.isfinite(out[:, SIM_COLS.index("net")]))
+        if len(c):
+            tl = t_lo if t_lo is not None else int(T[0])
+            pl, ps = placebo(A, B, tl, t1, out[c, SIM_COLS.index("tx")], out[c, SIM_COLS.index("te")], eps[c, CI["side"]].astype(int), np.random.default_rng(seed), fee=fee)
+            out[c, SIM_COLS.index("pl")], out[c, SIM_COLS.index("plsize")] = pl, ps
     return out
 
 

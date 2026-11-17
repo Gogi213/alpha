@@ -14,7 +14,7 @@ from hold_common import THETAS
 from hold_filter import FILTERS
 
 VIEWS = ("z", "c")
-HOLD_GROUPS = ((1, 5), (5, 60), (60, 600), (600, 10 ** 9))
+HOLD_GROUPS = ((1, 5), (5, 60), (60, 600), (600, 1801))
 READ = {"keep": ("сырьё: молчание ноги > 5 с", "layer", "f_stale"), "keep_p": ("цена: лучшая цена не менялась > 5 с", "layer_p", "f_stale_price")}
 
 
@@ -29,15 +29,14 @@ def counts_combined(df, tab, cov, th, v):
         k = hst.counts_by_threshold(df[df[keep]], tab, cov, th, v)
         cols.update({f"{tag}: эпизодов": k["эпизодов"], f"{tag}: пар": k["пар"], f"{tag}: эп./сут": k["эпизодов/сут"], f"{tag}: пар с ≥ 1 эп./сут": k["пар с ≥ 1 эп./сут"],
                      f"{tag}: пар с эпизодом каждые сутки": k["пар с эпизодом каждые сутки"]})
-        if keep == "keep":
-            nb = hst.counts_by_threshold(df[df[keep] & ~df["f_bingx"]], tab, cov, th, v)
-            cols.update({"сырьё без BingX: эпизодов": nb["эпизодов"], "сырьё без BingX: пар": nb["пар"]})
+        nb = hst.counts_by_threshold(df[df[keep] & ~df["f_bingx"]], tab, cov, th, v)
+        cols.update({f"{tag} без BingX: эпизодов": nb["эпизодов"], f"{tag} без BingX: пар": nb["пар"], f"{tag} без BingX: пар с ≥ 1 эп./сут": nb["пар с ≥ 1 эп./сут"]})
     return pd.DataFrame(cols)
 
 
 def dist_table(df, th, v):
-    edges = [1, 2, 5, 10, 30, 60, 120, 300, 600, 1800, 3600, 10 ** 9]
-    names = ["1–2 с", "2–5 с", "5–10 с", "10–30 с", "30–60 с", "1–2 мин", "2–5 мин", "5–10 мин", "10–30 мин", "30–60 мин", "≥ 1 ч"]
+    edges = [1, 2, 5, 10, 30, 60, 120, 300, 600, 1800 + 1e-3]
+    names = ["1–2 с", "2–5 с", "5–10 с", "10–30 с", "30–60 с", "1–2 мин", "2–5 мин", "5–10 мин", "10–30 мин"]
     sub = df[(df["th"] == th) & (df["view"] == v)]
     a, _ = np.histogram(sub["dur"] / 1000, edges)
     k, _ = np.histogram(sub.loc[sub["keep"], "dur"] / 1000, edges)
@@ -120,6 +119,53 @@ def per_day_table(df, tab, th, v, keep):
     return pd.DataFrame(rows)
 
 
+REP_BINS = ((1, 1, "1"), (2, 5, "2–5"), (6, 20, "6–20"), (21, 10 ** 9, "> 20"))
+
+
+def repeat_tables(df, tab, cov, th, v, keep, thr_s):
+    """Единичные или повторяющиеся расхождения (вопрос владельца 17.11). Эпизоды остатка длительностью thr_s…30 мин.
+    1) по парам: сколько отдельных эпизодов за всё окно (1 / 2–5 / 6–20 / 21–100 / > 100) и в скольких сутках покрытия они были;
+    2) пара-сутки с эпизодом: сколько эпизодов в сутки (1 / 2–5 / 6–20 / > 20);
+    3) устойчивость: у скольких пар эпизод есть во всех сутках покрытия."""
+    sub = df[(df["th"] == th) & (df["view"] == v) & df[keep] & (df["dur"] >= thr_s * 1000)]
+    nd = len(tab["days"]) - 1
+    if not len(sub):
+        return None, None, None
+    g = sub.groupby(["coin", "exA", "exB"])
+    n, ndays = g.size(), g["day"].nunique()
+    cov_days = pd.Series({k: cov[k][v][1] for k in n.index})
+    pair_edges = [(1, 1, "1"), (2, 5, "2–5"), (6, 20, "6–20"), (21, 100, "21–100"), (101, 10 ** 9, "> 100")]
+    r1 = [{"эпизодов у пары за окно": nm, "пар": int(((n >= lo) & (n <= hi)).sum()), "из них сутки с эпизодом (медиана)": float(ndays[(n >= lo) & (n <= hi)].median()) if ((n >= lo) & (n <= hi)).any() else None,
+           "из них суток покрытия (медиана)": float(cov_days[(n >= lo) & (n <= hi)].median()) if ((n >= lo) & (n <= hi)).any() else None} for lo, hi, nm in pair_edges]
+    pd_cnt = sub.groupby(["coin", "exA", "exB", "day"]).size()
+    r2 = [{"эпизодов за сутки": nm, "пар-суток": int(((pd_cnt >= lo) & (pd_cnt <= hi)).sum())} for lo, hi, nm in REP_BINS]
+    every = int((ndays >= cov_days).sum())
+    r3 = [{"показатель": "пар с эпизодом", "значение": len(n)}, {"показатель": "из них один эпизод за всё окно", "значение": int((n == 1).sum())},
+          {"показатель": "из них эпизоды в ≥ 2 сутках", "значение": int((ndays >= 2).sum())}, {"показатель": "из них эпизод в каждые сутки покрытия", "значение": every},
+          {"показатель": "пар с ≥ 1 эп./сут (эпизодов / дней покрытия)", "значение": int(sum(c / max(cov[k][v][0], 1e-9) >= 1.0 for k, c in n.items()))}]
+    return pd.DataFrame(r1), pd.DataFrame(r2), pd.DataFrame(r3)
+
+
+def subset_check(kp, tab, th, v, d, kind):
+    """Подмножество «от нуля, выход к центру, вход при отклонении от центра ≥ 50 bps»: по суткам GMT+4 и по половинам окна (первые / последние сутки). Правило и порог 50 bps заданы заранее (= низший θ), не подбирались."""
+    c = hst.sim_cols(d, kind)
+    s = kp[(kp["th"] == th) & (kp["view"] == v) & np.isfinite(kp[c["net"]])]
+    nd = len(tab["days"]) - 1
+    rows = []
+    groups = [(f"сутки {pd.to_datetime(tab['days'][k] + 4 * 3_600_000, unit='ms').strftime('%d.%m')}", s[s["day"] == k]) for k in range(nd)]
+    half = nd // 2
+    groups += [("первая половина окна", s[s["day"] < half]), ("вторая половина окна", s[s["day"] >= half]), ("всё окно", s)]
+    for nm, x in groups:
+        if not len(x):
+            rows.append({"часть": nm, "кругов": 0})
+            continue
+        net, pl = x[c["net"]].to_numpy(), x[c["pl"]].to_numpy()
+        rows.append({"часть": nm, "кругов": len(x), "net, медиана bps": round(float(np.median(net)), 1), "доля круга > 0": round(float((net > 0).mean()), 2),
+                     "по потолку 30 мин, %": round(100 * float((x[c["how"]] == 2).mean()), 1), "плацебо net, медиана bps": round(float(np.nanmedian(pl)), 1) if np.isfinite(pl).any() else None,
+                     "net − плацебо, медиана bps": round(float(np.median(net[np.isfinite(pl)] - pl[np.isfinite(pl)])), 1) if np.isfinite(pl).any() else None})
+    return pd.DataFrame(rows)
+
+
 def main(flagp, resimp, out_md, out_pairs, out_cases):
     tab = pickle.load(open(flagp, "rb"))
     df = tab["df"]
@@ -149,6 +195,16 @@ def main(flagp, resimp, out_md, out_pairs, out_cases):
                 for thr in (5, 60, 600):
                     tp = top_pairs(df[(df["th"] == th) & (df["view"] == v) & df[keep]], thr, tab)
                     L += [f"### Пары после фильтров («{nm}») с эпизодами ≥ {hst.fmt_s(thr)} — {combo_name(th, v)}", hst.md(tp) if len(tp) else "нет", ""]
+    for th in THETAS:
+        for v in VIEWS:
+            for keep, (nm, _, _) in READ.items():
+                for thr in (5, 60):
+                    r1, r2, r3 = repeat_tables(df, tab, cov, th, v, keep, thr)
+                    if r1 is None:
+                        continue
+                    L += [f"### Повторяемость: пары по числу эпизодов ≥ {hst.fmt_s(thr)} за окно («{nm}») — {combo_name(th, v)}", hst.md(r1), "",
+                          f"### Повторяемость: пара-сутки по числу эпизодов ≥ {hst.fmt_s(thr)} за сутки («{nm}») — {combo_name(th, v)}", hst.md(r2), "",
+                          f"### Повторяемость: устойчивость по суткам, эпизоды ≥ {hst.fmt_s(thr)} («{nm}») — {combo_name(th, v)}", hst.md(r3), ""]
     if R is not None:
         for th in THETAS:
             for v in VIEWS:
@@ -161,8 +217,6 @@ def main(flagp, resimp, out_md, out_pairs, out_cases):
                         L += [f"### Фандинг за удержание («{nm}») — {combo_name(th, v)}", hst.md(pd.DataFrame(fr)), ""]
                     for kind in hst.KINDS:
                         L += [f"### Исполнимость по длительности эпизода («{nm}»), задержка 1 с, выход {hst.KIND_RU[kind]} — {combo_name(th, v)}", hst.md(trade_by_hold(s, tab, 1, kind)), ""]
-                if f"{hst.KINDS[0]}_1_net" in df.columns:
-                    L += [f"### Исполнимость без фильтров (все эпизоды ≥ 1 с, круги по прежнему ряду) — {combo_name(th, v)}", hst.md(hst.trade_table(df, tab, th, v)), ""]
         kp = R["keep"]
         for th in THETAS:
             for v in VIEWS:
@@ -175,6 +229,11 @@ def main(flagp, resimp, out_md, out_pairs, out_cases):
                         ps = ps.sort_values("$/сут", ascending=False)
                         L += [f"### Пары по $/сут (оставшиеся, сырьё), задержка {d} с, выход {hst.KIND_RU[kind]} — {combo_name(th, v)}: пар с кругами {len(ps)}, в плюсе {int((ps['$/сут'] > 0).sum())}, рейтинг {int(ps['рейтинг'].sum())}, плацебо {int(ps['плацебо'].sum())}",
                               hst.md(ps.head(10)[["coin", "exA", "exB", "кругов", "net_мед", "size_мед", "$/сут", "плацебо $/сут", "по суткам $", "суток с плюсом", "рейтинг", "плацебо"]].round(2)), ""]
+    if R is not None:
+        for th in THETAS:
+            for keep, (nm, _, _) in READ.items():
+                for d in hst.DELAYS_S:
+                    L += [f"### Подмножество «от нуля, выход к центру, вход при отклонении от центра ≥ 50 bps» по суткам и половинам окна («{nm}»), задержка {d} с — θ = {th / 100:g} %", hst.md(subset_check(R[keep], tab, th, "z", d, "c-t")), ""]
     open(out_md, "w", encoding="utf-8").write("\n".join(L))
     pairs_csv(df, tab, out_pairs)
     if out_cases != "-":

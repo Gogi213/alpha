@@ -3,11 +3,12 @@
 Тот же ряд пары и тот же hold_scan.simulate (одна позиция на пару и настройку, потолок удержания 1 ч), но по строкам выбранного подмножества.
 Запуск: python3 hold_resim.py <flagged.pkl> <книги (с parsed/)> <выход.pkl> [PAR] [marks.pkl,marks-old.pkl]; подмножества: keep — остаток по правилу «молчание по сырым записям», keep_p — остаток при буквальном правиле «цена ноги не менялась > 5 с».
 Если даны marks — к каждой настройке исполнения добавляются <выход>_<d>_fund (фандинг за удержание, bps) и <выход>_<d>_npay (число выплат).
-Выход: {"keep": DataFrame, "lit": DataFrame} — строки подмножества с пересчитанными столбцами <выход>_<d>_<поле> (индекс как в таблице).
+Выход: {"keep": DataFrame, "keep_p": DataFrame} — строки подмножества с пересчитанными столбцами <выход>_<d>_<поле> (индекс как в таблице).
 """
 import pickle
 import sys
 import time
+import zlib
 from multiprocessing import Pool
 from pathlib import Path
 
@@ -18,7 +19,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 import core  # noqa: E402
 import hold_scan as hs  # noqa: E402
 import maker_run  # noqa: E402
-from hold_common import CAP_MS, unit_of  # noqa: E402
+from hold_common import CAP_MS, CENTRE_MIN, DAYS, unit_of  # noqa: E402
 
 G = {}
 SUBSETS = ("keep", "keep_p")
@@ -28,7 +29,7 @@ def series(A, B, t1):
     T, S, Bu, ia, ib = core.pair_series(A, B, t1)
     valid = ((T - A["e"][ia]) <= CAP_MS) & ((T - B["e"][ib]) <= CAP_MS)
     mins, _, sb, bb = core.minute_bars(T[valid], S[valid], Bu[valid])
-    m0, cen = core.rolling_centre(mins, sb, bb)
+    m0, cen = core.rolling_centre(mins, sb, bb, CENTRE_MIN, CENTRE_MIN // 2)
     return T, S, Bu, (S + Bu) / 2, cen[np.clip(T // 60000 - m0, 0, len(cen) - 1)]
 
 
@@ -51,7 +52,8 @@ def work_pair(key):
             eps, ids = eps[o], grp.index.to_numpy()[o]
             for d in hs.DELAYS:
                 for kind in hs.KINDS:
-                    arr = hs.simulate(books[a], books[b], T, S, Bu, M, cT, g["t1"], th, view, eps, d, kind, cache)
+                    seed = zlib.crc32(f"{coin}|{a}|{b}|{th}|{view}|{d}|{kind}".encode())
+                    arr = hs.simulate(books[a], books[b], T, S, Bu, M, cT, g["t1"], th, view, eps, d, kind, cache, t_lo=max(g["t0"], int(T[0])), seed=seed)
                     res[(name, th, view, d, kind)] = (ids, arr)
     return res
 
@@ -60,10 +62,9 @@ def main(flagp, bwork, out, par=5, marks="-"):
     from hold_common import build_coins
     tab = pickle.load(open(flagp, "rb"))
     df = tab["df"]
-    days = ["2026-11-13", "2026-11-14", "2026-11-15", "2026-11-16"]
-    coins, _ = build_coins(str(Path(bwork, "parsed")), days)
-    need = df[df["keep"]].groupby(["coin", "exA", "exB"]).indices
-    G.update({"bwork": str(Path(bwork, "parsed")), "t1": tab["t1"], "coins": coins, "df": df, "idx": df.groupby(["coin", "exA", "exB"]).indices})
+    coins, _ = build_coins(str(Path(bwork, "parsed")), DAYS)
+    need = df[df["keep"] | df["keep_p"]].groupby(["coin", "exA", "exB"]).indices
+    G.update({"bwork": str(Path(bwork, "parsed")), "t0": tab["t0"], "t1": tab["t1"], "coins": coins, "df": df, "idx": df.groupby(["coin", "exA", "exB"]).indices})
     keys = [k for k in need]
     t = time.time()
     cols = {}

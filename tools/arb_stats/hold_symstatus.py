@@ -9,7 +9,7 @@ import urllib.request
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from hold_common import EX5, all_meta  # noqa: E402
+from hold_common import DAYS, EX5, all_meta  # noqa: E402
 
 FAR = 4_000_000_000_000
 
@@ -37,7 +37,7 @@ def main(out):
         cursor = d.get("nextPageCursor") or ""
         if not cursor:
             break
-    days = ["2026-11-13", "2026-11-14", "2026-11-15", "2026-11-16"]
+    days = DAYS
     okx_kind = {"1": "crypto", "3": "equity", "4": "commodity", "5": "forex", "6": "index"}
     for s, m in all_meta("okx", days).items():
         res["okx"][s] = {"kind": okx_kind.get(m.get("instCategory"), "crypto"), "status": "live", "delist_ms": None, "launch_ms": int(m.get("listTime") or 0), "pre": False}

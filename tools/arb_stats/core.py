@@ -69,18 +69,19 @@ def minute_bars(T, S, Bu):
     return m[idx], n, sb, bb
 
 
-def rolling_centre(mins, sb, bb):
-    """Центр по минуте k = медиана середины закрытия (S_c + B_c)/2 баров окна [k−60, k−1]; NaN, если баров < 30. -> dict минута→центр, m0, массив."""
+def rolling_centre(mins, sb, bb, win_min=WIN_MIN, need_bars=NEED_BARS):
+    """Центр по минуте k = медиана середины закрытия (S_c + B_c)/2 баров окна [k−win_min, k−1] (по умолчанию 60 мин); NaN, если баров < need_bars (по умолчанию 30). -> m0, массив центров по минутам.
+    Окно только из прошлого: заглядывания вперёд нет; сдвиг уровня, державшийся дольше окна, становится новым центром."""
     m0, m1 = int(mins[0]), int(mins[-1])
     mid = np.full(m1 - m0 + 1, np.nan)
     mid[mins - m0] = (sb[3] + bb[3]) / 2
-    pad = np.r_[np.full(WIN_MIN, np.nan), mid]
-    win = np.lib.stride_tricks.sliding_window_view(pad, WIN_MIN)[: len(mid)]   # окно [k−60, k−1] для минуты k
+    pad = np.r_[np.full(win_min, np.nan), mid]
+    win = np.lib.stride_tricks.sliding_window_view(pad, win_min)[: len(mid)]   # окно [k−win_min, k−1] для минуты k
     cnt = np.sum(~np.isnan(win), axis=1)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", RuntimeWarning)
         c = np.nanmedian(win, axis=1)
-    c[cnt < NEED_BARS] = np.nan
+    c[cnt < need_bars] = np.nan
     return m0, c
 
 
