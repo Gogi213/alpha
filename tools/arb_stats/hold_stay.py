@@ -69,12 +69,18 @@ def mark_before(mk, ex, sym, mult, ts):
     return np.where(ok, d["p"][np.maximum(i, 0)] / mult, np.nan)
 
 
+TRADES_COVER_MS = 600_000              # запись сделок символа должна доходить до момента (± 10 мин), иначе «нет данных», не «ноль сделок»
+
+
 def trades_before(tr, ex, sym, ts, win=6):
-    """Число сделок в окнах по 10 с, лежащих строго до окна начала (win окон = 60 с)."""
+    """Число сделок в окнах по 10 с, лежащих строго до окна начала (win окон = 60 с); NaN — записи сделок символа нет или она оборвалась / ещё не началась (первая / последняя запись дальше 10 мин от ts):
+    у части символов Gate после 16.11 02:10 UTC записей сделок нет вовсе — это не «ноль сделок»."""
     d = tr.get((ex, sym))
-    if d is None:
-        return 0.0
+    if d is None or not len(d[0]):
+        return np.nan
     b, n, _ = d
+    if ts < int(b[0]) * 10_000 - TRADES_COVER_MS or ts > int(b[-1]) * 10_000 + TRADES_COVER_MS:
+        return np.nan
     k = ts // 10_000
     lo, hi = np.searchsorted(b, k - win, "left"), np.searchsorted(b, k, "left")
     return float(n[lo:hi].sum())
@@ -232,7 +238,7 @@ def work_pair(key):
         ra, rb = last_rate(g["marks"], a, symA, ts), last_rate(g["marks"], b, symB, ts)
         feats["fund_diff"][j] = side[j] * (ra - rb) * 1e4 if np.isfinite(ra) and np.isfinite(rb) else np.nan
         na, nb_ = trades_before(g["trades"], a, symA, ts), trades_before(g["trades"], b, symB, ts)
-        feats["flow_min"][j] = np.log1p(min(na, nb_))
+        feats["flow_min"][j] = np.log1p(min(na, nb_)) if np.isfinite(na) and np.isfinite(nb_) else np.nan
     # mark: только ведра строго раньше ведра начала (п. Б3)
     mkA, mkB = mark_before(g["marks"], a, symA, mults[a], t), mark_before(g["marks"], b, symB, mults[b], t)
     with np.errstate(invalid="ignore", divide="ignore"):
@@ -486,17 +492,18 @@ def evaluate(path_in, path_out):
         tr, te = st[keep_fit].copy(), st[keep_te].copy()
         ytr, yte = tr["y"].to_numpy(), te["y"].to_numpy()
         L += [f"### {nm}", "", f"Подбор {len(tr)} ({int(ytr.sum())} остался; выброшено эмбарго {int(in_fit.sum() - keep_fit.sum())}), проверка {len(te)} ({int(yte.sum())} остался, {int((yte == 0).sum())} сходится; выброшено эмбарго {int(in_te.sum() - keep_te.sum())}). Доля «остался» в проверке: {100 * yte.mean():.1f} %.", ""]
-        lay_fit = lay["dayno"].isin(fit_days).to_numpy()
+        lay_fit = lay["dayno"].isin(fit_days).to_numpy() & np.isfinite(lay["flow_min"].to_numpy())
         if lay_fit.any():                                    # метка −1 по покрытию по третям ликвидности (flow_min; пороги — по подбору): не режет ли правило тихие пары
             qs = np.quantile(lay.loc[lay_fit, "flow_min"], [1 / 3, 2 / 3])
             lay_d = lay[lay["dayno"].isin(fit_days + test_days)]
-            terc = np.digitize(lay_d["flow_min"].to_numpy(), qs)
+            fm = lay_d["flow_min"].to_numpy()
+            terc = np.where(np.isfinite(fm), np.digitize(np.nan_to_num(fm), qs), 3)
             trows = []
-            for k, tn in enumerate(("нижняя", "средняя", "верхняя")):
+            for k, tn in enumerate(("нижняя", "средняя", "верхняя", "flow_min неизвестен (нет записи сделок)")):
                 m = terc == k
                 n_, nc_, nr_ = int(m.sum()), int((lay_d["why"].to_numpy()[m] == "cover").sum()), int((lay_d["why"].to_numpy()[m] == "raw").sum())
-                scope_narrow |= nc_ / max(n_, 1) > COVER_SCOPE
-                trows.append({"треть ликвидности (flow_min)": tn, "порог flow_min": f"< {qs[0]:.2f}" if k == 0 else (f"{qs[0]:.2f}…{qs[1]:.2f}" if k == 1 else f"≥ {qs[1]:.2f}"), "единиц после слоёв": n_,
+                scope_narrow |= k < 3 and nc_ / max(n_, 1) > COVER_SCOPE
+                trows.append({"треть ликвидности (flow_min)": tn, "порог flow_min": f"< {qs[0]:.2f}" if k == 0 else (f"{qs[0]:.2f}…{qs[1]:.2f}" if k == 1 else (f"≥ {qs[1]:.2f}" if k == 2 else "—")), "единиц после слоёв": n_,
                               "метка −1 по покрытию": nc_, "доля, %": round(100 * nc_ / max(n_, 1), 1), "метка −1: нет сырья": nr_})
             L += [_md(pd.DataFrame(trows)), ""]
         if (yte == 1).sum() < MIN_STAY:

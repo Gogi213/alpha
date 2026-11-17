@@ -332,3 +332,14 @@ def test_stay_pair_rate_leave_one_out():
     assert np.allclose(x_tr[:4], [1 / 3, 1 / 3, 2 / 3, 2 / 3], equal_nan=True)     # без самой единицы: у «остался» (2 − 1) / 3, у «сходится» 2 / 3
     assert np.isnan(x_tr[4]) and np.isnan(x_tr[5])                      # в паре B после исключения одной — 1 единица < 3
     assert x_te[0] == 0.5 and np.isnan(x_te[1]) and np.isnan(x_te[2])
+
+
+def test_stay_trades_before_needs_coverage():
+    import hold_stay as hy
+    b = np.arange(1000, 1100, dtype=np.int64)                          # окна 10 с: 10 000 … 10 990 с мс
+    tr = {("gate", "A_USDT"): (b, np.full(100, 2, np.int32), np.zeros(100, np.int32))}
+    ts = 1_050 * 10_000
+    assert hy.trades_before(tr, "gate", "A_USDT", ts) == 12.0           # 6 окон × 2 сделки
+    assert np.isnan(hy.trades_before(tr, "gate", "A_USDT", 1_100 * 10_000 + 700_000))    # запись оборвалась > 10 мин назад — нет данных
+    assert np.isnan(hy.trades_before(tr, "gate", "A_USDT", 1_000 * 10_000 - 700_000))    # запись ещё не началась
+    assert np.isnan(hy.trades_before(tr, "gate", "B_USDT", ts))          # символа в записи нет
