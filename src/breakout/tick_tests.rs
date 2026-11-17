@@ -532,6 +532,7 @@ fn reentry_modes_consume_level_per_protocol() {
             day: (t / 1440) as u16,
             idx: ticks.len() as u32 + 1,
             lp: px(100.0),
+            far: px(100.0),
             ws: false,
         });
         ticks.push(tk(t, 0, 99.6, false));
@@ -1339,6 +1340,7 @@ fn esig(k: usize, lp: f64) -> TSig {
         day: EDAY as u16,
         idx: k as u32,
         lp: px(lp),
+        far: px(lp),
         ws: false,
     }
 }
@@ -1563,6 +1565,7 @@ fn tape_entry_rejection_does_not_consume_level_and_is_listed() {
         day: (t1 / 1440) as u16,
         idx: 1,
         lp: px(100.05),
+        far: px(100.05),
         ws: false,
     };
     let syms = [s];
@@ -1571,4 +1574,449 @@ fn tape_entry_rejection_does_not_consume_level_and_is_listed() {
     assert_eq!(r.entry_rej, vec![(0, 0, sg.ms, EntryRej::Beyond)]);
     assert_eq!(r.rej[5], 1, "в счётчике «нет исхода»");
     assert_eq!(r.rej[0], 0, "уровень не расходуется");
+}
+
+// ───────────────────────── §13.19: стоп и выходы от уровня, безубыток, два входа ─────────────────────────
+
+use super::levels::build_levels_far;
+use super::tick::{lot2_decision, sim_fill_lc, LevelCtx, Lot2Dec};
+
+/// Выход лота по потоку `ticks` после входа в 1000 мс по цене 100,0 (рама `s`); `lp`/`far` — настоящие цены уровня и дальнего пивота.
+fn run_lc(
+    ticks: Vec<(i64, f64, bool)>,
+    side: Side,
+    ex: &super::params::ExitCfg,
+    lp: f64,
+    far: f64,
+) -> TickOut {
+    let s = side.s();
+    let lc = LevelCtx {
+        lp: s * px(lp),
+        far: s * px(far),
+    };
+    sim_fill_lc(
+        &mut stream(ticks),
+        1000,
+        s * px(100.0),
+        side,
+        NATR,
+        ex,
+        Some(lc),
+        NOTIONAL_U,
+    )
+}
+
+#[test]
+fn level_options_keys_parse_validate_and_default_off() {
+    let (_, p) = super::params::parse_variant("x ew=5 e2=0.1 ls=0.5 tt=5 tb=0.3 rf=0.1 rs=2 bm=3")
+        .expect("разбор");
+    let e = &p.exit;
+    assert_eq!(
+        (e.e2_pm, e.ls_m, e.tx_min, e.tx_x_pm, e.rt_f_pm, e.rt_s, e.be_mode),
+        (100, 500, 5, 300, 100, 2, 3)
+    );
+    assert!(e.lvl_exit_opts() && e.level_opts());
+    let (_, p) = super::params::parse_variant("x lat=4").expect("разбор");
+    assert!(!p.exit.lvl_exit_opts(), "по умолчанию всё выключено");
+    assert!(
+        super::params::parse_variant("x e2=0.1").is_err(),
+        "e2 требует ew"
+    );
+    assert!(super::params::parse_variant("x bm=4").is_err());
+    assert!(super::params::parse_variant("x ls=-1").is_err());
+    assert!(super::params::parse_variant("x tt=-1").is_err());
+    assert!(super::params::parse_variant("x rf=-0.1").is_err());
+}
+
+#[test]
+fn far_edge_is_lowest_pivot_for_long_and_highest_for_short() {
+    let p = lv_params();
+    let lv = build_levels_far(&sym(level_world()), &p.sig.lv, Side::Long);
+    assert_eq!(
+        lv[0].far_edge(0, 1),
+        Some(px(100.0)),
+        "пивоты 100,00 и 100,05 — край 100,00"
+    );
+    let m = mirror(&level_world(), 200.0);
+    let lv = build_levels_far(&sym(m), &p.sig.lv, Side::Short);
+    // шорт: пивоты-минимумы 100,00 и 99,95 — самый высокий 100,00, в длинной раме −100,00
+    assert_eq!(lv[0].far_edge(0, -1), Some(-px(100.0)));
+    // без журнала членов дальнего края нет
+    let plain = build_levels(&sym(level_world()), &p.sig.lv, Side::Long);
+    assert_eq!(plain[0].far_edge(0, 1), None);
+}
+
+#[test]
+fn ls_stop_is_beyond_far_edge_plus_k_natr_capped_by_hard_stop() {
+    let mut ex = ex_test();
+    ex.ls_m = 500; // 0,5 NATR = 0,25 при входе 100
+                   // дальний пивот ниже входа: стоп 99,90 − 0,25 = 99,65
+    let t = vec![
+        (1100, 100.2, false),
+        (1200, 99.70, true),
+        (1300, 99.65, true),
+        (1400, 90.0, true),
+    ];
+    let out = run_lc(t, Side::Long, &ex, 100.3, 99.9);
+    assert_eq!((out.kind, out.exit_ms), (ExitKind::HardStop, 1300));
+    assert_eq!(out.legs.last().map(|l| l.px), Some(px(99.65)));
+    // дальний пивот выше входа: от входа — 100,00 − 0,25 = 99,75
+    let t = vec![(1100, 99.76, true), (1200, 99.75, true)];
+    let out = run_lc(t, Side::Long, &ex, 100.4, 100.2);
+    assert_eq!((out.kind, out.exit_ms), (ExitKind::HardStop, 1200));
+    // шорт зеркально: пивот-минимум 99,80 (самый высокий), стоп от входа 100,00 + 0,25 = 100,25
+    let t = vec![
+        (1100, 99.9, true),
+        (1200, 100.24, false),
+        (1300, 100.25, false),
+    ];
+    let out = run_lc(t, Side::Short, &ex, 99.7, 99.8);
+    assert_eq!((out.kind, out.exit_ms), (ExitKind::HardStop, 1300));
+    assert_eq!(out.legs.last().map(|l| l.px), Some(px(100.25)));
+    // не дальше жёсткого стопа 5 %: k = 20 NATR → 10 % → 95
+    ex.ls_m = 20_000;
+    let t = vec![(1100, 95.01, true), (1200, 95.0, true)];
+    let out = run_lc(t, Side::Long, &ex, 100.3, 99.9);
+    assert_eq!((out.kind, out.exit_ms), (ExitKind::HardStop, 1200));
+    // выключен — стоп 5 %, как раньше
+    ex.ls_m = 0;
+    let t = vec![(1100, 99.0, true), (1200, 95.0, true)];
+    let out = run_lc(t, Side::Long, &ex, 100.3, 99.9);
+    assert_eq!(out.exit_ms, 1200);
+}
+
+#[test]
+fn time_exit_counts_from_first_touch_and_breakout_cancels() {
+    let mut ex = ex_test();
+    ex.tx_min = 5;
+    ex.tx_x_pm = 300; // «пробой» глубиной 0,3 % → 100,6009
+                      // касание в 2000; до дедлайна 302000 выхода нет; на первой сделке не раньше — выход «время»
+    let t = vec![
+        (1100, 100.0, false),
+        (2000, 100.3, false),
+        (2500, 100.35, false),
+        (301_999, 100.4, false),
+        (302_000, 100.4, false),
+        (303_000, 100.4, false),
+    ];
+    let out = run_lc(t, Side::Long, &ex, 100.3, 99.9);
+    assert_eq!((out.kind, out.exit_ms), (ExitKind::TimeExit, 302_000));
+    assert_eq!(out.kind.name(), "tx");
+    // «пробой» до дедлайна отменяет выход (тейк 1 взят на 100,61)
+    let t = vec![
+        (2000, 100.3, false),
+        (3000, 100.61, false),
+        (400_000, 100.2, false),
+        (500_000, 100.1, false),
+    ];
+    let out = run_lc(t, Side::Long, &ex, 100.3, 99.9);
+    assert_eq!(out.kind, ExitKind::Forced);
+    // касания не было — таймер не идёт
+    let t = vec![(1100, 100.0, false), (400_000, 100.1, false)];
+    let out = run_lc(t, Side::Long, &ex, 100.3, 99.9);
+    assert_eq!(out.kind, ExitKind::Forced);
+    // выключено — выхода нет
+    ex.tx_min = 0;
+    let t = vec![(2000, 100.3, false), (400_000, 100.4, false)];
+    let out = run_lc(t, Side::Long, &ex, 100.3, 99.9);
+    assert_eq!(out.kind, ExitKind::Forced);
+}
+
+#[test]
+fn return_exit_needs_cross_depth_and_duration_and_resets() {
+    let mut ex = ex_test();
+    ex.rt_f_pm = 200; // 0,2 % от 100,3 → порог 100,0994
+    ex.rt_s = 2;
+    // до касания возврата нет, хотя цена ниже порога
+    let t = vec![
+        (1100, 99.95, false),
+        (1200, 100.05, false),
+        (2000, 100.3, false),
+        (3000, 100.05, false),
+        (4000, 100.0, false),
+        (5000, 100.0, false),
+        (6000, 100.0, false),
+    ];
+    let out = run_lc(t, Side::Long, &ex, 100.3, 99.9);
+    assert_eq!((out.kind, out.exit_ms), (ExitKind::Return, 5000));
+    assert_eq!(out.kind.name(), "rt");
+    assert_eq!(out.legs.last().map(|l| l.px), Some(px(100.0)));
+    // сделка выше порога сбрасывает отсчёт
+    let t = vec![
+        (2000, 100.3, false),
+        (3000, 100.05, false),
+        (4000, 100.2, false),
+        (4500, 100.05, false),
+        (5000, 100.05, false),
+    ];
+    let out = run_lc(t, Side::Long, &ex, 100.3, 99.9);
+    assert_eq!(out.kind, ExitKind::Forced);
+    // t = 0: первая сделка глубже f
+    ex.rt_s = 0;
+    let t = vec![
+        (2000, 100.3, false),
+        (3000, 100.05, false),
+        (4000, 100.0, false),
+    ];
+    let out = run_lc(t, Side::Long, &ex, 100.3, 99.9);
+    assert_eq!((out.kind, out.exit_ms), (ExitKind::Return, 3000));
+    // шорт зеркально: пол 99,7, возврат — цена выше 99,7 + 0,2 % = 99,8994
+    let t = vec![(2000, 99.7, true), (3000, 99.95, true), (3500, 99.95, true)];
+    let out = run_lc(t, Side::Short, &ex, 99.7, 99.8);
+    assert_eq!((out.kind, out.exit_ms), (ExitKind::Return, 3000));
+}
+
+#[test]
+fn be_modes_move_the_stop_as_registered() {
+    let base = |bm: u8| {
+        let mut ex = ex_test();
+        ex.be_mode = bm;
+        ex
+    };
+    // 0: стоп в цену входа после 1-го тейка (100,5)
+    let t = vec![
+        (1100, 100.6, false),
+        (1200, 99.9, true),
+        (1300, 101.1, false),
+    ];
+    let out = run_lc(t, Side::Long, &base(0), 100.3, 99.9);
+    assert_eq!(
+        (out.kind, out.exit_ms, out.takes),
+        (ExitKind::BreakEven, 1200, 1)
+    );
+    // 1: выкл — стоп не двигается
+    let t4 = vec![
+        (1100, 100.6, false),
+        (1200, 99.9, true),
+        (1300, 101.1, false),
+        (1400, 99.9, true),
+    ];
+    let out = run_lc(t4.clone(), Side::Long, &base(1), 100.3, 99.9);
+    assert_eq!((out.kind, out.takes), (ExitKind::Forced, 2));
+    // 2: после 2-го тейка (101,0)
+    let out = run_lc(t4, Side::Long, &base(2), 100.3, 99.9);
+    assert_eq!(
+        (out.kind, out.exit_ms, out.takes),
+        (ExitKind::BreakEven, 1400, 2)
+    );
+    // 3: за уровнем — дальний пивот 99,90 − 0,25 = 99,65 (k = 0,5 при ls = 0)
+    let t = vec![(1100, 100.6, false), (1200, 99.9, true), (1250, 99.6, true)];
+    let out = run_lc(t, Side::Long, &base(3), 100.3, 99.9);
+    assert_eq!((out.kind, out.exit_ms), (ExitKind::BreakEven, 1250));
+    // 3 + ls = 1: стоп k = 1 → 99,90 − 0,5 = 99,40
+    let mut ex = base(3);
+    ex.ls_m = 1000;
+    let t = vec![(1100, 100.6, false), (1200, 99.5, true), (1250, 99.4, true)];
+    let out = run_lc(t, Side::Long, &ex, 100.3, 99.9);
+    assert_eq!((out.kind, out.exit_ms), (ExitKind::BreakEven, 1250));
+}
+
+/// Мир для проверки двух входов: сигнал на минуте `t1`, цена уровня 100,0, дальний пивот 99,9, второй вход ближе 0,1 % (99,9).
+struct E2World {
+    syms: Vec<Sym>,
+    base: i64,
+    t1: usize,
+    ex: super::params::ExitCfg,
+    port: super::params::PortCfg,
+}
+
+fn e2_world() -> E2World {
+    let p = lv_params();
+    let t1 = BORN + 100;
+    let mut c = level_world();
+    for m in t1 - 5..t1 + 2 {
+        set(&mut c, m, 99.5, 99.6, 99.4, 99.5); // NATR выхода > 0
+    }
+    let mut ex = ex_test();
+    ex.lat_ms = 4;
+    ex.ent_w_ms = 100;
+    ex.ent_x_bp = 0;
+    ex.e2_pm = 100; // 0,1 %
+    E2World {
+        syms: vec![Sym::from_cols("TEST", c, Vec::new())],
+        base: (t1 as i64 % 1440) * MIN_MS,
+        t1,
+        ex,
+        port: p.port,
+    }
+}
+
+impl E2World {
+    fn run(&self, ticks: &[(i64, f64, bool)]) -> super::tick::TickResult {
+        let ticks: Vec<Tick> = ticks
+            .iter()
+            .map(|&(off, price, bm)| Tick {
+                px: px(price),
+                off: (self.base + off) as u32,
+                bm,
+            })
+            .collect();
+        let mut m = HashMap::new();
+        m.insert(("TEST".to_string(), self.t1 / 1440), Arc::new(ticks));
+        let src = MemSrc(m);
+        let sg = TSig {
+            ms: (self.t1 as i64 / 1440) * DAY_MS + self.base + 10_000,
+            sym: 0,
+            level: 0,
+            dist: 0,
+            t: self.t1 as u32,
+            day: (self.t1 / 1440) as u16,
+            idx: 1,
+            lp: px(100.0),
+            far: px(99.9),
+            ws: false,
+        };
+        run_tick(&self.syms, &[sg], Side::Long, &self.ex, &self.port, &src)
+    }
+
+    fn abs(&self, off: i64) -> i64 {
+        (self.t1 as i64 / 1440) * DAY_MS + self.base + off
+    }
+}
+
+#[test]
+fn e2_second_lot_enters_when_price_comes_within_d_and_both_exit_independently() {
+    let w = e2_world();
+    let r = w.run(&[
+        (0, 99.6, false),
+        (10_000, 99.7, false), // сигнал
+        (20_000, 99.85, false),
+        (30_000, 99.95, false), // подошла ближе 0,1 % и ниже уровня → лот 2
+        (40_000, 85.0, true),
+    ]);
+    assert_eq!(r.trades.len(), 1);
+    assert_eq!(r.lot2, [0, 1, 0, 0]);
+    let t = &r.trades[0];
+    let l2 = t.lot2.as_ref().expect("второй лот");
+    assert_eq!(t.entry_ms, w.abs(10_004));
+    assert_eq!(l2.entry_ms, w.abs(30_004));
+    assert_eq!(
+        l2.entry_px,
+        px(99.95),
+        "цена-заменитель: последняя сделка стороны ≤ T2"
+    );
+    assert_eq!((t.exit_ms, l2.exit_ms), (w.abs(40_000), w.abs(40_000)));
+    assert_eq!(t.kind, ExitKind::HardStop);
+    // 50/50: каждая нога выхода — по $250
+    assert_eq!(t.legs.last().map(|l| l.u), Some(NOTIONAL_U / 2));
+    assert_eq!(l2.legs.last().map(|l| l.u), Some(NOTIONAL_U / 2));
+    // брутто двух лотов: (85 − 99,7)/99,7·250 + (85 − 99,95)/99,95·250
+    let want = 250.0 * (85.0 - 99.7) / 99.7 + 250.0 * (85.0 - 99.95) / 99.95;
+    assert!(
+        (t.gross - want).abs() < 0.01,
+        "брутто {} против {}",
+        t.gross,
+        want
+    );
+    // комиссия: две комиссии входа по $250 = одна по $500; выходы — по $250 каждый, тейкер
+    let fee = crate::lob::costs::leg_fee_bps(true) / 1e4;
+    let want_fees = 500.0 * fee + 250.0 * (85.0 / 99.7) * fee + 250.0 * (85.0 / 99.95) * fee;
+    assert!((t.fees - want_fees).abs() < 0.01, "комиссии {}", t.fees);
+}
+
+#[test]
+fn e2_immediate_when_lot1_price_already_within_d() {
+    let w = e2_world();
+    let r = w.run(&[
+        (0, 99.6, false),
+        (10_000, 99.95, false), // сигнал: цена лота 1 уже в пределах 0,1 %
+        (40_000, 85.0, true),
+    ]);
+    assert_eq!(r.lot2, [1, 0, 0, 0]);
+    let t = &r.trades[0];
+    let l2 = t.lot2.as_ref().expect("второй лот");
+    assert_eq!(
+        (l2.entry_ms, l2.entry_px),
+        (t.entry_ms, t.entry_px),
+        "тот же момент и цена"
+    );
+}
+
+#[test]
+fn e2_cancelled_by_cross_by_lot1_exit_and_rejected_when_tape_is_stale() {
+    let w = e2_world();
+    // пересекла уровень раньше, чем зашла в зону d → лота 2 нет
+    let r = w.run(&[
+        (0, 99.6, false),
+        (10_000, 99.7, false),
+        (20_000, 100.2, false),
+        (30_000, 99.95, false),
+        (40_000, 85.0, true),
+    ]);
+    assert_eq!(r.lot2, [0, 0, 1, 0]);
+    assert!(r.trades[0].lot2.is_none());
+    // лот 1 закрыт стопом до подхода → лота 2 нет
+    let r = w.run(&[
+        (0, 99.6, false),
+        (10_000, 99.7, false),
+        (20_000, 85.0, true),
+        (30_000, 99.95, false),
+    ]);
+    assert_eq!(r.lot2, [0, 0, 1, 0]);
+    assert!(r.trades[0].lot2.is_none());
+    // сделка-триггер есть, но сделки стороны (покупатель-тейкер) старше W → отказ, лот 1 остаётся полусделкой
+    let r = w.run(&[
+        (0, 99.6, false),
+        (10_000, 99.7, false),
+        (30_000, 99.95, true),
+        (40_000, 85.0, true),
+    ]);
+    assert_eq!(r.lot2, [0, 0, 0, 1]);
+    assert!(r.trades[0].lot2.is_none());
+    assert_eq!(r.trades.len(), 1);
+}
+
+#[test]
+fn lot2_decision_does_not_enter_after_lot1_exit_time() {
+    let w = e2_world();
+    let ticks = vec![
+        et(0, 99.6, false),
+        et(10_000, 99.7, false),
+        et(30_000, 99.95, false),
+    ];
+    let mut m = HashMap::new();
+    m.insert(("TEST".to_string(), w.t1 / 1440), Arc::new(ticks));
+    let src = MemSrc(m);
+    let sg = TSig {
+        ms: 0,
+        sym: 0,
+        level: 0,
+        dist: 0,
+        t: 0,
+        day: (w.t1 / 1440) as u16,
+        idx: 1,
+        lp: px(100.0),
+        far: px(99.9),
+        ws: false,
+    };
+    let d0 = (w.t1 / 1440) as i64 * DAY_MS;
+    // лот 1 вошёл в 10 004 и закрыт в 30 004: T2 = 30 004 — не раньше выхода → нет второго лота
+    let dec = lot2_decision(
+        &src,
+        &w.syms[0],
+        Side::Long,
+        &sg,
+        &w.ex,
+        (d0 + 10_004, px(99.7)),
+        d0 + 30_004,
+    );
+    assert_eq!(dec, Lot2Dec::Cancel);
+    // закрыт на 1 мс позже — второй лот входит (T2 = 30 004 < 30 005)
+    let dec = lot2_decision(
+        &src,
+        &w.syms[0],
+        Side::Long,
+        &sg,
+        &w.ex,
+        (d0 + 10_004, px(99.7)),
+        d0 + 30_005,
+    );
+    assert_eq!(
+        dec,
+        Lot2Dec::Fill {
+            ms: d0 + 30_004,
+            p0: px(99.95),
+            immediate: false
+        }
+    );
 }

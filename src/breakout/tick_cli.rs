@@ -164,6 +164,13 @@ fn write_detail(dir: &Path, syms: &[Sym], side: Side, p: &Params, r: &TickResult
             rec["old_entry_ms"] = ms.into();
             rec["old_entry_px_e8"] = px.into();
         }
+        if let Some(t2) = &x.lot2 {
+            rec["lot2"] = serde_json::json!({
+                "entry_ms": t2.entry_ms, "entry_px_e8": t2.entry_px, "exit_ms": t2.exit_ms,
+                "kind": t2.kind.name(), "takes": t2.takes,
+                "legs": t2.legs.iter().map(|l| serde_json::json!([l.ms, l.px, l.u, l.maker])).collect::<Vec<_>>(),
+            });
+        }
         t.push_str(&rec.to_string());
         t.push('\n');
     }
@@ -324,6 +331,9 @@ pub fn run(
             });
             if p.sig.ap != 0 {
                 meta["ap_wrong_signals"] = ctr[j].ap_wrong.into();
+            }
+            if p.exit.e2_pm > 0 {
+                meta["lot2_[now,later,cancelled,rejected]"] = serde_json::json!(r.lot2);
             }
             if p.exit.tape_entry() {
                 let n_of = |w: EntryRej| r.entry_rej.iter().filter(|x| x.3 == w).count();

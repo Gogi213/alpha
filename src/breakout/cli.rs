@@ -268,6 +268,9 @@ fn run(
         if v.1.exit.ent_w_ms != 0 || v.1.exit.ent_x_bp != 0 {
             bail!("ew/ex (вход по ленте) считает только `breakout tick`: {line}");
         }
+        if v.1.exit.lvl_exit_opts() || v.1.exit.tx_x_pm != 0 || v.1.exit.rt_s != 0 {
+            bail!("ls/tt/tb/rf/rs/bm/e2 (§13.19) считает только `breakout tick`: {line}");
+        }
         vs.push(v);
     }
     if vs.is_empty() {

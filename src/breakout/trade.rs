@@ -21,6 +21,10 @@ pub enum ExitKind {
     BreakEven,
     Trail,
     Forced,
+    /// §13.19 (`tt/tb`): выход по времени — за T мин после касания уровня «пробоя» глубиной X не было.
+    TimeExit,
+    /// §13.19 (`rf/rs`): выход при возврате за уровень.
+    Return,
 }
 
 impl ExitKind {
@@ -30,6 +34,8 @@ impl ExitKind {
             ExitKind::BreakEven => "be",
             ExitKind::Trail => "trail",
             ExitKind::Forced => "forced",
+            ExitKind::TimeExit => "tx",
+            ExitKind::Return => "rt",
         }
     }
 }
