@@ -82,10 +82,10 @@ def tstats(vdir, side):
             "kinds": {k: kinds.get(k, 0) for k in ("stop", "be", "trail", "tx", "rt", "forced")}}
 
 
-def do_gate():
+def do_gate(gdir="gate20"):
     out = {}
     for c in GATE_CELLS:
-        new, old = os.path.join(ROOT, "gate20", c), os.path.join(ROOT, "e16", c)
+        new, old = os.path.join(ROOT, gdir, c), os.path.join(ROOT, "e16", c)
         if not os.path.isdir(new):
             print("нет", new)
             continue
@@ -94,7 +94,7 @@ def do_gate():
     nok = sum(1 for v in out.values() for ok in v.values() if ok)
     ntot = sum(len(v) for v in out.values())
     print("== ворота (v20, опции выкл. — против v18, e16): %d из %d файлов совпали; %s" % (nok, ntot, "ВСЁ СОВПАДАЕТ" if not any(bad.values()) else "РАСХОЖДЕНИЕ " + str({c: v for c, v in bad.items() if v})))
-    json.dump(out, open(os.path.join(ROOT, "gate20", "gate-v20.json"), "w"), ensure_ascii=False, indent=1)
+    json.dump(out, open(os.path.join(ROOT, gdir, "gate-v20.json"), "w"), ensure_ascii=False, indent=1)
 
 
 def do_grid(R, cells, m_add, mode):
@@ -201,7 +201,7 @@ def combined_lines(out):
 def main():
     mode = sys.argv[1] if len(sys.argv) > 1 else "grid"
     if mode == "gate":
-        do_gate()
+        do_gate(sys.argv[2] if len(sys.argv) > 2 else "gate20")
         return
     if mode == "grid":
         R = os.path.join(ROOT, "s19")
