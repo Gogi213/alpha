@@ -241,7 +241,8 @@ pub fn run(
         Err(e) => return Outcome::Failed(format!("connect {}: {e}", ent.host)),
     };
     // шард без соединения: путь принимается как есть сразу — данные пишутся, разрыва нет; медленный путь потом заменяется проверенным (`path_upgrade`)
-    let lone = probe && !sh.cold_probe && uncovered();
+    // тёмный шард принимает первое соединение и при `cold_probe`: проверка RTT с отбраковкой и мгновенным повтором (`sleep_stop_unless_dark` возвращается сразу) — цикл подключений без потолка (проверка 17.11, п. 2)
+    let lone = probe && (storm::dark(&sh.metrics) || (!sh.cold_probe && uncovered()));
     let slow_lone = lone && rtt > sh.rtt_max_ms;
     if slow_lone {
         sh.events.emit(

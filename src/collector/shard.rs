@@ -411,6 +411,15 @@ pub(crate) fn lazy_decision(
     LazyDecision::Defer
 }
 
+/// Флаг «линия несёт поток» (`lane_carry`) по живому состоянию сессий: старая (`cur`) и принятая новая (`next`) — открыта и не испорчена.
+fn refresh_carry(sh: &Shared, lane: &Lane, cur: u32, next: Option<u32>) {
+    if let Some(a) = sh.metrics.lane_carry.get(lane.k) {
+        let w = sh.watch();
+        let carries = |s: u32| w.is_open(s) && !w.is_degraded(s);
+        a.store(carries(cur) || next.is_some_and(carries), Relaxed);
+    }
+}
+
 /// Линия: живая сессия и смена без разрыва (возраст `max_age` или путь испортился).
 fn lane_main(sh: &Arc<Shared>, lane: &Arc<Lane>, opts: &ShardOpts, seq0: u32) {
     let mut seq = seq0;
@@ -546,10 +555,7 @@ fn lane_main(sh: &Arc<Shared>, lane: &Arc<Lane>, opts: &ShardOpts, seq0: u32) {
         {
             thread::sleep(Duration::from_millis(100));
             // старая линия могла умереть, пока замена ищет путь: шард тёмным становится по живому состоянию линии, а не по тому, каким оно было на входе в замену (TK-582)
-            if let Some(a) = sh.metrics.lane_carry.get(lane.k) {
-                let w = sh.watch();
-                a.store(w.is_open(cur.seq) && !w.is_degraded(cur.seq), Relaxed);
-            }
+            refresh_carry(sh, lane, cur.seq, None);
         }
         if !accepted.load(Relaxed) && !sh.stop.load(Relaxed) && storm_on() {
             // режим включился, пока замена искала путь: поиск прекращается, старая линия несёт поток
@@ -580,7 +586,16 @@ fn lane_main(sh: &Arc<Shared>, lane: &Arc<Lane>, opts: &ShardOpts, seq0: u32) {
                 json!({"session": seq, "old_session": cur.seq}),
             );
         }
-        sleep_stop(sh, opts.overlap);
+        // перекрытие: старая линия могла умереть, а принятая новая — молчать; флаг «несёт» держится по живому состоянию обеих сессий, иначе шард до 20 с не тёмный (проверка 17.11, п. 3)
+        let overlap_end = Instant::now() + opts.overlap;
+        while !sh.stop.load(Relaxed) {
+            let left = overlap_end.saturating_duration_since(Instant::now());
+            if left.is_zero() {
+                break;
+            }
+            thread::sleep(left.min(Duration::from_millis(100)));
+            refresh_carry(sh, lane, cur.seq, accepted.load(Relaxed).then_some(nxt.seq));
+        }
         let old_seq = cur.seq;
         finish(cur);
         sh.events.emit(

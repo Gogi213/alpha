@@ -31,6 +31,7 @@ use super::runner::{lines_of, RunArgs};
 use super::scan::{each_elem, parse_i64, parse_object, single_pair, Val};
 use super::shard::{spawn_shard, ShardOpts};
 use super::sink::{run_sink, run_sink_with, sink_channel, SinkMsg};
+use super::storm;
 use super::writer::{day_string, ShardWriter, WriterCfg};
 
 const NS_PER_DAY: i64 = 86_400 * 1_000_000_000;
@@ -4067,6 +4068,20 @@ fn run_scripted_shard(
     settle: Duration,
     max: Duration,
 ) -> (tempfile::TempDir, Arc<ShardMetrics>, Duration) {
+    let budget = Arc::new(Budget::new(50, Duration::from_secs(300)));
+    run_scripted_lanes(script, 1, &budget, tune, |d, _| until(d), settle, max)
+}
+
+/// Как `run_scripted_shard`, но линий `lanes` на одном источнике, бюджет подключений задаёт вызывающий (его можно читать после), `until` видит и счётчики шарда.
+fn run_scripted_lanes(
+    script: fn(usize) -> Script,
+    lanes: usize,
+    budget: &Arc<Budget>,
+    tune: impl FnOnce(&mut ShardOpts),
+    until: impl Fn(&Path, &ShardMetrics) -> bool,
+    settle: Duration,
+    max: Duration,
+) -> (tempfile::TempDir, Arc<ShardMetrics>, Duration) {
     // начало монотонного времени шарда заводится первым обращением: если им станет пачка кадров, у кадров `mono = 0` (приём раньше начала), «кадров не было» — и пауза данных не найдётся
     let _ = super::shard::mono_ms();
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -4078,19 +4093,13 @@ fn run_scripted_shard(
     tune(&mut opts);
     let exch: Arc<dyn Exchange> = Arc::new(Binance);
     let stop = Arc::new(AtomicBool::new(false));
-    let budget = Arc::new(Budget::new(50, Duration::from_secs(300)));
-    let h = spawn_shard(
-        &exch,
-        &plan,
-        &[vec![Entrance::new("127.0.0.1", Family::V4)]],
-        &opts,
-        &budget,
-        &stop,
-    )
-    .unwrap();
+    let ents: Vec<Vec<Entrance>> = (0..lanes)
+        .map(|_| vec![Entrance::new("127.0.0.1", Family::V4)])
+        .collect();
+    let h = spawn_shard(&exch, &plan, &ents, &opts, budget, &stop).unwrap();
     let metrics = Arc::clone(&h.metrics);
     let t0 = Instant::now();
-    while !until(dir.path()) && t0.elapsed() < max {
+    while !until(dir.path(), &metrics) && t0.elapsed() < max {
         std::thread::sleep(Duration::from_millis(50));
     }
     let took = t0.elapsed();
@@ -4319,6 +4328,190 @@ fn a_degraded_line_with_flowing_frames_keeps_the_rtt_check() {
     let trace = event_trace(dir.path());
     assert_eq!(count_events(dir.path(), "path_switch"), 0, "{trace}");
     assert_eq!(count_events(dir.path(), "connected"), 1, "{trace}");
+}
+
+/// Проверка 17.11, п. 2: тёмный шард принимает первое соединение без проверки RTT и при `cold_probe` (без этого: отбраковка по RTT, `sleep_stop_unless_dark` возвращается сразу — цикл подключений
+/// без потолка). До остановки данных `cold_probe`-шард проверяется по RTT (порог 0 мс отбраковывает; после 12 отбраковок подряд путь принимается), после — `path_rejected_rtt` нет.
+#[test]
+fn a_dark_shard_skips_the_rtt_check_even_with_cold_probe() {
+    let (dir, _m, took) = run_scripted_shard(
+        |n| Script {
+            frames: if n == 1 { Some(50) } else { None },
+            lag_ms: 0,
+            answers_pings: false,
+        },
+        |o| {
+            o.ping = (Duration::from_millis(500), Duration::from_secs(60));
+            o.rtt_max_ms = 0.0;
+            o.cold_probe = true;
+            o.overlap = Duration::from_millis(300);
+        },
+        |d| count_events(d, "path_switch") + count_events(d, "path_upgrade") >= 1,
+        Duration::from_secs(1),
+        Duration::from_secs(40),
+    );
+    let trace = event_trace(dir.path());
+    assert!(
+        count_events(dir.path(), "path_rejected_rtt") >= 1,
+        "до остановки данных cold_probe проверяет RTT: {trace}"
+    );
+    assert!(
+        event_after(dir.path(), "ping_degraded", "connected"),
+        "замена тёмного шарда подключилась за {took:?}: {trace}"
+    );
+    assert!(
+        !event_after(dir.path(), "ping_degraded", "path_rejected_rtt"),
+        "тёмный шард принял соединение без проверки RTT: {trace}"
+    );
+}
+
+/// Проверка 17.11, п. 3: пока идёт перекрытие (здесь 15 с), флаг «линия несёт поток» следует за живым состоянием обеих сессий — старая и принятая новая молчат, шард становится тёмным за
+/// секунды, а не после конца перекрытия (прежний код держал флаг до его конца: вторую линию держали потолки).
+#[test]
+fn the_carry_flag_follows_both_sessions_during_the_overlap() {
+    let budget = Arc::new(Budget::new(50, Duration::from_secs(300)));
+    let (dir, _m, took) = run_scripted_lanes(
+        |n| Script {
+            frames: Some(if n == 1 { 50 } else { 0 }),
+            lag_ms: 0,
+            answers_pings: false,
+        },
+        1,
+        &budget,
+        |o| {
+            o.ping = (Duration::from_millis(500), Duration::from_secs(60));
+            o.max_age = Duration::from_secs(1);
+            o.overlap = Duration::from_secs(15);
+        },
+        |_, m| storm::dark(m),
+        Duration::ZERO,
+        Duration::from_secs(25),
+    );
+    let trace = event_trace(dir.path());
+    assert!(
+        took < Duration::from_secs(12),
+        "шард потемнел за {took:?} (перекрытие 15 с): {trace}"
+    );
+    assert_eq!(
+        count_events(dir.path(), "rotated"),
+        0,
+        "измерено внутри перекрытия: {trace}"
+    );
+    assert!(
+        count_events(dir.path(), "connected") >= 2,
+        "замена по возрасту принята: {trace}"
+    );
+}
+
+/// Проверка 17.11, п. 4: тёмный шард с двумя линиями, у которого каждое новое соединение тоже молчит, подключается не чаще раза на линию за «обнаружение молчания (≥ 4 с) + перекрытие»,
+/// а всего подключений не больше бюджета (здесь 6: пара стартовых и две замены на линию), дальше — ожидание места.
+#[test]
+fn two_dead_lanes_reconnect_at_a_bounded_rate_within_the_budget() {
+    let budget = Arc::new(Budget::new(6, Duration::from_secs(300)));
+    let (dir, _m, _) = run_scripted_lanes(
+        |n| Script {
+            frames: Some(if n <= 2 { 50 } else { 0 }),
+            lag_ms: 0,
+            answers_pings: false,
+        },
+        2,
+        &budget,
+        |o| {
+            o.ping = (Duration::from_millis(500), Duration::from_secs(60));
+            o.overlap = Duration::from_millis(300);
+        },
+        |d, _| count_events(d, "connected") >= 6,
+        Duration::from_secs(6),
+        Duration::from_secs(40),
+    );
+    let trace = event_trace(dir.path());
+    let mut ts: Vec<i64> = events_named(dir.path(), "connected")
+        .iter()
+        .filter_map(|e| e["ts_ms"].as_i64())
+        .collect();
+    ts.sort_unstable();
+    assert_eq!(
+        ts.len(),
+        6,
+        "бюджет 6 держит и тёмный шард, и 6 с после исчерпания: {trace}"
+    );
+    assert_eq!(budget.used(Instant::now()), 6, "{trace}");
+    assert!(
+        ts[2] - ts[1] >= 3000,
+        "первая замена — после обнаружения молчания, не сразу: {trace}"
+    );
+    assert!(
+        ts[4] - ts[2] >= 3000,
+        "вторая замена линии — снова после обнаружения молчания, не по циклу отбраковок: {trace}"
+    );
+    assert!(
+        count_events(dir.path(), "ping_degraded") >= 4,
+        "каждая замена порчена как молчащая: {trace}"
+    );
+}
+
+/// Проверка 17.11, п. 4: пока тёмный шард перебирает мёртвые пути (бюджет общий), светлый шард рядом получает места под свои замены по возрасту — тёмный темп (≈ 1 подключение на линию за 5 с)
+/// остаток бюджета не съедает.
+#[test]
+fn a_dark_shard_cycling_dead_paths_leaves_budget_slots_to_a_light_shard() {
+    let budget = Arc::new(Budget::new(30, Duration::from_secs(300)));
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let stop_src = Arc::new(AtomicBool::new(false));
+    let src = spawn_scripted(listener, Arc::clone(&stop_src), |_| Script {
+        frames: None,
+        lag_ms: 0,
+        answers_pings: true,
+    });
+    let light_dir = tempfile::tempdir().unwrap();
+    let (mut opts, plan) = book_shard(light_dir.path(), port, (0.2, 0.5));
+    (opts.max_age, opts.overlap) = (Duration::from_secs(2), Duration::from_millis(300));
+    let exch: Arc<dyn Exchange> = Arc::new(Binance);
+    let stop = Arc::new(AtomicBool::new(false));
+    let light = spawn_shard(
+        &exch,
+        &plan,
+        &[vec![Entrance::new("127.0.0.1", Family::V4)]],
+        &opts,
+        &budget,
+        &stop,
+    )
+    .unwrap();
+    let (dark_dir, _m, _) = run_scripted_lanes(
+        |n| Script {
+            frames: Some(if n <= 2 { 50 } else { 0 }),
+            lag_ms: 0,
+            answers_pings: false,
+        },
+        2,
+        &budget,
+        |o| {
+            o.ping = (Duration::from_millis(500), Duration::from_secs(60));
+            o.overlap = Duration::from_millis(300);
+        },
+        |d, _| count_events(d, "connected") >= 6,
+        Duration::ZERO,
+        Duration::from_secs(40),
+    );
+    stop.store(true, Relaxed);
+    light.join();
+    stop_src.store(true, Relaxed);
+    src.join().unwrap();
+    let trace = event_trace(light_dir.path());
+    assert!(
+        count_events(dark_dir.path(), "connected") >= 6,
+        "тёмный шард перебирал пути"
+    );
+    assert!(
+        count_events(light_dir.path(), "rotated") >= 3,
+        "светлый шард сменил соединения по возрасту, пока тёмный перебирал пути: {trace}"
+    );
+    assert_eq!(
+        count_events(light_dir.path(), "switch_timeout"),
+        0,
+        "{trace}"
+    );
+    assert!(budget.used(Instant::now()) < 30, "бюджет не исчерпан");
 }
 
 /// Ни pong, ни кадров — путь испорчен: помечается `degraded` (шард откроет замену).
