@@ -50,7 +50,7 @@ for st in "$@"; do
     python3 hold_report.py $V/flag-tol.pkl $V/resim-tol.pkl $V/tables-tol.md $V/pairs-tol.csv $V/cases-tol.csv
     ;;
   stay)
-    stage $V/stay.pkl && python3 hold_stay.py build $V/flag-strict.pkl $B $V/marks.pkl $V/trades.pkl $V/stay.pkl 5
+    stage $V/stay.pkl && python3 hold_stay.py build $V/flag-strict.pkl $B $V/marks.pkl $V/trades.pkl $V/dead.json $AUDIT $V/rawgaps.pkl $V/stay.pkl 5
     python3 hold_stay.py eval $V/stay.pkl $V/stay.md
     ;;
   all) bash "$0" prep trades scan-strict scan-tol filter resim report stay ;;

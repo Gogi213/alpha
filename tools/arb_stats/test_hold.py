@@ -200,3 +200,108 @@ def test_placebo_pays_spread_and_fee():
     sp = (100.1 / 100.0 - 1) * 1e4
     exp = (100.0 / 100.1 - 1) * 1e4 - (100.1 / 100.0 - 1) * 1e4 - hs.FEE_RT_BPS         # продать A по биду / купить B по оферу, обратно по оферу A / биду B
     assert abs(pl[0] - exp) < 1e-6 and ps[0] == 400.0 and sp > 0
+
+
+def test_stay_mark_before_uses_strictly_earlier_bucket():
+    import hold_stay as hy
+    mk = {"binance": {"X": {"b": np.array([100, 101, 105], np.int64), "p": np.array([10.0, 11.0, 15.0]), "pay": []}}}
+    ts = np.array([1_010_000, 1_019_999, 1_020_000, 1_050_000, 1_060_000, 1_000_000], np.int64)       # ведра 101, 101, 102, 105, 106, 100
+    got = hy.mark_before(mk, "binance", "X", 2.0, ts)
+    assert got[:5].tolist() == [5.0, 5.0, 5.5, 5.5, 7.5]              # ведро начала в счёт не идёт: 101 → запись ведра 100, 102 → 101, 105 → 101, 106 → 105
+    assert np.isnan(got[5])                                           # раньше первой записи — нет
+    assert np.isnan(hy.mark_before(mk, "binance", "X", 1.0, np.array([1_960_000], np.int64)))[0]      # ведро 196: последняя запись 105 старше 90 ведёр
+    assert np.isnan(hy.mark_before(mk, "bybit", "X", 1.0, ts)).all()
+
+
+def test_stay_valid_prefix_and_label_windows():
+    import hold_stay as hy
+    T = np.arange(0, 41, dtype=np.int64) * 60_000
+    Tn = np.r_[T[1:], 41 * 60_000]
+    M = np.full(41, 60.0)
+    M[3] = -5.0                                    # возврат на 3-й минуте (валидный тик)
+    M[20] = -5.0                                   # возврат на 20-й минуте, но тик невалиден
+    valid = np.ones(41, bool)
+    valid[20] = False
+    ok = np.ones(41, bool)
+    vt = hy.valid_prefix(T, Tn, ok)
+    assert vt(np.int64(30 * 60_000)) == 30 * 60_000 and vt(np.int64(10 * 60_000 + 30_000)) == 10 * 60_000 + 30_000
+    t = np.array([0, 600_000, 0, 0, 600_000], np.int64)
+    st = np.array([0, 10, 0, 0, 10])
+    side = np.ones(5, int)
+    c0 = np.array([0.0, 0.0, 0.0, np.nan, 0.0])
+    hole = np.array([False, False, True, False, False])
+    t1 = 41 * 60_000
+    tau, cover, why, label = hy.label_units(T, M, valid, vt, t, st, side, c0, t1, hole)
+    assert tau[0] == 180_000 and label[0] == 1                         # возврат на валидном тике
+    assert np.isnan(tau[1]) and label[1] == 0 and why[1] == ""         # тик возврата невалиден: «остался»
+    assert label[2] == -1 and why[2] == "hole"                         # окно метки пересекает дыру
+    assert label[3] == -1 and why[3] == "c0"                           # центр NaN — не 0
+    assert label[4] == 0                                               # t + 30 мин = 40 мин ≤ t1
+    t = np.array([700_000], np.int64)                                  # 11:40 + 30 мин = 41:40 > t1
+    _, _, why, label = hy.label_units(T, M, valid, vt, t, np.array([11]), np.ones(1, int), np.array([0.0]), t1, np.zeros(1, bool))
+    assert why[0] == "tail" and label[0] == -1
+    ok2 = ok.copy()
+    ok2[5:12] = False                                                  # 7 мин из 30 без валидных обеих ног: доля 77 % < 95 %
+    _, cover, why, label = hy.label_units(T, M, valid, hy.valid_prefix(T, Tn, ok2), np.array([0], np.int64), np.array([0]), np.ones(1, int), np.array([0.0]), t1, np.zeros(1, bool))
+    assert why[0] == "cover" and label[0] == -1 and abs(cover[0] - 23 / 30) < 1e-9
+
+
+def test_stay_missing_feature_means_converges():
+    import hold_stay as hy
+    y = np.array([1, 1, 1, 1, 0, 0, 0, 0, 0, 0])
+    x = np.array([5, 6, 7, np.nan, 1, 2, 3, np.nan, np.nan, 4.0])
+    rule = hy.fit_rule(y, x)
+    pred = hy.apply_rule(rule, x)
+    assert not pred[3] and not pred[7] and not pred[8]                 # пропуск = «сходится»
+    assert abs(rule[2] - hy.bal_acc(y, pred)[0]) < 1e-12               # BA подбора — по всем единицам, включая пропуски
+    assert rule[2] < 1.0                                               # единица с пропуском среди «остался» не найдена
+
+
+def test_stay_split_days_and_embargo():
+    import hold_stay as hy
+    from hold_common import day_edges
+    ms = lambda s_: int(pd_ts(s_))  # noqa: E731
+    t0, t1 = ms("2026-11-12 11:37"), ms("2026-11-17 00:03")
+    days = day_edges(t0, t1)
+    ok, early, late = hy.split_days(days)
+    assert ok == [1, 2, 3, 4] and early == [1, 2] and late == [3, 4]  # 12.11 (≈ 8 ч) и 17.11 (≈ 4 ч) не берутся
+    days5 = day_edges(t0, ms("2026-11-17 12:00"))                      # 17.11 — 16 ч покрытия: пять полных суток
+    ok, early, late = hy.split_days(days5)
+    assert ok == [1, 2, 3, 4, 5] and early == [1, 2] and late == [4, 5]   # среднее (3) — буфер
+    t = np.array([100, 500, 1000, 1500, 2500])
+    assert hy.dist_to_block(t, 1000, 2000).tolist() == [900, 500, 0, 0, 500]
+
+
+def pd_ts(s_):
+    from datetime import datetime, timezone
+    return datetime.fromisoformat(s_).replace(tzinfo=timezone.utc).timestamp() * 1000
+
+
+def test_stay_bootstrap_by_coin_and_permutation():
+    import hold_stay as hy
+    rng = np.random.default_rng(1)
+    n = 400
+    cid = rng.integers(0, 20, n)
+    y = (rng.random(n) < 0.4).astype(int)
+    good = y == 1
+    cnt = hy.coin_counts(y, good, cid, 20)
+    assert cnt.sum() == n and hy.ba_of(cnt.sum(0)) == 1.0
+    W = hy.boot_weights(20, n_boot=500, chunk=200)
+    assert W.shape == (500, 20) and (W.sum(1) == 20).all()
+    assert hy.boot_ba(cnt, W).min() == 1.0                              # точное правило — BA = 1 в каждом повторе
+    rnd = rng.random(n) < 0.5
+    ci = hy.ci(hy.boot_ba(hy.coin_counts(y, rnd, cid, 20), W), 0.05)
+    assert ci[0] < 0.5 < ci[1]                                          # случайное правило — интервал накрывает 0,5
+    P, N = int(y.sum()), int((y == 0).sum())
+    assert hy.perm_p(P, N, int(good.sum()), P) < 0.001 and hy.perm_p(P, N, 100, 0) > 0.99
+
+
+def test_stay_pair_rate_leave_one_out():
+    import hold_stay as hy
+    import pandas as pd
+    tr = pd.DataFrame({"coin": ["A"] * 4 + ["B"] * 2, "exA": "x", "exB": "y", "y": [1, 1, 0, 0, 1, 1]})
+    te = pd.DataFrame({"coin": ["A", "B", "C"], "exA": "x", "exB": "y"})
+    x_tr, x_te = hy.pair_rate(tr, te)
+    assert np.allclose(x_tr[:4], [1 / 3, 1 / 3, 2 / 3, 2 / 3], equal_nan=True)     # без самой единицы: у «остался» (2 − 1) / 3, у «сходится» 2 / 3
+    assert np.isnan(x_tr[4]) and np.isnan(x_tr[5])                      # в паре B после исключения одной — 1 единица < 3
+    assert x_te[0] == 0.5 and np.isnan(x_te[1]) and np.isnan(x_te[2])
