@@ -1,0 +1,16 @@
+[Unit]
+Description=G-022 вкладка «Арбитраж»: живой счёт раз в 5 минут (tools/arb_stats/arb_daemon.py); заменяет arb-stats.timer
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/arb-tab/tools/arb_stats
+Environment=PYTHONPATH=/opt/arb-tab/pylib
+ExecStart=/usr/bin/python3 /opt/arb-tab/tools/arb_stats/arb_daemon.py run /data/arb-tab/live 3
+Nice=15
+CPUQuota=200%
+MemoryMax=16G
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+Restart=always
+RestartSec=30

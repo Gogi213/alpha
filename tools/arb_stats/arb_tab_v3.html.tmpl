@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Сбор данных · Арбитраж</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+/*HEALTH_CSS*/
+.top{align-items:center;gap:24px}
+.tabs{display:flex;gap:26px;margin-right:auto;margin-left:18px}
+.tabs button,.flt button{all:unset;cursor:pointer;color:var(--mut);padding:4px 0;border-bottom:2px solid transparent}
+.tabs button{font-size:15px}
+.tabs button:hover,.flt button:hover{color:var(--ink)}
+.tabs button.on,.flt button.on{color:var(--ink);font-weight:600;border-bottom-color:var(--acc)}
+[hidden]{display:none!important}
+.flt{display:flex;gap:22px;margin:-6px 0 12px;font-size:14px;flex-wrap:wrap}
+.ctl{display:flex;gap:34px;margin:0 0 18px;font-size:14px;flex-wrap:wrap;align-items:baseline}
+.ctl .g{display:flex;gap:18px;align-items:baseline}
+.ctl .g>span{color:var(--mut);font-size:13px}
+.ctl button{all:unset;cursor:pointer;color:var(--mut);padding:4px 0;border-bottom:2px solid transparent}
+.ctl button:hover{color:var(--ink)}
+.ctl button.on{color:var(--ink);font-weight:600;border-bottom-color:var(--acc)}
+.ctl .cnt{color:var(--mut);font-size:12px;font-weight:400}
+table.a{border-collapse:collapse;width:100%}
+table.a th{font-weight:400;font-size:12px;color:var(--mut);text-align:right;padding:0 0 8px;cursor:pointer;white-space:nowrap}
+table.a th.l,table.a td.l{text-align:left}
+table.a th:hover{color:var(--ink)}
+table.a th.on{color:var(--ink)}
+table.a td{padding:0;height:42px;text-align:right;border-top:1px solid #ecebe5;font-size:15px}
+table.a tr.r{cursor:pointer}
+table.a tr.r:hover td{background:#f3f2ed}
+table.a td.c{font-size:16px;font-weight:600}
+table.a td.p{color:var(--mut);font-size:14px}
+table.a td.n{padding-right:2px}
+table.a td.none{color:var(--nolog)}
+table.a tr.ch td{padding:6px 0 22px;height:auto;background:none!important;cursor:default}
+.cwrap{position:relative;margin-left:0}
+.cwrap canvas{display:block;width:100%}
+.lg{display:flex;gap:22px;font-size:12px;color:var(--mut);margin:0 0 4px}
+.lg i{display:inline-block;width:18px;height:0;border-top:2px solid;vertical-align:middle;margin-right:6px}
+</style>
+</head>
+<body>
+<div class="top"><h1>Сбор данных</h1><nav class="tabs"><button id="tab-h" class="on">Здоровье</button><button id="tab-a">Арбитраж</button></nav><div class="t" id="clock"></div></div>
+
+<section id="p-h">
+<div class="cap">потеряно за час</div>
+<div class="wrap" id="wrap"><div id="tip"></div><div id="rows"></div><div class="axis" id="axis"></div></div>
+</section>
+
+<section id="p-a" hidden>
+<div class="flt" id="flt"></div>
+<div class="ctl" id="ctl"></div>
+<table class="a" id="tab"></table>
+</section>
+
+<script>
+/*HEALTH_JS*/
+</script>
+<script>
+const ARB=__ARB__;
+(function(){
+const INK='#1d1d1b',MUT='#8c8a83',ACC='#cf4a2b',LINE='#e3e1da';
+const A=ARB,N=A.names;
+const $=id=>document.getElementById(id);
+const pad=n=>String(n).padStart(2,'0');
+const gm=t=>new Date((t+4*3600)*1000);
+const hm=t=>{const d=gm(t);return pad(d.getUTCHours())+':'+pad(d.getUTCMinutes())};
+const nf=(v,d=1)=>(Math.round(v*Math.pow(10,d))/Math.pow(10,d)).toLocaleString('ru',{minimumFractionDigits:d,maximumFractionDigits:d});
+const sg=v=>v==null?'—':(v>0?'+':v<0?'−':'')+nf(Math.abs(v),1);
+function dur(s){if(s==null)return '—';if(s<1)return nf(s*1000,0)+' мс';if(s<60)return nf(s,s<10?1:0)+' с';if(s<3600)return nf(s/60,s<600?1:0)+' мин';return nf(s/3600,1)+' ч'}
+const esc=s=>String(s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+let st={pair:'all',sort:'size',dir:-1,open:-1,per:1,mode:'med',hide:false};
+const PERS=[[1,'1 ч'],[4,'4 ч'],[6,'6 ч'],[24,'1 сут']];
+const kv=(a,k)=>a?a[k]:null;
+function cols(){
+  const o=st.mode==='out',per=PERS.find(p=>p[0]===st.per)[1];
+  const base=[{k:'c',t:'монета',l:1,v:r=>r.c},{k:'p',t:'пара бирж',l:1,v:r=>N[r.a]+N[r.b]}];
+  const rate={k:'h',t:'раз в '+per,v:r=>r.h*st.per,f:v=>nf(v,v<10?1:0)};
+  return base.concat(o?[
+    {k:'size',t:'расхождение p95, bps',v:r=>kv(r.pk,1),f:v=>nf(v,1)},
+    {k:'max',t:'расхождение макс, bps',v:r=>kv(r.pk,2),f:v=>nf(v,1)},
+    rate,
+    {k:'tau',t:'схождение p95',v:r=>kv(r.tau,1),f:dur,low:1},
+    {k:'net',t:'после комиссий p95, bps',v:r=>kv(r.net,1),f:sg}
+  ]:[
+    {k:'size',t:'расхождение, bps',v:r=>kv(r.pk,0),f:v=>nf(v,1)},
+    rate,
+    {k:'tau',t:'схождение, медиана',v:r=>kv(r.tau,0),f:dur,low:1},
+    {k:'net',t:'после комиссий, bps',v:r=>kv(r.net,0),f:sg}
+  ]);
+}
+const hidden=r=>st.hide&&r.h*st.per<1;
+function flt(){
+  const pairs=[...new Set(A.rows.map(r=>r.a+'|'+r.b))];
+  $('flt').innerHTML='<button data-p="all" class="'+(st.pair==='all'?'on':'')+'">Все</button>'+pairs.map(p=>{const[a,b]=p.split('|');return '<button data-p="'+p+'" class="'+(st.pair===p?'on':'')+'">'+N[a]+' → '+N[b]+'</button>'}).join('');
+  $('flt').querySelectorAll('button').forEach(b=>b.onclick=()=>{st.pair=b.dataset.p;st.open=-1;flt();ctl();table()});
+}
+function ctl(){
+  const inPair=A.rows.filter(r=>st.pair==='all'||r.a+'|'+r.b===st.pair),nh=inPair.filter(r=>r.h*st.per<1).length;
+  $('ctl').innerHTML='<div class="g"><span>эпизодов за</span>'+PERS.map(p=>'<button data-per="'+p[0]+'" class="'+(st.per===p[0]?'on':'')+'">'+p[1]+'</button>').join('')+'</div>'
+    +'<div class="g"><span>счёт</span><button data-m="med" class="'+(st.mode==='med'?'on':'')+'">медиана</button><button data-m="out" class="'+(st.mode==='out'?'on':'')+'">выбросы</button></div>'
+    +'<div class="g"><button data-hide="1" class="'+(st.hide?'on':'')+'">скрыть пустые</button><span class="cnt">'+(st.hide?'скрыто ':'меньше 1 за период: ')+nh+' из '+inPair.length+'</span></div>';
+  $('ctl').querySelectorAll('button').forEach(b=>b.onclick=()=>{
+    if(b.dataset.per)st.per=+b.dataset.per;
+    else if(b.dataset.m){st.mode=b.dataset.m;if(!cols().some(c=>c.k===st.sort))st.sort='size'}
+    else st.hide=!st.hide;
+    ctl();table()});
+}
+function table(){
+  const C=cols();let col=C.find(c=>c.k===st.sort);if(!col){st.sort='size';col=C.find(c=>c.k==='size')}
+  const rs=A.rows.filter(r=>(st.pair==='all'||r.a+'|'+r.b===st.pair)&&!hidden(r));
+  const val=(c,r)=>{const x=c.v(r);return x==null?(c.low?1e12:-1e9):x};
+  rs.sort((x,y)=>{const a=val(col,x),b=val(col,y);return (typeof a==='string'?a.localeCompare(b):a-b)*st.dir});
+  const th='<thead><tr>'+C.map(c=>'<th data-k="'+c.k+'" class="'+(c.l?'l ':'')+(c.k===st.sort?'on':'')+'">'+c.t+(c.k===st.sort?(st.dir<0?' ↓':' ↑'):'')+'</th>').join('')+'</tr></thead>';
+  const body=rs.map(r=>{
+    const none=r.n===0;
+    const cells=C.slice(2).map(c=>{const x=c.v(r);return '<td class="n'+(none||x==null?' none':'')+'">'+(x==null?'—':c.f(x))+'</td>'}).join('');
+    return '<tr class="r" data-i="'+r.i+'"><td class="l c">'+esc(r.c)+'</td><td class="l p">'+N[r.a]+' → '+N[r.b]+'</td>'+cells+'</tr>'+(r.i===st.open?'<tr class="ch"><td colspan="'+C.length+'"><div class="lg"><span><i style="border-color:'+ACC+'"></i>Sell, максимум за 3 мин</span><span><i style="border-color:'+INK+'"></i>Buy, минимум за 3 мин</span><span><i style="border-color:'+MUT+';border-top-style:dotted"></i>центр</span></div><div class="cwrap"><canvas id="cv"></canvas><div id="tip2" style="position:absolute;pointer-events:none;background:#1d1d1b;color:#fff;border-radius:6px;padding:8px 11px;font-size:12.5px;line-height:1.5;white-space:nowrap;opacity:0;z-index:5"></div></div></td></tr>':'');
+  }).join('');
+  $('tab').innerHTML=th+'<tbody>'+body+'</tbody>';
+  $('tab').querySelectorAll('th').forEach(h=>h.onclick=()=>{const k=h.dataset.k;if(st.sort===k)st.dir*=-1;else{st.sort=k;st.dir=(k==='c'||k==='p'||k==='tau')?1:-1}table()});
+  $('tab').querySelectorAll('tr.r').forEach(tr=>tr.onclick=()=>{const i=+tr.dataset.i;st.open=st.open===i?-1:i;table();if(st.open>=0)$('cv').scrollIntoView({block:'nearest'})});
+  if(st.open>=0)chart();
+}
+function chart(){
+  const r=A.rows.find(x=>x.i===st.open),cv=$('cv');if(!r||!cv)return;
+  const d=A.detail[r.i],W=cv.parentNode.clientWidth,H=300,dpr=window.devicePixelRatio||1;
+  cv.style.height=H+'px';cv.width=Math.round(W*dpr);cv.height=Math.round(H*dpr);
+  const c=cv.getContext('2d');c.setTransform(dpr,0,0,dpr,0,0);c.font='12px system-ui,Segoe UI,Arial';
+  const L=46,R=10,T=8,B=24,pw=W-L-R,ph=H-T-B,t0=A.t0/1000,t1=A.t1/1000,step=A.slot,n=d.S.length;
+  let lo=1e9,hi=-1e9;
+  [d.S,d.B,d.C].forEach(a=>a.forEach(v=>{if(v!=null){lo=Math.min(lo,v/10);hi=Math.max(hi,v/10)}}));
+  const pdv=(hi-lo)*.06||1;lo-=pdv;hi+=pdv;
+  const X=i=>L+(i+.5)*step/(t1-t0)*pw,Y=v=>T+ph-(v-lo)/(hi-lo)*ph;
+  c.strokeStyle=LINE;c.fillStyle=MUT;c.lineWidth=1;c.textAlign='right';
+  const sp=hi-lo,raw=sp/5,p=Math.pow(10,Math.floor(Math.log10(raw))),m=raw/p,tk=(m<1.5?1:m<3?2:m<7?5:10)*p;
+  for(let v=Math.ceil(lo/tk)*tk;v<=hi;v+=tk){const y=Y(v);c.beginPath();c.moveTo(L,y);c.lineTo(W-R,y);c.stroke();c.fillText((v<0?'−':'')+nf(Math.abs(v),tk<1?1:0),L-6,y+4)}
+  if(lo<0&&hi>0){c.strokeStyle=MUT;c.beginPath();c.moveTo(L,Y(0));c.lineTo(W-R,Y(0));c.stroke()}
+  c.fillStyle=MUT;for(let i=0;i<=4;i++){c.textAlign=i===0?'left':i===4?'right':'center';c.fillText(hm(t0+(t1-t0)*i/4),L+pw*i/4,H-7)}
+  const line=(a,col,w,dash)=>{c.save();c.strokeStyle=col;c.lineWidth=w;c.setLineDash(dash||[]);c.beginPath();let on=false;a.forEach((v,i)=>{if(v==null){on=false;return}const x=X(i),y=Y(v/10);if(!on){c.moveTo(x,y);on=true}else c.lineTo(x,y)});c.stroke();c.restore()};
+  line(d.C,MUT,1,[2,3]);line(d.B,INK,1.5);line(d.S,ACC,1.5);
+  const tip=$('tip2');
+  cv.onmousemove=e=>{const rc=cv.getBoundingClientRect(),x=e.clientX-rc.left;let i=Math.round((x-L)/pw*(t1-t0)/step-.5);i=Math.max(0,Math.min(n-1,i));
+    if(d.S[i]==null){tip.style.opacity=0;return}
+    tip.innerHTML='<b>'+hm(t0+i*step)+'</b><br>Sell макс '+sg(d.S[i]/10)+'<br>Buy мин '+sg(d.B[i]/10)+(d.C[i]==null?'':'<br>центр '+sg(d.C[i]/10));
+    tip.style.opacity=1;const w=tip.offsetWidth,cx=Math.min(Math.max(X(i)-w/2,0),rc.width-w);tip.style.left=cx+'px';tip.style.top=(Y(d.S[i]/10)>ph/2?T+4:ph-60)+'px'};
+  cv.onmouseleave=()=>tip.style.opacity=0;
+}
+function tab(a){$('p-a').hidden=!a;$('p-h').hidden=a;$('tab-a').classList.toggle('on',a);$('tab-h').classList.toggle('on',!a);location.hash=a?'arb':'';
+  if(a){if(st.open>=0)chart()}else if(window.render)window.render()}
+$('tab-a').onclick=()=>tab(true);$('tab-h').onclick=()=>tab(false);
+flt();ctl();table();
+window.addEventListener('resize',()=>{if(!$('p-a').hidden&&st.open>=0)chart()});
+if(location.hash==='#arb')tab(true);
+const m=location.hash.match(/arb-open=(\d+)/);if(m){tab(true);st.open=+m[1];table()}
+window._arb={st,table,ctl};
+})();
+</script>
+</body>
+</html>
