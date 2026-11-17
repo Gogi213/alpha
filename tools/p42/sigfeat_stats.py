@@ -58,6 +58,29 @@ def fmt_bucket(edges, i):
     return f"({edges[i - 1]:.4g}; {edges[i]:.4g}]"
 
 
+def diff_stats(y, g1, days, coins, rng, nb):
+    """Разность доли метки группы g1 и остальных (g1 − остальные); интервалы — блоки по суткам (4) и монеты целиком; p — большая из двух."""
+    n1, n0 = int(g1.sum()), int((~g1).sum())
+    out = {"n_g1": n1, "n_g0": n0, "rate_g1": float(y[g1].mean()) if n1 else float("nan"), "rate_g0": float(y[~g1].mean()) if n0 else float("nan")}
+    if not (n1 and n0):
+        return out
+    out["diff"] = out["rate_g1"] - out["rate_g0"]
+    vd, vc = [], []
+    for ix in block_resamples(days, nb, 4, rng):
+        m1 = g1[ix]
+        if m1.any() and (~m1).any():
+            vd.append(y[ix][m1].mean() - y[ix][~m1].mean())
+    for ix in cluster_resamples(coins, nb, rng):
+        m1 = g1[ix]
+        if m1.any() and (~m1).any():
+            vc.append(y[ix][m1].mean() - y[ix][~m1].mean())
+    vd, vc = np.array(vd), np.array(vc)
+    out["ci_day"] = [float(np.percentile(vd, 2.5)), float(np.percentile(vd, 97.5))] if len(vd) else None
+    out["ci_coin"] = [float(np.percentile(vc, 2.5)), float(np.percentile(vc, 97.5))] if len(vc) else None
+    out["p"] = max(boot_p(vd, 0.0), boot_p(vc, 0.0)) if len(vd) and len(vc) else None
+    return out
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("work")
@@ -192,6 +215,11 @@ def main():
                      "outcomes": {OUTC[o]: float((d[LABEL][msk] == o).mean()) if n_ else np.nan for o in OUTC},
                      "ctrl": float(d["ctrl_o3_x1"][msk].mean()) if n_ else np.nan}
         r["zone_clean"] = z
+        zone_m = (d["pierce_ep"] >= 1).to_numpy()
+        pk_m = d["in_pk"].to_numpy().astype(bool)
+        for hh, sel in (("ALL", np.arange(n)), ("A", A), ("B", B)):
+            r[f"zone_minus_clean_{hh}"] = diff_stats(y[sel], zone_m[sel], days[sel], coins[sel], rng, a.boot // 2)
+            r[f"in_pk_minus_not_{hh}"] = diff_stats(y[sel], pk_m[sel], days[sel], coins[sel], rng, a.boot // 2)
         # ── разреженность: Z = верхний квинтиль emp6h (граница по A)
         r["sparse"] = {}
         for univ in ("U1", "U0"):
@@ -249,7 +277,7 @@ def main():
         tz = tz & tw["emp6h"].notna()
         def pnl(df):
             return {"n": int(len(df)), "sum": float(df["net"].sum()), "mean": float(df["net"].mean()) if len(df) else np.nan, "stop_share": float((df["kind"] == "stop").mean()) if len(df) else np.nan,
-                    "neg_sum": float(df.loc[df["net"] < 0, "net"].sum())}
+                    "neg_sum": float(df.loc[df["net"] < 0, "net"].sum()), "neg_share": float((df["net"] < 0).mean()) if len(df) else np.nan}
         r["trades_ow_e"] = {"all": pnl(tw), "Z": pnl(tw[tz]), "rest": pnl(tw[~tz]), "no_value": int(tw["emp6h"].isna().sum())}
         # ── подход к уровню: достижение расстояний
         appr = {}
