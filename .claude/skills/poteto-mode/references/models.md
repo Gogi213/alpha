@@ -22,3 +22,4 @@ arena cross-judge pool: claude-code claude-opus-5-5 medium
 architect runners: claude-code claude-sonnet-5-5 xhigh
 interrogate reviewers: claude-code claude-opus-5-5 medium
 trivial edits and lookups: claude-code claude-haiku-5-5 high
+simple tasks: claude-code claude-sonnet-5-5 medium
