@@ -1,4 +1,4 @@
-"""Собирает отчёт из шаблона и полных таблиц docs/findings/arb-holding-divergences-2026-11-16-tables-{strict,tol}.md: в шаблоне {{T:вариант|начало заголовка|колонки (индексы через запятую)|строки (первая колонка)|переименование k=имя;…}}.
+"""Собирает отчёт из шаблона и полных таблиц docs/findings/arb-holding-divergences-2026-11-16-tables-{strict,tol}.md: в шаблоне {{T:вариант|начало заголовка|колонки (индексы через запятую)|строки (первая колонка)|переименование k=имя;…}}, {{I:файл}} — вставка файла.
 Запуск из корня репо: python3 tools/arb_stats/hold_mkdoc.py <шаблон.md> <выход.md>"""
 import os, re, sys
 BASE = os.environ.get("HOLD_TABLES_BASE", "docs/findings/arb-holding-divergences-2026-11-16-")
@@ -38,6 +38,7 @@ def render(tpl):
                 k, nm = kv.split("=")
                 ren[int(k) if k.strip().isdigit() else k.strip()] = nm
         return table(v, prefix, cols, rows, ren)
+    tpl = re.sub(r"\{\{I:(.*?)\}\}", lambda m: open(os.path.join(os.path.dirname(BASE) or ".", m.group(1)), encoding="utf-8").read().strip("\n"), tpl)     # {{I:файл}} — вставка файла из каталога таблиц как есть
     return re.sub(r"\{\{T:(.*?)\}\}", rep, tpl)
 
 if __name__ == "__main__":
