@@ -7,13 +7,14 @@
 from __future__ import annotations
 
 import math
+import os
 import zipfile
 from dataclasses import dataclass
 
 import numpy as np
 
 BASE_MS = 1788220800000  # 2026-09-01 00:00:00 UTC, мс от эпохи
-DAYS_TOTAL = 74
+DAYS_TOTAL = int(os.environ.get("SIGFEAT_DAYS", "74"))  # 74 = кэш TK-588 (до 13.11); TK-592: расширенный кэш с отложенными сутками
 N_MIN = DAYS_TOTAL * 1440
 START_DAY = 14
 END_DAY = 73
@@ -341,6 +342,13 @@ def sparse_features(m: dict[str, np.ndarray], first_valid: int, t: int) -> dict:
     a = t - 60
     flat = (o[a:t] != 0) & (m["h"][a:t] == m["l"][a:t])
     f["flat60"] = float(flat.sum()) / 60.0
+    # TK-592 (правка по проверке TK-588 П1): пустая минута — qv == 0 (кэш плотный: минуты без сделок — заполненный бар с нулевым оборотом);
+    # `emp*` выше считают только o == 0 (целиком отсутствующие участки) и в данных вырождены.
+    q = m["qv"]
+    for name, w in (("zv2h", 120), ("zv6h", 360)):
+        a = max(t - w, first_valid)
+        n = t - a
+        f[name] = float((q[a:t] == 0).sum()) / n if n >= 30 else float("nan")
     return f
 
 

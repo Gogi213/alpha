@@ -15,8 +15,9 @@ import pandas as pd
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from sigfeat_lib import *  # noqa: F401,F403
 
-CACHE = "/data/p42-t566/cache"
+CACHE = os.environ.get("SIGFEAT_CACHE", "/data/p42-t566/cache")
 E16 = "/data/p42-t566/out/e16"
+HOLD = os.environ.get("SIGFEAT_MIN_DAY", "0") != "0"  # TK-592: отложенные сутки — без флагов pk/ow и без сделок
 PEER_R = 0.6
 
 
@@ -69,7 +70,7 @@ def main():
     sig = pd.read_parquet(f"{work}/signals_all.parquet")
     tf = pd.read_parquet(f"{work}/trade_feats.parquet")
     keys = lambda d: list(zip(d["side"], d["sym"], d["sig_ms"].astype(int)))
-    k_pk, k_ow = keyset(eng, "b0pk"), keyset(eng, "ow")
+    k_pk, k_ow = (set(), set()) if HOLD else (keyset(eng, "b0pk"), keyset(eng, "ow"))
     u1 = sig[sig.univ == "U1"]
     k_u1 = set(keys(u1))
     ep["key"] = keys(ep)
@@ -77,14 +78,14 @@ def main():
     ep["in_ow"] = ep["key"].isin(k_ow)
     ep["in_pool"] = ep["key"].isin(k_u1)
     # сделки: b0 (наш прогон) и ow_e (e16), сверка с числом
-    tb0, tow = trades(f"{eng}/b0"), trades(E16 + "/ow_e")
+    tb0, tow = (pd.DataFrame(columns=["side", "sym", "sig_ms"]), pd.DataFrame(columns=["side", "sym", "sig_ms"])) if HOLD else (trades(f"{eng}/b0"), trades(E16 + "/ow_e"))
     info = {"trades_b0": {s: int((tb0.side == s).sum()) for s in ("long", "short")},
             "trades_ow_e": {s: int((tow.side == s).sum()) for s in ("long", "short")}}
     sig_u1 = u1.copy()
     sig_u1["key"] = keys(sig_u1)
     km = sig_u1.set_index("key")["ep_no"].to_dict()
     lvl = sig_u1.set_index("key")["level"].to_dict()
-    for name, t in (("b0", tb0), ("ow_e", tow)):
+    for name, t in (() if HOLD else (("b0", tb0), ("ow_e", tow))):
         t["key"] = list(zip(t["side"], t["sym"], t["sig_ms"].astype(int)))
         t["found"] = t["key"].isin(k_u1)
         info[f"trades_{name}_found_in_u1"] = int(t["found"].sum())
@@ -129,10 +130,11 @@ def main():
     ep.to_parquet(f"{work}/episodes.parquet")
     ep.to_csv(f"{work}/episodes.csv.gz", index=False)
     # сделки ow_e с признаками разреженности на сигнале сделки
-    tow = tow.merge(tf, on=["side", "sym", "sig_ms"], how="left")
-    tow.drop(columns=["key"]).to_parquet(f"{work}/trades_ow_e.parquet")
-    tb0 = tb0.merge(tf, on=["side", "sym", "sig_ms"], how="left")
-    tb0.drop(columns=["key"]).to_parquet(f"{work}/trades_b0.parquet")
+    if not HOLD:
+        tow = tow.merge(tf, on=["side", "sym", "sig_ms"], how="left")
+        tow.drop(columns=["key"]).to_parquet(f"{work}/trades_ow_e.parquet")
+        tb0 = tb0.merge(tf, on=["side", "sym", "sig_ms"], how="left")
+        tb0.drop(columns=["key"]).to_parquet(f"{work}/trades_b0.parquet")
     info["episodes"] = {u: int((ep.univ == u).sum()) for u in ("U1", "U0")}
     json.dump(info, open(f"{work}/join_info.json", "w"), ensure_ascii=False)
     print(json.dumps(info, ensure_ascii=False))

@@ -374,7 +374,12 @@ pub fn run(
             let Some(&j) = job_idx.get(&(p.sig.clone(), side)) else {
                 bail!("{id}: нет задания сигналов");
             };
-            let r = run_tick(&syms, &sigs[j], side, &p.exit, &p.port, &src);
+            // `P42_SIGSX_ONLY` (§13.18, v20): сетка суток длиннее окна сделок (COUNT_DAYS), портфель не считается — только сигналы и дампы.
+            let r = if std::env::var_os("P42_SIGSX_ONLY").is_some() {
+                TickResult::empty()
+            } else {
+                run_tick(&syms, &sigs[j], side, &p.exit, &p.port, &src)
+            };
             write_outputs(&dir, &syms, side, &r)?;
             if p.exit.tape_entry() {
                 write_entry_rej(&dir, &syms, side, &r)?;

@@ -148,6 +148,19 @@ class FeatureTests(unittest.TestCase):
         f = L.sparse_features(self.m, 0, t)
         self.assertAlmostEqual(f["flat60"], 5 / 60)
 
+    def test_zero_volume_minutes(self):  # TK-592: пустая минута — qv == 0 (bar заполнен прошлым закрытием), а не o == 0
+        q = self.m["qv"]
+        t = 2000
+        q[t - 36:t] = 0  # 36 из 360 минут без сделок, бары есть (o != 0)
+        f = L.sparse_features(self.m, 0, t)
+        self.assertAlmostEqual(f["zv6h"], 36 / 360)
+        self.assertAlmostEqual(f["zv2h"], 36 / 120)
+        self.assertAlmostEqual(f["emp6h"], 0.0)  # старая мера вырождена
+        f = L.sparse_features(self.m, 1990, 2000)  # окно от листинга короче 30 минут — пусто
+        self.assertTrue(np.isnan(f["zv6h"]))
+        f = L.sparse_features(self.m, t - 100, t)  # окно обрезано листингом: 100 минут, из них 36 пустых
+        self.assertAlmostEqual(f["zv6h"], 36 / 100)
+
     def test_sparse_listing(self):  # окно короче 30 минут от листинга — пусто
         f = L.sparse_features(self.m, 1990, 2000)
         self.assertTrue(np.isnan(f["emp2h"]))

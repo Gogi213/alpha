@@ -19,9 +19,12 @@ import pandas as pd
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from sigfeat_lib import *  # noqa: F401,F403
 
-CACHE = "/data/p42-t566/cache"
-TRADES = "/data/aggtrades/binance"
+CACHE = os.environ.get("SIGFEAT_CACHE", "/data/p42-t566/cache")
+TRADES = os.environ.get("SIGFEAT_TRADES", "/data/aggtrades/binance")
 E16 = "/data/p42-t566/out/e16"
+# TK-592 (отложенные сутки): SIGFEAT_MIN_DAY=74 — эпизоды только первых сигналов с суток ≥ 74; обрабатываются все сигналы уровней, у которых есть сигнал с суток ≥ 74
+# (граница эпизодов и разрыв до предыдущего сигнала — как в полном прогоне); сделки, пересечения и E16 не читаются.
+MIN_DAY = int(os.environ.get("SIGFEAT_MIN_DAY", "0"))
 SIDES = {"long": 1, "short": -1}
 NCTRL = 20
 GRID_X = {"0p5": 5000, "1": 10000, "2": 20000}  # ppm цены уровня
@@ -99,7 +102,7 @@ class Worker:
                                  sig_rows, ep_rows, st)
         # пересечения без сигнала (только U1 = b0)
         for side, s in SIDES.items():
-            lev = cfg["levels"].get((sym, s))
+            lev = None if MIN_DAY else cfg["levels"].get((sym, s))
             if lev is not None:
                 self.crossings(sym, side, s, lev, cfg["sigs"]["b0"].get((sym, s)), m, pool, cross_rows)
         st["unsorted_days"] = tk.unsorted_days
@@ -110,6 +113,8 @@ class Worker:
         rng_base = [588, sum((i + 1) * ord(ch) for i, ch in enumerate(sym)), 0 if s > 0 else 1, 0 if univ == "U1" else 1]
         for level, g in df.groupby("level", sort=True):
             g = g.sort_values("sig_ms")
+            if MIN_DAY and int(g["sig_ms"].max()) < MIN_DAY * DAY_MS:
+                continue
             prev = None  # (sig_ms, t_min, tail ticks (P) )
             ep_no = -1
             recs = []
@@ -151,6 +156,8 @@ class Worker:
                 st["sigs"] += 1
             for r in recs:
                 row = r["first"]
+                if MIN_DAY and int(row.sig_ms) < MIN_DAY * DAY_MS:
+                    continue
                 ep = self.episode(sym, univ, side, s, row, r["ep_no"], r["n"], r["last_ms"], m, cf, natr, pool, t1h, r5, r15, r1, tk,
                                   first_valid, emp_coin, st, rng_base)
                 if ep is not None:
@@ -187,7 +194,7 @@ class Worker:
         P = s * pp
         k = find_signal_tick(tt, P, sig_ms, R, int(row.dist_e8))
         out = {"univ": univ, "side": side, "sym": sym, "level": int(row.level), "ep_no": ep_no, "ep_id": f"{univ}|{side}|{sym}|{int(row.level)}|{ep_no}",
-               "sig_ms": sig_ms, "day": int(day), "half": "A" if day < START_DAY + 30 else "B", "n_sig_ep": n_sig, "last_sig_ms": last_ms,
+               "sig_ms": sig_ms, "day": int(day), "half": "A" if day < START_DAY + 30 else ("B" if day < START_DAY + 60 else "H"), "n_sig_ep": n_sig, "last_sig_ms": last_ms,
                "lp_e8": absR, "natr_e8": natr_e8, "dist_e8": int(row.dist_e8), "emp_coin": emp_coin,
                "hour4": int((sig_ms % DAY_MS) // (4 * 3600_000)), "wday": int((day + 1) % 7)}  # 01.09.2026 — вторник → пн = 0: (day+1) % 7
         if k is None:
@@ -418,7 +425,7 @@ def main():
         for sym, g in lv.groupby("sym"):
             cfg["levels"][(sym, s)] = g.reset_index(drop=True)
     cfg["traded"] = {}
-    for src in (f"{a.eng}/b0", f"{E16}/ow_e"):
+    for src in (() if MIN_DAY else (f"{a.eng}/b0", f"{E16}/ow_e")):
         for side in SIDES:
             tr = pd.read_csv(f"{src}/{side}-trades.csv", usecols=["sym", "sig_ms"])
             for sym, g in tr.groupby("sym"):
