@@ -1,14 +1,16 @@
 """П-42 §13.18 п. 12 (TK-592): ЕДИНСТВЕННОЕ чтение отложенных суток (14.11 и позже) по замороженным правилам — ничего не подбирается.
 
-Использование (venv с catboost): tk592_holdout.py <hold_u0.parquet> <ep_u0.parquet (обучение)> <каталог пар> <каталог дерева> <выход>
+Использование (venv с catboost): tk592_holdout.py <hold_u0.parquet> <ep_u0.parquet (обучение)> <каталог пар> <каталог дерева> <выход> <SHA коммита заморозки>
 Читает: подтверждённые клетки (cells_confirm.csv, frozen_<сторона>_<S>to<T>.pkl) и модели дерева (models/cb3_*.cbm, frozen_tree.json).
-Пишет: holdout.json, holdout_cells.csv, holdout_tree.csv, holdout.md. Запускать один раз, после коммита заморозки.
+Пишет: holdout.json, holdout_cells.csv, holdout_tree.csv, holdout.md. Запускать один раз, после коммита заморозки: повторный запуск (есть holdout.json или
+holdout.started — в том числе после оборванного прогона) отказывает; SHA заморозки пишется в holdout.started и holdout.json.
 """
 from __future__ import annotations
 
 import json
 import os
 import pickle
+import re
 import sys
 
 import numpy as np
@@ -33,14 +35,23 @@ def coin_ci(values, coins, B=2000, seed=0):
 
 
 def main():
-    hold_t, ep_t, pairs_dir, tree_dir, out = sys.argv[1:6]
+    hold_t, ep_t, pairs_dir, tree_dir, out, freeze_sha = sys.argv[1:7]
+    if not re.fullmatch(r"[0-9a-f]{7,40}", freeze_sha):
+        sys.exit("нужен SHA коммита заморозки (7–40 hex)")
     os.makedirs(out, exist_ok=True)
+    if os.path.exists(f"{out}/holdout.json"):
+        sys.exit(f"{out}/holdout.json уже есть: отложенные сутки читаются один раз (§13.18 п. 12)")
+    try:
+        with open(f"{out}/holdout.started", "x") as f:  # эксклюзивное создание: даже оборванный прогон второй раз не пускает
+            f.write(freeze_sha + "\n")
+    except FileExistsError:
+        sys.exit(f"{out}/holdout.started уже есть: чтение уже начиналось, отложенные сутки читаются один раз (§13.18 п. 12)")
     H = add_cols(prepare(pd.read_parquet(hold_t)))
     TR = add_cols(prepare(pd.read_parquet(ep_t)))
     days = sorted(H["day"].unique().tolist())
     info = {"days": days, "episodes": {s: int((H.side == s).sum()) for s in ("long", "short")}, "breakouts": {s: int(H[H.side == s].y.sum()) for s in ("long", "short")},
             "u1r_episodes": {s: int(((H.side == s) & (H.in_pool == 1)).sum()) for s in ("long", "short")}}
-    res = {"info": info, "cells": [], "tree": []}
+    res = {"freeze_sha": freeze_sha, "info": info, "cells": [], "tree": []}
     # (i) подтверждённые клетки
     cf = pd.read_csv(f"{pairs_dir}/cells_confirm.csv")
     conf = cf[cf.cf_confirmed]
