@@ -9,10 +9,11 @@ import sys
 import pandas as pd
 
 W = sys.argv[1]
-res = json.load(open(f"{W}/results.json", encoding="utf-8"))
-auc = pd.read_csv(f"{W}/auc.csv")
-q = pd.read_csv(f"{W}/quintiles.csv")
-grid = pd.read_csv(f"{W}/grid.csv")
+SUF = sys.argv[sys.argv.index("--suffix") + 1] if "--suffix" in sys.argv else ""  # _indep — набор чувствительности
+res = json.load(open(f"{W}/results{SUF}.json", encoding="utf-8"))
+auc = pd.read_csv(f"{W}/auc{SUF}.csv")
+q = pd.read_csv(f"{W}/quintiles{SUF}.csv")
+grid = pd.read_csv(f"{W}/grid{SUF}.csv")
 SIDES = (("long", "лонг"), ("short", "шорт"))
 PRIMARY = {"чистый уровень / зона": ["pierce_ep", "spread_tau"], "разреженность": ["emp6h", "tpm60"], "резкость подхода и проторговка": ["mv5", "cons60"],
            "корреляция с BTC / ETH": ["c5_btc_7d", "c5_eth_7d"]}
@@ -59,9 +60,10 @@ def main():
     for s, nm in SIDES:
         r = res[s]
         g = r["signals"]
-        rows.append([nm, g["signals_u1"], g["episodes_u1"], g["levels_with_signal"], g["repeat_episodes"], r["n_label"], r["episodes_u0"], r["icc"]["n_days"], r["icc"]["n_coins"],
-                     r["icc"]["episodes_per_coin_max"]])
-    P(table(["сторона", "сигналов U1", "эпизодов U1", "уровней со ≥ 1 сигналом", "повторных эпизодов", "эпизодов с меткой (ok_t60)", "эпизодов U0", "суток", "монет", "макс. эпизодов на монету"], rows))
+        rows.append([nm, g["signals_u1"], g["episodes_u1"], g["levels_with_signal"], g["repeat_episodes"], g["gap_lt60_episodes"], r["n_label"], r["episodes_u0"], r["icc"]["n_days"],
+                     r["icc"]["n_coins"], r["icc"]["episodes_per_coin_max"]])
+    P(table(["сторона", "сигналов U1", "эпизодов U1 (основное определение)", "уровней со ≥ 1 сигналом", "повторных эпизодов", "эпизодов с разрывом < 60 мин от предыдущего сигнала уровня",
+             "эпизодов с меткой в этом наборе (ok_t60)", "эпизодов U0 в этом наборе", "суток", "монет", "макс. эпизодов на монету"], rows))
     P("\nМинимальный различимый эффект AUC (до чтения меток записан в §13.17): " + "; ".join(f"{nm}: " + ", ".join(f"p={p}: {v:.3f}" for p, v in res[s]["mde_auc"].items()) for s, nm in SIDES))
     # ── метка
     P("\n### Метка O3 (X = 1 %, T = 60 мин от сигнала, опорная — среднее пивотов), U1\n")
@@ -114,15 +116,16 @@ def main():
             sp = res[s]["sparse"]
             rows.append([nm, univ, sp[f"{univ}_n"], f3(sp[f"{univ}_auc_emp6h"]), f3(sp[f"{univ}_auc_coin_level"]), f3(sp[f"{univ}_auc_moment_part"])])
     P(table(["сторона", "вселенная", "эпизодов", "AUC `emp6h`", "AUC доли пустых минут монеты за 60 сут.", "AUC момента (`emp6h` − монета)"], rows))
-    P("\nСделки `ow_e` в разреженной группе Z (верхний квинтиль `emp6h`, граница U1) и вне (медиана не пишется):\n")
-    rows = []
-    for s, nm in SIDES:
-        t = res[s]["trades_ow_e"]
-        for k_, lab in (("all", "все"), ("Z", "в Z"), ("rest", "вне Z")):
-            v = t[k_]
-            rows.append([nm, lab, v["n"], f"{v['sum']:+.0f}", f"{v['mean']:+.2f}", pc(v["stop_share"]), pc(v["neg_share"]), f"{v['neg_sum']:.0f}"])
-        rows.append([nm, "без значения `emp6h`", t["no_value"], "", "", "", "", ""])
-    P(table(["сторона", "группа", "сделок", "сумма $", "среднее $ на сделку", "доля стопов", "доля сделок с отрицательным итогом", "сумма отрицательных $"], rows))
+    if "trades_ow_e" in res["long"]:
+        P("\nСделки `ow_e` в разреженной группе Z (верхний квинтиль `emp6h`, граница U1) и вне (медиана не пишется):\n")
+        rows = []
+        for s, nm in SIDES:
+            t = res[s]["trades_ow_e"]
+            for k_, lab in (("all", "все"), ("Z", "в Z"), ("rest", "вне Z")):
+                v = t[k_]
+                rows.append([nm, lab, v["n"], f"{v['sum']:+.0f}", f"{v['mean']:+.2f}", pc(v["stop_share"]), pc(v["neg_share"]), f"{v['neg_sum']:.0f}"])
+            rows.append([nm, "без значения `emp6h`", t["no_value"], "", "", "", "", ""])
+        P(table(["сторона", "группа", "сделок", "сумма $", "среднее $ на сделку", "доля стопов", "доля сделок с отрицательным итогом", "сумма отрицательных $"], rows))
     # ── первичный пакет и квинтили
     P("\n### Первичный пакет: AUC признака против метки O3 (Холм по 8 признакам стороны)\n")
     rows = []
@@ -173,6 +176,8 @@ def main():
         for k_, v in res[s]["touch_window"].items():
             rows.append([nm, k_, v["n_touched"], pc(v["break_first"]), pc(v["return_first"]), pc(v["neither"])])
     P(table(["сторона", "метка", "дошедших", "пробой раньше возврата", "возврат раньше пробоя", "ни то ни другое"], rows))
+    if SUF:
+        return
     # ── пересечения
     P("\n### Пересечения уровня без сигнала (U1, `b0`)\n")
     rows = []
