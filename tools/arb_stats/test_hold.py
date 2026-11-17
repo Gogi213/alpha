@@ -117,6 +117,18 @@ def test_rawgaps_intersection_of_files():
     assert lo.tolist() == [0] and hi.tolist() == [10_000]
 
 
+def test_rawgaps_tail_after_last_record_is_silence():
+    """Символ выпал из сбора (последняя запись 12 с), биржа писала до 200 с: хвост 12–200 с — молчание (v6); без tail_to хвост не считается."""
+    import hold_rawgaps as rg
+    f1 = (0, 12_000, np.array([0], np.int64), np.array([10_000], np.int64))
+    lo, hi = rg.free_intervals([f1], tail_to=200_000)
+    assert lo.tolist() == [0, 12_000] and hi.tolist() == [10_000, 200_000]
+    lo, hi = rg.free_intervals([f1], tail_to=15_000)               # хвост 3 с — короче порога 5 с
+    assert lo.tolist() == [0] and hi.tolist() == [10_000]
+    lo, hi = rg.free_intervals([f1])
+    assert lo.tolist() == [0] and hi.tolist() == [10_000]
+
+
 def test_rolling_centre_window_params():
     import core
     mins = np.arange(100, 160)
