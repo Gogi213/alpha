@@ -80,6 +80,20 @@ pub struct ExitCfg {
     pub ent_w_ms: i64,
     /// §13.16: допустимый перелёт цены-заменителя за уровень, бп (0 — строго за уровнем отвергается). Действует при `ent_w_ms > 0`.
     pub ent_x_bp: i64,
+    /// §13.19 (`ls`): стоп за дальним краем зоны + k·NATR (k ×1000; 0 — выкл): `max(e − S%, min(e, P_far) − nat(k))`. Только `breakout tick`.
+    pub ls_m: i64,
+    /// §13.19 (`tt`): выход по времени — T мин от первого «пересекли»; 0 — выкл.
+    pub tx_min: i64,
+    /// §13.19 (`tb`): «пробой» глубиной X (тысячные процента от уровня) отменяет выход по времени.
+    pub tx_x_pm: i64,
+    /// §13.19 (`rf`): выход при возврате — глубина f (тысячные процента от уровня); 0 — выкл.
+    pub rt_f_pm: i64,
+    /// §13.19 (`rs`): длительность возврата, с.
+    pub rt_s: i64,
+    /// §13.19 (`bm`): безубыток — 0 как раньше; 1 выкл; 2 после 2-го тейка; 3 за уровнем.
+    pub be_mode: u8,
+    /// §13.19 (`e2`): второй вход 50/50 при подходе к уровню ближе d (тысячные процента от уровня); 0 — выкл. Требует `ew > 0`.
+    pub e2_pm: i64,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -119,6 +133,16 @@ impl ExitCfg {
     /// Вход по ленте §13.16 включён (`ew > 0`).
     pub fn tape_entry(&self) -> bool {
         self.ent_w_ms > 0
+    }
+
+    /// Опции §13.19, зависящие от цены уровня (`ls`, `tt`, `rf`, `bm = 3`) включены — нужны `lp` и `P_far`.
+    pub fn level_opts(&self) -> bool {
+        self.ls_m > 0 || self.tx_min > 0 || self.rt_f_pm > 0 || self.be_mode == 3
+    }
+
+    /// Любая опция §13.19 включена (`breakout tick` only).
+    pub fn lvl_exit_opts(&self) -> bool {
+        self.level_opts() || self.be_mode != 0 || self.e2_pm > 0
     }
 
     /// Опции §13.12 не по умолчанию (лестница тейков с перекосом или NATR по другой минутке) — только `breakout tick`.
@@ -177,6 +201,13 @@ impl Params {
                 natr_src: 0,
                 ent_w_ms: 0,
                 ent_x_bp: 0,
+                ls_m: 0,
+                tx_min: 0,
+                tx_x_pm: 0,
+                rt_f_pm: 0,
+                rt_s: 0,
+                be_mode: 0,
+                e2_pm: 0,
             },
             port: PortCfg {
                 cool_min: 5,
@@ -238,6 +269,13 @@ impl Params {
             "ns" => self.exit.natr_src = u.min(255) as u8,
             "ew" => self.exit.ent_w_ms = f.round() as i64,
             "ex" => self.exit.ent_x_bp = f.round() as i64,
+            "ls" => self.exit.ls_m = pm(f),
+            "tt" => self.exit.tx_min = f.round() as i64,
+            "tb" => self.exit.tx_x_pm = pm(f),
+            "rf" => self.exit.rt_f_pm = pm(f),
+            "rs" => self.exit.rt_s = f.round() as i64,
+            "bm" => self.exit.be_mode = u.min(255) as u8,
+            "e2" => self.exit.e2_pm = pm(f),
             "c" => self.port.cool_min = u,
             "m" => self.port.m_stops = u,
             "mm" => self.port.mm_min = u,
@@ -275,6 +313,21 @@ impl Params {
         }
         if self.exit.ent_w_ms < 0 || self.exit.ent_x_bp < 0 {
             bail!("ew ≥ 0, ex ≥ 0");
+        }
+        if self.exit.ls_m < 0
+            || self.exit.tx_min < 0
+            || self.exit.tx_x_pm < 0
+            || self.exit.rt_f_pm < 0
+            || self.exit.rt_s < 0
+            || self.exit.e2_pm < 0
+        {
+            bail!("ls, tt, tb, rf, rs, e2 ≥ 0");
+        }
+        if self.exit.be_mode > 3 {
+            bail!("bm ∈ {{0, 1, 2, 3}}");
+        }
+        if self.exit.e2_pm > 0 && !self.exit.tape_entry() {
+            bail!("e2 требует ew > 0 (вход по ленте)");
         }
         if self.port.reentry > 2 {
             bail!("reentry ∈ {{0, 1, 2}}");
