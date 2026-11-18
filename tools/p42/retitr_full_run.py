@@ -52,7 +52,7 @@ RECORDED = {
     "bin_md5": "a03c91df5a70c8eb32cbb7122943b8f9",
     "symbols_sha256": "25c9ad8caab30af583b18f0678189f381282cce23b5d42c043471481bf0eaae0",
     "grids_sha256": "e1d6bded92ddd44c68c130b98187756f9f3eaa36759291a619435e0e9a369e5d",
-    "manifests_sha256": "9f52379efeb1e309009a9e64d908cb721f07da18929929198de5cf6829e7a12b",
+    "manifests_sha256": "06e0993e189046f700c73c7eb88dfe19b60660030c314b7925999b83410a057d",   # §13.24.3 п. 7 (геометрия окон 18.11); до этого 9f52379e…
 }
 GuardError = rf.GuardError
 
