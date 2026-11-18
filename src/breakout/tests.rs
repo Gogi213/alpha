@@ -560,3 +560,14 @@ fn pk_rechecks_history_when_member_expires() {
         "выпадение пивота 1 сдвинуло цену вниз: прокол 100,24 теперь нарушение"
     );
 }
+
+/// TK-594 (§13.20): без `P42_T0` сетка начинается 2026-09-01 — поведение v20 не меняется.
+#[test]
+fn grid_start_default_is_sep_01() {
+    if std::env::var_os("P42_T0").is_some() {
+        return;
+    }
+    assert_eq!(super::data::t0_ms(), super::data::T0_MS);
+    assert_eq!(super::data::day_string(0), "2026-09-01");
+    assert_eq!(super::data::day_string(14), "2026-09-15");
+}
