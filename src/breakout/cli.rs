@@ -265,6 +265,9 @@ pub(super) fn reject_tick_only(p: &Params, line: &str) -> Result<()> {
     if p.exit.natr_stop_opts() {
         bail!("sn/sg/sb/sr/sd/tj (§13.21) считает только `breakout tick`: {line}");
     }
+    if p.exit.tl != 0 {
+        bail!("tl (v22, трейл лимиткой) считает только `breakout tick`: {line}");
+    }
     if !p.port.busy {
         bail!("busy=0 (§13.21) считает только `breakout tick`: {line}");
     }

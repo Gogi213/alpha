@@ -254,6 +254,9 @@ fn write_detail(dir: &Path, syms: &[Sym], side: Side, p: &Params, r: &TickResult
             rec["old_entry_ms"] = ms.into();
             rec["old_entry_px_e8"] = px.into();
         }
+        if let Some((ms, px)) = x.tl {
+            rec["tl"] = serde_json::json!([ms, px]);
+        }
         if let Some(t2) = &x.lot2 {
             rec["kind1"] = x.kind1.name().into();
             rec["lot2"] = serde_json::json!({
@@ -261,6 +264,9 @@ fn write_detail(dir: &Path, syms: &[Sym], side: Side, p: &Params, r: &TickResult
                 "kind": t2.kind.name(), "takes": t2.takes,
                 "legs": t2.legs.iter().map(|l| serde_json::json!([l.ms, l.px, l.u, l.maker])).collect::<Vec<_>>(),
             });
+            if let Some((ms, px)) = t2.tl {
+                rec["lot2"]["tl"] = serde_json::json!([ms, px]);
+            }
         }
         t.push_str(&rec.to_string());
         t.push('\n');
