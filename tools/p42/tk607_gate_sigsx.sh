@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # TK-607: ворота «дамп сигналов» (`P42_SIGSX_ONLY=1 P42_SIGSX=14:73`, как у потока признаков TK-594) для L1+L2. Запуск на srv:
 #   systemd-run --unit=tk607-gate-sx --nice=0 -p CPUWeight=1000 bash /data/p42-tk607/tk607_gate_sigsx.sh <НОВЫЙ БИНАРЬ> <ПРЕЖНИЙ БИНАРЬ alpha-master> <метка> <окно wa|wb|wc> [склад сделок]
-# Варианты — первая строка каждого пакета TK-599 `var/b00NN.txt` (по одному сигнальному набору с пакета). Три прогона одного окна:
+# Варианты — первая строка без фильтра признака (`fa=`) каждого пакета TK-599 `var/b00NN.txt` (по одному сигнальному набору с пакета; фильтр на дамп сигналов не влияет). Три прогона одного окна:
 #   R0 прежний бинарь (a03c91df, без склада и кэша — независимый эталон), R1 новый + склад + пустой кэш сигналов (холодный), R2 новый + тот же кэш (тёплый).
 # Сверка `diff -rq` всех выходов R1 и R2 с R0 (`<сторона>-sigsx.csv`, `meta.json`, пр.). Выходы после сверки удаляются, остаются md5 и журналы.
 # Итог — строки GATE OK|DIFF в /data/p42-tk607/gate/<метка>.summary.
@@ -11,7 +11,7 @@ D=/data/p42-tk607; ROOT=/data/p42-tk599; G=$D/gate/$TAG; SUM=$D/gate/$TAG.summar
 case "$W" in wa) T0=2026-06-17;; wb) T0=2026-07-25;; wc) T0=2026-09-01;; *) echo "окно?"; exit 2;; esac
 mkdir -p "$G"; : > "$SUM"
 VARS=$G/variants.txt; : > "$VARS"
-for f in $ROOT/var/b00*.txt; do head -1 "$f" >> "$VARS"; done
+for f in $ROOT/var/b00*.txt; do grep -v " fa=" "$f" | head -1 >> "$VARS"; done
 SC=$D/sigc-$TAG; rm -rf "$SC"
 echo "== $TAG $W вариантов $(wc -l < "$VARS") $(date +%H:%M:%S)" >> "$SUM"
 run() { # метка бинарь [ключи движка...]

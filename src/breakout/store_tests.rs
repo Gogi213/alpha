@@ -688,3 +688,329 @@ fn lazy_natr_and_bars_equal_eager() {
     }
     assert_eq!(DAYS_TOTAL * 1440, N_MIN);
 }
+
+/// Склад и подмена источника (критик TK-607): один и тот же `(монета, дата)` из двух деревьев zip (одинаковый размер, разный mtime и содержимое;
+/// так `rt-fz` и TK-599 читают разные zip одной даты) — запись склада переписывается, устаревшее чтение невозможно, ошибки нет; повреждённый файл
+/// склада — чтение zip заново и перезапись; сбой записи склада — предупреждение, счёт идёт.
+#[test]
+fn zipsrc_alternate_source_corrupt_and_write_failure_never_stale_never_error() {
+    use std::fs::OpenOptions;
+    use std::time::{Duration, UNIX_EPOCH};
+    if Command::new("unzip").arg("-v").output().is_err() {
+        return;
+    }
+    let tmp = tempfile::tempdir().expect("tmp");
+    let day = START_DAY;
+    let date = super::data::day_string(day);
+    let mk = |tree: &str, rows: &[(f64, i64, &str)], mtime_s: u64| -> std::path::PathBuf {
+        let root = tmp.path().join(tree);
+        let dir = root.join("TESTUSDT");
+        std::fs::create_dir_all(&dir).expect("dir");
+        let zip = dir.join(format!("TESTUSDT-aggTrades-{date}.zip"));
+        write_zip(&zip, "TESTUSDT.csv", csv(day, rows).as_bytes());
+        OpenOptions::new()
+            .write(true)
+            .open(&zip)
+            .expect("open")
+            .set_modified(UNIX_EPOCH + Duration::from_secs(mtime_s))
+            .expect("mtime");
+        root
+    };
+    let a = mk("a", &[(10.1, 5, "false"), (10.2, 9, "true")], 1_700_000_000);
+    let b = mk("b", &[(10.3, 5, "false"), (10.4, 9, "true")], 1_700_000_100);
+    let zip_len = |r: &Path| {
+        std::fs::metadata(
+            r.join("TESTUSDT")
+                .join(format!("TESTUSDT-aggTrades-{date}.zip")),
+        )
+        .expect("zip")
+        .len()
+    };
+    assert_eq!(
+        zip_len(&a),
+        zip_len(&b),
+        "одинаковый размер, различие — mtime"
+    );
+    let store = open(&tmp.path().join("store"), 1);
+    let src = |root: &Path| ZipSrc::new(root.to_path_buf(), 1 << 20).with_store(Arc::clone(&store));
+    let px = |s: &ZipSrc| -> Vec<i64> {
+        s.read_day("TESTUSDT", day)
+            .expect("без ошибки")
+            .expect("файл есть")
+            .ticks
+            .iter()
+            .map(|t| t.px)
+            .collect()
+    };
+    let (pa, pb) = (
+        vec![1_010_000_000, 1_020_000_000],
+        vec![1_030_000_000, 1_040_000_000],
+    );
+    let cnt = |s: &TickStore| {
+        let c = s.counters();
+        (c.hit, c.miss, c.written, c.bad)
+    };
+    assert_eq!(px(&src(&a)), pa);
+    assert_eq!(cnt(&store), (0, 1, 1, 0));
+    assert_eq!(px(&src(&a)), pa);
+    assert_eq!(cnt(&store), (1, 1, 1, 0), "то же дерево — попадание");
+    assert_eq!(
+        px(&src(&b)),
+        pb,
+        "другое дерево той же даты — не устаревшее чтение"
+    );
+    assert_eq!(
+        cnt(&store),
+        (1, 2, 2, 0),
+        "несовпадение заголовка — промах и перезапись, не повреждение"
+    );
+    assert_eq!(px(&src(&a)), pa);
+    assert_eq!(
+        cnt(&store),
+        (1, 3, 3, 0),
+        "обратно на первое дерево — снова перезапись"
+    );
+    assert_eq!(px(&src(&a)), pa);
+    assert_eq!(cnt(&store), (2, 3, 3, 0));
+    // повреждённый файл склада: zip читается заново, файл переписывается
+    let p = store.path("TESTUSDT", &date);
+    let mut raw = std::fs::read(&p).expect("файл склада");
+    raw[96 + 3] ^= 0x55;
+    std::fs::write(&p, &raw).expect("запись");
+    assert_eq!(px(&src(&a)), pa);
+    assert_eq!(
+        cnt(&store),
+        (2, 4, 4, 1),
+        "повреждение — промах, пересчёт и перезапись"
+    );
+    assert_eq!(px(&src(&a)), pa);
+    assert_eq!(cnt(&store), (3, 4, 4, 1));
+    // сбой записи (на месте каталога монеты — файл): счёт идёт, ошибка загрузки не засчитана
+    let store2 = open(&tmp.path().join("store2"), 1);
+    std::fs::write(tmp.path().join("store2").join("TESTUSDT"), b"x").expect("файл вместо каталога");
+    let s2 = ZipSrc::new(a.clone(), 1 << 20).with_store(Arc::clone(&store2));
+    assert_eq!(px(&s2), pa);
+    assert_eq!(store2.counters().write_err, 1);
+    assert_eq!(s2.stat.lock().expect("stat").errors, 0);
+}
+
+/// Ручные ворота TK-607 (склад v2, количество): по ВСЕМ файлам окна количество и цена со склада (тёплое чтение) равны разбору CSV
+/// стандартной библиотекой (`str::parse::<f64>`, независимый от `dec_parts`/`parse_px`), порядок, `off`, `bm` — те же, холодное чтение равно тёплому.
+/// Окно — файл `/data/p42-tk607/qtyrt.conf`: строки `T0 (YYYY-MM-DD)`, каталог zip (`<монета>/<монета>-aggTrades-<дата>.zip`), каталог для временного склада, [список `<МОНЕТА> <дата>`].
+/// Итог пишется в `/data/p42-tk607/qtyrt-<T0>.out`. Запуск: `tools/p42/build-srv.sh <x> test "breakout::store_tests::window_quantity -- --ignored --nocapture"`.
+#[test]
+#[ignore = "ворота на данных srv: /data/p42-tk607/qtyrt.conf"]
+fn window_quantity_matches_csv() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Mutex;
+    let Ok(conf) = std::fs::read_to_string("/data/p42-tk607/qtyrt.conf") else {
+        eprintln!("нет /data/p42-tk607/qtyrt.conf");
+        return;
+    };
+    let l: Vec<&str> = conf
+        .lines()
+        .map(str::trim)
+        .filter(|x| !x.is_empty())
+        .collect();
+    let (t0, trades, parent) = (l[0], Path::new(l[1]), Path::new(l[2]));
+    std::env::set_var("P42_T0", t0);
+    assert_eq!(super::data::day_string(0), t0, "P42_T0 не применился");
+    let t0d = chrono::NaiveDate::parse_from_str(t0, "%Y-%m-%d").expect("T0");
+    let mut files: Vec<(String, usize)> = Vec::new();
+    let mut before_t0 = 0usize;
+    // четвёртая строка конфигурации — список `<МОНЕТА> <дата>` (файлы, которые окно реально прочитало); без неё — все zip каталога
+    if let Some(list) = l.get(3) {
+        for row in std::fs::read_to_string(list)
+            .expect("список файлов")
+            .lines()
+        {
+            let mut it = row.split_whitespace();
+            let (Some(name), Some(date)) = (it.next(), it.next()) else {
+                continue;
+            };
+            let d = chrono::NaiveDate::parse_from_str(date, "%Y-%m-%d").expect("дата списка");
+            files.push((
+                name.to_string(),
+                usize::try_from((d - t0d).num_days()).expect("дата раньше T0"),
+            ));
+        }
+    }
+    for coin in std::fs::read_dir(trades)
+        .expect("каталог zip")
+        .flatten()
+        .filter(|_| l.get(3).is_none())
+    {
+        let name = coin.file_name().to_string_lossy().into_owned();
+        let Ok(rd) = std::fs::read_dir(coin.path()) else {
+            continue;
+        };
+        for f in rd.flatten() {
+            let fname = f.file_name().to_string_lossy().into_owned();
+            let Some(date) = fname
+                .strip_prefix(&format!("{name}-aggTrades-"))
+                .and_then(|r| r.strip_suffix(".zip"))
+            else {
+                continue;
+            };
+            let Ok(d) = chrono::NaiveDate::parse_from_str(date, "%Y-%m-%d") else {
+                continue;
+            };
+            match usize::try_from((d - t0d).num_days()) {
+                Ok(day) => files.push((name.clone(), day)),
+                Err(_) => before_t0 += 1,
+            }
+        }
+    }
+    files.sort();
+    let tmp = tempfile::Builder::new()
+        .prefix("qtyrt-")
+        .tempdir_in(parent)
+        .expect("временный склад");
+    let store = open(tmp.path(), 20);
+    let cold = ZipSrc::new(trades.to_path_buf(), 1 << 20).with_store(Arc::clone(&store));
+    let warm = ZipSrc::new(trades.to_path_buf(), 1 << 20).with_store(Arc::clone(&store));
+    let next = AtomicUsize::new(0);
+    let rows = AtomicUsize::new(0);
+    let flagged = Mutex::new((0usize, 0usize));
+    let errs: Mutex<Vec<String>> = Mutex::new(Vec::new());
+    std::thread::scope(|sc| {
+        for _ in 0..2 {
+            sc.spawn(|| loop {
+                let i = next.fetch_add(1, Ordering::Relaxed);
+                let Some((sym, day)) = files.get(i) else {
+                    break;
+                };
+                let r = qty_check(&cold, &warm, trades, sym, *day);
+                match r {
+                    Ok((n, fpx, fq)) => {
+                        rows.fetch_add(n, Ordering::Relaxed);
+                        if let Ok(mut g) = flagged.lock() {
+                            g.0 += usize::from(fpx);
+                            g.1 += usize::from(fq);
+                        }
+                    }
+                    Err(e) => {
+                        if let Ok(mut g) = errs.lock() {
+                            g.push(format!("{sym} день {day}: {e}"));
+                        }
+                    }
+                }
+            });
+        }
+    });
+    let errs = errs.into_inner().expect("errs");
+    let (fpx, fq) = flagged.into_inner().expect("flagged");
+    let c = store.counters();
+    let line = format!(
+        "QTYRT T0={t0} файлов={} (до T0 пропущено {before_t0}) строк={} расхождений={} флаг цены={fpx} флаг количества={fq} | склад: hit {} miss {} written {} bad {} объём {} Б, блок количества {} Б",
+        files.len(),
+        rows.load(Ordering::Relaxed),
+        errs.len(),
+        c.hit,
+        c.miss,
+        c.written,
+        c.bad,
+        c.used_bytes,
+        c.qty_bytes
+    );
+    let mut out = line.clone();
+    for e in errs.iter().take(20) {
+        out.push_str(&format!("\n  {e}"));
+    }
+    std::fs::write(format!("/data/p42-tk607/qtyrt-{t0}.out"), &out).expect("итог");
+    eprintln!("{out}");
+    assert!(errs.is_empty(), "{line}");
+    assert_eq!(
+        c.hit as usize,
+        files.len(),
+        "тёплое чтение — только попадания"
+    );
+}
+
+/// Один файл: холодное чтение (zip → склад), тёплое (склад) и независимый разбор CSV. `Ok((строк, флаг цены, флаг количества))`.
+fn qty_check(
+    cold: &ZipSrc,
+    warm: &ZipSrc,
+    trades: &Path,
+    sym: &str,
+    day: usize,
+) -> Result<(usize, bool, bool), String> {
+    let date = super::data::day_string(day);
+    let c = cold
+        .read_day(sym, day)
+        .map_err(|e| format!("холодное: {e:#}"))?
+        .ok_or("холодное: нет файла")?;
+    let w = warm
+        .read_day(sym, day)
+        .map_err(|e| format!("тёплое: {e:#}"))?
+        .ok_or("тёплое: нет файла")?;
+    if c.ticks != w.ticks || c.qty != w.qty || (c.qty_dec, c.flags) != (w.qty_dec, w.flags) {
+        return Err("холодное чтение != тёплому".into());
+    }
+    let base = super::data::t0_ms() + day as i64 * DAY_MS;
+    let zip = trades.join(sym).join(format!("{sym}-aggTrades-{date}.zip"));
+    let out = Command::new("unzip")
+        .arg("-p")
+        .arg(&zip)
+        .output()
+        .map_err(|e| format!("unzip: {e}"))?;
+    let mut want: Vec<(u32, bool, f64, f64)> = Vec::new();
+    let (mut prev, mut unsorted) = (0u32, false);
+    for line in out.stdout.split(|&b| b == b'\n') {
+        if !line.first().is_some_and(u8::is_ascii_digit) {
+            continue;
+        }
+        let f: Vec<&[u8]> = line.split(|&b| b == b',').collect();
+        if f.len() < 7 {
+            continue;
+        }
+        let num = |b: &[u8]| {
+            std::str::from_utf8(b)
+                .ok()
+                .and_then(|s| s.parse::<f64>().ok())
+        };
+        let (Some(p), Some(q), Some(ts)) = (
+            num(f[1]),
+            num(f[2]),
+            std::str::from_utf8(f[5])
+                .ok()
+                .and_then(|s| s.parse::<i64>().ok()),
+        ) else {
+            continue;
+        };
+        let off = ts - base;
+        if !(0..DAY_MS).contains(&off) {
+            continue;
+        }
+        let off = off as u32;
+        unsorted |= off < prev;
+        prev = off;
+        want.push((off, f[6].first() == Some(&b't'), p, q));
+    }
+    if unsorted {
+        want.sort_by_key(|x| x.0);
+    }
+    if w.ticks.len() != want.len() || w.qty.len() != want.len() {
+        return Err(format!(
+            "строк {} (склад) против {} (CSV)",
+            w.ticks.len(),
+            want.len()
+        ));
+    }
+    let (fpx, fq) = (
+        w.flags & F_PX_INEXACT != 0,
+        w.flags & (F_QTY_BAD | F_QTY_F64) != 0,
+    );
+    for (i, &(off, bm, p, q)) in want.iter().enumerate() {
+        if w.ticks[i].off != off || w.ticks[i].bm != bm {
+            return Err(format!("строка {i}: off/bm"));
+        }
+        if !fq && w.qty_f64(i).to_bits() != q.to_bits() {
+            return Err(format!("строка {i}: количество {} != {q}", w.qty_f64(i)));
+        }
+        if !fpx && w.px_f64(i).to_bits() != p.to_bits() {
+            return Err(format!("строка {i}: цена {} != {p}", w.px_f64(i)));
+        }
+    }
+    Ok((want.len(), fpx, fq))
+}
