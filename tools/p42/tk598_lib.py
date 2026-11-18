@@ -16,7 +16,7 @@ SEED = 598
 B_BOOT = 20_000
 BLOCK_DAYS = 4
 HOLM_ALPHA = 0.05
-MIN_SEL = 60                       # выбранных меньше 60 — цель «не определена» в окне
+MIN_SEL = 30                       # §13.23.3: порог применимости (не значимости): выбранных меньше 30 — цель «не определена» в окне (60 до §13.23.3)
 MIN_EVENTS = 30                    # цели с < 30 событий в F (T4: стопов) — «не определена»
 MIN_ROWS_U0 = 3000                 # минимум строк U0-F на сторону
 FEATS = ["pierce_ep", "spread_tau", "zv6h", "tpm60", "mv5", "cons60", "c5_btc_7d", "c5_eth_7d", "lturn24", "age_h", "natr_bp",
@@ -199,6 +199,13 @@ def boot_stats(sa, ca, ss, cs, ndays, b=B_BOOT, seed=SEED, idx=None):
     return s1, s2
 
 
+def boot_mean_sel(ss, cs, idx):
+    """S0* = среднее `net_nf` выбранных на сделку по пересэмплированным суткам (§13.23.3: главная метрика — $ на сделку); пустой набор → NaN."""
+    ssum, csum = ss[idx].sum(1), cs[idx].sum(1)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        return np.where(csum > 0, ssum / csum, np.nan)
+
+
 def p_one_sided(x, direction="le0"):
     """`p = (число + 1) / (B + 1)`: `le0` — P(x ≤ 0), `ge0` — P(x ≥ 0); NaN — считается нарушением (в числе)."""
     x = np.asarray(x, float)
@@ -260,3 +267,44 @@ def spearman(a, b):
         return float("nan")
     r = spearmanr(a[ok], b[ok]).statistic
     return float(r)
+
+
+# ───────────────────────────── описательные меры окна ─────────────────────────────
+
+def describe(df: pd.DataFrame, s, tname: str, q: float, lower: bool, ndays: int) -> dict:
+    """Описательные меры цели в окне (без вердиктов, без Холма): S1, S2, S3, терцили `ŝ`, винрейты, доля стопов, AUC (T3, T4), Спирмен (T1, T2, T5), средние MFE / MAE.
+    df — строки окна (`net_nf`, `y_win`, `y_stop`, `bps`, `mfe_natr`, `mae_natr`, `natr_bp`); s — `ŝ` по строкам; q — замороженная граница «трети»."""
+    s = np.asarray(s, float)
+    net = df["net_nf"].to_numpy(float)
+    sel = pick_selected(s, q, lower)
+    out = point_stats(net, sel, ndays)
+    out["sel_share"] = float(sel.mean()) if len(sel) else float("nan")
+    out["undefined"] = bool(out["n_sel"] < MIN_SEL)
+
+    def wr(mask):   # $-взвешенный и обычный винрейт
+        x = net[mask]
+        den = float(np.abs(x).sum())
+        return {"n": int(mask.sum()), "wr_usd": float(x[x > 0].sum() / den) if den > 0 else float("nan"), "wr": float((x > 0).mean()) if len(x) else float("nan")}
+
+    out["winrate_sel"], out["winrate_all"] = wr(sel), wr(np.ones(len(net), bool))
+    ys = df["y_stop"].to_numpy(float)
+    out["stop_share_sel"] = float(ys[sel].mean()) if sel.any() else float("nan")
+    out["stop_share_all"] = float(ys.mean()) if len(ys) else float("nan")
+    ok = ~np.isnan(s)
+    if ok.sum() >= 3:
+        c1, c2 = np.quantile(s[ok], [1 / 3, 2 / 3])
+        t = np.where(s <= c1, 0, np.where(s <= c2, 1, 2))
+        out["terciles"] = [{"n": int((t == k).sum()), "mean_net": float(net[t == k].mean()) if (t == k).any() else float("nan")} for k in range(3)]
+    if tname == "T3":
+        out["auc_win"] = auc(df["y_win"], s)
+    if tname == "T4":
+        out["auc_stop"] = auc(df["y_stop"], s)
+    if tname == "T1":
+        out["spearman"] = spearman(s, net)
+    if tname == "T2":
+        out["spearman"] = spearman(s, df["bps"].to_numpy(float))
+    if tname == "T5":
+        mf, ma = df["mfe_natr"].to_numpy(float), df["mae_natr"].to_numpy(float)
+        out["mfe_sel"], out["mfe_all"] = float(np.nanmean(mf[sel])) if sel.any() else float("nan"), float(np.nanmean(mf)) if len(mf) else float("nan")
+        out["mae_sel"], out["mae_all"] = float(np.nanmean(ma[sel])) if sel.any() else float("nan"), float(np.nanmean(ma)) if len(ma) else float("nan")
+    return out

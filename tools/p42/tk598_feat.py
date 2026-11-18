@@ -76,7 +76,8 @@ def build(a):
     out.to_parquet(fp)
     info = {"variant": a.variant, "win": a.win, "rows": int(len(out)), "tick_ok": int(out["tick_ok"].sum()),
             "nan_share": {c: float(out[c].isna().mean()) for c in L.FEATS}}
-    json.dump(info, open(fp + ".info.json", "w"), ensure_ascii=False, indent=1)
+    with open(fp + ".info.json", "w", encoding="utf-8") as _f:
+        json.dump(info, _f, ensure_ascii=False, indent=1)
     print(json.dumps(info, ensure_ascii=False))
 
 
