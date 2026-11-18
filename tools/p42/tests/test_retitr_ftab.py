@@ -212,3 +212,18 @@ if __name__ == "__main__":
             print("FAIL", k, repr(e))
     print("%d тестов, %d ошибок" % (len(names), fails))
     sys.exit(1 if fails else 0)
+
+
+def test_run_tk594_switch_to_rust_by_env(monkeypatch):
+    """P42_FEAT_BIN → rustfeat_run.py с теми же аргументами; без переменной — прежний tk594_feat.py (TK-609)."""
+    calls = []
+    monkeypatch.setattr(rf.subprocess, "run", lambda cmd, check: calls.append(cmd))
+    monkeypatch.delenv("P42_FEAT_BIN", raising=False)
+    rf.run_tk594("/prod", "e.parquet", "o.parquet", "flow", 6, "2026-07-25")
+    assert calls[-1][1].endswith("tk594_feat.py")
+    monkeypatch.setenv("P42_FEAT_BIN", "/x/alpha-feat")
+    rf.run_tk594("/prod", "e.parquet", "o.parquet", "deriv", 4, "2026-09-01")
+    c = calls[-1]
+    assert c[1].endswith("rustfeat_run.py") and c[2:4] == ["e.parquet", "o.parquet"]
+    assert c[c.index("--mode") + 1] == "deriv" and c[c.index("--base-date") + 1] == "2026-09-01"
+    assert c[c.index("--procs") + 1] == "4" and c[c.index("--bin") + 1] == "/x/alpha-feat"
