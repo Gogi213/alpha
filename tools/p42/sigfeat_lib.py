@@ -6,6 +6,7 @@
 """
 from __future__ import annotations
 
+import datetime as _dt
 import math
 import os
 import zipfile
@@ -13,7 +14,8 @@ from dataclasses import dataclass
 
 import numpy as np
 
-BASE_MS = 1788220800000  # 2026-09-01 00:00:00 UTC, мс от эпохи
+BASE_DATE = os.environ.get("SIGFEAT_BASE_DATE", "2026-09-01")  # TK-594 (§13.20): сетка прошлых суток — 2026-07-18 (как `P42_T0` движка v20t0)
+BASE_MS = int(_dt.datetime.fromisoformat(BASE_DATE).replace(tzinfo=_dt.timezone.utc).timestamp() * 1000)  # 2026-09-01 00:00:00 UTC = 1788220800000
 DAYS_TOTAL = int(os.environ.get("SIGFEAT_DAYS", "74"))  # 74 = кэш TK-588 (до 13.11); TK-592: расширенный кэш с отложенными сутками
 N_MIN = DAYS_TOTAL * 1440
 START_DAY = 14
@@ -42,8 +44,7 @@ def load_b42(path: str) -> dict[str, np.ndarray]:
 
 
 def day_date(d: int) -> str:
-    import datetime as dt
-    return (dt.date(2026, 9, 1) + dt.timedelta(days=d)).isoformat()
+    return (_dt.date.fromisoformat(BASE_DATE) + _dt.timedelta(days=d)).isoformat()
 
 
 class Ticks:
