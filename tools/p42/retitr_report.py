@@ -5,6 +5,7 @@
          [--spec auto|s19|<json>] [--min-trades 70] [--btc <BTCUSDT.b42>]
   python3 retitr_report.py final --side long --cand <каталог сборки C> --base <простая база> [--stage-base <база стадии>] [--out <каталог>] [--btc <файл>] [--force]
   python3 retitr_report.py confirm --side long --cand <клетка> --days <от:до: номера строк daily от P42_T0> --t0 <P42_T0> --expect-dates <YYYY-MM-DD:YYYY-MM-DD> [--out <каталог>] [--force]
+  python3 retitr_report.py confirm-family --name <метка> --win <окно,P42_T0,даты,от:до> [--win …] --cfg <метка:сторона:окно=каталог[,окно=каталог]> [--cfg …] --out <каталог> [--force]
   python3 retitr_report.py holm --out <каталог с accepted-*.json> [--side long|short|both]
 
 stage — по клетке и стороне печатается ТОЛЬКО половина A (и число сделок B): сделок A, сделок B (ТОЛЬКО ЧИСЛО), сумма $ A, среднее $ на сделку A, доля сделок в плюсе A
@@ -27,6 +28,10 @@ final — сборка C против базы стадии и простой б
 confirm — подтверждающий тест на августе (m = 1, односторонне 5 %): средний $/сут., нижняя односторонняя 95 %-граница (блочный бутстреп `detstat`-типа, блок 4),
   устойчивость — знак среднего $/сут. без 2 лучших суток и без 2 лучших монет; «подтверждено» = среднее > 0, нижняя граница > 0 и оба знака +; «опровергнуто» /
   «не ясно» по §10 (знак и верхняя граница). Читается один раз.
+confirm-family (§13.22, TK-596) — семейство из m замороженных клеток (m = число --cfg); клетка с несколькими окнами — один объединённый суточный ряд (окна по порядку), односторонний
+  бутстреп-p каждой (доля блочных бутстреп-средних суточного P&L ≤ 0, блок 4), Холм step-down при 5 % (k-й по возрастанию p против 0,05/(m − k + 1)); охрана среза и суммы по каждому окну — как
+  в confirm; «подтверждено» = Холм отверг H0 и среднее > 0 и среднее > 0 в каждом окне отдельно и знак держится без 2 лучших суток и без 2 лучших монет объединённого ряда;
+  «опровергнуто» / «не ясно» — как в confirm. Семейство читается один раз (<out>/confirm-family-<метка>.json; повтор без --force печатает сохранённое).
 holm — накопленный счёт испытаний: старт 694 / 687 + посчитанные клетки (равные базе и контроли не считаются; метки — 0); верхняя граница 754 / 747.
 Медиана результатов не пишется нигде.
 
@@ -777,10 +782,11 @@ def onesided(x, nboot=lib.NBOOT):
     rng = np.random.default_rng(int(hashlib.md5(np.round(x, 9).tobytes()).hexdigest()[:8], 16))
     bm = lib.block_boot_means(x, rng, nboot)
     lo, hi = np.percentile(bm, [5, 95])
-    return dict(mean=float(x.mean()), se=float(bm.std(ddof=1)), lower=float(lo), upper=float(hi), n=len(x))
+    p = (1 + int((bm <= 0).sum())) / (1 + len(bm))          # односторонний p (H0: среднее ≤ 0) = доля бутстреп-средних ≤ 0; p < 0,05 ⇔ нижняя граница > 0
+    return dict(mean=float(x.mean()), se=float(bm.std(ddof=1)), lower=float(lo), upper=float(hi), p=float(p), n=len(x))
 
 
-def confirm_verdict(day, coin):
+def confirm_verdict(day, coin, reject=None, label="подтверждено на августе", signs=()):
     """Подтверждающий тест (§13.21.1 п. 6). day — суточный P&L окна; coin — {монета: ряд}. «Подтверждено»: среднее > 0, нижняя одностор. 95 % > 0 и знак среднего + без
     2 лучших суток и без 2 лучших монет (без нижней границы на усечённых). «Опровергнуто» / «не ясно» — по §10: neg = среднее < 0 или верхняя < 0; устойчивость знака − без 2 худших."""
     day = np.asarray(day, dtype=float)
@@ -792,10 +798,11 @@ def confirm_verdict(day, coin):
     no_worst_days = float(np.delete(day, np.argsort(day)[:2]).mean())
     no_best_coins = float((day - sum((coin[c] for c in best_c), np.zeros(len(day)))).mean())
     no_worst_coins = float((day - sum((coin[c] for c in worst_c), np.zeros(len(day)))).mean())
-    ok = st["mean"] > 0 and st["lower"] > 0 and no_best_days > 0 and no_best_coins > 0
+    sig = st["lower"] > 0 if reject is None else reject      # reject — решение Холма по семейству (confirm-family); без него — одна клетка, m = 1
+    ok = st["mean"] > 0 and sig and no_best_days > 0 and no_best_coins > 0 and all(s > 0 for s in signs)   # signs — средние отдельных окон объединённого ряда
     neg = st["mean"] < 0 or st["upper"] < 0
     ref = neg and st["mean"] < 0 and no_worst_days < 0 and no_worst_coins < 0
-    verdict = "подтверждено на августе" if ok else ("опровергнуто" if ref else "не ясно")
+    verdict = label if ok else ("опровергнуто" if ref else "не ясно")
     return dict(st=st, no_best_days=no_best_days, no_best_coins=no_best_coins, no_worst_days=no_worst_days, no_worst_coins=no_worst_coins,
                 best_coins=best_c, worst_coins=worst_c, verdict=verdict)
 
@@ -817,7 +824,8 @@ def check_window(t0, expect, lo, hi):
     return first, last
 
 
-def confirm_lines(side, cand_dir, lo, hi, t0, expect):
+def window_series(side, cand_dir, lo, hi, t0, expect):
+    """Ряды окна замороженной клетки с охраной среза и суммы: (первые/последние сутки, суточный P&L, {монета: ряд}, net сделок окна, статистика сделок)."""
     first, last = check_window(t0, expect, lo, hi)
     full = load_full(cand_dir, side)
     day = full["daily"][lo:hi]
@@ -834,7 +842,11 @@ def confirm_lines(side, cand_dir, lo, hi, t0, expect):
     tol = max(1e-4, 2e-6 * len(nets))
     if abs(float(day.sum()) - float(sum(nets))) > tol:
         raise SystemExit("срез %d:%d не сходится: сумма daily %+.6f, сумма net сделок с entry_day в окне %+.6f (допуск %.1e)" % (lo, hi, float(day.sum()), float(sum(nets)), tol))
-    ts = _tstat(nets)
+    return first, last, day, coin, _tstat(nets)
+
+
+def confirm_lines(side, cand_dir, lo, hi, t0, expect):
+    first, last, day, coin, ts = window_series(side, cand_dir, lo, hi, t0, expect)
     v = confirm_verdict(day, coin)
     st = v["st"]
     lines = ["== confirm %s: подтверждающий тест m = 1, односторонне 5 %% (замороженный кандидат, строки daily %d…%d = %s…%s, %d сут.; строка 0 = сутки сетки %d)" % (
@@ -845,6 +857,92 @@ def confirm_lines(side, cand_dir, lo, hi, t0, expect):
                  v["no_best_days"], ", ".join(v["best_coins"]), v["no_best_coins"], v["no_worst_days"], ", ".join(v["worst_coins"]), v["no_worst_coins"]),
              "  вердикт (m = 1, односторонне 5 %%): %s" % v["verdict"]]
     return lines, v
+
+
+def holm_reject(ps, alpha=0.05):
+    """Холм (step-down): p по возрастанию, k-й (с 1) сравнивается с alpha/(m − k + 1); первый провал останавливает. Возвращает список решений в порядке входа."""
+    m = len(ps)
+    order = sorted(range(m), key=lambda i: ps[i])
+    rej = [False] * m
+    for k, i in enumerate(order, start=1):
+        if ps[i] <= alpha / (m - k + 1):
+            rej[i] = True
+        else:
+            break
+    return rej
+
+
+def _pool(parts):
+    """Объединение окон: parts = [(first, last, day, coin, ts)] → (день, {монета: ряд}, статистика сделок); ряды склеиваются по порядку окон, у монеты без сделок в окне — нули."""
+    day = np.concatenate([p[2] for p in parts])
+    syms = sorted({s for p in parts for s in p[3]})
+    coin = {s: np.concatenate([p[3].get(s, np.zeros(len(p[2]))) for p in parts]) for s in syms}
+    n = sum(p[4]["n"] for p in parts)
+    tot = sum(p[4]["sum"] for p in parts)
+    pos = sum(p[4]["pos"] * p[4]["n"] for p in parts if p[4]["n"])
+    return day, coin, dict(n=n, sum=tot, mean=(tot / n) if n else NAN, pos=(pos / n) if n else NAN)
+
+
+def family_lines(cfgs, wins, name):
+    """Подтверждающее семейство (§13.22): cfgs = [(метка, сторона, [(окно, каталог клетки)])], wins = {окно: (t0, expect, lo, hi)}; клетка с несколькими окнами — один объединённый
+    суточный ряд (окна по порядку), m = len(cfgs), Холм step-down, односторонне 5 %; «подтверждено» требует также среднее > 0 в каждом окне отдельно. Каждое семейство читается один раз."""
+    m = len(cfgs)
+    P = []
+    for lab, side, ws in cfgs:
+        parts = [window_series(side, d, wins[w][2], wins[w][3], wins[w][0], wins[w][1]) for w, d in ws]
+        P.append((lab, side, ws, parts) + _pool(parts))
+    sts = [onesided(x[4]) for x in P]
+    rej = holm_reject([s["p"] for s in sts])
+    order = sorted(range(m), key=lambda i: sts[i]["p"])
+    rank = {i: k for k, i in enumerate(order, start=1)}
+    lines = ["== confirm-family %s: m = %d, Холм, односторонне 5 %%" % (name, m)]
+    data = dict(name=name, m=m, wins={k: list(v) for k, v in wins.items()}, configs={})
+    for i, (lab, side, ws, parts, day, coin, ts) in enumerate(P):
+        signs = [float(p[2].mean()) for p in parts]
+        v = confirm_verdict(day, coin, reject=rej[i], label="подтверждено", signs=signs)
+        st = v["st"]
+        lines.append("- %s (%s): %s; %d сут." % (lab, side, " + ".join("%s %s…%s" % (w, p[0], p[1]) for (w, _d), p in zip(ws, parts)), len(day)))
+        if len(parts) > 1:
+            for (w, _d), p in zip(ws, parts):
+                lines.append("  окно %s: сделок %d, сумма %+.2f $, среднее %+.3f $/сд., $/сут. %+.2f" % (w, p[4]["n"], p[4]["sum"], p[4]["mean"], float(p[2].mean())))
+        lines += ["  объединённо: сделок %d, сумма %+.2f $, среднее %+.3f $/сд., в плюсе %.1f %%" % (ts["n"], ts["sum"], ts["mean"], ts["pos"] * 100),
+                  "  средний $/сут. %+.2f, SE %.2f, нижняя 95 %%-граница %+.2f, верхняя %+.2f; p (одност.) %.4f, ранг %d из %d, порог Холма %.4f → %s" % (
+                      st["mean"], st["se"], st["lower"], st["upper"], st["p"], rank[i], m, 0.05 / (m - rank[i] + 1), "отвергнута H0" if rej[i] else "не отвергнута"),
+                  "  знак по окнам ($/сут.): %s" % ", ".join("%s %+.2f" % (w, s) for (w, _d), s in zip(ws, signs)),
+                  "  устойчивость: без 2 лучших суток %+.2f; без 2 лучших монет (%s) %+.2f | без 2 худших суток %+.2f; без 2 худших монет (%s) %+.2f" % (
+                      v["no_best_days"], ", ".join(v["best_coins"]), v["no_best_coins"], v["no_worst_days"], ", ".join(v["worst_coins"]), v["no_worst_coins"]),
+                  "  вердикт: %s" % v["verdict"]]
+        data["configs"][lab] = dict(side=side, windows=[w for w, _d in ws], trades=ts, window_means=signs, verdict=v["verdict"], holm_reject=rej[i], rank=rank[i],
+                                    **{k: v[k] for k in ("st", "no_best_days", "no_best_coins", "no_worst_days", "no_worst_coins", "best_coins", "worst_coins")})
+    return lines, data
+
+
+def run_family(a):
+    wins = {}
+    for w in a.win:
+        name, t0, expect, days = w.split(",")
+        lo, hi = (int(x) for x in days.split(":"))
+        wins[name] = (t0, expect, lo, hi)
+    cfgs = []
+    for c in a.cfg:
+        lab, side, rest = c.split(":", 2)
+        if side not in ("long", "short"):
+            raise SystemExit("--cfg метка:сторона:окно=каталог[,окно=каталог] — сторона long|short, получено %r" % side)
+        ws = [tuple(x.split("=", 1)) for x in rest.split(",")]
+        for w, _d in ws:
+            if w not in wins:
+                raise SystemExit("окно %r не объявлено в --win" % w)
+        cfgs.append((lab, side, ws))
+    path = os.path.join(a.out, "confirm-family-%s.json" % a.name)
+    if os.path.exists(path) and not a.force:
+        print("семейство %s уже прочитано (%s) — повтор печатает сохранённое; пересчёт — только с --force и пометкой в журнале" % (a.name, path))
+        print("\n".join(json.load(open(path, encoding="utf-8"))["lines"]))
+        return
+    lines, data = family_lines(cfgs, wins, a.name)
+    print("\n".join(lines))
+    with open(path, "w", encoding="utf-8", newline="\n") as f:
+        json.dump(dict(forced=bool(a.force), lines=lines, data=data), f, ensure_ascii=False, indent=1, default=lambda o: o.item() if hasattr(o, "item") else str(o))
+    print("  → %s" % path)
 
 
 def run_confirm(a, side):
@@ -888,6 +986,12 @@ def main(argv=None):
     c.add_argument("--expect-dates", required=True, help="календарное окно среза YYYY-MM-DD:YYYY-MM-DD включительно; несовпадение — остановка")
     c.add_argument("--out")
     c.add_argument("--force", action="store_true")
+    g = sub.add_parser("confirm-family", help="семейство из m замороженных клеток: Холм, односторонне 5 % (§13.22); клетка с несколькими окнами — объединённый ряд")
+    g.add_argument("--name", required=True, help="метка семейства (confirm, repl-aug) — имя файла результата")
+    g.add_argument("--win", action="append", required=True, help="окно: имя,P42_T0,YYYY-MM-DD:YYYY-MM-DD,от:до (номера строк daily от P42_T0); повторяется")
+    g.add_argument("--cfg", action="append", required=True, help="метка:сторона:окно=каталог[,окно=каталог] (повторяется, m = число --cfg)")
+    g.add_argument("--out", required=True)
+    g.add_argument("--force", action="store_true")
     h = sub.add_parser("holm")
     h.add_argument("--out", required=True)
     h.add_argument("--side", choices=("long", "short", "both"), default="both")
@@ -899,6 +1003,8 @@ def main(argv=None):
         run_final(a, a.side)
     elif a.mode == "confirm":
         run_confirm(a, a.side)
+    elif a.mode == "confirm-family":
+        run_family(a)
     else:
         run_holm(a)
 
