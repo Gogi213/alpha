@@ -1,0 +1,53 @@
+{
+ "info": {
+  "b0/long/sigsx": {
+   "old": 76,
+   "new_le73": 76,
+   "new_total": 76,
+   "equal": true
+  },
+  "b0/long/levels": {
+   "old": 864,
+   "new": 864,
+   "only_old": 0,
+   "diff": 0
+  },
+  "b0/short/sigsx": {
+   "old": 62,
+   "new_le73": 62,
+   "new_total": 62,
+   "equal": true
+  },
+  "b0/short/levels": {
+   "old": 914,
+   "new": 914,
+   "only_old": 0,
+   "diff": 0
+  },
+  "b0p0/long/sigsx": {
+   "old": 5214,
+   "new_le73": 5214,
+   "new_total": 5214,
+   "equal": true
+  },
+  "b0p0/long/levels": {
+   "old": 864,
+   "new": 864,
+   "only_old": 0,
+   "diff": 0
+  },
+  "b0p0/short/sigsx": {
+   "old": 5368,
+   "new_le73": 5368,
+   "new_total": 5368,
+   "equal": true
+  },
+  "b0p0/short/levels": {
+   "old": 914,
+   "new": 914,
+   "only_old": 0,
+   "diff": 0
+  }
+ },
+ "mismatch": []
+}

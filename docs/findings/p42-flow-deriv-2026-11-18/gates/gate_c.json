@@ -1,0 +1,49 @@
+{
+ "info": {
+  "b0/long": {
+   "old_rows": 31,
+   "new_rows": 31,
+   "same": 31,
+   "explained": 0,
+   "unexplained": 0,
+   "end_rule": 0,
+   "levels_new_pre": 0,
+   "levels_new": 405,
+   "levels_old": 864
+  },
+  "b0/short": {
+   "old_rows": 32,
+   "new_rows": 32,
+   "same": 32,
+   "explained": 0,
+   "unexplained": 0,
+   "end_rule": 0,
+   "levels_new_pre": 0,
+   "levels_new": 454,
+   "levels_old": 914
+  },
+  "b0p0/long": {
+   "old_rows": 2002,
+   "new_rows": 2002,
+   "same": 2002,
+   "explained": 0,
+   "unexplained": 0,
+   "end_rule": 37,
+   "levels_new_pre": 0,
+   "levels_new": 405,
+   "levels_old": 864
+  },
+  "b0p0/short": {
+   "old_rows": 1709,
+   "new_rows": 1709,
+   "same": 1709,
+   "explained": 0,
+   "unexplained": 0,
+   "end_rule": 87,
+   "levels_new_pre": 0,
+   "levels_new": 454,
+   "levels_old": 914
+  }
+ },
+ "unexplained": []
+}
