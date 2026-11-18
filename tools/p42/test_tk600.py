@@ -1,5 +1,6 @@
 """Юнит-тесты П-42 §13.25 (TK-600, ворота G-T1 / G-T3 / G-P): определения TOX13 — ручные значения, независимая медленная реализация, отсутствие заглядывания.
 Запуск на srv: cd /data/p42-tk600/py && python3 -m unittest test_tk600 (numpy, pandas)."""
+import bisect
 import math
 import os
 import sys
@@ -148,14 +149,11 @@ class ReferenceTests(unittest.TestCase):
         if not rs:
             return out
 
+        times = [r[0] for r in rs]
+
         def price_at(t):
-            last = None
-            for r in rs:
-                if r[0] <= t:
-                    last = r[1]
-                else:
-                    break
-            return last
+            i = bisect.bisect_right(times, t)
+            return rs[i - 1][1] if i > 0 else None
         for w_h, key in ((1, "vpin1h"), (6, "vpin6h")):
             if first <= sig - w_h * HOUR and sig - w_h * HOUR >= avail:
                 win = [r for r in rs if r[0] >= sig - w_h * HOUR]
@@ -170,12 +168,17 @@ class ReferenceTests(unittest.TestCase):
             if p0 is None:
                 continue
             Vk, Qk, ends = [], [], []
+            agg = {}
+            for r in rs:
+                if (m - W) * MIN <= r[0] < m * MIN:
+                    a_ = agg.setdefault(r[0] // MIN, [0.0, 0.0])
+                    a_[0] += r[1] * r[2]
+                    a_[1] += r[1] * r[2] if r[3] else -r[1] * r[2]
             for k in range(m - W, m):
-                lo, hi = k * MIN, (k + 1) * MIN
-                vs = [(r[1] * r[2], r[3]) for r in rs if lo <= r[0] < hi]
-                Vk.append(sum(v for v, _ in vs))
-                Qk.append(sum(v if b else -v for v, b in vs))
-                ends.append(price_at(hi - 1))
+                v_, q_ = agg.get(k, [0.0, 0.0])
+                Vk.append(v_)
+                Qk.append(q_)
+                ends.append(price_at((k + 1) * MIN - 1))
             prices = [p0] + ends
             r_ = [1e4 * math.log(prices[i + 1] / prices[i]) for i in range(W)]
             if sum(1 for v in Vk if v > 0) < math.ceil(W / 3):
@@ -231,6 +234,27 @@ class ReferenceTests(unittest.TestCase):
                         self.assertTrue(same(a[k], b[k], 1e-9), f"seed {seed} s {s} sig {sig - SIG} {k}: {a[k]} vs {b[k]}")
                         n_cmp += 0 if a[k] != a[k] else 1
         self.assertGreater(n_cmp, 150)                                        # проверено достаточно непустых значений
+
+
+class PipelineIdentity(unittest.TestCase):
+    """G-P: подмена `L.FEATS` обёрткой даёт X (55 столбцов, порядок фиксирован), без подмены — f12 как у TK-598."""
+
+    def test_xmat_patch(self):
+        import tk598_lib as L
+        import tk598_fit as FT
+        orig = list(L.FEATS)
+        df = pd.DataFrame({c: np.arange(4, dtype=float) + i for i, c in enumerate(F.X_FEATS)})
+        self.assertEqual(orig, F.F12)
+        a = FT.xmat(df)
+        self.assertEqual(a.shape[1], 12)
+        import tk600_fit as W  # noqa: F401  (подмена при импорте)
+        try:
+            b = FT.xmat(df)
+            self.assertEqual(b.shape[1], 55)
+            np.testing.assert_array_equal(b, df[F.X_FEATS].to_numpy())
+            np.testing.assert_array_equal(b[:, :12], a)
+        finally:
+            L.FEATS = orig
 
 
 class NoLookaheadTests(unittest.TestCase):
