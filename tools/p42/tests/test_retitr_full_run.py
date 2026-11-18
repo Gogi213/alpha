@@ -436,6 +436,106 @@ def test_end_to_end_run_all_report_and_frozen():
         assert S["decision"] == "база" and S["keys"] == S["base_keys"] and S["axes"] == {}
 
 
+# ---- §13.24.5: чувствительность порога минимума сделок --------------------------------------------------------------------------------
+
+def thin_world(eff):
+    """Сделки только в чётные сутки окна (по 1): в месяц 15–16 сделок, в 01–13.11 — 6. Порог N = 10 и 15 пропускает, N = 20 и 25 — нет."""
+    w = World(eff, per_day=1)
+    m = (w.day % 2) == 0
+    w.day, w.sym, w.base = w.day[m], w.sym[m], w.base[m]
+    return w
+
+
+def test_parse_ns_and_require_main_done():
+    assert rr.parse_ns("20,10,15,25") == [20, 10, 15, 25] and rr.parse_ns("20") == [20]
+    for bad in ("10,20", "20,20,10", "20,30", "", "x"):
+        try:
+            rr.parse_ns(bad)
+        except (rr.GuardError, ValueError):
+            continue
+        raise AssertionError("parse_ns принял %r" % bad)
+    with tempfile.TemporaryDirectory() as tmp:
+        paths, frozen = rr.Paths(os.path.join(tmp, "root")), os.path.join(tmp, "frozen.json")
+        os.makedirs(paths.j("results"))
+        assert "run.rc" in raises(rr.GuardError, rr.require_main_done, paths, frozen)                  # основной прогон ещё идёт
+        open(paths.j("run.rc"), "w").write("3\n")
+        assert "results.pkl" in raises(rr.GuardError, rr.require_main_done, paths, frozen)             # прогон упал — результатов нет
+        open(paths.j("results", "results.pkl"), "wb").write(b"x")
+        assert "заморозка" in raises(rr.GuardError, rr.require_main_done, paths, frozen)               # заморозки нет — sens не стартует
+        open(frozen, "w").write("{}\n")
+        pkl, sha = rr.require_main_done(paths, frozen)
+        assert pkl == paths.j("results", "results.pkl") and sha == rf.sha256_file(frozen)
+
+
+def test_same_summary():
+    a = {"x": [1.0, float("nan"), "s", True, None], "y": {"z": 3}}
+    assert rr.same_summary(a, {"x": [1.0 + 1e-14, float("nan"), "s", True, None], "y": {"z": 3}}) == []
+    assert len(rr.same_summary(a, {"x": [1.0 + 1e-6, float("nan"), "s", True, None], "y": {"z": 3}})) == 1
+    assert len(rr.same_summary(a, {"x": [1.0, float("nan"), "t", True, None], "y": {"z": 3}})) == 1
+    assert len(rr.same_summary(a, {"x": [1.0, float("nan"), "s", True, None]})) == 1                    # нет ключа
+    assert len(rr.same_summary({"l": [1, 2]}, {"l": [1]})) == 1
+
+
+def test_sens_window_guard():
+    """§13.24.5 п. 8: sens — только wa/wb/wc и даты ≤ 13.11; окно чтения wd, окна сходимости и любая дата позже 13.11 — GuardError до первого прогона."""
+    rf.check_sens_windows(rf.WINDOWS)
+    wd = rf.Window("wd", "2026-11-03", "2026-11-17", "2026-11-30")
+    late = rf.Window("wc", "2026-09-01", "2026-10-03", "2026-11-14")
+    far = rf.Window("wc", "2026-09-02", "2026-10-03", "2026-11-13")                 # T0 + 73 = 14.11
+    for bad in (rf.WINDOWS + (wd,), rf.CONV_WINDOWS, rf.WINDOWS[:2], rf.WINDOWS[:2] + (late,), rf.WINDOWS[:2] + (far,)):
+        raises(rr.GuardError, rf.check_sens_windows, bad)
+    with tempfile.TemporaryDirectory() as tmp:
+        ctx, srv = make(tmp, thin_world(lambda k, s, d: 0.0))
+        ctx.ev.windows = rf.WINDOWS + (wd,)
+        assert "17–30.11" in raises(rr.GuardError, rr.sens_run, ctx, {}, [20])
+        assert srv.calls == [] and ctx.ev.batches == []                                                    # ни одного запуска
+        ctx.ev.windows = rf.WINDOWS
+        ctx.store.windows = rf.WINDOWS + (wd,)
+        raises(rr.GuardError, rr.sens_run, ctx, {}, [20])
+        assert srv.calls == []
+
+
+def test_sens_run_control_override_and_report():
+    def eff(k, s, d):
+        return 1.5 if (k.get("rr") == "3" and k.get("rs") != "2") else 0.0                                # эффект только у лонга
+    with tempfile.TemporaryDirectory() as tmp:
+        ctx, srv = make(tmp, thin_world(eff))
+        g5 = rr.gate5(ctx.store, ctx.spec)
+        c595 = {"L_C": rf.cfg_keys(SPEC, "L", {}), "S_C": rf.cfg_keys(SPEC, "S", {})}
+        with rf.min_trades_override(rf.CONTROL_N):
+            main = rr.run_all(ctx, g5, None, c595)                                                           # основной прогон: N = 20 → условие (а) режет клетки (15–16 сделок в месяц)
+        assert main["outcomes"]["L:full"].final == {} and main["freeze"]["L"][0] == "база"
+        out = os.path.join(tmp, "res")
+        n_calls = len(srv.calls)
+        sens = rr.sens_run(ctx, g5, [20, 10, 15, 25], control=main, out_dir=out, gates=None, c595=c595, meta={"frozen_sha256": "ab" * 32})
+        assert rf.MIN_TRADES == (20, 20, 20, 20, 8) and sens["ns"] == [20, 10, 15, 25]
+        assert sens["control"]["equal"] and sens["control"]["diff"] == [] and sens["control"]["engine_variants"] == 0 and sens["by_n"]["20"]["engine_variants"] == 0
+        assert sens["min_trades"]["10"] == [10, 10, 10, 10, 4] and sens["min_trades"]["25"] == [25, 25, 25, 25, 10]
+        L = {n: sens["by_n"][str(n)]["L"] for n in (10, 15, 20, 25)}
+        assert L[20]["full"] == {} and L[25]["full"] == {}                                                    # порог 20 и 25 режет все клетки по (а)
+        assert L[10]["full"].get("rr") == "rr_3" and L[15]["full"].get("rr") == "rr_3"                         # 15–16 сделок в месяц проходят N = 10 и 15
+        assert L[10]["cells"]["dropped_a"] < L[20]["cells"]["dropped_a"] and L[20]["cells"]["total"] > 0
+        assert sens["by_n"]["10"]["engine_variants"] > 0 and L[10]["full_totals"]["final"]["n"] == L[10]["full_totals"]["base"]["n"] > 0
+        assert os.path.exists(os.path.join(out, "sens-10.pkl")) and json.load(open(os.path.join(out, "sens.json"), encoding="utf-8"))["ns"] == [20, 10, 15, 25]
+        assert len(srv.calls) > n_calls                                                                       # новые прогоны — только у N ≠ 20
+        # отчёт: раздел чувствительности, в файл заморозки не попадает
+        pkl, md, fz, sj = (os.path.join(tmp, n) for n in ("results.pkl", "r.md", "frozen.json", "sens.json"))
+        pickle.dump(main, open(pkl, "wb"))
+        json.dump(sens, open(sj, "w", encoding="utf-8"))
+        assert rep.main([pkl, "--md", md, "--frozen", fz, "--sens", sj]) == 0
+        text = open(md, encoding="utf-8").read()
+        for s in ("## Чувствительность порога минимума сделок", "«также нужно протитровать минимальное количество сделок от 10-15-20-25»", "N = 10 — 10/10/10/10/4", "(контроль, вердикт)",
+                  "`rr`: база → rr_3", "m_сем", "совпал с `results.pkl`", "abababababababab"):
+            assert s in text, s
+        assert "sens" not in open(fz, encoding="utf-8").read()
+        # контроль не совпал: сводка записана, затем остановка
+        bad = pickle.loads(pickle.dumps(main))
+        bad["wf"]["L"]["m"] += 1
+        raises(rr.GuardError, rr.sens_run, ctx, g5, [20, 10], control=bad, out_dir=os.path.join(tmp, "res2"), gates=None, c595=c595)
+        j = json.load(open(os.path.join(tmp, "res2", "sens.json"), encoding="utf-8"))
+        assert j["ns"] == [20] and j["control"]["equal"] is False and "L/m" in j["control"]["diff"][0]
+
+
 def test_level_rows_and_sigma():
     ser = rf.make_series([0, 0, 31, 62, 135], [0, 1, 2, 3, 4], [1.0, 3.0, -2.0, 4.0, 6.0])
     rows = rep.level_rows(ser)

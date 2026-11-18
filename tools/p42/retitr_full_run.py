@@ -6,6 +6,7 @@
   TK599_GO=1 python3 retitr_full_run.py gates      # G1–G3b: хэши бинаря/монет/манифестов, «окна без потерь», обрезка конца данных (G5 — следующей командой)
   TK599_GO=1 python3 retitr_full_run.py gate5      # только G5 (сигнальный поток базы стороны → доля непустых значений признаков по месяцам)
   TK599_GO=1 python3 retitr_full_run.py run        # ворота → шаг 0 → проходы 1–2, совместная сетка, свёртки, проверка вперёд → results.pkl, results.json
+  TK599_GO=1 python3 retitr_full_run.py sens [--ns 20,10,15,25]   # §13.24.5: чувствительность порога минимума сделок; только после run.rc и заморозки (tk599-frozen.json); N = 20 — контроль первым → results/sens.json
 
 Команда движка на окно (последовательно по окнам; каждый вариант считает ОБЕ стороны, лишняя не читается):
   env P42_T0=<T0> <bin> breakout tick --cache <root>/<w>/cache --trades <root>/<w>/aggtrades --variants <файл> --symbols "$(cat symbols.txt)" --out <root>/out/<w> --threads 6 [--ftab <union>]
@@ -43,6 +44,7 @@ PROD = "/data/tk594/py"
 GRIDS = os.path.join(REPO, "docs", "research", "freeze", "tk599-grids.json")
 MANIFESTS = os.path.join(REPO, "docs", "research", "freeze", "tk599-manifests.txt")
 C595 = os.path.join(REPO, "docs", "research", "freeze", "tk595-aug-variants.txt")
+FROZEN = os.path.join(REPO, "docs", "research", "freeze", "tk599-frozen.json")        # заморозка N = 20 (§13.24 п. 6); `sens` без неё не стартует (§13.24.5 п. 7)
 GO_ENV = "TK599_GO"
 DONE_MARK = "DONE.tk599"                                 # метка в каталоге варианта: пакет с ним завершился на всех трёх окнах
 THREADS = 6
@@ -195,9 +197,10 @@ def chunks(xs, n):
 class Engine:
     """Портфельные прогоны: `calls(reqs)` — план вызовов (чистая функция), `launch(reqs)` — выполнение (для `OutDirEvaluator(launch=…)`)."""
 
-    def __init__(self, paths, runner, symbols_text, bin_path=BIN, threads=THREADS, chunk=None, ensure_tables=None, windows=rf.WINDOWS):
+    def __init__(self, paths, runner, symbols_text, bin_path=BIN, threads=THREADS, chunk=None, ensure_tables=None, windows=rf.WINDOWS, prefix="b"):
         self.paths, self.runner, self.symbols, self.bin, self.threads, self.chunk = paths, runner, symbols_text, bin_path, threads, chunk
         self.ensure_tables, self.windows = ensure_tables, windows
+        self.prefix = prefix                                            # пакеты `<prefix>NNNN`: у `sens` — «s» (журналы основного прогона `b0001…` не перезаписываются)
         self.n = 0
 
     def command(self, w, vfile, out, ftab=None, sigsx_only=False):
@@ -245,7 +248,7 @@ class Engine:
                     raise GuardError("нет сборщика таблиц признаков для вызова с фильтром")
                 self.ensure_tables(list(needs.values()))
             self.n += 1
-            name = "b%04d" % self.n
+            name = "%s%04d" % (self.prefix, self.n)
             vfile = self.paths.var + "/" + name + ".txt"
             os.makedirs(self.paths.var, exist_ok=True)
             with open(vfile, "w", encoding="utf-8", newline="\n") as f:
@@ -516,12 +519,12 @@ class Ctx:
 
 
 def make_ctx(root=ROOT, runner=None, nboot=rf.NBOOT, chunk=None, procs=6, threads=THREADS, bin_path=None, symbols=SYMBOLS, grids=GRIDS, funding=FUNDING,
-             prod=PROD, rates=None, python=None, metrics=True):
+             prod=PROD, rates=None, python=None, metrics=True, prefix="b"):
     paths = Paths(root)
     runner = runner or SubprocessRunner()
     spec = rf.Spec.load(grids)
     text, coins = read_symbols(symbols)
-    engine = Engine(paths, runner, text, bin_path or paths.j("bin", "alpha-master"), threads, chunk)
+    engine = Engine(paths, runner, text, bin_path or paths.j("bin", "alpha-master"), threads, chunk, prefix=prefix)
     engine_conv = Engine(paths, runner, text, bin_path or paths.j("bin", "alpha-master"), threads, chunk, windows=rf.CONV_WINDOWS)
     store = FtabStore(paths, runner, engine, prod, procs, python=python, prepare=(lambda: metrics_tree(paths)) if metrics else None)
     engine.ensure_tables = store.build
@@ -591,6 +594,114 @@ def summary(res, spec):
                   "own_wf": {"verdict": res["own_wf"][s]["verdict"], "mean": res["own_wf"][s]["stat"].mean, "lower": res["own_wf"][s]["stat"].lower, "p": res["own_wf"][s]["stat"].p},
                   "final_keys": rf.cfg_keys(spec, s, res["outcomes"]["%s:full" % s].final)}
     return out
+
+
+# ---- §13.24.5: чувствительность порога минимума сделок ---------------------------------------------------------------------------------
+
+def parse_ns(text):
+    """`--ns 20,10,15,25` → [20, 10, 15, 25]: значения из `SENS_N` без повторов, контрольный N = 20 — первым (§13.24.5 п. 4)."""
+    ns = [int(x) for x in str(text).split(",") if x.strip()]
+    if not ns or len(set(ns)) != len(ns) or any(n not in rf.SENS_N for n in ns):
+        raise GuardError("--ns: нужны значения из %s без повторов, получено %s" % (list(rf.SENS_N), ns))
+    if ns[0] != rf.CONTROL_N:
+        raise GuardError("--ns: контрольный N = %d обязан идти первым (§13.24.5 п. 4), получено %s" % (rf.CONTROL_N, ns))
+    return ns
+
+
+def require_main_done(paths, frozen=FROZEN):
+    """Основной прогон закончен (`run.rc`, `results/results.pkl`: оба процесса пишут в одни `out/<окно>/<vid>` — параллельно нельзя) и заморозка N = 20 существует (§13.24.5 п. 7).
+    Возвращает (путь results.pkl, sha256 файла заморозки)."""
+    rcf, pkl = paths.j("run.rc"), paths.j("results", "results.pkl")
+    if not os.path.exists(rcf):
+        raise GuardError("нет %s: основной прогон ещё идёт (или не запускался) — `sens` параллельно с ним запрещён (§13.24.5 п. 7)" % rcf)
+    if not os.path.exists(pkl):
+        raise GuardError("нет %s: основной прогон не дал результатов (run.rc = %s)" % (pkl, open(rcf, encoding="utf-8").read().strip()))
+    if not os.path.exists(frozen):
+        raise GuardError("нет %s: `sens` не запускается, пока заморозка основного прогона (N = 20) не закоммичена (§13.24.5 п. 7)" % frozen)
+    return pkl, rf.sha256_file(frozen)
+
+
+def totals(ser):
+    S, N = rf.day_sums(ser)
+    n, sm = int(N.sum()), float(S.sum())
+    return {"n": n, "sum": sm, "per_trade": (sm / n if n else None)}
+
+
+def sens_summary(ctx, res):
+    """Сводка одного N (§13.24.5 п. 6): `summary()` основного прогона + на сторону: сделок / Σ $ / $/сделку итога и базы на проверке вперёд (105 сут.) и на полном окне (136 сут.),
+    клеток всего / выбывших по (а) в обоих проходах полной процедуры."""
+    out = summary(res, ctx.spec)
+    for s in rf.SIDES:
+        wf, full = res["wf"][s], res["outcomes"]["%s:full" % s]
+        st = wf["stat"]
+        fin = ctx.ev.get(rf.Req(s, rf.cfg_keys(ctx.spec, s, full.final), False))
+        base = ctx.ev.get(rf.Req(s, rf.cfg_keys(ctx.spec, s, {}), False))
+        rows = [r for step in list(full.steps1) + list(full.steps2) for r in step.rows]
+        out[s].update({
+            "fwd_totals": {"final": {"n": int(st.n_c), "sum": float(st.s_c), "per_trade": (float(st.s_c) / st.n_c if st.n_c else None)},
+                           "base": {"n": int(st.n_r), "sum": float(st.s_r), "per_trade": (float(st.s_r) / st.n_r if st.n_r else None)}},
+            "full_totals": {"final": totals(fin), "base": totals(base)},
+            "cells": {"total": len(rows), "dropped_a": sum(1 for r in rows if not r["kept"])}})
+    return out
+
+
+def same_summary(a, b, tol=1e-12, path=""):
+    """Различия двух jsonable-сводок: строки, булевы, None — равны; числа — в пределах `tol` относительно; NaN = NaN. Возвращает список путей с различием."""
+    if isinstance(a, dict) and isinstance(b, dict):
+        diff = []
+        for k in sorted(set(a) | set(b), key=str):
+            if k not in a or k not in b:
+                diff.append("%s/%s: нет в одной из сводок" % (path, k))
+            else:
+                diff += same_summary(a[k], b[k], tol, "%s/%s" % (path, k))
+        return diff
+    if isinstance(a, (list, tuple)) and isinstance(b, (list, tuple)):
+        if len(a) != len(b):
+            return ["%s: длина %d ≠ %d" % (path, len(a), len(b))]
+        return [d for i, (x, y) in enumerate(zip(a, b)) for d in same_summary(x, y, tol, "%s[%d]" % (path, i))]
+    num = (int, float)
+    if isinstance(a, num) and isinstance(b, num) and not isinstance(a, bool) and not isinstance(b, bool):
+        if a != a and b != b:
+            return []
+        return [] if abs(a - b) <= tol * max(1.0, abs(a), abs(b)) else ["%s: %r ≠ %r" % (path, a, b)]
+    return [] if a == b else ["%s: %r ≠ %r" % (path, a, b)]
+
+
+def sens_run(ctx, g5, ns, control=None, out_dir=None, gates=None, c595=None, meta=None):
+    """§13.24.5: полная процедура при каждом N из `ns` (контрольный N = 20 — первым; обязан совпасть с `control` = результаты основного прогона и обойтись без запусков движка).
+    После каждого N пишет `<out_dir>/sens.json` (и `sens-<N>.pkl`). Различие контроля — GuardError (после записи sens.json). Окна — только wa/wb/wc, даты ≤ 13.11 (п. 8)."""
+    rf.check_sens_windows(rf.WINDOWS, ctx.ev.windows, ctx.engine.windows, ctx.store.windows)
+    sens = {"meta": meta or {}, "ns": [], "min_trades": {}, "control": None, "by_n": {}}
+    for n in ns:
+        b0 = len(ctx.ev.batches)
+        with rf.min_trades_override(n):
+            res = run_all(ctx, g5, gates, c595)
+        summ = jsonable(sens_summary(ctx, res))
+        summ["engine_variants"] = int(sum(ctx.ev.batches[b0:]))
+        sens["ns"].append(n)
+        sens["min_trades"][str(n)] = list(rf.min_trades_for(n))
+        sens["by_n"][str(n)] = summ
+        bad = None
+        if n == rf.CONTROL_N:
+            if control is None:
+                bad = "контроль N = 20: результатов основного прогона нет — сравнивать не с чем"
+            else:
+                ref = jsonable(summary(control, ctx.spec))
+                diff = [d for s in rf.SIDES for d in same_summary(ref[s], {k: summ[s][k] for k in ref[s]}, path=s)]
+                sens["control"] = {"equal": not diff, "diff": diff[:40], "engine_variants": summ["engine_variants"]}
+                if diff:
+                    bad = "контроль N = 20 не совпал с results.pkl основного прогона (%d различий, первое: %s)" % (len(diff), diff[0])
+                elif summ["engine_variants"]:
+                    bad = "контроль N = 20 запускал движок (%d вариантов): серии основного прогона не найдены в кэше" % summ["engine_variants"]
+        if out_dir:
+            os.makedirs(out_dir, exist_ok=True)
+            with open(os.path.join(out_dir, "sens-%d.pkl" % n), "wb") as f:
+                pickle.dump(res, f)
+            with open(os.path.join(out_dir, "sens.json"), "w", encoding="utf-8") as f:
+                json.dump(sens, f, ensure_ascii=False, indent=1)
+        if bad:
+            raise GuardError(bad)
+    return sens
 
 
 # ---- CLI ----------------------------------------------------------------------------------------------------------------------------
@@ -690,9 +801,24 @@ def cmd_run(a):
     return 0
 
 
+def cmd_sens(a):
+    require_go()
+    ns = parse_ns(a.ns)
+    rf.check_sens_windows(rf.WINDOWS)
+    ctx = make_ctx(a.root, nboot=a.nboot, chunk=a.chunk, procs=a.procs, threads=a.threads, bin_path=a.bin, prod=a.prod, prefix="s")
+    pkl, frozen_sha = require_main_done(ctx.paths)
+    with open(os.path.join(ctx.paths.gate, "gates.json"), encoding="utf-8") as f:
+        gates = json.load(f)
+    with open(pkl, "rb") as f:
+        control = pickle.load(f)
+    sens = sens_run(ctx, gates["G5"], ns, control, ctx.paths.j("results"), gates, meta={"frozen_sha256": frozen_sha, "ns": ns, "nboot": ctx.nboot})
+    print(json.dumps(sens, ensure_ascii=False, indent=1))
+    return 0
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("cmd", choices=["plan", "gates", "gate5", "run"])
+    ap.add_argument("cmd", choices=["plan", "gates", "gate5", "run", "sens"])
     ap.add_argument("--root", default=ROOT)
     ap.add_argument("--bin", default="")
     ap.add_argument("--prod", default=PROD)
@@ -700,9 +826,10 @@ def main(argv=None):
     ap.add_argument("--procs", type=int, default=6)
     ap.add_argument("--chunk", type=int, default=0, help="вариантов в одном вызове движка (0 — все недостающие одним пакетом)")
     ap.add_argument("--nboot", type=int, default=rf.NBOOT)
+    ap.add_argument("--ns", default="20,10,15,25", help="`sens`: пороги N (контрольный 20 — первым)")
     a = ap.parse_args(argv)
     try:
-        return {"plan": cmd_plan, "gates": cmd_gates, "gate5": cmd_gate5, "run": cmd_run}[a.cmd](a)
+        return {"plan": cmd_plan, "gates": cmd_gates, "gate5": cmd_gate5, "run": cmd_run, "sens": cmd_sens}[a.cmd](a)
     except GuardError as e:
         print("ОСТАНОВКА (охрана): %s" % e, file=sys.stderr)
         return 3

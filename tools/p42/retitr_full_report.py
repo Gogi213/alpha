@@ -133,6 +133,55 @@ def render_gates(g, g5=None):
     return out + [""]
 
 
+def ids_text(ids):
+    return ", ".join("%s=%s" % kv for kv in sorted(ids.items())) if ids else "база"
+
+
+def tot_text(t):
+    return "%d / %s / %s" % (t["n"], f2(t["sum"]), f2(t["per_trade"], 3))
+
+
+def render_sens(sens):
+    """Раздел «Чувствительность порога минимума сделок» (§13.24.5): описательные таблицы по N на сторону; вердикт и заморозка — N = 20. `sens` — `results/sens.json` (ключи N — строки)."""
+    ns = sorted(int(n) for n in sens["by_n"])
+    ctl = sens.get("control") or {}
+    out = ["## Чувствительность порога минимума сделок (§13.24.5; описательно)", "",
+           "Слова владельца 18.11 (дословно): «также нужно протитровать минимальное количество сделок от 10-15-20-25». Это чувствительность, не перевыбор: порог 20 назначен до счёта; вердикт, заморозка "
+           "и чтение 17–30.11 — только конфигурации N = 20 (основной прогон); строки N ≠ 20 описательные, «лучший N» не выбирается, любое превосходство строки N ≠ 20 над N = 20 — «найдено на этих данных». "
+           "При каждом N заново прошла вся процедура на 136 сут. (проходы 1–2, совместная сетка, четыре свёртки, полная); 17–30.11 не читалось.",
+           "Порог месяца при N: %s (июль, август, сентябрь, октябрь, 01–13.11 = 0,4·N)." % "; ".join("N = %d — %s" % (n, "/".join(str(x) for x in sens["min_trades"][str(n)])) for n in ns),
+           "Контроль N = 20: %s; запусков движка в контроле: %s. Файл заморозки (sha256): `%s`." % (
+               "совпал с `results.pkl` основного прогона (число различий 0)" if ctl.get("equal") else "**НЕ совпал** (%s)" % esc("; ".join(ctl.get("diff", [])[:3])) if ctl else "не выполнялся",
+               ctl.get("engine_variants", "—"), (sens.get("meta") or {}).get("frozen_sha256", "?")[:16]), ""]
+    for s in rf.SIDES:
+        out += ["#### %s" % SIDE_RU[s], "",
+                "| N | итог (принятые клетки) | проход 2 сошёлся | Δ вперёд $/сделку | SE | z | нижняя гр. | подтверждена | собственный вердикт | исход заморозки | m_N | клеток / выбыло по (а) |",
+                "|---|---|---|---|---|---|---|---|---|---|---|---|"]
+        for n in ns:
+            r = sens["by_n"][str(n)][s]
+            f = r["forward"]
+            out.append("| %d%s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %d | %d / %d |" % (
+                n, " (контроль, вердикт)" if n == rf.CONTROL_N else "", esc(ids_text(r["full"])), "да" if r["converged_full"] else "нет", f2(f["d"], 3), f_(f["se"], 3), f_(f["z"], 2),
+                f2(f["lower"], 3), "да" if r["confirmed"] else "нет", r["own_wf"]["verdict"], esc(r["freeze"][0] + ": " + r["freeze"][1]), r["m"], r["cells"]["total"], r["cells"]["dropped_a"]))
+        out += ["", "| N | проверка вперёд (105 сут.): итог — сделок / Σ $ / $/сделку | база | полное окно (136 сут.): итог | база | выборы свёрток 1–4 |", "|---|---|---|---|---|---|"]
+        for n in ns:
+            r = sens["by_n"][str(n)][s]
+            out.append("| %d | %s | %s | %s | %s | %s |" % (n, tot_text(r["fwd_totals"]["final"]), tot_text(r["fwd_totals"]["base"]), tot_text(r["full_totals"]["final"]),
+                                                          tot_text(r["full_totals"]["base"]), esc(" ; ".join("ф%d: %s" % (i, ids_text(x)) for i, x in enumerate(r["folds"], 1)))))
+        ref = sens["by_n"][str(rf.CONTROL_N)][s]["full"] if str(rf.CONTROL_N) in sens["by_n"] else None
+        diffs = []
+        for n in ns:
+            if n == rf.CONTROL_N or ref is None:
+                continue
+            cur = sens["by_n"][str(n)][s]["full"]
+            d = ["`%s`: %s → %s" % (a, ref.get(a, "база"), cur.get(a, "база")) for a in sorted(set(ref) | set(cur)) if ref.get(a) != cur.get(a)]
+            diffs.append("N = %d: %s" % (n, "; ".join(d) if d else "итог тот же, что при N = 20"))
+        out += ["", "Итог при N ≠ 20 против N = 20 (N = 20 → N): " + (" | ".join(diffs) if diffs else "—") + ".",
+                "Испытания: m_сем(%s) = Σ_N m_N = %d (проверок вперёд в семействе — %d на сторону; вердикт — N = 20, m = 1 проверка вперёд, m = 2 чтение 17–30.11)." % (
+                    SIDE_RU[s], sum(sens["by_n"][str(n)][s]["m"] for n in ns), len(ns)), ""]
+    return out
+
+
 def render_report(res, spec, meta=None):
     meta = meta or {}
     out = ["# П-42 §13.24: перетитровка всего сетапа на 01.07–13.11 (136 сут.) — отчёт TK-599", "",
@@ -181,6 +230,8 @@ def render_report(res, spec, meta=None):
         out.append("| %s | %s (`%s`) | %s |" % (SIDE_RU[s], "база" if dec == "база" else "C*: " + cfg_text(cfg), esc(rf.cfg_keys(spec, s, cfg)), esc(note)))
     out += ["", "Правило исходов — §13.24 «Исходы»: Δ вперёд ≤ 0 или проход 2 не сошёлся ⇒ база; Δ > 0 без подтверждения или с расхождением выборов ⇒ C* с пометкой; "
             "«сторона выключена» решается после чтения 17–30.11.", ""]
+    if meta.get("sens"):
+        out += render_sens(meta["sens"])
     return "\n".join(out) + "\n"
 
 
@@ -207,6 +258,7 @@ def main(argv=None):
     ap.add_argument("--md", required=True)
     ap.add_argument("--frozen", required=True)
     ap.add_argument("--commit", default="?")
+    ap.add_argument("--sens", default="", help="results/sens.json (§13.24.5): добавляет раздел «Чувствительность порога минимума сделок»; в файл заморозки не попадает")
     ap.add_argument("--grids", default=os.path.join(HERE, "..", "..", "docs", "research", "freeze", "tk599-grids.json"))
     a = ap.parse_args(argv)
     res = pickle.load(open(a.results, "rb"))
@@ -215,7 +267,7 @@ def main(argv=None):
     meta = {"commit": a.commit, "grids_sha256": hashlib.sha256(open(a.grids, "rb").read()).hexdigest(), "bin_md5": "a03c91df5a70c8eb32cbb7122943b8f9",
             "date": datetime.date.today().isoformat(), "nboot": res.get("nboot", rf.NBOOT)}
     with open(a.md, "w", encoding="utf-8", newline="\n") as f:
-        f.write(render_report(res, spec, meta))
+        f.write(render_report(res, spec, dict(meta, sens=json.load(open(a.sens, encoding="utf-8")) if a.sens else None)))
     with open(a.frozen, "w", encoding="utf-8", newline="\n") as f:
         json.dump(frozen_json(res, spec, meta), f, ensure_ascii=False, indent=1)
         f.write("\n")

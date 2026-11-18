@@ -282,6 +282,36 @@ def test_month_rules():
     assert rf.sign_ok(mt) and not rf.sign_ok({0: (1.0, 30, 30), 1: (-1.0, 30, 30)})
 
 
+def test_min_trades_override_values_and_restore():
+    """§13.24.5: порог месяца при N = (N, N, N, N, 0,4·N); подмена глобального MIN_TRADES и возврат — в том числе при исключении."""
+    assert [rf.min_trades_for(n) for n in rf.SENS_N] == [(10, 10, 10, 10, 4), (15, 15, 15, 15, 6), (20, 20, 20, 20, 8), (25, 25, 25, 25, 10)]
+    assert rf.min_trades_for(rf.CONTROL_N) == rf.MIN_TRADES == (20, 20, 20, 20, 8)               # контроль = порог основного прогона
+    for bad in (0, -5, 12.5):
+        assert raises(rf.GuardError, rf.min_trades_for, bad)
+    saved = rf.MIN_TRADES
+    mt = {0: (1.0, 12, 12), 1: (1.0, 16, 16), 2: (1.0, 22, 22), 3: (1.0, 26, 26), 4: (1.0, 4, 4)}       # самый малый месяц — 12 (июль), 01–13.11 — 4
+    seen = {}
+    for n in rf.SENS_N:
+        with rf.min_trades_override(n) as cur:
+            assert cur == rf.min_trades_for(n) and rf.MIN_TRADES == cur
+            seen[n] = rf.min_trades_ok(mt)
+        assert rf.MIN_TRADES == saved
+    assert seen == {10: True, 15: False, 20: False, 25: False}
+    mt[0] = (1.0, 15, 15)
+    mt[4] = (1.0, 6, 6)
+    with rf.min_trades_override(15):
+        assert rf.min_trades_ok(mt) is True                                                         # 15 ≥ 15 и 6 ≥ 6: граница включительна
+    mt[4] = (1.0, 5, 6)
+    with rf.min_trades_override(15):
+        assert rf.min_trades_ok(mt) is False                                                        # у клетки 5 < 6 в 01–13.11
+    try:
+        with rf.min_trades_override(25):
+            raise RuntimeError("x")
+    except RuntimeError:
+        pass
+    assert rf.MIN_TRADES == saved
+
+
 def test_robust_days_and_coins():
     day = np.repeat(np.arange(rf.NDAYS), 4)
     sym = np.tile(np.arange(4), rf.NDAYS)

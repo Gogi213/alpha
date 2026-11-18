@@ -16,6 +16,7 @@
 """
 from __future__ import annotations
 
+import contextlib
 import csv
 import dataclasses
 import datetime
@@ -41,6 +42,8 @@ MONTH_LEN = (31, 31, 30, 31, 13)
 NDAYS = sum(MONTH_LEN)                                           # 136
 MONTH_OF_DAY = np.repeat(np.arange(len(MONTH_LEN)), MONTH_LEN)
 MIN_TRADES = (20, 20, 20, 20, 8)                                 # в месяц, у клетки и у эталона; 01–13.11 — 8
+SENS_N = (10, 15, 20, 25)                                        # §13.24.5: чувствительность порога; N = 20 — контроль (= основной прогон)
+CONTROL_N = 20
 Z_STEP, Z_CAT, PLATEAU, VETO_SE = 2.0, 2.5, 0.5, 1.0
 GRID_START_DAY, GRID_DAYS, COUNT_DAYS = 14, 80, 60                  # движок: прогрев 14 суток, сетка 80, торговое окно 60 суток (`COUNT_DAYS`, §13.24.3)
 TRADE_END = GRID_START_DAY + COUNT_DAYS - 1                       # последние торговые сутки сетки (73); данные окна кончаются T0+73
@@ -105,6 +108,21 @@ def check_windows(windows=WINDOWS, t0_used=None):
         prev_hi = w.hid
     if (prev_hi - D0).days + 1 != NDAYS:
         raise GuardError("диапазоны покрывают %d сут., а нужно %d" % ((prev_hi - D0).days + 1, NDAYS))
+
+
+SENS_WINDOWS = ("wa", "wb", "wc")                                # §13.24.5 п. 8: `sens` — только эти окна
+SENS_LAST_DAY = datetime.date(2026, 11, 13)                      # и ни одной даты позже (17–30.11 не читается)
+
+
+def check_sens_windows(*window_sets):
+    """Изоляция 17–30.11 для `sens` (§13.24.5 п. 8): в каждом наборе окон — ровно wa, wb, wc; зачёт и `T0 + 73` не позже 13.11; иначе GuardError (в т. ч. окно `wd`)."""
+    for windows in window_sets:
+        names = tuple(w.name for w in windows)
+        if names != SENS_WINDOWS:
+            raise GuardError("sens: окна %s — разрешены только %s (17–30.11 не читается)" % (list(names), list(SENS_WINDOWS)))
+        for w in windows:
+            if w.hid > SENS_LAST_DAY or w.t0d + datetime.timedelta(days=TRADE_END) > SENS_LAST_DAY:
+                raise GuardError("sens: окно %s (зачёт до %s, данные до %s) выходит за %s" % (w.name, w.hi, w.t0d + datetime.timedelta(days=TRADE_END), SENS_LAST_DAY))
 
 
 def sha256_file(path):
@@ -479,6 +497,25 @@ def month_table(Sc, Nc, Sr, Nr, om):
 
 def min_trades_ok(mt):
     return all(nc >= MIN_TRADES[k] and nr >= MIN_TRADES[k] for k, (_, nc, nr) in mt.items())
+
+
+def min_trades_for(n):
+    """Порог месяца при N (§13.24.5): N сделок в месяц у клетки и у эталона; у 01–13.11 (13 суток) — 0,4·N (8 при N = 20)."""
+    if int(n) != n or n <= 0:
+        raise GuardError("порог минимума сделок N = %r: нужно целое > 0" % (n,))
+    return (int(n),) * (len(MONTH_LEN) - 1) + (int(round(0.4 * n)),)
+
+
+@contextlib.contextmanager
+def min_trades_override(n):
+    """На время блока `MIN_TRADES` = порог при N (§13.24.5: чувствительность); возврат — в `finally`. Не потокобезопасно (процедура однопоточна)."""
+    global MIN_TRADES
+    old = MIN_TRADES
+    MIN_TRADES = min_trades_for(n)
+    try:
+        yield MIN_TRADES
+    finally:
+        MIN_TRADES = old
 
 
 def sign_ok(mt):
