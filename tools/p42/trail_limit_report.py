@@ -52,11 +52,11 @@ def stats(rows):
     s_nf = sum(nf(r) for r in rows)
     s_net = sum(r["net"] for r in rows)
     ls = [l for r in rows for l in lots(r)]
-    trail = [l for l in ls if l["kind"] == "Trail"]
+    trail = [l for l in ls if l["kind"] == "trail"]
     placed = [l for l in ls if l["tl"] is not None]
-    is_filled = lambda l: l["kind"] == "Trail" and l["legs"][-1][3]
-    filled = [l for l in placed if is_filled(l)]
-    unfilled = [l for l in placed if not is_filled(l)]
+    filled = [l for l in placed if l["kind"] == "trail" and l["legs"][-1][3]]  # исполнен лимиткой (мейкер)
+    mkt = [l for l in placed if l["kind"] == "trail" and not l["legs"][-1][3]]  # tl=2: пришёл при цене уже за ним — рынок как в v21
+    unfilled = [l for l in placed if l["kind"] != "trail"]
     delay = [l["legs"][-1][0] - l["tl"][0] for l in filled]
     return {
         "trades": n,
@@ -70,6 +70,7 @@ def stats(rows):
         "trail_exits": len(trail),
         "placed": len(placed),
         "filled": len(filled),
+        "market_on_arrival": len(mkt),
         "unfilled": len(unfilled),
         "unfilled_by": dict(Counter(l["kind"] for l in unfilled)),
         "delay_ms": {
@@ -109,10 +110,10 @@ def pair(old, new):
             "d_funding": sum(n[k]["funding"] - o[k]["funding"] for k in ks),
         }
 
-    had_trail = [k for k in both if any(l["kind"] == "Trail" for l in lots(o[k]))]
+    had_trail = [k for k in both if any(l["kind"] == "trail" for l in lots(o[k]))]
     ht = set(had_trail)
     rest = [k for k in both if k not in ht]
-    all_filled = [k for k in had_trail if all(l["tl"] is None or (l["kind"] == "Trail" and l["legs"][-1][3]) for l in lots(n[k]))]
+    all_filled = [k for k in had_trail if all(l["tl"] is None or l["kind"] == "trail" for l in lots(n[k]))]
     af = set(all_filled)
     some_unfilled = [k for k in had_trail if k not in af]
     return {
@@ -139,11 +140,11 @@ def lines(label, so, sn, pr):
     ]:
         L.append(f"| {name} | {fmt(so[k], p) if p else so[k]} | {fmt(sn[k], p) if p else sn[k]} |")
     d = sn["delay_ms"]
-    L += ["", f"Приказы трейла (tl>0): выставлено {sn['placed']}, исполнено {sn['filled']}, не исполнено {sn['unfilled']} (закрыто: {sn['unfilled_by']}).",
+    L += ["", f"Приказы трейла (tl>0): выставлено {sn['placed']}, исполнено лимиткой {sn['filled']}, исполнено рынком на приходе {sn['market_on_arrival']}, не исполнено {sn['unfilled']} (закрыто: {sn['unfilled_by']}).",
           f"Задержка исполнения: ≤100 мс {d['<=100ms']}, ≤1 с {d['<=1s']}, ≤10 с {d['<=10s']}, ≤60 с {d['<=60s']}, >60 с {d['>60s']}; медиана {fmt(d['median_s'], 1)} с, p90 {fmt(d['p90_s'], 1)} с, макс {fmt(d['max_s'], 0)} с.", ""]
     m = pr["matched"]
     L.append(f"Парно (одна и та же сделка: монета, уровень, сигнал): {m['n']} сделок, Σ Δnet_nf {fmt(m['sum_d_nf'])} $, среднее {fmt(m['mean_d_nf'], 3)} $; лучше {m['better']}, хуже {m['worse']}, без изменения {m['same']}; Δgross {fmt(m['d_gross'])}, Δкомиссии {fmt(m['d_fees'])}, Δфандинг {fmt(m['d_funding'])}.")
-    for nm, k in [("были трейл-выходы, все приказы исполнены", "old_had_trail_new_all_filled"),
+    for nm, k in [("были трейл-выходы, все приказы исполнены (лимиткой или рынком на приходе)", "old_had_trail_new_all_filled"),
                   ("были трейл-выходы, есть неисполненный приказ", "old_had_trail_new_some_unfilled"),
                   ("трейл-выходов не было (разница — каскад портфеля)", "old_no_trail")]:
         a = pr[k]

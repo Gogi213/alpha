@@ -1109,8 +1109,9 @@ fn sim_tail(
     let mut last = (entry_ms, p0);
     let mut exit: Option<(i64, i64, ExitKind)> = None;
     let mut pending: Option<(i64, ExitKind)> = None;
-    // v22 (`tl`): стоящий приказ трейла — (цена в рамe, момент, с которого он живёт); `tl_info` — (мс срабатывания, настоящая цена) для вывода
-    let mut lim: Option<(i64, i64)> = None;
+    // v22 (`tl`): стоящий приказ трейла — (цена в рамe, момент, с которого он живёт, цена последней сделки до его прихода); `tl_info` — (мс срабатывания,
+    // настоящая цена) для вывода
+    let mut lim: Option<(i64, i64, i64)> = None;
     let mut tl_info: Option<(i64, i64)> = None;
     let mut maker_exit = false;
     while let Some((ms, px, _)) = next() {
@@ -1121,12 +1122,19 @@ fn sim_tail(
         }
         let p = s * px;
         last = (ms, p);
-        if let Some((lpx, live)) = lim {
+        if let Some((lpx, live, arrival)) = lim {
             if ms < live {
                 // приказ в пути (задержка выхода): как окно задержки рыночного выхода — сделки только исполняют тейки
                 pos.fill_takes(ms, p);
+                lim = Some((lpx, live, p));
                 continue;
             }
+            // `tl = 2`: к приходу приказа цена уже строго за ним — приказ маркетабелен и исполняется как рыночный выход v21 (тейкер по сделке, с проскальзыванием)
+            if ex.tl == 2 && arrival > lpx {
+                exit = Some((ms, p, ExitKind::Trail));
+                break;
+            }
+            lim = Some((lpx, live, i64::MIN));
             pos.lim = true;
             if let Some((due, kind)) = pending {
                 if ms >= due {
@@ -1134,7 +1142,7 @@ fn sim_tail(
                     break;
                 }
             }
-            if (ex.tl == 1 && p >= lpx) || (ex.tl == 2 && p > lpx) {
+            if p >= lpx {
                 exit = Some((ms, lpx, ExitKind::Trail));
                 maker_exit = true;
                 break;
@@ -1161,7 +1169,7 @@ fn sim_tail(
         }
         if let Some(kind) = pos.on_trade(ms, p) {
             if ex.tl > 0 && kind == ExitKind::Trail {
-                lim = Some((pos.trail, ms + ex.lat_exit_ms));
+                lim = Some((pos.trail, ms + ex.lat_exit_ms, p));
                 tl_info = Some((ms, s * pos.trail));
                 continue;
             }
