@@ -7,7 +7,9 @@ TK-601: ещё проверяет блок «Ход работ» (data/progress.
 """
 from __future__ import annotations
 
+import datetime as dt
 import json
+import os
 import re
 import sys
 
@@ -283,6 +285,127 @@ if os.path.exists(pdom_path):
     eq("DOM шапка", pd_["headline"], prog_src["headline"])
 else:
     bad.append(("нет dom_progress.json", None, None))
+
+# ── 4. эквити (TK-601): equity.json → вшитые данные → независимый пересчёт статистик → DOM (dom_equity.json, report.json из tk593_shots.js)
+E = json.loads(re.search(r'<script id="equity-data" type="application/json">(.*?)</script>', html, re.S).group(1).replace("<\\/", "</"))
+E_src = json.load(open(os.path.join(os.path.dirname(os.path.abspath(html_path)), "data", "equity.json"), encoding="utf-8"))
+eq("equity вшитый == файл", json.dumps(E, sort_keys=True), json.dumps(E_src, sort_keys=True))
+eq("equity сверок без расхождений", len(E["recon"]["bad"]), 0)
+eq("equity сверок не меньше 95", E["recon"]["n"] >= 95, True)
+RI = {it["what"]: it for it in E["recon"]["items"]}
+EQ_NAME = {"T1": "T1 · прибыль, $", "T2": "T2 · прибыль, бп", "T4": "T4 · без жёсткого стопа", "T5": "T5 · MFE − MAE", "T6": "T6 · ранжирование", "short": "Шорт", "long": "Лонг"}
+EQ_BASE = {"short": "Шорт: все сделки базы", "long": "Лонг: все сделки базы", "both": "Шорт + лонг: все сделки"}
+
+
+def eq_stats(net, day, mask):
+    ix = [i for i in range(len(net)) if mask is None or mask[i]]
+    v = [net[i] for i in ix]
+    n, sm = len(v), sum(v)
+    srt = sorted(v, reverse=True)
+    g = {}
+    for i in ix:
+        g[day[i]] = g.get(day[i], 0.0) + net[i]
+    dv = sorted(g.values(), reverse=True)
+    c = pk = dd = 0.0
+    for x in v:
+        c += x
+        pk = max(pk, c)
+        dd = max(dd, pk - c)
+    return {"n": n, "sum": sm, "mean": sm / n, "best": srt[0], "share": srt[0] / sm if sm > 0 else None,
+            "nodays": sm - sum(dv[:2]), "notrades": sm - sum(srt[:2]), "dd": dd}
+
+
+def eq_fmt(st):
+    return {"n": ints(st["n"]), "sum": num(st["sum"], 2, True), "mean": num(st["mean"], 2, True), "best": num(st["best"], 2, True),
+            "share": "—" if st["share"] is None else num(st["share"] * 100, 1) + " %", "nodays": num(st["nodays"], 2, True), "notrades": num(st["notrades"], 2, True), "dd": num(st["dd"], 2)}
+
+
+def eq_series(chart, side):
+    C = E["charts"][chart]
+    if side != "both":
+        return C["sides"][side]
+    rows = []
+    for k in ("short", "long"):
+        S = C["sides"][k]
+        rows += [(S["t"][i], S["en"][i], S["sym"][i], S["net"][i], S["day"][i], k) for i in range(len(S["t"]))]
+    rows.sort(key=lambda r: (r[0], r[1], r[2]))
+    return {"t": [r[0] for r in rows], "en": [r[1] for r in rows], "sym": [r[2] for r in rows], "net": [r[3] for r in rows], "day": [r[4] for r in rows],
+            "sel": {k: [i for i, r in enumerate(rows) if r[5] == k] for k in ("short", "long")}}
+
+
+def eq_lines(S, side):
+    n = len(S["t"])
+    out = [("base", None)]
+    for k, ix in S["sel"].items():
+        m = [False] * n
+        for i in ix:
+            m[i] = True
+        out.append((k, m))
+    return out
+
+
+edom_path = os.path.join(dom_dir, "dom_equity.json")
+if os.path.exists(edom_path):
+    ed = json.load(open(edom_path, encoding="utf-8"))
+    for side in ("short", "long", "both"):
+        d = ed[side]
+        eq(f"DOM эквити {side} графиков", ",".join(d["charts"]), "ja,fit")
+        for chart in ("ja", "fit"):
+            S = eq_series(chart, side)
+            lines = eq_lines(S, side)
+            tbl = d["tables"].get(f"{chart}|{side}")
+            eq(f"DOM эквити {chart}|{side} таблица есть", tbl is not None, True)
+            if tbl is None:
+                continue
+            eq(f"DOM эквити {chart}|{side} строк", ",".join(tbl.keys()), ",".join(k for k, _ in lines))
+            for k, m in lines:
+                st = eq_stats(S["net"], S["day"], m)
+                want = eq_fmt(st)
+                for f, wv in want.items():
+                    eq(f"DOM эквити {chart}|{side}|{k} {f}", tbl.get(k, {}).get(f), wv)
+                eq(f"DOM эквити {chart}|{side}|{k} финал линии", d["finals"].get(f"eq.{chart}.{k}"), st["sum"], 1e-9)
+            nb = sum(1 for p in d["paths"] if p["chart"].startswith(f"eq.{chart}."))
+            eq(f"DOM эквити {chart}|{side} линий на графике", nb, len(lines))
+            eq(f"DOM эквити {chart}|{side} база толще", [p["w"] for p in d["paths"] if p["chart"] == f"eq.{chart}.base"][0], "3.6")
+    # «шорт + лонг» = сумма баз сторон
+    for chart in ("ja", "fit"):
+        a = eq_stats(eq_series(chart, "short")["net"], eq_series(chart, "short")["day"], None)["sum"]
+        b = eq_stats(eq_series(chart, "long")["net"], eq_series(chart, "long")["day"], None)["sum"]
+        eq(f"эквити {chart}: сумма баз шорт + лонг", eq_stats(eq_series(chart, "both")["net"], eq_series(chart, "both")["day"], None)["sum"], a + b, 1e-9)
+    # сверка с проверенными числами TK-598 (read/pool.json и fit/fit-*.json через сверку сборщика): сумма выбранных = среднее × число
+    for key, chart, side, T in (("ja short", "ja", "short", ["T1", "T2", "T4", "T5"]), ("ja long", "ja", "long", ["T6"])):
+        S = eq_series(chart, side)
+        for k, m in eq_lines(S, side)[1:]:
+            n_want, mean_want = RI[f"{key} {k} выбрано"]["want"], RI[f"{key} {k} среднее выбранных"]["want"]
+            st = eq_stats(S["net"], S["day"], m)
+            eq(f"проверено {key} {k}: сделок", st["n"], n_want)
+            eq(f"проверено {key} {k}: сумма = среднее × сделок", st["sum"], mean_want * n_want, 1e-9)
+            eq(f"DOM проверено {key} {k}: сумма", ed[side]["tables"][f"{chart}|{side}"][k]["sum"], num(mean_want * n_want, 2, True))
+    for k, m in eq_lines(eq_series("fit", "short"), "short")[1:]:
+        st = eq_stats(eq_series("fit", "short")["net"], eq_series("fit", "short")["day"], m)
+        eq(f"проверено fit short {k}: сумма = среднее × сделок", st["sum"], RI[f"fit short {k} среднее выбранных"]["want"] * RI[f"fit short {k} выбрано"]["want"], 1e-9)
+    # наведение (report.json): сделка из подсказки есть в данных, «накоплено» базы совпадает с суммой до неё
+    rp = os.path.join(dom_dir, "report.json")
+    if os.path.exists(rp):
+        rep = json.load(open(rp, encoding="utf-8"))
+        for side in ("short", "long", "both"):
+            for chart in ("ja", "fit"):
+                S = eq_series(chart, side)
+                cum, c = [], 0.0
+                for v in S["net"]:
+                    c += v
+                    cum.append(c)
+                fd = lambda ms: dt.datetime.fromtimestamp(ms / 1000, dt.timezone.utc).strftime("%d.%m %H:%M")
+                for h_ in rep["equity"][side]["hover"][chart][:3]:
+                    parts = [p.strip() for p in h_["text"].split("|")]
+                    sym, close_s, net_s = parts[0], parts[parts.index("Закрытие") + 1].replace(" UTC", ""), parts[parts.index("Прибыль сделки") + 1].replace(" $", "")
+                    base_name = EQ_BASE[side]
+                    base_s = parts[parts.index(base_name) + 1]
+                    hits = [i for i in range(len(S["t"])) if S["sym"][i] == sym and fd(S["t"][i]) == close_s and num(S["net"][i], 2, True) == net_s]
+                    eq(f"наведение {chart}|{side} {sym} {close_s}: сделка найдена", len(hits) >= 1, True)
+                    eq(f"наведение {chart}|{side} {sym} {close_s}: накоплено базы", any(num(cum[i], 2, True) == base_s for i in hits), True)
+else:
+    bad.append(("нет dom_equity.json", None, None))
 
 print(f"проверок {n_ok + len(bad)}, совпало {n_ok}, расхождений {len(bad)}")
 for b in bad[:30]:

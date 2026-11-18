@@ -62,7 +62,7 @@ svg text.k{fill:var(--fg)}
 .brand{font-weight:650;font-size:14px;white-space:nowrap;color:var(--z700)}
 #toptabs{overflow-x:auto;max-width:100%}
 #toptabs button{white-space:nowrap}
-@media(max-width:640px){.brand{display:none}.toptabs-in{padding:0 12px}#toptabs button{padding:6px 12px}}
+@media(max-width:640px){.brand{display:none}.toptabs-in{padding:0 8px}#toptabs button{padding:6px 8px;font-size:13px}}
 .bar{top:54px}
 section{scroll-margin-top:130px}
 .eq-h{display:flex;align-items:baseline;justify-content:space-between;gap:10px;flex-wrap:wrap}
@@ -77,7 +77,14 @@ section{scroll-margin-top:130px}
 .eqt th{white-space:normal;vertical-align:bottom;max-width:120px}
 .eqt .sw{display:inline-block;width:18px;height:0;border-top:3px solid;vertical-align:middle;margin-right:8px}
 .eqt tr.base td:first-child{font-weight:600}
-@media(max-width:640px){.eq-card .card-b{padding:10px 10px 14px}}
+@media(max-width:640px){.eq-card .card-b{padding:10px 10px 14px}
+.eqt,.eqt tbody{display:block}
+.eqt thead{display:none}
+.eqt tr{display:grid;grid-template-columns:1fr 1fr;gap:4px 12px;padding:10px 0;border-bottom:1px solid var(--border)}
+.eqt tr:last-child{border-bottom:0}
+.eqt td,.eqt td:first-child{padding:0;border:0;min-width:0;text-align:left;white-space:normal}
+.eqt td:first-child{grid-column:1/-1}
+.eqt td[data-lab]::before{content:attr(data-lab);display:block;margin-bottom:1px;color:var(--mfg);font-size:11.5px;font-weight:400}}
 .prog{padding:28px 0 8px}
 .prog-h{display:flex;align-items:baseline;justify-content:space-between;gap:10px}
 .prog-h h2{font-size:20px;font-weight:650;letter-spacing:-.02em}
@@ -212,6 +219,7 @@ function moveTip(ev) {
   let x = ev.clientX + 14, y = ev.clientY + 14;
   if (x + r.width > innerWidth - 8) x = ev.clientX - r.width - 14;
   if (y + r.height > innerHeight - 8) y = ev.clientY - r.height - 14;
+  x = Math.max(8, x); y = Math.max(8, y);
   tip.style.left = x + 'px'; tip.style.top = y + 'px';
 }
 function hover(node, fn_) {
@@ -625,7 +633,7 @@ function eqTable(chartId, side, S, lines) {
   const body = h('tbody');
   lines.forEach(l => {
     const st = eqStats(S, l.mask), f = {n: ints(st.n), sum: money(st.sum), mean: money(st.mean), best: money(st.best), share: st.share == null ? '—' : pct(st.share, 1), nodays: money(st.nodays), notrades: money(st.notrades), dd: num(st.dd, 2)};
-    body.append(h('tr', {'data-line': l.k, class: l.k === 'base' ? 'base' : ''}, [h('td', {}, [h('span', {class: 'sw', style: `border-color:${EQ_COL[l.k]};border-top-width:${l.k === 'base' ? 4 : 3}px`}), l.name]), ...cols.map(([k]) => h('td', {class: 'num', 'data-f': k}, f[k]))]));
+    body.append(h('tr', {'data-line': l.k, class: l.k === 'base' ? 'base' : ''}, [h('td', {}, [h('span', {class: 'sw', style: `border-color:${EQ_COL[l.k]};border-top-width:${l.k === 'base' ? 4 : 3}px`}), l.name]), ...cols.map(([k]) => h('td', {class: 'num', 'data-f': k, 'data-lab': cols.find(c => c[0] === k)[1]}, f[k]))]));
   });
   tb.append(body);
   return h('div', {style: 'overflow-x:auto'}, tb);
@@ -635,7 +643,7 @@ function eqChart(chartId, side, width) {
   const w = width, hh = w < 520 ? 300 : 360, x0 = C.start_ms, x1 = C.end_ms + 3600e3, DAYMS = 86400e3;
   const [ylo, yhi] = rng(lines.flatMap(l => l.y).concat([0]), .08);
   const stepD = w < 560 ? 14 : 7, xt = []; for (let t = x0; t <= x1; t += stepD * DAYMS) xt.push(t);
-  const p = plot({id: 'eq.' + chartId, w, h: hh, xd: [x0, x1], yd: [ylo, yhi], xt, xf: fday, yf: v => num(v, 0), ylab: 'накопленная прибыль, $', m: {l: 50, r: 14, t: 22, b: 30}});
+  const p = plot({id: 'eq.' + chartId, w, h: hh, xd: [x0, x1], yd: [ylo, yhi], xt, xf: fday, yf: v => num(v, 0), ylab: 'накопленная прибыль, $', m: {l: 50, r: 14, t: C.split_ms ? 36 : 22, b: 30}});
   const {X, Y} = p;
   p.svg.append(el('line', {x1: X(x0), x2: X(x1), y1: Y(0), y2: Y(0), stroke: '#a1a1aa', 'stroke-dasharray': '3 3'}));
   if (C.split_ms) {
@@ -715,7 +723,7 @@ function initTabs() {
   parseHash();
   route();
   window.addEventListener('hashchange', () => { parseHash(); route(); });
-  let rt; window.addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(() => { if (ST.tab === 'equity') renderEquity(); }, 150); });
+  let rt, lastW = innerWidth; window.addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(() => { if (innerWidth !== lastW) { lastW = innerWidth; if (ST.tab === 'equity') renderEquity(); } }, 150); });
 }
 
 // ── сборка страницы
