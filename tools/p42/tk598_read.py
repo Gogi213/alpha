@@ -6,7 +6,7 @@
       `ŝ` = среднее пяти фолдовых моделей, «треть» по замороженной границе `q`, описательные меры по цели; сохраняет строки окна (`rows-<окно>-<сторона>.parquet`) для объединения.
       `--win F` — только проверка кода на открытых данных F (маркер и выход — в каталоге с `TEST`).
   python3 tk598_read.py pool --frozen <frozen.json> --out <каталог чтения>
-      Объединённое окно 01.07–31.08 (62 суток, одна серия): S1, S2, блочный бутстреп 4 суток (20 000, seed 598), p = max(p1, p2), Холм по `m` один раз, нижняя 95 %-граница S2,
+      Объединённое окно 01.07–31.08 (62 суток, одна серия): S1, S2, блочный бутстреп 4 суток (20 000, seed 598), p = max(p1, p0), Холм по `m` один раз, нижняя 95 %-граница S0; S2 — охранное,
       S2 без 2 лучших суток / монет, S1 > 0 отдельно в июле и августе, вердикт; наименьший различимый лифт до Холма и после. Метки не открываются заново (читаются сохранённые строки окон).
 """
 from __future__ import annotations
@@ -191,7 +191,8 @@ def verdicts(df, fs, targets, idx, sigma, ndays=POOL_DAYS):
                       S1_lo95=float(np.nanquantile(s1b, 0.05)), S2_hi95=float(np.nanquantile(s2b, 0.95)),
                       S2_no_top2days=L.drop_top_sum(net, sel, pday, 2) / ndays, S2_no_top2coins=L.drop_top_sum(net, sel, df["sym"].to_numpy(), 2) / ndays,
                       months=month, sel_share=float(sel.mean()),
-                      mdl_lift_noholm=L.mdl_lift(sigma, ps["n_sel"], 1), mdl_lift_holm=L.mdl_lift(sigma, ps["n_sel"], max(len(targets), 1)))
+                      mde_S0_noholm=L.mde_s0(sigma, ps["n_sel"], 1), mde_S0_holm=L.mde_s0(sigma, ps["n_sel"], max(len(targets), 1)),
+                      mde_lift_noholm=L.mde_lift(sigma, ps["n_sel"], 1), mde_lift_holm=L.mde_lift(sigma, ps["n_sel"], max(len(targets), 1)))
     rej = L.holm_reject(pv) if pv else []
     rej_ref = L.holm_reject(pref) if pref else []
     for i, t in enumerate(targets):

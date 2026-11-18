@@ -1,6 +1,7 @@
 """Юнит-тесты П-42 §13.23 (TK-598): срезы окон, номинал, метки по обучающей части, блоки CV с purge, бутстреп по суткам, Холм, вердикты, объединённая серия, сквозной прогон подгонки на синтетике.
 Запуск на srv: cd /data/p42-tk598/py && /data/tk592/venv/bin/python -m unittest test_tk598 (numpy, pandas, catboost, scipy)."""
 import json
+import math
 import os
 import sys
 import tempfile
@@ -171,11 +172,19 @@ class StatsTests(unittest.TestCase):
         self.assertAlmostEqual(L.drop_top_sum(net, sel, np.array([0, 1, 2, 3, 4]), 2), 1.0 + 1.0 - 3.0)
         self.assertAlmostEqual(L.drop_top_sum(net, sel, np.array(["a", "a", "b", "c", "c"]), 2), -2.0)
 
-    def test_mdl_lift(self):
-        a = L.mdl_lift(10.0, 100, 1)
-        b = L.mdl_lift(10.0, 100, 4)
+    def test_mde(self):
+        a = L.mde_s0(10.0, 100, 1)
+        b = L.mde_s0(10.0, 100, 4)
         self.assertAlmostEqual(a, (1.6448536 + 0.84) * 1.0, places=3)
         self.assertGreater(b, a)
+        # лифт: множитель √(1 − 1/3) относительно MDE среднего выбранных; при f = 0 совпадает с S0
+        self.assertAlmostEqual(L.mde_lift(10.0, 100, 1), a * math.sqrt(2 / 3), places=9)
+        self.assertAlmostEqual(L.mde_lift(10.0, 100, 4), b * math.sqrt(2 / 3), places=9)
+        self.assertAlmostEqual(L.mde_lift(10.0, 100, 1, f=0.0), a, places=9)
+        # §13.23.3 п. 2 / п. 4, F-U1: лонг σ = 8,244, n_выб ≈ 88 без Холма → 1,79 $/сд. (лифт), 2,19 (S0); допуск — n_выб в протоколе округлён
+        self.assertAlmostEqual(L.mde_lift(8.244, 88, 1), 1.79, delta=0.02)
+        self.assertAlmostEqual(L.mde_s0(8.244, 88, 1), 2.19, delta=0.02)
+        self.assertTrue(math.isnan(L.mde_lift(8.244, 0, 1)))
 
     def test_auc_spearman(self):
         self.assertAlmostEqual(L.auc([0, 0, 1, 1], [0.1, 0.2, 0.8, 0.9]), 1.0)

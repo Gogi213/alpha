@@ -237,11 +237,16 @@ def drop_top_sum(net, sel, keys, n_drop=2):
     return float(net.sum() - g.iloc[:n_drop].sum())
 
 
-def mdl_lift(sigma, n_sel, m=1):
-    """Наименьший различимый лифт `(z_{1−α/m} + 0,84)·σ/√n_sel` (одностороннее 5 %, мощность 80 %); `m = 1` — до Холма."""
+def mde_s0(sigma, n_sel, m=1):
+    """MDE среднего выбранных S0 (§13.23.3 п. 4): `(z_{1−α/m} + 0,84)·σ/√n_sel` (одностороннее 5 %, мощность 80 %); `m = 1` — до Холма."""
     from scipy.stats import norm
     z = norm.ppf(1 - HOLM_ALPHA / m)
     return float((z + 0.84) * sigma / math.sqrt(n_sel)) if n_sel > 0 else float("nan")
+
+
+def mde_lift(sigma, n_sel, m=1, f=1 / 3):
+    """MDE лифта S1 = S0 − среднее всех (§13.23.3 п. 2): `(z_{1−α/m} + 0,84)·σ·√((1 − f)/n_sel)`, `f` — доля «трети» (выбранные ⊂ все)."""
+    return mde_s0(sigma, n_sel, m) * math.sqrt(1 - f)
 
 
 def auc(y, s):
