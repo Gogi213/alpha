@@ -4,6 +4,14 @@
       G2: `<S>_r1` ≡ выход TK-599 для C* (md5 `*-trades|daily|coinday|entryrej.csv` и `meta.json`; содержимое P&L не читается).
   python3 tk610_gates.py g5 --win … --run <out/<окно>-R2> --r1 <out/<окно>-R1> --side L|S [--out <json>]
       G5: `<S>_g5pass` = R1 (4 csv байт в байт; `meta.json` — сверка счётчиков фильтра), `<S>_g5cut` — 0 сделок; `no_key = 0` у всех вариантов R2.
+  python3 tk610_gates.py g1 --root /data/p42-tk599 --manifests <tk599-manifests.txt> --symbols <symbols.txt> --engine <alpha-master> [--allow <md5,…>] [--runs <out/…> …]
+      G1: md5 движка ∈ допустимых (и равен записанному в манифестах), sha256 `symbols.txt`, манифесты окон `<root>/<окно>/MANIFEST` = записанным; `manifest-engine.txt` прогонов — тот же md5.
+  python3 tk610_gates.py g3 --run-root <каталог out> --side L|S [--out <json>]
+      G3: даты сделок R0 / R1 каждого окна (читается только `entry_ms`): ни одной позже 13.11 (сутки 135), в зачётном диапазоне окна есть сделки; печатаются числа.
+  python3 tk610_gates.py g4 --cand <cand-….parquet> --ref <ep_u0.parquet | aug_u0.parquet> --ref-t0 <T0 эталона> --side long|short [--min-keys 200] [--out <json>]
+      G4: f12 на общих ключах `(sym, абсолютный sig_ms, dist_e8, lp_e8)` равны эталону до 1e-9 (читаются только ключи и признаки эталона).
+  python3 tk610_gates.py g9 --info <….parquet.info.json …> [--out <json>]
+      G9: строк с `age_h` > 14 сут. в таблицах обучения и кандидатов — 0 (числа и доли печатаются).
   python3 tk610_gates.py sigma --run-root <каталог out> --side L|S [--out <json>]
       σ, среднее и число сделок C* (R1) в окне поиска: строки с сутками входа в зачётном диапазоне окна и в блоках Б1…Б4 (август не читается).
 """
@@ -76,6 +84,114 @@ def gate_g5(win, run, r1, side):
             "no_key_zero": bool(no_key_ok), "cands_equal_r1": bool(cands_ok), "ok": bool(csv_ok and cut_rows == 0 and no_key_ok and cands_ok)}
 
 
+def parse_manifests(text):
+    """`tk599-manifests.txt` → {секция: [строки]} (заголовок `== <имя>`)."""
+    out, cur = {}, None
+    for line in text.splitlines():
+        line = line.rstrip()
+        if line.startswith("== "):
+            cur = line[3:].strip()
+            out[cur] = []
+        elif cur is not None and line:
+            out[cur].append(line)
+    return out
+
+
+def gate_g1(root, manifests, symbols, engine, allow=(), wins=("wa", "wb", "wc"), runs=()):
+    with open(manifests, encoding="utf-8") as f:
+        rec = parse_manifests(f.read())
+    res = {"gate": "G1", "windows": {}, "runs": {}}
+    ok = True
+    md5 = T.md5_file(engine)
+    recorded = {ln.split()[3] for sec in rec.values() for ln in sec if ln.startswith("binary ")}
+    allowed = set(allow) | recorded
+    res["engine_md5"], res["engine_allowed"] = md5, sorted(allowed)
+    res["engine_ok"] = md5 in allowed
+    ok &= res["engine_ok"]
+    sha = T.sha256_file(symbols)
+    res["symbols_sha256"] = sha
+    res["symbols_ok"] = bool(rec.get("symbols")) and sha == rec["symbols"][0].split()[0]
+    ok &= res["symbols_ok"]
+    for w in wins:
+        with open(os.path.join(root, w, "MANIFEST"), encoding="utf-8") as f:
+            have = [ln.rstrip() for ln in f if ln.strip()]
+        res["windows"][w] = {"equal": have == rec.get(w)}
+        ok &= res["windows"][w]["equal"]
+    for r in runs:
+        p = os.path.join(r, "manifest-engine.txt")
+        got = open(p, encoding="utf-8").read().split()[-1] if os.path.exists(p) else None
+        res["runs"][r] = {"engine_md5": got, "ok": got in allowed}
+        ok &= res["runs"][r]["ok"]
+    res["ok"] = bool(ok)
+    return res
+
+
+def gate_g3(run_root, side):
+    """Даты сделок R0 / R1 (только `entry_ms`): последние сутки ≤ 135, в зачётном диапазоне окна есть сделки."""
+    name = rf.ENGINE_SIDE[side]
+    res, ok = {"gate": "G3", "side": side, "runs": {}}, True
+    for w in rf.WINDOWS:
+        for tag in ("R0", "R1"):
+            p = os.path.join(run_root, "%s-%s" % (w.name, tag), "eng", "%s_%s" % (side, tag.lower()), "%s-trades.csv" % name)
+            if not os.path.exists(p):
+                continue
+            c = D.trades_per_day(p, w)
+            days = np.nonzero(c)[0]
+            lo, hi = T.credit_days(w)
+            g = {"trades": int(c.sum()), "first_day": int(days.min()) if len(days) else None, "last_day": int(days.max()) if len(days) else None,
+                 "in_credit": int(c[lo:hi + 1].sum()), "after_data_end": int(c[rf.NDAYS:].sum())}
+            g["ok"] = bool(g["after_data_end"] == 0 and g["in_credit"] > 0)
+            ok &= g["ok"]
+            res["runs"]["%s-%s" % (w.name, tag)] = g
+    res["ok"] = bool(ok and res["runs"])
+    return res
+
+
+def gate_g4(cand, ref, ref_t0, side, min_keys=200, tol=1e-9):
+    """G4: f12 таблицы кандидатов (или обучения) = эталон на общих ключах; время эталона переводится в абсолютное (от 01.07) по его T0."""
+    import datetime
+
+    import pyarrow.parquet as pq
+    import tk598_feat as TF
+    mine = pd.read_parquet(cand)
+    cols = ["sym", "sig_ms", "dist_e8", "lp_e8"] + [c for c in T.FEATS if c != "lturn24"] + ["turn24h"]
+    r = pd.read_parquet(ref, columns=(["side"] if "side" in set(pq.ParquetFile(ref).schema.names) else []) + cols)
+    if "side" in r:
+        r = r[r["side"] == side]
+    r = r.copy()
+    r["lturn24"] = np.log10(r["turn24h"].astype(float).clip(lower=1))
+    r["a_sig"] = r["sig_ms"].astype(np.int64) + (datetime.date.fromisoformat(ref_t0) - T.D0).days * T.DAY
+    mine = mine[mine["tick_ok"]].copy()
+    key = ["sym", "a_sig", "dist_e8", "lp_e8"]
+    for df in (mine, r):
+        df["a_sig"] = df["a_sig"].astype(np.int64)
+        df["dist_e8"] = df["dist_e8"].astype(np.int64)
+        df["lp_e8"] = df["lp_e8"].astype(np.int64)
+    n = r.groupby(key).size().rename("n_ref").reset_index()
+    r1 = r.merge(n, on=key)
+    r1 = r1[r1["n_ref"] == 1].drop(columns=["n_ref", "sig_ms"])
+    j = mine.merge(r1, on=key, suffixes=("", "_ref"), how="inner")
+    res = {"gate": "G4", "side": side, "common_keys": int(len(j)), "min_keys": min_keys, "tol": tol, "features": {}}
+    ok = len(j) >= min_keys
+    for c in T.FEATS:
+        v = TF.compare_values(j[c].to_numpy(), j[c + "_ref"].to_numpy(), tol)
+        res["features"][c] = v
+        ok &= v["n_mismatch"] == 0
+    res["ok"] = bool(ok)
+    return res
+
+
+def gate_g9(infos):
+    res, ok = {"gate": "G9", "tables": {}}, True
+    for p in infos:
+        with open(p, encoding="utf-8") as f:
+            a = json.load(f)["age_censor"]
+        res["tables"][os.path.basename(p)] = a
+        ok &= a["gt_days"] == 0
+    res["ok"] = bool(ok and infos)
+    return res
+
+
 def sigma_search(run_root, side):
     """σ, среднее и число сделок C* (R1) в окне поиска. Читаются метки только строк с сутками входа в зачётном диапазоне окна и в блоках поиска."""
     name = rf.ENGINE_SIDE[side]
@@ -112,6 +228,28 @@ def main(argv=None):
             p.add_argument("--root", default=D.ROOT)
         else:
             p.add_argument("--r1", required=True)
+    g1 = sp.add_parser("g1")
+    g1.add_argument("--root", default=D.ROOT)
+    g1.add_argument("--manifests", required=True)
+    g1.add_argument("--symbols", required=True)
+    g1.add_argument("--engine", required=True)
+    g1.add_argument("--allow", default="")
+    g1.add_argument("--runs", nargs="*", default=[])
+    g1.add_argument("--out")
+    g3 = sp.add_parser("g3")
+    g3.add_argument("--run-root", required=True)
+    g3.add_argument("--side", required=True, choices=list(rf.SIDES))
+    g3.add_argument("--out")
+    g4 = sp.add_parser("g4")
+    g4.add_argument("--cand", required=True)
+    g4.add_argument("--ref", required=True)
+    g4.add_argument("--ref-t0", required=True)
+    g4.add_argument("--side", required=True, choices=["long", "short"])
+    g4.add_argument("--min-keys", type=int, default=200)
+    g4.add_argument("--out")
+    g9 = sp.add_parser("g9")
+    g9.add_argument("--info", required=True, nargs="+")
+    g9.add_argument("--out")
     s = sp.add_parser("sigma")
     s.add_argument("--run-root", required=True)
     s.add_argument("--side", required=True, choices=list(rf.SIDES))
@@ -121,6 +259,14 @@ def main(argv=None):
         r = gate_g2(a.win, a.run, a.side, a.cstar, a.root)
     elif a.cmd == "g5":
         r = gate_g5(a.win, a.run, a.r1, a.side)
+    elif a.cmd == "g1":
+        r = gate_g1(a.root, a.manifests, a.symbols, a.engine, [x for x in a.allow.split(",") if x], runs=a.runs)
+    elif a.cmd == "g3":
+        r = gate_g3(a.run_root, a.side)
+    elif a.cmd == "g4":
+        r = gate_g4(a.cand, a.ref, a.ref_t0, a.side, a.min_keys)
+    elif a.cmd == "g9":
+        r = gate_g9(a.info)
     else:
         r = sigma_search(a.run_root, a.side)
     print(json.dumps(r, ensure_ascii=False, indent=1))

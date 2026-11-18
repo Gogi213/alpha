@@ -117,10 +117,10 @@ def episode_features(side, sigsx_csv, work, tag, procs):
         ep["tick_ok"] = True
     ep["tick_ok"] = ep["tick_ok"].fillna(False).astype(bool)
     ep["lturn24"] = np.log10(ep["turn24h"].astype(float).clip(lower=1)) if "turn24h" in ep else np.nan
-    for c in T.FEATS:
+    for c in ["dist_e8", "lp_e8"] + T.FEATS:      # dist_e8 / lp_e8 — личность уровня для ворот G4
         if c not in ep:
             ep[c] = np.nan
-    out = ep[T.KEY + ["tick_ok"] + T.FEATS].copy()
+    out = ep[T.KEY + ["dist_e8", "lp_e8", "tick_ok"] + T.FEATS].copy()
     if out.duplicated(T.KEY).any():
         raise T.GuardError("дубль ключа в таблице признаков")
     return out

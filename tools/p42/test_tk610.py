@@ -315,6 +315,74 @@ class GateTests(unittest.TestCase):
             self.assertFalse(GT.gate_g5("wc", r2, r1, "L")["no_key_zero"])
 
 
+class MoreGateTests(unittest.TestCase):
+    def test_g1(self):
+        with tempfile.TemporaryDirectory() as td:
+            sym = os.path.join(td, "symbols.txt")
+            open(sym, "w").write("AAAUSDT,BBBUSDT\n")
+            eng = os.path.join(td, "bin")
+            open(eng, "wb").write(b"x")
+            man = {"wa": ["manifest-trades 1 файлов, sha256 aa", "T0 2026-06-17 D0 2026-06-17 D1 2026-08-29"]}
+            for w in ("wa", "wb", "wc"):
+                os.makedirs(os.path.join(td, w))
+                lines = man.get(w, ["manifest-trades 2 файлов, sha256 bb"])
+                open(os.path.join(td, w, "MANIFEST"), "w").write("\n".join(lines) + "\n")
+            mf = os.path.join(td, "m.txt")
+            nl = chr(10)
+            with open(mf, "w") as f:
+                f.write(nl.join(["== wa"] + man["wa"] + ["== wb", "manifest-trades 2 файлов, sha256 bb", "== wc", "manifest-trades 2 файлов, sha256 bb"]) + nl)
+                f.write(nl.join(["== symbols", "%s  /x/symbols.txt" % T.sha256_file(sym), "== engine", "binary abc md5 %s" % T.md5_file(eng)]) + nl)
+            g = GT.gate_g1(td, mf, sym, eng)
+            self.assertTrue(g["ok"], g)
+            open(os.path.join(td, "wb", "MANIFEST"), "w").write("manifest-trades 3 файлов, sha256 cc\n")      # манифест окна изменился
+            self.assertFalse(GT.gate_g1(td, mf, sym, eng)["windows"]["wb"]["equal"])
+            open(eng, "wb").write(b"y")                                                                       # бинарь другой
+            self.assertFalse(GT.gate_g1(td, mf, sym, eng)["engine_ok"])
+
+    def test_g9(self):
+        with tempfile.TemporaryDirectory() as td:
+            p = os.path.join(td, "a.info.json")
+            json.dump({"age_censor": T.age_censor(np.array([1.0, 2.0]))}, open(p, "w"))
+            self.assertTrue(GT.gate_g9([p])["ok"])
+            json.dump({"age_censor": T.age_censor(np.array([1.0, 400.0]))}, open(p, "w"))
+            self.assertFalse(GT.gate_g9([p])["ok"])
+
+    def test_g4_matches_reference_in_absolute_time(self):
+        with tempfile.TemporaryDirectory() as td:
+            rng = np.random.default_rng(9)
+            n = 300
+            ref_t0_off = 62 * DAY                                          # эталон с T0 01.09
+            ref = pd.DataFrame({"sym": ["AAA"] * n, "sig_ms": np.arange(n) * 1000 + 5, "dist_e8": np.arange(n), "lp_e8": 7, "side": "long", "turn24h": rng.uniform(1e6, 1e8, n),
+                                **{f: rng.normal(size=n) for f in T.FEATS if f != "lturn24"}})
+            mine = ref.copy()
+            mine["a_sig"] = mine["sig_ms"] + ref_t0_off
+            mine["lturn24"] = np.log10(mine["turn24h"].clip(lower=1))
+            mine["tick_ok"] = True
+            rp, mp_ = os.path.join(td, "ref.parquet"), os.path.join(td, "mine.parquet")
+            ref.to_parquet(rp)
+            mine.to_parquet(mp_)
+            g = GT.gate_g4(mp_, rp, "2026-09-01", "long")
+            self.assertTrue(g["ok"], g)
+            self.assertEqual(g["common_keys"], n)
+            mine.loc[3, "zv6h"] += 1.0
+            mine.to_parquet(mp_)
+            self.assertFalse(GT.gate_g4(mp_, rp, "2026-09-01", "long")["ok"])
+            self.assertFalse(GT.gate_g4(mp_, rp, "2026-09-01", "long", min_keys=1000)["ok"])
+
+    def test_g3(self):
+        with tempfile.TemporaryDirectory() as td:
+            wc = rf.WINDOWS[2]
+            for tag in ("R0", "R1"):
+                d = os.path.join(td, "wc-%s" % tag, "eng", "L_%s" % tag.lower())
+                os.makedirs(d)
+                pd.DataFrame({"entry_ms": [(94 - 62) * DAY + 1, (100 - 62) * DAY]}).to_csv(os.path.join(d, "long-trades.csv"), index=False)
+            g = GT.gate_g3(td, "L")
+            self.assertTrue(g["ok"], g)
+            self.assertEqual(g["runs"]["wc-R1"]["in_credit"], 2)
+            pd.DataFrame({"entry_ms": [(136 - 62) * DAY + 1]}).to_csv(os.path.join(td, "wc-R1", "eng", "L_r1", "long-trades.csv"), index=False)   # сделка позже 13.11
+            self.assertFalse(GT.gate_g3(td, "L")["ok"])
+
+
 class DataTests(unittest.TestCase):
     def test_read_rows_drops_august_and_overlap(self):
         wc = rf.WINDOWS[2]                                   # T0 01.09 → 03.10 = сутки 94 от 01.07: credit 94…135
