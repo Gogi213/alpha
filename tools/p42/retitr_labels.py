@@ -53,9 +53,14 @@ def ep_feature_cols(df):
 def cmd_columns(out, ep, extra):
     df = pd.read_parquet(ep)
     rows = [(group_of(c), c, "ep_u0") for c in ep_feature_cols(df)]
+    seen = {c for _, c, _ in rows}
     for src, path in extra.items():
         t = pd.read_parquet(path)
-        rows += [(group_of(c), c, src) for c in t.columns if c != "ep_id" and (pd.api.types.is_numeric_dtype(t[c]) or t[c].dtype == bool)]
+        # таблицы TK-594 flow и deriv несут колонки друг друга целиком пустыми: берём только колонки, не целиком пустые и не взятые раньше
+        for c in t.columns:
+            if c != "ep_id" and c not in seen and t[c].notna().any() and (pd.api.types.is_numeric_dtype(t[c]) or t[c].dtype == bool):
+                rows.append((group_of(c), c, src))
+                seen.add(c)
     with open(out, "w", encoding="utf-8") as f:
         f.write("# П-42 §13.21 стадия меток: колонки-кандидаты (группа<TAB>колонка<TAB>источник); исключены: ключи, исходы, метки, пул (natr_bp, turn1h, turn24h), календарь (hour4, wday)\n")
         for g, c, s in rows:
