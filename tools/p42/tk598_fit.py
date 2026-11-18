@@ -30,6 +30,7 @@ import tk598_lib as L  # noqa: E402
 
 CB_BASE = dict(learning_rate=0.05, grow_policy="Depthwise", random_seed=L.SEED, thread_count=1, verbose=0, allow_writing_files=False)
 ITER_CAP = 1000
+FINAL_CUTOFF_DAYS = 74   # конец окна F (сутки 14…74): сделки, закрытые позже, в обучение не идут (ни в фолдах, ни в финальной модели)
 OD_WAIT = 50
 MIN_ITERS = 10
 # цель → подмодели: (имя, вид); вид: rmse | wlogloss | logloss | rank
@@ -132,13 +133,20 @@ def val_loss(kind, pred, y, w=None, g=None):
     return -float(eval_metric(y, pred, "NDCG", group_id=g)[0])
 
 
+def train_idx(U0, k):
+    """Обучающие строки фолда `k`: purge по блоку + только сделки, закрытые до конца окна F (`exit_ms` < 74 сут., как у финальной модели); возвращает (индексы, число отброшенных этим вторым условием)."""
+    tr = L.purge_train(U0["day"].to_numpy(), U0["entry_ms"].to_numpy(), U0["exit_ms"].to_numpy(), L.F_BLOCKS[k])
+    ok = U0["exit_ms"].to_numpy()[tr] < FINAL_CUTOFF_DAYS * L.DAY
+    return tr[ok], int((~ok).sum())
+
+
 def cv_task(args):
     """Одна подгонка (подмодель, клетка, блок): потеря на проверке при лучшей итерации и лучшая итерация."""
     sub, cell, k = args
     U0, blk = G["U0"], G["blk"]
     d0, d1 = L.F_BLOCKS[k]
     va_idx = np.nonzero(blk == k)[0]
-    tr_idx = L.purge_train(U0["day"].to_numpy(), U0["entry_ms"].to_numpy(), U0["exit_ms"].to_numpy(), (d0, d1))
+    tr_idx = train_idx(U0, k)[0]
     D = prep(U0, sub, tr_idx, va_idx)
     X = G["X"]
     m = make_model(D["kind"], cell, ITER_CAP, True)
@@ -153,7 +161,7 @@ def refit_task(args):
     U0, blk = G["U0"], G["blk"]
     d0, d1 = L.F_BLOCKS[k]
     va_idx = np.nonzero(blk == k)[0]
-    tr_idx = L.purge_train(U0["day"].to_numpy(), U0["entry_ms"].to_numpy(), U0["exit_ms"].to_numpy(), (d0, d1))
+    tr_idx = train_idx(U0, k)[0]
     D = prep(U0, sub, tr_idx, va_idx)
     m = make_model(D["kind"], cell, n_it, False)
     m.fit(make_pool(G["X"][D["tr"]], D["ytr"], D["wtr"], D["gtr"]))
@@ -183,6 +191,9 @@ def fit_side(side, u0_path, u1_path, out, procs):
     res["catboost"] = catboost.__version__
     res["blocks"] = L.F_BLOCKS
     res["n_per_block_U0"] = [int((G["blk"] == k).sum()) for k in range(5)]
+    res["train_rows_per_fold"] = [int(len(train_idx(U0, k)[0])) for k in range(5)]
+    res["train_dropped_exit_ge74_per_fold"] = [train_idx(U0, k)[1] for k in range(5)]
+    print(f"обучение по фолдам: строк {res['train_rows_per_fold']}, отброшено exit ≥ {FINAL_CUTOFF_DAYS} сут.: {res['train_dropped_exit_ge74_per_fold']}", flush=True)
     res["n_per_block_U1"] = [int((blk1 == k).sum()) for k in range(5)]
     stops = int(U0["y_stop"].sum())
     res["stops_U0"] = stops
@@ -252,7 +263,7 @@ def fit_side(side, u0_path, u1_path, out, procs):
         for sub, _kind in SPECS[t]:
             res["targets"][t]["subs"][sub]["fold_meta"] = [meta[(sub, k)] for k in range(5)]
     # --- 5. финальная модель на всём U0-F (справочно), важности ---
-    cutoff = 74 * L.DAY
+    cutoff = FINAL_CUTOFF_DAYS * L.DAY
     keep = (U0["exit_ms"].to_numpy() < cutoff)
     res["final_excluded_rows"] = int((~keep).sum())
     all_idx = np.nonzero(keep)[0]
@@ -277,7 +288,7 @@ def fit_side(side, u0_path, u1_path, out, procs):
         imp = {f: [] for f in L.FEATS}
         for k in range(5):
             va_idx = np.nonzero(G["blk"] == k)[0]
-            tr_idx = L.purge_train(U0["day"].to_numpy(), U0["entry_ms"].to_numpy(), U0["exit_ms"].to_numpy(), L.F_BLOCKS[k])
+            tr_idx = train_idx(U0, k)[0]
             D = prep(U0, sub, tr_idx, va_idx)
             Xv = G["X"][D["va"]]
             base = val_loss(kind, predict(models[(sub, k)], kind, Xv), D["yva"], D["wva"], D["gva"])

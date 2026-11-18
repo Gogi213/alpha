@@ -5,7 +5,7 @@
       Строит таблицу строк окна (сделки U1 + метки + f12 + MAE / MFE), ворота G-W (даты, сумма `net` = сумма суточного среза движка: печатаются только булевы итоги и |Δ|),
       `ŝ` = среднее пяти фолдовых моделей, «треть» по замороженной границе `q`, описательные меры по цели; сохраняет строки окна (`rows-<окно>-<сторона>.parquet`) для объединения.
       `--win F` — только проверка кода на открытых данных F (маркер и выход — в каталоге с `TEST`).
-  python3 tk598_read.py pool --frozen <frozen.json> --out <каталог чтения>
+  python3 tk598_read.py pool --frozen <frozen.json> --frozen-sha256 <hex> --out <каталог чтения>
       Объединённое окно 01.07–31.08 (62 суток, одна серия): S1, S2, блочный бутстреп 4 суток (20 000, seed 598), p = max(p1, p0), Холм по `m` один раз, нижняя 95 %-граница S0; S2 — охранное,
       S2 без 2 лучших суток / монет, S1 > 0 отдельно в июле и августе, вердикт; наименьший различимый лифт до Холма и после. Метки не открываются заново (читаются сохранённые строки окон).
 """
@@ -73,8 +73,6 @@ def verify(frozen_path, frozen_sha):
     fr = json.load(open(frozen_path))
     here = os.path.dirname(os.path.abspath(__file__))
     for fn, h in fr["code_sha256"].items():
-        if fn == "tk598_read.py":
-            continue    # сам скрипт чтения правится после заморозки только текстом; его sha256 записывается отдельно в отчёте
         if sha256(os.path.join(here, fn)) != h:
             raise SystemExit(f"код изменён после заморозки: {fn}")
     return fr
@@ -213,7 +211,7 @@ def verdicts(df, fs, targets, idx, sigma, ndays=POOL_DAYS):
 
 
 def pool(a):
-    fr = json.load(open(a.frozen))
+    fr = verify(a.frozen, a.frozen_sha256)
     for w in POOL_WINS:
         if not os.path.exists(os.path.join(a.out, f"READ-{w}.started")):
             raise SystemExit(f"окно {w} ещё не прочитано")
@@ -253,6 +251,7 @@ def main():
     r.add_argument("--procs", type=int, default=6)
     p = sp.add_parser("pool")
     p.add_argument("--frozen", required=True)
+    p.add_argument("--frozen-sha256", required=True)
     p.add_argument("--out", required=True)
     a = ap.parse_args()
     read_window(a) if a.cmd == "read" else pool(a)

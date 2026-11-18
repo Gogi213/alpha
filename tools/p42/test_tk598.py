@@ -254,6 +254,56 @@ class VerdictTests(unittest.TestCase):
             self.assertEqual(df["pday"].tolist(), [0, 61])
 
 
+class TrainIdxTests(unittest.TestCase):
+    def test_exit_after_74_excluded_from_every_fold(self):
+        # фолд 0 (сутки 14…25): сделка суток 40 с выходом после суток 74 не идёт в обучение (раньше шла); обычные сделки остаются
+        day = np.array([40, 41, 30, 50])
+        entry = np.array([40 * DAY, 41 * DAY, 30 * DAY, 50 * DAY])
+        exit_ = np.array([75 * DAY, 41 * DAY + 10, 30 * DAY + 10, 50 * DAY + 10])
+        U0 = pd.DataFrame({"day": day, "entry_ms": entry, "exit_ms": exit_})
+        tr, dropped = FIT.train_idx(U0, 0)
+        self.assertEqual(sorted(tr.tolist()), [1, 2, 3])
+        self.assertEqual(dropped, 1)
+        # фолд 4 (сутки 62…73): та же сделка (выход 75) пересекает блок → убрана purge, вторым условием не считается
+        tr4, dropped4 = FIT.train_idx(U0, 4)
+        self.assertNotIn(0, tr4.tolist())
+        self.assertEqual(dropped4, 0)
+
+
+class VerifyTests(unittest.TestCase):
+    def frozen(self, td, tamper=None):
+        here = os.path.dirname(os.path.abspath(RD.__file__))
+        code = {fn: RD.sha256(os.path.join(here, fn)) for fn in sorted(os.listdir(here)) if fn.startswith("tk598_") and fn.endswith(".py")}
+        if tamper:
+            code[tamper] = "0" * 64
+        p = os.path.join(td, "frozen.json")
+        with open(p, "w", encoding="utf-8") as f:
+            json.dump({"code_sha256": code, "sides": {}}, f)
+        return p
+
+    def test_read_script_is_hash_checked(self):
+        with tempfile.TemporaryDirectory() as td:
+            p = self.frozen(td)
+            self.assertIn("tk598_read.py", json.load(open(p))["code_sha256"])
+            self.assertIn("code_sha256", RD.verify(p, RD.sha256(p)))
+            p = self.frozen(td, tamper="tk598_read.py")
+            with self.assertRaises(SystemExit):
+                RD.verify(p, RD.sha256(p))
+
+    def test_wrong_frozen_hash_refuses(self):
+        with tempfile.TemporaryDirectory() as td:
+            p = self.frozen(td)
+            with self.assertRaises(SystemExit):
+                RD.verify(p, "0" * 64)
+
+    def test_pool_requires_verified_freeze(self):
+        import argparse
+        with tempfile.TemporaryDirectory() as td:
+            p = self.frozen(td)
+            with self.assertRaises(SystemExit):
+                RD.pool(argparse.Namespace(frozen=p, frozen_sha256="0" * 64, out=td))
+
+
 class FitSmokeTests(unittest.TestCase):
     """Сквозной прогон подгонки на синтетике: сетка из 2 клеток, ≤ 40 итераций; проверяются файлы, ворота и заморозка."""
 
