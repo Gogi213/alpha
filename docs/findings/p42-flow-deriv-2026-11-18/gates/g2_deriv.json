@@ -1,0 +1,16 @@
+{
+ "kind": "deriv",
+ "episodes": 220,
+ "mismatches": 0,
+ "sides": {
+  "long": 104,
+  "short": 116
+ },
+ "halves": {
+  "A": 111,
+  "B": 109
+ },
+ "coins": 186,
+ "nan_share_checked": 0.00909090909090909,
+ "examples": []
+}

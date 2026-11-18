@@ -1,0 +1,77 @@
+{
+ "kind": "align",
+ "coin_days": 10,
+ "rows": [
+  {
+   "sym": "CHIPUSDT",
+   "day": "2026-10-20",
+   "bars": 287,
+   "err_fwd_mean": 0.003519377127779463,
+   "err_back_mean": 0.9523593222003339
+  },
+  {
+   "sym": "EULUSDT",
+   "day": "2026-10-08",
+   "bars": 287,
+   "err_fwd_mean": 0.0019538835501207974,
+   "err_back_mean": 1.0388360683187046
+  },
+  {
+   "sym": "ARKMUSDT",
+   "day": "2026-09-22",
+   "bars": 287,
+   "err_fwd_mean": 0.004243310612992935,
+   "err_back_mean": 2.0327689962743642
+  },
+  {
+   "sym": "STBLUSDT",
+   "day": "2026-11-01",
+   "bars": 287,
+   "err_fwd_mean": 0.0009918751164453073,
+   "err_back_mean": 1.5893730756003182
+  },
+  {
+   "sym": "FOLKSUSDT",
+   "day": "2026-09-20",
+   "bars": 286,
+   "err_fwd_mean": 0.0027234983078135823,
+   "err_back_mean": 6.0266275714990645
+  },
+  {
+   "sym": "AEVOUSDT",
+   "day": "2026-09-25",
+   "bars": 287,
+   "err_fwd_mean": 0.0027148135197612405,
+   "err_back_mean": 3.4412607654034346
+  },
+  {
+   "sym": "XRPUSDT",
+   "day": "2026-10-01",
+   "bars": 287,
+   "err_fwd_mean": 0.001652427687299814,
+   "err_back_mean": 0.48668258219331
+  },
+  {
+   "sym": "SIGNUSDT",
+   "day": "2026-09-23",
+   "bars": 287,
+   "err_fwd_mean": 0.009858068519442221,
+   "err_back_mean": 1.9513388154367657
+  },
+  {
+   "sym": "ACEUSDT",
+   "day": "2026-10-12",
+   "bars": 287,
+   "err_fwd_mean": 0.005286091372237658,
+   "err_back_mean": 0.68567192208683
+  },
+  {
+   "sym": "AGTUSDT",
+   "day": "2026-10-20",
+   "bars": 287,
+   "err_fwd_mean": 0.002102084467723564,
+   "err_back_mean": 0.2727951940420712
+  }
+ ],
+ "ok": true
+}

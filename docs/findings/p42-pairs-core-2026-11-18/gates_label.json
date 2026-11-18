@@ -1,0 +1,38 @@
+{
+ "y_equals_o3_depth": true,
+ "breakouts_by_side_U0_indep_all_days": {
+  "long": 1297,
+  "short": 1582
+ },
+ "expected_TK590": {
+  "long": 1297,
+  "short": 1582
+ },
+ "by_half": [
+  {
+   "side": "long",
+   "half": "A",
+   "size": 11309,
+   "sum": 643
+  },
+  {
+   "side": "long",
+   "half": "B",
+   "size": 10463,
+   "sum": 654
+  },
+  {
+   "side": "short",
+   "half": "A",
+   "size": 12293,
+   "sum": 830
+  },
+  {
+   "side": "short",
+   "half": "B",
+   "size": 11981,
+   "sum": 752
+  }
+ ],
+ "n": 46046
+}
