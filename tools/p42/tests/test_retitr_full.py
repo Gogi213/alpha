@@ -36,11 +36,11 @@ def raises(exc, fn, *a, **k):
 class World:
     """Сделки одни и те же у всех конфигураций (6 в сутки); val = база + эффект(ключи) + шум по хэшу прогона. effect(keys, sig, day) → сдвиг ($ на сделку)."""
 
-    def __init__(self, effect=None, ncoins=12, per_day=6, noise=0.3, seed=7, fb=None):
+    def __init__(self, effect=None, ncoins=12, per_day=6, noise=0.3, seed=7, fb=None, base_mean=0.2):
         r = np.random.default_rng(seed)
         self.day = np.repeat(np.arange(rf.NDAYS), per_day)
         self.sym = r.integers(0, ncoins, size=len(self.day))
-        self.base = r.normal(0.2, 3.0, len(self.day))
+        self.base = r.normal(base_mean, 3.0, len(self.day))
         self.effect, self.noise, self.fbv, self.calls = effect or (lambda k, s, d: 0.0), noise, fb, 0
         self.ncoins = ncoins
 
@@ -315,6 +315,15 @@ def test_conditions_robustness_blocks_two_days():
     assert cond["d_robust"][0] is False and st.d > 0
     st, cond = rf.conditions(rf.make_series(day, sym, np.full(len(day), 0.3)), ref, rf.month_days(range(5)), 3, NB)
     assert cond["d_robust"][0] is True and cond["e_sum"][0] and cond["f_funding"][0]
+
+
+def test_axis_sum_guard_on_portfolio_series():
+    # §13.24.1 п. 1: у `sig`-оси охрана суммы проверяется и на портфельном ряду (сигнальный двойник в плюсе, портфель — без эффекта и в минусе)
+    eff = lambda k, s, d: (1.0 if s else 0.0) if k.get("rr") == "3" else 0.0   # noqa: E731
+    st, _ = step(World(eff, base_mean=-0.1), "L", "rr")
+    assert not st.accepted and "e_sum_port" in " ".join(st.reasons) and "h_veto" not in " ".join(st.reasons), st.reasons
+    st, _ = step(World(eff), "L", "rr")                                     # портфель в плюсе — проходит
+    assert st.accepted and st.detail["e_sum_port"][0]
 
 
 def test_axis_months_sign_rule():
