@@ -53,7 +53,10 @@ def main():
             "u1r_episodes": {s: int(((H.side == s) & (H.in_pool == 1)).sum()) for s in ("long", "short")}}
     res = {"freeze_sha": freeze_sha, "info": info, "cells": [], "tree": []}
     # (i) подтверждённые клетки
-    cf = pd.read_csv(f"{pairs_dir}/cells_confirm.csv")
+    try:
+        cf = pd.read_csv(f"{pairs_dir}/cells_confirm.csv")
+    except pd.errors.EmptyDataError:  # подтверждённых клеток нет — файл пуст (§13.18: шорт-листы пусты)
+        cf = pd.DataFrame({"cf_confirmed": pd.Series(dtype=bool)})
     conf = cf[cf.cf_confirmed]
     cell_rows = []
     for r in conf.itertuples():
