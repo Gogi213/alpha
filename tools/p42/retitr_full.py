@@ -539,16 +539,17 @@ def patch_str(patch):
 def cfg_keys(spec, side, cfg):
     """База ⊕ патчи принятых клеток в порядке осей (позже — главнее; признаки F — после обычных осей, в порядке принятия)."""
     names = sorted(cfg, key=lambda n: spec.index[side].get(n, 10 ** 6))
-    return rc.merge_keys(spec.bases[side], *[patch_str(cfg[n]["patch"]) for n in names])
+    keys = rc.merge_keys(spec.bases[side], *[patch_str(cfg[n]["patch"]) for n in names])
+    if len(rc.parse_keys(keys)[1]) > 1:     # движок v21: ОДИН фильтр признака на вариант (params.rs `FilterCfg`), повторные fa/fo/fv молча перезаписывают — запрещено
+        raise GuardError("в конфигурации больше одного фильтра признака (fa/fo/fv): %s" % keys)
+    return keys
 
 
 def feature_axes(side, cuts):
-    """Группа 6: ось на признак, клетки — срезы 10 / 20 / 25 %; cuts = {(fa, fo): {pct: fv}}. Категориальные, портфельный режим."""
-    out = []
-    for (fa, fo), c in cuts.items():
-        cells = [{"id": "F_%s_%s_%d" % (fa, fo, p), "patch": {"fa": fa, "fo": fo, "fv": repr(float(fv))}} for p, fv in sorted(c.items())]
-        out.append({"axis": "F_%s_%s" % (fa, fo), "group": 6, "mode": "port", "class": "categorical", "cells": cells, "order": [], "ext": {}})
-    return out
+    """Группа 6 — ОДНА категориальная ось `F`: клетки = (признак, направление) × срез 10 / 20 / 25 %; cuts = {(fa, fo): {pct: fv}}. Движок v21 держит один фильтр признака
+    на вариант (`FilterCfg`: повторные fa/fo/fv перезаписывают молча), поэтому в конфигурации не больше одного признака; принятый признак заменяется другой клеткой оси."""
+    cells = [{"id": "F_%s_%s_%d" % (fa, fo, p), "patch": {"fa": fa, "fo": fo, "fv": repr(float(fv))}} for (fa, fo), c in cuts.items() for p, fv in sorted(c.items())]
+    return [{"axis": "F", "group": 6, "mode": "port", "class": "categorical", "cells": cells, "order": [], "ext": {}}] if cells else []
 
 
 @dataclasses.dataclass
@@ -596,6 +597,21 @@ def with_cell(cfg, axis, cell):
 
 
 # ---- вычислитель: кэш по хэшу ключей, шаговая раздача ---------------------------------------------------------------------------
+
+@dataclasses.dataclass(frozen=True)
+class FtabNeed:
+    """Нужна таблица признаков кандидатов потока конфигурации `keys` (группа 6): строится отдельно от прогонов портфеля."""
+    side: str
+    keys: str
+
+    @property
+    def hash(self):
+        return "ftab-" + hashlib.sha256(repr((self.side, rc.canon(self.keys))).encode()).hexdigest()
+
+    @property
+    def vid(self):
+        return "f" + self.hash[5:17]
+
 
 class Evaluator:
     """Кэш серий по хэшу (сторона, эффективные ключи, сигнальный ли двойник). `fn(req) -> Series` — как посчитать (движок на srv / синтетика)."""
@@ -651,9 +667,10 @@ def drive(gens, ev):
 class OutDirEvaluator(Evaluator):
     """Серии из выходов движка: `<outroot>/<окно>/<vid>/{long,short}-trades.csv` (+ `-daily.csv`); склейка с охраной G6, кэш .npz на диске. `launch(reqs)` — запуск движка на srv (задаёт драйвер)."""
 
-    def __init__(self, outroot, coins, rates, launch=None, cache_dir=None, windows=WINDOWS, run_t0=None):
+    def __init__(self, outroot, coins, rates, launch=None, cache_dir=None, windows=WINDOWS, run_t0=None, ftab_builder=None, ftab_ready=None):
         super().__init__(None)
         self.outroot, self.coins, self.rates, self.launch, self.cache_dir = outroot, coins, rates, launch, cache_dir
+        self.ftab_builder, self.ftab_ready = ftab_builder, ftab_ready
         self.windows, self.run_t0 = windows, run_t0
         if rates is None:
             raise GuardError("OutDirEvaluator: нужны ставки фандинга (граница B июль–август)")
@@ -667,10 +684,22 @@ class OutDirEvaluator(Evaluator):
             d = os.path.join(self.outroot, w.name, req.vid)
             sd = ENGINE_SIDE[req.side]
             tables[w.name] = read_trades_csv(os.path.join(d, sd + "-trades.csv"))
+            if "fa=" in req.keys:
+                self._check_filter_rows(os.path.join(d, "meta.json"), sd, req)
             dp = os.path.join(d, sd + "-daily.csv")
             daily[w.name] = read_daily_csv(dp) if os.path.exists(dp) else None
         check_windows(self.windows, self.run_t0)
         return splice(tables, self.coins, self.windows, daily, self.rates)
+
+    @staticmethod
+    def _check_filter_rows(path, side_name, req):
+        """Фильтр признака: кандидаты без строки таблицы проходят молча — требуем no_key = 0 (таблица обязана покрывать поток варианта)."""
+        with open(path, encoding="utf-8") as f:
+            st = json.load(f)[side_name].get("filter_[cands,dropped,no_key,no_value]")
+        if st is None:
+            raise GuardError("%s: в meta.json нет счётчиков фильтра признака — фильтр не применялся" % req.vid)
+        if st[2] != 0:
+            raise GuardError("%s: у %d из %d кандидатов нет строки таблицы признаков (no_key) — таблица не покрывает поток варианта" % (req.vid, st[2], st[0]))
 
     def _npz(self, req):
         return os.path.join(self.cache_dir, req.hash + ".npz") if self.cache_dir else None
@@ -678,6 +707,12 @@ class OutDirEvaluator(Evaluator):
     def missing(self, reqs):
         miss = []
         for r in super().missing(reqs):
+            if isinstance(r, FtabNeed):
+                if self.ftab_ready is not None and self.ftab_ready(r):
+                    self.cache[r.hash] = True
+                else:
+                    miss.append(r)
+                continue
             p = self._npz(r)
             if p and os.path.exists(p):
                 z = np.load(p)
@@ -691,6 +726,16 @@ class OutDirEvaluator(Evaluator):
         if not reqs:
             return
         self.batches.append(len(reqs))
+        needs = [r for r in reqs if isinstance(r, FtabNeed)]
+        reqs = [r for r in reqs if not isinstance(r, FtabNeed)]
+        if needs:
+            if self.ftab_builder is None:
+                raise GuardError("нет сборщика таблиц признаков (ftab_builder) для %d потоков" % len(needs))
+            self.ftab_builder(needs)
+            for n in needs:
+                self.cache[n.hash] = True
+        if not reqs:
+            return
         if self.launch is None:
             raise GuardError("нет запуска движка (launch) для %d прогонов" % len(reqs))
         self.launch(reqs)
@@ -850,7 +895,7 @@ def run_pass(ev, spec, side, cfg, om, ncoins, provider=None, nboot=NBOOT):
         steps.append(s)
         cfg = apply_step(cfg, s)
     if provider is not None:
-        cuts = yield from provider(side, cfg_keys(spec, side, cfg), om)
+        cuts = yield from provider(side, cfg_keys(spec, side, {k: v for k, v in cfg.items() if k != "F"}), om)   # поток после группы 5 — без фильтра признака
         for axis in feature_axes(side, cuts):
             s = yield from eval_axis(ev, spec, side, axis, cfg, om, ncoins, nboot)
             steps.append(s)

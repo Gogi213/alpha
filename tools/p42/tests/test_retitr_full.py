@@ -523,8 +523,41 @@ def test_features_group_with_provider():
     om = rf.month_days(range(5))
     cfg, steps = one(rf.run_pass(ev, SPEC, "L", {}, om, w.ncoins, provider, nboot=NB), ev)
     f = [s for s in steps if s.group == 6]
-    assert len(f) == 1 and f[0].accepted and f[0].winner == "F_maxmv1_lo_20" and "F_maxmv1_lo" in cfg
+    assert len(f) == 1 and f[0].accepted and f[0].winner == "F_maxmv1_lo_20" and f[0].axis == "F" and "F" in cfg
     assert "fa=maxmv1 fo=lo fv=0.5" in rf.cfg_keys(SPEC, "L", cfg)
+
+
+def test_single_feature_filter_guard_and_need():
+    # движок v21: один фильтр признака на вариант (повторные fa/fo/fv перезаписываются молча) — в конфигурации не больше одного
+    ax = rf.feature_axes("L", {("maxmv1", "lo"): {10: 0.1, 20: 0.2, 25: 0.3}, ("oi_c24", "hi"): {10: 9.0, 20: 8.0, 25: 7.0}})
+    assert len(ax) == 1 and ax[0]["axis"] == "F" and len(ax[0]["cells"]) == 6 and rf.feature_axes("L", {}) == []
+    c1, c2 = ax[0]["cells"][0], ax[0]["cells"][3]
+    assert "fa=maxmv1 fo=lo fv=0.1" in rf.cfg_keys(SPEC, "L", {"F": c1})
+    bad = {"F": {"id": "x", "patch": {"fa": "a", "fo": "lo", "fv": "1.0", **{}}}, "rr": {"id": "y", "patch": {"fa": "b"}}}
+    raises(rf.GuardError, rf.cfg_keys, SPEC, "L", bad)
+    n1, n2 = rf.FtabNeed("L", "rr=3 s=4"), rf.FtabNeed("L", "s=4 rr=3")
+    assert n1.hash == n2.hash and n1.hash != rf.FtabNeed("S", "rr=3 s=4").hash and n1.hash.startswith("ftab-")
+
+
+def test_outdir_filter_no_key_guard():
+    ent = {"wa": [("AAA", "2026-07-03", 3.0, 0.5, 0.0, "stop")], "wb": [], "wc": []}
+    req = rf.Req("L", "fa=maxmv1 fo=lo fv=0.5", False)
+    with tempfile.TemporaryDirectory() as tmp:
+        out = os.path.join(tmp, "out")
+        _write_out(out, req, ent)
+        for w in rf.WINDOWS:
+            with open(os.path.join(out, w.name, req.vid, "meta.json"), "w", encoding="utf-8") as f:
+                json.dump({"long": {"filter_[cands,dropped,no_key,no_value]": [10, 2, 3, 0]}}, f)
+        ev = rf.OutDirEvaluator(out, ["AAA"], {})
+        assert "no_key" in raises(rf.GuardError, ev.ingest, req)
+        for w in rf.WINDOWS:
+            with open(os.path.join(out, w.name, req.vid, "meta.json"), "w", encoding="utf-8") as f:
+                json.dump({"long": {"filter_[cands,dropped,no_key,no_value]": [10, 2, 0, 1]}}, f)
+        assert len(ev.ingest(req)) == 1
+        for w in rf.WINDOWS:
+            with open(os.path.join(out, w.name, req.vid, "meta.json"), "w", encoding="utf-8") as f:
+                json.dump({"long": {}}, f)
+        assert "фильтр не применялся" in raises(rf.GuardError, ev.ingest, req)
 
 
 def test_driver_lockstep_and_cache():
