@@ -5,11 +5,14 @@
 //! Бинарь — `src/bin/alpha-feat.rs`; движок счёта эти модули не использует.
 
 pub mod deriv;
+pub mod f12;
 pub mod flow;
 pub mod io;
 pub mod npcompat;
 pub mod pdcompat;
 pub mod trades;
 
+#[cfg(test)]
+mod f12_tests;
 #[cfg(test)]
 mod tests;
