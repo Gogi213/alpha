@@ -173,7 +173,7 @@ pub fn run(cfg: &Cfg) -> Result<Summary> {
                     .unwrap_or_else(PoisonError::into_inner)
                     .push((j, r));
                 let n = finished.fetch_add(1, Ordering::SeqCst) + 1;
-                if n % 20 == 0 {
+                if n.is_multiple_of(20) {
                     eprintln!(
                         "{n}/{} монет, {:.0} с",
                         jobs.len(),

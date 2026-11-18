@@ -10,6 +10,7 @@ import argparse
 import hashlib
 import json
 import os
+import resource
 import subprocess
 import sys
 import tempfile
@@ -27,6 +28,12 @@ def read_rust_csv(path: str) -> pd.DataFrame:
     dtype = {c: "float64" for c in FLOW + DERIV}
     dtype["ep_id"] = "object"
     return pd.read_csv(path, dtype=dtype, float_precision="round_trip", keep_default_na=True)
+
+
+def cpu_children() -> float:
+    """ЦП-секунды (user+sys) дочерних процессов — `alpha-feat` и его `unzip`: честное число при нагрузке на машину (стена растягивается)."""
+    ru = resource.getrusage(resource.RUSAGE_CHILDREN)
+    return ru.ru_utime + ru.ru_stime
 
 
 def main():
@@ -65,7 +72,7 @@ def main():
     os.rmdir(tmp)
     cov = {k: float(res[k].notna().mean()) for k in FLOW + DERIV}
     info = {"episodes": int(len(res)), "seconds": time.time() - t0, "coverage": cov, "missing_trade_days": int(summary["missing_trade_days"]),
-            "engine": "alpha-feat", "bin_md5": hashlib.md5(open(a.bin, "rb").read()).hexdigest(), "rust": summary}
+            "engine": "alpha-feat", "cpu_s_children": cpu_children(), "bin_md5": hashlib.md5(open(a.bin, "rb").read()).hexdigest(), "rust": summary}
     json.dump(info, open(a.out + ".info.json", "w"), ensure_ascii=False, indent=1)
     print(json.dumps({k: v for k, v in info.items() if k != "coverage"}, ensure_ascii=False), flush=True)
 
