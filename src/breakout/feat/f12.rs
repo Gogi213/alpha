@@ -229,9 +229,9 @@ pub fn block_returns(m: &Minutes, k: usize) -> Vec<f64> {
 /// `minute_returns`: доходность минуты к предыдущей, если обе с данными.
 pub fn minute_returns(m: &Minutes) -> Vec<f64> {
     let mut r = vec![NAN; m.n()];
-    for x in 1..m.n() {
+    for (x, o) in r.iter_mut().enumerate().skip(1) {
         if m.o[x] != 0 && m.o[x - 1] != 0 {
-            r[x] = m.c[x] as f64 / m.c[x - 1] as f64 - 1.0;
+            *o = m.c[x] as f64 / m.c[x - 1] as f64 - 1.0;
         }
     }
     r

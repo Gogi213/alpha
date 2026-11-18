@@ -70,10 +70,10 @@ fn returns_and_ffill() {
     assert!(r1[0].is_nan() && r1[1].is_nan() && r1[7].is_nan() && r1[8].is_nan() && r1[9].is_nan());
     assert_eq!(r1[2].to_bits(), (102.0f64 / 101.0 - 1.0).to_bits());
     let r5 = block_returns(&m, 5);
-    // блок 0 — минуты 0…4 (закрытие минуты 4 = 104), блок 1 — 5…9 (последняя с данными — 6: 106), блок 2 — 10…14 (114)
+    // блок 0 — минуты 0…4 (последняя с данными — 4: 104), блок 1 — 5…9 (7, 8 пусты, последняя с данными — 9: 109), блок 2 — 10…14 (114)
     assert!(r5[0].is_nan());
-    assert_eq!(r5[1].to_bits(), (106.0f64 / 104.0 - 1.0).to_bits());
-    assert_eq!(r5[2].to_bits(), (114.0f64 / 106.0 - 1.0).to_bits());
+    assert_eq!(r5[1].to_bits(), (109.0f64 / 104.0 - 1.0).to_bits());
+    assert_eq!(r5[2].to_bits(), (114.0f64 / 109.0 - 1.0).to_bits());
 }
 
 #[test]
@@ -212,7 +212,7 @@ fn coin_rows_flat_synthetic() -> Result<()> {
         1,
         base_ms,
         DAYS_TOTAL,
-        &[sig.clone()],
+        std::slice::from_ref(&sig),
     )?;
     assert_eq!(st.locate_fail, 0);
     assert_eq!(st.natr_mismatch, 0);
