@@ -11,7 +11,20 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 pub const DERIV: [&str; 14] = [
-    "oi_c1", "oi_c4", "oi_c24", "loi_turn", "ls_tc", "ls_ts", "ls_a", "dls_tc", "dls_ts", "dls_a", "fund_last", "fund_chg24", "fund_int", "basis",
+    "oi_c1",
+    "oi_c4",
+    "oi_c24",
+    "loi_turn",
+    "ls_tc",
+    "ls_ts",
+    "ls_a",
+    "dls_tc",
+    "dls_ts",
+    "dls_a",
+    "fund_last",
+    "fund_chg24",
+    "fund_int",
+    "basis",
 ];
 const NAN: f64 = f64::NAN;
 const METRIC_COLS: [&str; 5] = [
@@ -32,17 +45,23 @@ pub struct DerivDirs {
 }
 
 /// Строки `metrics` монеты на сетке 5 мин от `d0·DAY_MS`: столбец → массив с NaN; `first` — самое раннее `create_time` монеты.
-struct Metrics {
-    cols: [Vec<f64>; 5],
-    first: Option<i64>,
+pub(super) struct Metrics {
+    pub(super) cols: [Vec<f64>; 5],
+    pub(super) first: Option<i64>,
 }
 
 fn load_metrics(dirs: &DerivDirs, sym: &str, d0: i64, d1: i64) -> Result<Metrics> {
     let n = ((d1 - d0 + 1) * 288) as usize;
-    let mut m = Metrics { cols: std::array::from_fn(|_| vec![NAN; n]), first: None };
+    let mut m = Metrics {
+        cols: std::array::from_fn(|_| vec![NAN; n]),
+        first: None,
+    };
     for d in d0..=d1 {
         let ds = date_str(d);
-        let path = dirs.metrics.join(sym).join(format!("{sym}-metrics-{ds}.zip"));
+        let path = dirs
+            .metrics
+            .join(sym)
+            .join(format!("{sym}-metrics-{ds}.zip"));
         if !path.exists() {
             continue;
         }
@@ -50,13 +69,23 @@ fn load_metrics(dirs: &DerivDirs, sym: &str, d0: i64, d1: i64) -> Result<Metrics
         let mut names = vec!["create_time"];
         names.extend(METRIC_COLS);
         let cols = csv.columns(&names)?;
-        let ct: Vec<i64> = cols[0].iter().map(|b| parse_datetime_ms(b)).collect::<Result<_>>()?;
+        let ct: Vec<i64> = cols[0]
+            .iter()
+            .map(|b| parse_datetime_ms(b))
+            .collect::<Result<_>>()?;
         if let Some(&mn) = ct.iter().min() {
             if m.first.is_none_or(|f| mn < f) {
                 m.first = Some(mn);
             }
         }
-        let vals: Vec<Vec<f64>> = (0..5).map(|c| cols[c + 1].iter().map(|b| parse_f64(b)).collect::<Result<_>>()).collect::<Result<_>>()?;
+        let vals: Vec<Vec<f64>> = (0..5)
+            .map(|c| {
+                cols[c + 1]
+                    .iter()
+                    .map(|b| parse_f64(b))
+                    .collect::<Result<_>>()
+            })
+            .collect::<Result<_>>()?;
         for (i, &t) in ct.iter().enumerate() {
             let rel = t - d0 * DAY_MS;
             let k = rel.div_euclid(300_000);
@@ -95,7 +124,10 @@ fn load_funding(dirs: &DerivDirs, sym: &str) -> Result<(Vec<i64>, Vec<f64>)> {
             rows.insert(parse_i64(t)?, parse_f64(r)?);
         }
     }
-    Ok((rows.keys().copied().collect(), rows.values().copied().collect()))
+    Ok((
+        rows.keys().copied().collect(),
+        rows.values().copied().collect(),
+    ))
 }
 
 /// Закрытие минутной премии на сетке минут от `d0·DAY_MS` (NaN — нет строки).
@@ -122,7 +154,15 @@ fn load_premium(dirs: &DerivDirs, sym: &str, d0: i64, d1: i64) -> Result<Vec<f64
 }
 
 #[allow(clippy::too_many_arguments)]
-fn deriv_features(sig: i64, turn24h: f64, m: &Metrics, d0: i64, ft: &[i64], fr: &[f64], prem: &[f64]) -> [f64; 14] {
+pub(super) fn deriv_features(
+    sig: i64,
+    turn24h: f64,
+    m: &Metrics,
+    d0: i64,
+    ft: &[i64],
+    fr: &[f64],
+    prem: &[f64],
+) -> [f64; 14] {
     let mut f = [NAN; 14];
     let ts = (sig - 10 * MIN_MS).div_euclid(300_000) * 300_000;
     let g = (ts - d0 * DAY_MS).div_euclid(300_000);
@@ -138,19 +178,19 @@ fn deriv_features(sig: i64, turn24h: f64, m: &Metrics, d0: i64, ft: &[i64], fr: 
         let oi = at(0, 0);
         for (h, k) in [(12i64, 0usize), (48, 1), (288, 2)] {
             let o2 = at(0, h);
-            if oi == oi && o2 == o2 && o2 > 0.0 {
+            if !oi.is_nan() && o2 > 0.0 {
                 f[k] = (oi / o2 - 1.0) * 1e4;
             }
         }
         let oiv = at(1, 0);
-        if oiv == oiv && oiv > 0.0 && turn24h > 0.0 {
+        if oiv > 0.0 && turn24h > 0.0 {
             f[3] = (oiv / turn24h).log10();
         }
         for (c, k1, k2) in [(2usize, 4usize, 7usize), (3, 5, 8), (4, 6, 9)] {
             let (x, x1) = (at(c, 0), at(c, 12));
-            if x == x && x > 0.0 {
+            if x > 0.0 {
                 f[k1] = x.ln();
-                if x1 == x1 && x1 > 0.0 {
+                if x1 > 0.0 {
                     f[k2] = x.ln() - x1.ln();
                 }
             }
@@ -171,7 +211,7 @@ fn deriv_features(sig: i64, turn24h: f64, m: &Metrics, d0: i64, ft: &[i64], fr: 
     let k = (sig.div_euclid(MIN_MS) - 1) - (d0 * DAY_MS).div_euclid(MIN_MS);
     if k >= 0 && (k as usize) < prem.len() {
         let p = prem[k as usize];
-        if p == p {
+        if !p.is_nan() {
             f[13] = p * 1e4;
         }
     }
@@ -185,12 +225,28 @@ pub struct CoinDeriv {
 
 /// `process_coin` режима `deriv`: строки `metrics` на сетке с `d0 = dmin − 2` (24 ч назад от `T*` ранних эпизодов суток).
 pub fn deriv_coin(dirs: &DerivDirs, sym: &str, eps: &[Ep]) -> Result<CoinDeriv> {
-    let dmin = eps.iter().map(|e| e.sig.div_euclid(DAY_MS)).min().unwrap_or(0);
-    let dmax = eps.iter().map(|e| e.sig.div_euclid(DAY_MS)).max().unwrap_or(0);
+    let dmin = eps
+        .iter()
+        .map(|e| e.sig.div_euclid(DAY_MS))
+        .min()
+        .unwrap_or(0);
+    let dmax = eps
+        .iter()
+        .map(|e| e.sig.div_euclid(DAY_MS))
+        .max()
+        .unwrap_or(0);
     let d0 = dmin - 2;
     let m = load_metrics(dirs, sym, d0, dmax)?;
     let (ft, fr) = load_funding(dirs, sym)?;
     let prem = load_premium(dirs, sym, d0, dmax)?;
-    let rows = eps.iter().map(|e| (e.row, deriv_features(e.sig, e.turn24h, &m, d0, &ft, &fr, &prem))).collect();
+    let rows = eps
+        .iter()
+        .map(|e| {
+            (
+                e.row,
+                deriv_features(e.sig, e.turn24h, &m, d0, &ft, &fr, &prem),
+            )
+        })
+        .collect();
     Ok(CoinDeriv { rows })
 }

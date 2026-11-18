@@ -18,6 +18,8 @@ pub struct DayTrades {
     pub v: Vec<f64>,
     /// Агрессор — покупатель (`is_buyer_maker` ≠ true).
     pub buy: Vec<bool>,
+    /// В файле время убывало — записи пересортированы (устойчиво); для счётчика краёв `unsorted_days`.
+    pub unsorted: bool,
 }
 
 /// Источник суточных файлов сделок: `None` — файла нет.
@@ -121,6 +123,7 @@ pub fn parse_trades_csv(mut rd: impl BufRead) -> Result<DayTrades> {
         d.t = ord.iter().map(|&i| d.t[i]).collect();
         d.v = ord.iter().map(|&i| d.v[i]).collect();
         d.buy = ord.iter().map(|&i| d.buy[i]).collect();
+        d.unsorted = true;
     }
     Ok(d)
 }
@@ -150,7 +153,11 @@ impl Csv {
             .spawn()
             .with_context(|| format!("unzip {}", path.display()))?;
         let mut buf = Vec::new();
-        child.stdout.take().context("unzip: нет stdout")?.read_to_end(&mut buf)?;
+        child
+            .stdout
+            .take()
+            .context("unzip: нет stdout")?
+            .read_to_end(&mut buf)?;
         let status = child.wait()?;
         if !status.success() {
             bail!("unzip {} {inner}: {status}", path.display());
@@ -159,7 +166,9 @@ impl Csv {
     }
 
     pub fn from_file(path: &Path) -> Result<Csv> {
-        Ok(Csv { buf: std::fs::read(path).with_context(|| path.display().to_string())? })
+        Ok(Csv {
+            buf: std::fs::read(path).with_context(|| path.display().to_string())?,
+        })
     }
 
     #[cfg(test)]
@@ -174,7 +183,10 @@ impl Csv {
             return Ok(names.iter().map(|_| Vec::new()).collect());
         };
         let head: Vec<&[u8]> = h.split(|&c| c == b',').collect();
-        let idx: Vec<usize> = names.iter().map(|n| find_col(&head, n)).collect::<Result<_>>()?;
+        let idx: Vec<usize> = names
+            .iter()
+            .map(|n| find_col(&head, n))
+            .collect::<Result<_>>()?;
         let mut out: Vec<Vec<&[u8]>> = names.iter().map(|_| Vec::new()).collect();
         for l in lines {
             if l.is_empty() {
@@ -182,7 +194,9 @@ impl Csv {
             }
             let f: Vec<&[u8]> = l.split(|&c| c == b',').collect();
             for (o, &i) in out.iter_mut().zip(&idx) {
-                o.push(*f.get(i).with_context(|| format!("короткая строка: {:?}", String::from_utf8_lossy(l)))?);
+                o.push(*f.get(i).with_context(|| {
+                    format!("короткая строка: {:?}", String::from_utf8_lossy(l))
+                })?);
             }
         }
         Ok(out)

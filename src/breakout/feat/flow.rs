@@ -15,8 +15,8 @@ pub const MIN_MS: i64 = 60_000;
 pub const NB: usize = 1200;
 const VPIN_TOL: f64 = 1e-12;
 pub const FLOW: [&str; 16] = [
-    "tfv10", "tfv60", "tfv300", "tfv1800", "tfn10", "tfn60", "tfn300", "tfn1800", "acc_v", "acc_n", "big300", "big1800", "tfp300", "lmsz300",
-    "msz_r", "vpin",
+    "tfv10", "tfv60", "tfv300", "tfv1800", "tfn10", "tfn60", "tfn300", "tfn1800", "acc_v", "acc_n",
+    "big300", "big1800", "tfp300", "lmsz300", "msz_r", "vpin",
 ];
 const WIN_S: [i64; 4] = [10, 60, 300, 1800];
 const NAN: f64 = f64::NAN;
@@ -24,7 +24,11 @@ const NAN: f64 = f64::NAN;
 /// Границы корзин `10 ** ((j − 300) / 100)`, `j = 0…NB`.
 pub fn edges() -> &'static [f64] {
     static E: OnceLock<Vec<f64>> = OnceLock::new();
-    E.get_or_init(|| (0..=NB).map(|j| 10.0f64.powf((j as f64 - 300.0) / 100.0)).collect())
+    E.get_or_init(|| {
+        (0..=NB)
+            .map(|j| 10.0f64.powf((j as f64 - 300.0) / 100.0))
+            .collect()
+    })
 }
 
 /// Эпизод монеты: номер строки входа, время сигнала (мс от 1970), сторона (+1 лонг / −1 шорт), оборот за 24 ч.
@@ -37,14 +41,14 @@ pub struct Ep {
 }
 
 /// Сутки подряд (предыдущие + текущие), как `np.concatenate` двух массивов.
-struct Win {
+pub(super) struct Win {
     t: Vec<i64>,
     v: Vec<f64>,
     b: Vec<bool>,
 }
 
 impl Win {
-    fn of(parts: &[&DayTrades]) -> Win {
+    pub(super) fn of(parts: &[&DayTrades]) -> Win {
         Win {
             t: parts.iter().flat_map(|p| p.t.iter().copied()).collect(),
             v: parts.iter().flat_map(|p| p.v.iter().copied()).collect(),
@@ -59,8 +63,18 @@ fn win_stats(v: &[f64], b: &[bool], lo: usize, hi: usize) -> (f64, f64, i64, i64
         return (0.0, 0.0, 0, 0);
     }
     let (vs, bs) = (&v[lo..hi], &b[lo..hi]);
-    let vb: Vec<f64> = vs.iter().zip(bs).filter(|(_, &m)| m).map(|(&x, _)| x).collect();
-    (np_sum(vs), np_sum(&vb), (hi - lo) as i64, bs.iter().filter(|&&m| m).count() as i64)
+    let vb: Vec<f64> = vs
+        .iter()
+        .zip(bs)
+        .filter(|(_, &m)| m)
+        .map(|(&x, _)| x)
+        .collect();
+    (
+        np_sum(vs),
+        np_sum(&vb),
+        (hi - lo) as i64,
+        bs.iter().filter(|&&m| m).count() as i64,
+    )
 }
 
 /// 50 корзин равного оборота на записях `[lo, hi)`; граница — запись, на которой накопленный оборот впервые ≥ k/50·(1 − 1e-12).
@@ -75,7 +89,11 @@ pub fn vpin_value(v: &[f64], b: &[bool], lo: usize, hi: usize) -> f64 {
     if total.partial_cmp(&0.0) != Some(std::cmp::Ordering::Greater) {
         return NAN;
     }
-    let masked: Vec<f64> = vv.iter().zip(&b[lo..hi]).map(|(&x, &m)| if m { x } else { 0.0 }).collect();
+    let masked: Vec<f64> = vv
+        .iter()
+        .zip(&b[lo..hi])
+        .map(|(&x, &m)| if m { x } else { 0.0 })
+        .collect();
     let cb = np_cumsum(&masked);
     let mut pv = Vec::with_capacity(n + 1);
     pv.push(0.0);
@@ -121,7 +139,7 @@ pub fn q99_edge(hist: &[i64]) -> Option<f64> {
     })
 }
 
-fn flow_features(w: &Win, sig: i64, s: i64, q99: Option<f64>, has24: bool) -> [f64; 16] {
+pub(super) fn flow_features(w: &Win, sig: i64, s: i64, q99: Option<f64>, has24: bool) -> [f64; 16] {
     let mut f = [NAN; 16];
     let i_hi = ss_left_i64(&w.t, sig);
     let ilo = |ms: i64| ss_left_i64(&w.t, sig - ms);
@@ -129,7 +147,11 @@ fn flow_features(w: &Win, sig: i64, s: i64, q99: Option<f64>, has24: bool) -> [f
     for (k, &win) in WIN_S.iter().enumerate() {
         let (vt, vb, n, nb) = win_stats(&w.v, &w.b, ilo(win * 1000), i_hi);
         if n > 0 {
-            f[k] = if vt > 0.0 { sf * (2.0 * vb - vt) / vt } else { NAN };
+            f[k] = if vt > 0.0 {
+                sf * (2.0 * vb - vt) / vt
+            } else {
+                NAN
+            };
             f[4 + k] = sf * (2.0 * nb as f64 - n as f64) / n as f64;
         }
     }
@@ -157,11 +179,15 @@ fn flow_features(w: &Win, sig: i64, s: i64, q99: Option<f64>, has24: bool) -> [f
     }
     if has24 {
         let i24 = ilo(DAY_MS);
-        let v24 = if i_hi > i24 { np_sum(&w.v[i24..i_hi]) } else { 0.0 };
+        let v24 = if i_hi > i24 {
+            np_sum(&w.v[i24..i_hi])
+        } else {
+            0.0
+        };
         if v24 > 0.0 {
             f[12] = sf * (2.0 * vb5 - v5) / (v24 / 288.0);
-            f[15] = vpin_value(&w.v, &w.b, i24, i_hi);
         }
+        f[15] = vpin_value(&w.v, &w.b, i24, i_hi);
     }
     if n5 > 0 && v5 > 0.0 {
         f[13] = (v5 / n5 as f64).log10();
@@ -177,6 +203,8 @@ fn flow_features(w: &Win, sig: i64, s: i64, q99: Option<f64>, has24: bool) -> [f
 pub struct CoinFlow {
     pub rows: Vec<(usize, [f64; 16])>,
     pub missing_trade_days: u64,
+    /// Сутки окна, где время в файле убывало (записи пересортированы).
+    pub unsorted_days: u64,
 }
 
 /// `process_coin` режима `flow`: сутки от `dmin − 8` (гистограммы `q99`) до `dmax`; массивы — предыдущие и текущие сутки.
@@ -192,7 +220,11 @@ pub fn flow_coin(src: &dyn DaySrc, sym: &str, eps: &[Ep]) -> Result<CoinFlow> {
         by_day.entry(d).or_default().push(i);
     }
     let ed = edges();
-    let mut out = CoinFlow { rows: Vec::with_capacity(eps.len()), missing_trade_days: 0 };
+    let mut out = CoinFlow {
+        rows: Vec::with_capacity(eps.len()),
+        missing_trade_days: 0,
+        unsorted_days: 0,
+    };
     let mut prev: Option<DayTrades> = None;
     let mut first_seen = false;
     let mut coin_first: Option<i64> = None;
@@ -204,10 +236,16 @@ pub fn flow_coin(src: &dyn DaySrc, sym: &str, eps: &[Ep]) -> Result<CoinFlow> {
                     first_seen = true;
                     coin_first = c.t.first().copied();
                 }
+                out.unsorted_days += u64::from(c.unsorted);
                 let base = ((d * 24 - h0) as usize) * NB;
                 for (&t, &v) in c.t.iter().zip(&c.v) {
                     let hr = (t.div_euclid(HOUR_MS) - d * 24).clamp(0, 23) as usize;
-                    let ix = (ss_right_f64(ed, v) as i64 - 1).clamp(0, NB as i64 - 1) as usize;
+                    // NaN: `searchsorted` numpy кладёт его в конец → последняя корзина
+                    let ix = if v.is_nan() {
+                        NB - 1
+                    } else {
+                        (ss_right_f64(ed, v) as i64 - 1).clamp(0, NB as i64 - 1) as usize
+                    };
                     hist[base + hr * NB + ix] += 1;
                 }
             }
@@ -218,7 +256,10 @@ pub fn flow_coin(src: &dyn DaySrc, sym: &str, eps: &[Ep]) -> Result<CoinFlow> {
             }
         }
         if let Some(idx) = by_day.get(&d) {
-            let parts: Vec<&DayTrades> = [prev.as_ref(), cur.as_ref()].into_iter().flatten().collect();
+            let parts: Vec<&DayTrades> = [prev.as_ref(), cur.as_ref()]
+                .into_iter()
+                .flatten()
+                .collect();
             if !parts.is_empty() {
                 let w = Win::of(&parts);
                 for &e in idx {
@@ -241,7 +282,8 @@ pub fn flow_coin(src: &dyn DaySrc, sym: &str, eps: &[Ep]) -> Result<CoinFlow> {
                     }
                     let q99 = if n_hours >= 24 { q99_edge(&hh) } else { None };
                     let has24 = coin_first.is_some_and(|c| c <= ep.sig - DAY_MS);
-                    out.rows.push((ep.row, flow_features(&w, ep.sig, ep.side, q99, has24)));
+                    out.rows
+                        .push((ep.row, flow_features(&w, ep.sig, ep.side, q99, has24)));
                 }
             }
         }

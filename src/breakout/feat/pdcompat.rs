@@ -197,8 +197,17 @@ pub fn parse_date(s: &str) -> Result<i64> {
 
 /// `create_time` `metrics` (`YYYY-MM-DD HH:MM:SS`, UTC) → мс от 1970; как `pd.to_datetime(...).astype("int64") // 10**6`.
 pub fn parse_datetime_ms(b: &[u8]) -> Result<i64> {
-    if b.len() != 19 || b[4] != b'-' || b[7] != b'-' || (b[10] != b' ' && b[10] != b'T') || b[13] != b':' || b[16] != b':' {
-        bail!("время должно быть YYYY-MM-DD HH:MM:SS: {:?}", String::from_utf8_lossy(b));
+    if b.len() != 19
+        || b[4] != b'-'
+        || b[7] != b'-'
+        || (b[10] != b' ' && b[10] != b'T')
+        || b[13] != b':'
+        || b[16] != b':'
+    {
+        bail!(
+            "время должно быть YYYY-MM-DD HH:MM:SS: {:?}",
+            String::from_utf8_lossy(b)
+        );
     }
     let n = |r: std::ops::Range<usize>| -> Result<i64> { parse_i64(&b[r]) };
     let days = days_from_civil(n(0..4)?, n(5..7)?, n(8..10)?);
