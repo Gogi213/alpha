@@ -122,16 +122,33 @@ def test_family_window_guard_and_verdicts():
     strong = list(10.0 + rng.normal(0, 1.0, 31))
     weak = list(rng.normal(0.3, 6.0, 31))
     neg = list(-8.0 + rng.normal(0, 1.0, 31))
+    wins = {"aug": (T0_AUG, AUG, 0, 31)}
     with tempfile.TemporaryDirectory() as d1, tempfile.TemporaryDirectory() as d2, tempfile.TemporaryDirectory() as d3:
         mk_cand_series(d1, strong, "long"); mk_cand_series(d2, weak, "short"); mk_cand_series(d3, neg, "short")
-        cfgs = [("S", "long", d1), ("W", "short", d2), ("N", "short", d3)]
-        lines, data = rr.family_lines(cfgs, 0, 31, T0_AUG, AUG, "aug")
+        cfgs = [("S", "long", [("aug", d1)]), ("W", "short", [("aug", d2)]), ("N", "short", [("aug", d3)])]
+        lines, data = rr.family_lines(cfgs, wins, "repl-aug")
         assert data["m"] == 3 and data["configs"]["S"]["verdict"] == "подтверждено", data["configs"]["S"]["verdict"]
         assert data["configs"]["W"]["verdict"] == "не ясно", data["configs"]["W"]["verdict"]
         assert data["configs"]["N"]["verdict"] == "опровергнуто", data["configs"]["N"]["verdict"]
         assert "m = 3, Холм" in lines[0], lines[0]
-        assert raises_exit(lambda: rr.family_lines(cfgs, 14, 45, T0_AUG, AUG, "aug")) is not None      # срез 14:45 при заявленном августе
-        assert raises_exit(lambda: rr.family_lines(cfgs, 0, 31, "2026-06-17", AUG, "aug")) is not None  # не тот P42_T0
+        assert raises_exit(lambda: rr.family_lines(cfgs, {"aug": (T0_AUG, AUG, 14, 45)}, "x")) is not None      # срез 14:45 при заявленном августе
+        assert raises_exit(lambda: rr.family_lines(cfgs, {"aug": ("2026-06-17", AUG, 0, 31)}, "x")) is not None  # не тот P42_T0
+
+
+def test_family_pooled_windows_and_sign():
+    """Клетка с двумя окнами — один ряд 62 сут.; «подтверждено» требует среднее > 0 и в каждом окне отдельно: сильный июль + умеренно отрицательный август дают объединённый плюс, но не «подтверждено»."""
+    import numpy as np
+    rng = np.random.default_rng(11)
+    jul_ok, aug_ok = list(10.0 + rng.normal(0, 1.0, 31)), list(9.0 + rng.normal(0, 1.0, 31))
+    aug_bad = list(-1.0 + rng.normal(0, 1.0, 31))
+    wins = {"jul": ("2026-06-17", "2026-07-01:2026-07-31", 0, 31), "aug": (T0_AUG, AUG, 0, 31)}
+    with tempfile.TemporaryDirectory() as dj, tempfile.TemporaryDirectory() as da, tempfile.TemporaryDirectory() as db, tempfile.TemporaryDirectory() as dx:
+        mk_cand_series(dj, jul_ok, "short"); mk_cand_series(da, aug_ok, "short"); mk_cand_series(db, aug_bad, "short"); mk_cand_series(dx, jul_ok, "long")
+        lines, data = rr.family_lines([("P", "short", [("jul", dj), ("aug", da)]), ("Q", "short", [("jul", dj), ("aug", db)]), ("J", "long", [("jul", dx)])], wins, "confirm")
+        assert data["configs"]["P"]["verdict"] == "подтверждено" and data["configs"]["P"]["trades"]["n"] == 62, data["configs"]["P"]
+        assert data["configs"]["Q"]["window_means"][1] < 0 and data["configs"]["Q"]["verdict"] != "подтверждено", data["configs"]["Q"]
+        assert any("62 сут." in l for l in lines), lines[:4]
+        assert any("окно jul" in l for l in lines) and any("окно aug" in l for l in lines)
 
 
 if __name__ == "__main__":
