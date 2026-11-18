@@ -1,0 +1,5 @@
+# П-42 §13.22 (TK-596): замороженные клетки подтверждения на невиденных месяцах; движок v21, тики 4 мс; ключи — дословно из TK-591 (es15) и TK-595 (L_base, S_base)
+# запуск: P42_DETAIL=1 P42_T0=<T0 окна> P42_CACHE=<кэш окна> P42_TRADES=<сделки окна> bash tools/p42/retitr_run.sh <NAME> docs/research/freeze/tk596-variants.txt /data/p42-t566/bin/breakout-v21
+S_es15 lat=4 latx=4 pk=1 pb=1 fh=4 fk=120 fm=50 fb=0.5 ew=5 ex=0 e=0.15
+L_base lat=4 latx=4 pk=1 pb=1 fh=4 fk=120 fm=50 fb=0.5 ew=5 ex=0 rf=0.2 rs=20
+S_base lat=4 latx=4 pk=1 pb=1 fh=4 fk=120 fm=50 fb=0.5 ew=5 ex=0 tt=20 tb=0.1 rf=0.2 rs=2 bm=1 e=0.15 e2=0.05
