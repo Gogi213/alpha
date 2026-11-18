@@ -1,11 +1,13 @@
 """П-42 TK-593: сборка страницы CatBoost (один HTML, данные внутри) из результатов TK-592 и кривых tk593_compute.py.
 
-Использование: <venv>/bin/python tk593_page.py <tree TK-592> <pairs TK-592> <curves.json> <template.html> <выход: каталог страницы> [progress.json] [equity.json] [shape.json]
+Использование: <venv>/bin/python tk593_page.py <tree TK-592> <pairs TK-592> <curves.json> <template.html> <выход: каталог страницы> [progress.json] [equity.json] [shape.json] [features.json]
 Пишет <каталог>/index.html и <каталог>/data/page_data.json. Критерии (а)/(б) считаются здесь по правилам §13.11 протокола П-42.
 TK-601: блок «Ход работ» берётся из progress.json (по умолчанию <каталог>/data/progress.json), проверяется по ml_progress.schema.json рядом со скриптом
 и вшивается в index.html (страница статическая: после правки JSON — запустить сборку ещё раз).
 TK-601: вкладка «Эквити» — данные из equity.json (по умолчанию <каталог>/data/equity.json; строит tk601_equity.py), вшиваются так же.
 TK-602: подвид «Форма» вкладки «Эквити» — данные из shape.json (по умолчанию <каталог>/data/shape.json; строит tk602_shape.py), вшиваются так же.
+TK-606: вкладка «Признаки» — данные из features.json (по умолчанию <каталог>/data/features.json; источник — tools/p42/ml_features.json, схема ml_features.schema.json,
+плюс проверки: ссылки src ∈ sources, имена признаков не повторяются, у набора «идёт» нет цифр), вшиваются так же.
 """
 from __future__ import annotations
 
@@ -20,9 +22,23 @@ tree_dir, pairs_dir, curves_path, tpl_path, out_dir = sys.argv[1:6]
 progress_path = sys.argv[6] if len(sys.argv) > 6 else f"{out_dir}/data/progress.json"
 equity_path = sys.argv[7] if len(sys.argv) > 7 else f"{out_dir}/data/equity.json"
 shape_path = sys.argv[8] if len(sys.argv) > 8 else f"{out_dir}/data/shape.json"
+features_path = sys.argv[9] if len(sys.argv) > 9 else f"{out_dir}/data/features.json"
 BAR = 0.02
 DIRS = ("A->B", "B->A")
 SET = "f12"
+
+
+def check_features(f):
+    """Смысловые проверки features.json сверх схемы (TK-606)."""
+    names = [x["name"] for s in f["sets"] for g in s["groups"] for x in g["features"]]
+    dup = sorted({n for n in names if names.count(n) > 1})
+    assert not dup, f"features.json: имя признака повторяется: {dup}"
+    bad = sorted({(x["name"], k) for s in f["sets"] for g in s["groups"] for x in g["features"] for k in x["src"] if k not in f["sources"]})
+    assert not bad, f"features.json: src не из sources: {bad}"
+    assert len({s["id"] for s in f["sets"]}) == len(f["sets"]), "features.json: id набора повторяется"
+    for s in f["sets"]:
+        assert s["status"] == "done" or not s["numbers"], f"features.json: у набора {s['id']} со статусом «идёт» цифр быть не должно"
+        assert s["numbers"] == [] or s["reports"], f"features.json: у набора {s['id']} есть цифры, но нет отчёта"
 
 
 def main():
@@ -70,12 +86,16 @@ def main():
     shape = json.load(open(shape_path, encoding="utf-8"))
     assert all(r["ok"] for r in shape["recon"]), "shape.json: сделки не совпали с equity.json"
     sblob = json.dumps(shape, ensure_ascii=False, allow_nan=False, separators=(",", ":")).replace("</", "<\\/")
+    features = json.load(open(features_path, encoding="utf-8"))
+    jsonschema.validate(features, json.load(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "ml_features.schema.json"), encoding="utf-8")))
+    check_features(features)
+    fblob = json.dumps(features, ensure_ascii=False, allow_nan=False, separators=(",", ":")).replace("</", "<\\/")
     pblob = json.dumps(progress, ensure_ascii=False, allow_nan=False, separators=(",", ":")).replace("</", "<\\/")
-    assert "/*__DATA__*/" in tpl and "/*__PROGRESS__*/" in tpl and "/*__EQUITY__*/" in tpl and "/*__SHAPE__*/" in tpl
+    assert "/*__DATA__*/" in tpl and "/*__PROGRESS__*/" in tpl and "/*__EQUITY__*/" in tpl and "/*__SHAPE__*/" in tpl and "/*__FEATURES__*/" in tpl
     os.makedirs(f"{out_dir}/data", exist_ok=True)
-    open(f"{out_dir}/index.html", "w", encoding="utf-8").write(tpl.replace("/*__DATA__*/", blob).replace("/*__PROGRESS__*/", pblob).replace("/*__EQUITY__*/", eblob).replace("/*__SHAPE__*/", sblob))
+    open(f"{out_dir}/index.html", "w", encoding="utf-8").write(tpl.replace("/*__DATA__*/", blob).replace("/*__PROGRESS__*/", pblob).replace("/*__EQUITY__*/", eblob).replace("/*__SHAPE__*/", sblob).replace("/*__FEATURES__*/", fblob))
     json.dump(data, open(f"{out_dir}/data/page_data.json", "w", encoding="utf-8"), ensure_ascii=False)
-    print("index.html", len(tpl) + len(blob) + len(pblob) + len(eblob) + len(sblob), "байт; ход работ", progress["updated"], f"({len(progress['stages'])} этапов); (а)", {s: data["sides"][s]["verdict"]["a"]["ok"] for s in data["sides"]}, flush=True)
+    print("index.html", len(tpl) + len(blob) + len(pblob) + len(eblob) + len(sblob) + len(fblob), "байт; ход работ", progress["updated"], f"({len(progress['stages'])} этапов); признаки", features["updated"], f"({len(features['sets'])} наборов); (а)", {s: data["sides"][s]["verdict"]["a"]["ok"] for s in data["sides"]}, flush=True)
 
 
 if __name__ == "__main__":

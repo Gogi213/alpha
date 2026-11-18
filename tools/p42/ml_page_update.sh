@@ -2,14 +2,17 @@
 # TK-601: обновить страницу CatBoost П-42 (srv:8090). Правим tools/p42/ml_progress.json (схема — ml_progress.schema.json), затем:
 #   bash tools/p42/ml_page_update.sh
 # Загружает progress.json и исходники генератора на srv, перестраивает equity.json (tk601_equity.py, сверка с проверенными числами), пересобирает /data/pages/ml/index.html (JSON проверяется по схеме до записи страницы).
+# TK-606: вкладка «Признаки» — правим tools/p42/ml_features.json (схема ml_features.schema.json), та же команда.
 # TK-602: подвид «Форма» вкладки «Эквити» берёт /data/pages/ml/data/shape.json (tk602_shape.py: ~4 мин на srv, сверка с equity.json). Пересчитать вместе со страницей: REBUILD_SHAPE=1 bash tools/p42/ml_page_update.sh
 set -euo pipefail
 cd "$(dirname "$0")"
 KEY=(-i /c/Users/Георгий/.ssh/id_rsa -o UserKnownHostsFile=/c/Users/Георгий/.ssh/known_hosts -o ConnectTimeout=15)
 HOST=root@5.231.25.224
 python -c "import json,sys; json.load(open('ml_progress.json', encoding='utf-8'))" || { echo "ml_progress.json — не JSON"; exit 2; }
-tar -c ml_progress.schema.json tk593_page.py tk593_template.html tk601_equity.py tk602_shape.py | ssh "${KEY[@]}" "$HOST" 'tar -x -C /data/pages/_src'
+python -c "import json,sys; json.load(open('ml_features.json', encoding='utf-8'))" || { echo "ml_features.json — не JSON"; exit 2; }
+tar -c ml_progress.schema.json ml_features.schema.json tk593_page.py tk593_template.html tk601_equity.py tk602_shape.py | ssh "${KEY[@]}" "$HOST" 'tar -x -C /data/pages/_src'
 scp "${KEY[@]}" -q ml_progress.json "$HOST:/data/pages/ml/data/progress.json"
+scp "${KEY[@]}" -q ml_features.json "$HOST:/data/pages/ml/data/features.json"
 ssh "${KEY[@]}" "$HOST" "REBUILD_SHAPE=${REBUILD_SHAPE:-0} bash -s" <<'REMOTE'
 set -e
 /opt/venv/bin/python /data/pages/_src/tk601_equity.py /data/p42-tk598 /data/pages/ml/data/equity.json

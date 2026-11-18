@@ -151,6 +151,48 @@ section{scroll-margin-top:130px}
 .tg tfoot td.res{display:none}
 }
 .prog-foot{margin:22px 0 0;padding-bottom:6px;border-bottom:1px solid var(--border);color:var(--mfg);font-size:13px}
+/* TK-606: вкладка «Признаки» */
+.ft-bar .nav{flex-wrap:wrap}
+section.ft-set{margin-top:22px;scroll-margin-top:118px}
+.ft-set .card-h{flex-wrap:wrap;align-items:center;padding-top:16px}
+.ft-set .card-h b{font-size:15px}
+.ft-meta{display:flex;align-items:center;gap:10px}
+.ft-about{margin:0 0 10px;color:var(--z700);font-size:13px;max-width:100ch}
+.ft-rep{margin:10px 0 0;color:var(--mfg);font-size:12px;max-width:120ch}
+.ft-rep code,.ft td.nm code{font:12px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;background:var(--muted);padding:1px 6px;border-radius:4px;color:var(--z700)}
+.ft-rep code{overflow-wrap:anywhere}
+.ft-tw{overflow-x:auto;margin-top:12px}
+.ft th,.ft td{padding:8px 12px;vertical-align:top}
+.ft td:first-child{min-width:0}
+.ft{table-layout:fixed}
+.ft td.nm{overflow-wrap:anywhere}
+.ft td.nm code{font-size:12.5px;color:var(--fg);font-weight:600}
+.ft td.what{font-size:13px}
+.ft td.src{font-size:12px;color:var(--mfg)}
+.ft .mk{display:block;width:max-content;max-width:100%;margin-top:4px;font-weight:500;white-space:normal}
+.ft tr.grp td{background:var(--muted);border-bottom:0;padding:6px 12px;font-weight:600;font-size:12.5px}
+.ft tr.grp+tr td{border-top:0}
+@media(max-width:640px){
+.ft-set .card-b{padding:10px 12px 14px}
+.ft-set .card-h{padding:14px 12px 0}
+.ft-bar .nav{flex-wrap:nowrap;overflow-x:auto;max-width:100%}
+.ft-bar .nav button{white-space:nowrap}
+}
+@media(max-width:820px){
+.ft-tw{overflow-x:visible}
+.ft{table-layout:auto}
+.ft,.ft tbody{display:block}
+.ft thead{display:none}
+.ft tr{display:grid;grid-template-columns:1fr;gap:3px;padding:10px 0;border-bottom:1px solid var(--border)}
+.ft tr:last-child{border-bottom:0}
+.ft td,.ft td:first-child{padding:0;border:0;min-width:0;max-width:none;width:auto;white-space:normal}
+.ft td.what,.ft td.src{min-width:0;max-width:none}
+.ft td.src::before{content:"Данные: "}
+.ft td.src div{display:inline}
+.ft td.src div+div::before{content:"; "}
+.ft tr.grp{display:block;padding:0;border:0;margin-top:6px}
+.ft tr.grp td{padding:6px 10px;border-radius:6px}
+}
 </style>
 </head>
 <body>
@@ -167,6 +209,7 @@ section{scroll-margin-top:130px}
       <div id="eq-view"></div>
     </div>
   </div>
+  <div class="pane" id="pane-features" hidden><div class="prog" id="features"></div></div>
   <div class="pane" id="pane-model" hidden>
     <div class="top">
       <h1>П-42 · CatBoost на признаках уровня</h1>
@@ -181,6 +224,7 @@ section{scroll-margin-top:130px}
 <script id="progress-data" type="application/json">/*__PROGRESS__*/</script>
 <script id="equity-data" type="application/json">/*__EQUITY__*/</script>
 <script id="shape-data" type="application/json">/*__SHAPE__*/</script>
+<script id="features-data" type="application/json">/*__FEATURES__*/</script>
 <script>
 const D = JSON.parse(document.getElementById('data').textContent);
 const NS = 'http://www.w3.org/2000/svg';
@@ -825,13 +869,58 @@ function shapeCard(wid, side, width) {
   return card;
 }
 
-// ── вкладки верхнего уровня: хеш #progress | #targets | #equity[/short|long|both][/shape | /comp][/dep=N] | #model[/long|short]
-const TABS = [['progress', 'Ход работ'], ['targets', 'Цели TK-598'], ['equity', 'Эквити'], ['model', 'Модель TK-592']];
-const ST = {tab: 'progress', eq: 'short', view: 'curve', model: 'long', cmp: false, dep: EQ_DEP0};
+// ── признаки (TK-606): данные — features.json (ml_features.json в репозитории, схема ml_features.schema.json), вшиты при сборке
+const FEAT = JSON.parse(document.getElementById('features-data').textContent);
+const ftTotal = FEAT.sets.reduce((s, x) => s + x.groups.reduce((a, g) => a + g.features.length, 0), 0);
+function ftGo() { const e = ST.ft && document.getElementById('ft-' + ST.ft); if (e) e.scrollIntoView({behavior: 'smooth', block: 'start'}); }
+function ftRow(f) {
+  const nm = h('td', {class: 'nm', 'data-f': 'name'}, [h('code', {}, f.name)]);
+  if (f.mark) nm.append(h('span', {class: 'badge mk', 'data-f': 'mark'}, f.mark));
+  return h('tr', {'data-feature': f.name}, [nm, h('td', {class: 'what', 'data-f': 'what'}, f.what), h('td', {class: 'src', 'data-f': 'src'}, f.src.map(k => h('div', {}, FEAT.sources[k])))]);
+}
+function ftCard(s, i) {
+  const n = s.groups.reduce((a, g) => a + g.features.length, 0);
+  const sec = h('section', {class: 'ft-set', id: 'ft-' + s.id, 'data-set': s.id, 'data-status': s.status});
+  const card = h('div', {class: 'card'});
+  card.append(h('div', {class: 'card-h'}, [h('b', {}, `${i + 1} · ${s.title}`), h('div', {class: 'ft-meta'}, [h('span', {}, `${s.task} · ${n} признаков`), h('span', {class: 'badge ' + (s.status === 'done' ? 'ok' : 'run'), 'data-f': 'status'}, s.status_text)])]));
+  const b = h('div', {class: 'card-b'});
+  b.append(h('p', {class: 'ft-about'}, s.about));
+  b.append(h('div', {class: 'lbl'}, 'Результат'));
+  b.append(s.numbers.length ? h('ul', {class: 'nums'}, s.numbers.map(t => h('li', {}, t))) : h('div', {class: 'muted small'}, 'Цифр пока нет.'));
+  const rep = h('p', {class: 'ft-rep'});
+  rep.append(s.reports.length ? 'Отчёты: ' : 'Отчёта пока нет. ');
+  s.reports.forEach((r, j) => { if (j) rep.append(' · '); rep.append(h('code', {}, r)); });
+  rep.append(s.reports.length ? '. Протокол: ' : 'Протокол: ', h('code', {}, s.protocol));
+  b.append(rep);
+  const tb = h('table', {class: 'ft'});
+  tb.append(h('colgroup', {}, [h('col', {style: 'width:200px'}), h('col'), h('col', {style: 'width:260px'})]));
+  tb.append(h('thead', {}, h('tr', {}, [h('th', {}, 'Название в коде'), h('th', {}, 'Что измеряет'), h('th', {}, 'Данные')])));
+  const body = h('tbody');
+  s.groups.forEach(g => { if (g.title) body.append(h('tr', {class: 'grp'}, h('td', {colspan: 3}, g.title))); g.features.forEach(f => body.append(ftRow(f))); });
+  tb.append(body);
+  b.append(h('div', {class: 'ft-tw'}, tb));
+  card.append(b); sec.append(card);
+  return sec;
+}
+function renderFeatures() {
+  const root = document.getElementById('features');
+  if (root.childElementCount) return;
+  root.append(h('div', {class: 'prog-h'}, [h('h2', {}, 'Признаки'), h('span', {class: 'muted small'}, `${ftTotal} признаков в ${FEAT.sets.length} наборах · обновлено ${FEAT.updated}`)]));
+  root.append(h('p', {class: 'prog-head'}, FEAT.intro));
+  const nav = h('div', {class: 'nav'}, FEAT.sets.map((s, i) => { const b = h('button', {'data-go': s.id}, `${i + 1} ${s.short}`); b.onclick = () => { ST.ft = s.id; setHash(); ftGo(); }; return b; }));
+  root.append(h('div', {class: 'bar ft-bar'}, nav));
+  FEAT.sets.forEach((s, i) => root.append(ftCard(s, i)));
+  root.append(h('p', {class: 'prog-foot', 'data-f': 'foot'}, FEAT.foot));
+}
+
+// ── вкладки верхнего уровня: хеш #progress | #targets | #equity[/short|long|both][/shape | /comp][/dep=N] | #features[/<набор>] | #model[/long|short]
+const TABS = [['progress', 'Ход работ'], ['targets', 'Цели TK-598'], ['equity', 'Эквити'], ['features', 'Признаки'], ['model', 'Модель TK-592']];
+const ST = {tab: 'progress', ft: null, eq: 'short', view: 'curve', model: 'long', cmp: false, dep: EQ_DEP0};
 function parseHash() {
   const [a, b, c, d] = location.hash.replace(/^#/, '').split('/');
   if (a === 'long' || a === 'short') { ST.tab = 'model'; ST.model = a; return; }
   if (TABS.some(t => t[0] === a)) ST.tab = a;
+  ST.ft = a === 'features' && FEAT.sets.some(s => s.id === b) ? b : null;
   if (a === 'equity') {
     if (EQ_SIDES.some(s => s[0] === b)) ST.eq = b;
     const rest = [b, c, d];
@@ -842,12 +931,13 @@ function parseHash() {
   }
   if (a === 'model' && (b === 'long' || b === 'short')) ST.model = b;
 }
-function setHash() { history.replaceState(null, '', '#' + ST.tab + (ST.tab === 'equity' ? '/' + ST.eq + (ST.view === 'shape' ? '/shape' : (ST.cmp ? '/comp' : '') + (ST.dep !== EQ_DEP0 ? '/dep=' + ST.dep : '')) : ST.tab === 'model' ? '/' + ST.model : '')); }
+function setHash() { history.replaceState(null, '', '#' + ST.tab + (ST.tab === 'equity' ? '/' + ST.eq + (ST.view === 'shape' ? '/shape' : (ST.cmp ? '/comp' : '') + (ST.dep !== EQ_DEP0 ? '/dep=' + ST.dep : '')) : ST.tab === 'model' ? '/' + ST.model : ST.tab === 'features' && ST.ft ? '/' + ST.ft : '')); }
 function route() {
   TABS.forEach(([k]) => { document.getElementById('pane-' + k).hidden = k !== ST.tab; });
   document.querySelectorAll('#toptabs button').forEach(b => b.setAttribute('aria-selected', b.dataset.tab === ST.tab));
   if (ST.tab === 'equity') renderEquity();
   if (ST.tab === 'model') select(ST.model);
+  if (ST.tab === 'features') { renderFeatures(); if (ST.ft) setTimeout(ftGo, 0); }
   setHash();
 }
 function goTab(k) { ST.tab = k; window.scrollTo(0, 0); route(); }

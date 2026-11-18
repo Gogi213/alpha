@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Вкладка «Признаки» страницы CatBoost П-42 (srv:8090)",
+  "description": "Файл /data/pages/ml/data/features.json; копия-источник в репозитории — tools/p42/ml_features.json. Тексты — по-русски, простыми словами. В numbers попадают только принятые цифры из отчётов (путь к отчёту — в reports); у набора, который ещё считается, numbers пустой. Ссылки src должны быть ключами sources, имена признаков не повторяются (проверяет tk593_page.py).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["updated", "intro", "sources", "sets", "foot"],
+  "properties": {
+    "updated": {"type": "string", "pattern": "^\\d{2}\\.\\d{2}\\.\\d{4}$", "description": "дата обновления, ДД.ММ.ГГГГ"},
+    "intro": {"type": "string", "minLength": 1, "description": "что такое признак, уровень, подход, пробой, бп — простыми словами"},
+    "sources": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {"type": "string", "minLength": 1},
+      "description": "ключ источника данных → подпись в колонке «Данные»"
+    },
+    "sets": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/set"}, "description": "наборы признаков в порядке показа"},
+    "foot": {"type": "string", "minLength": 1, "description": "строка под всеми наборами"}
+  },
+  "$defs": {
+    "feature": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "what", "src"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1, "description": "имя в коде"},
+        "what": {"type": "string", "minLength": 1, "description": "что измеряет, простыми словами"},
+        "src": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}, "description": "ключи из sources"},
+        "mark": {"type": "string", "minLength": 1, "description": "необязательно: короткая пометка из отчёта, например «топ-5 шорта · z 3,79»"}
+      }
+    },
+    "group": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["title", "features"],
+      "properties": {
+        "title": {"type": "string", "description": "заголовок группы; пусто — без заголовка"},
+        "features": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/feature"}}
+      }
+    },
+    "set": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "title", "short", "task", "status", "status_text", "about", "numbers", "reports", "protocol", "groups"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^[a-z0-9]+$", "description": "якорь набора: #features/<id>"},
+        "title": {"type": "string", "minLength": 1},
+        "short": {"type": "string", "minLength": 1, "description": "подпись кнопки навигации"},
+        "task": {"type": "string", "minLength": 1, "description": "номер задачи, например TK-592"},
+        "status": {"enum": ["done", "running"], "description": "готово / идёт"},
+        "status_text": {"type": "string", "minLength": 1},
+        "about": {"type": "string", "minLength": 1, "description": "что это за набор и зачем проверяется"},
+        "numbers": {"type": "array", "items": {"type": "string", "minLength": 1}, "description": "принятые цифры из отчётов; пусто — «Цифр пока нет»"},
+        "reports": {"type": "array", "items": {"type": "string", "minLength": 1}, "description": "пути к отчётам; пусто — «Отчёта пока нет»"},
+        "protocol": {"type": "string", "minLength": 1, "description": "путь и раздел протокола"},
+        "groups": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/group"}}
+      }
+    }
+  }
+}
