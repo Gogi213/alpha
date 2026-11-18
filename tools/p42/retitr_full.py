@@ -301,6 +301,23 @@ def check_forced(tables, windows=WINDOWS):
     return ok
 
 
+DATA_END = datetime.date(2026, 11, 13)                            # последние сутки данных (сутки 135 склейки)
+
+
+def check_data_end(tables, windows=WINDOWS):
+    """§13.24.3 п. 7 (критик): на пустых хвостах данных (wc: суток сетки 54–73) нет сделок — вход и выход каждой сделки не позже конца данных окна
+    (min(T0+73, 13.11), включительно). Возвращает {окно: последний выход (мс от T0)}; нарушение — GuardError."""
+    last = {}
+    for w in windows:
+        t = tables[w.name]
+        end_d = min(w.t0d + datetime.timedelta(days=TRADE_END), DATA_END)
+        lim = ((end_d - w.t0d).days + 1) * DAY_MS
+        last[w.name] = int(t.exit_ms.max()) if len(t.exit_ms) else 0
+        if len(t.exit_ms) and (int(t.exit_ms.max()) > lim or int(t.entry_ms.max()) >= lim):
+            raise GuardError("окно %s: сделки позже конца данных %s (последний выход +%d мс от T0, предел %d)" % (w.name, end_d, int(t.exit_ms.max()), lim))
+    return last
+
+
 def feature_availability(values, months, min_share=0.95):
     """G5: признак титруется, если доля непустых значений у кандидатов в КАЖДОМ из пяти месяцев ≥ 95 %. values — массив (NaN = пусто); months — индекс месяца кандидата."""
     v, m = np.asarray(values, dtype=float), np.asarray(months)

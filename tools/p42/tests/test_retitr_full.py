@@ -153,6 +153,17 @@ def test_splice_guards():
     assert "G3b" in raises(rf.GuardError, rf.check_forced, tables(forced))
 
 
+def test_data_end_guard():
+    ok = {"wa": [("AAA", "2026-08-29", 1.0, 0.0, 0.0, "stop")], "wb": [("AAA", "2026-10-16", 1.0, 0.0, 0.0, "stop")], "wc": [("AAA", "2026-11-13", 1.0, 0.0, 0.0, "forced")]}
+    last = rf.check_data_end(tables(ok))
+    assert set(last) == {"wa", "wb", "wc"}
+    late = {"wa": [], "wb": [], "wc": [("AAA", "2026-11-14", 1.0, 0.0, 0.0, "stop")]}                    # за концом данных 13.11
+    assert "позже конца данных" in raises(rf.GuardError, rf.check_data_end, tables(late))
+    late = {"wa": [("AAA", "2026-08-30", 1.0, 0.0, 0.0, "stop")], "wb": [], "wc": []}                    # за T0+73 окна wa
+    assert "позже конца данных" in raises(rf.GuardError, rf.check_data_end, tables(late))
+    assert rf.check_data_end(tables({"wa": [], "wb": [], "wc": []})) == {"wa": 0, "wb": 0, "wc": 0}
+
+
 def test_overlap_gate():
     wa, wb = rf.WINDOWS[0], rf.WINDOWS[1]
     e = [("AAA", "2026-08-24", 3.0, 0.5, 0.0, "stop"), ("BBB", "2026-08-27", 2.0, 0.5, 0.0, "tx")]

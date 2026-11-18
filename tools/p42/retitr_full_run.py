@@ -457,7 +457,8 @@ def gate3(paths, engine, spec):
         for a, b, lo, hi in rf.G3_RANGES:
             diff += ["%s–%s: %s" % (a, b, x) for x in rf.overlap_diff(tabs[a], wins[a], tabs[b], wins[b], lo, hi)]
         forced_ok = rf.check_forced(tabs)
-        res[r.side] = {"diff": diff, "forced_ok": forced_ok}
+        last = rf.check_data_end(tabs)                                                                  # §13.24.3 п. 7: сделок за концом данных нет
+        res[r.side] = {"diff": diff, "forced_ok": forced_ok, "last_exit_ms": last}
     return res
 
 
