@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# TK-607: ворота «байт в байт» нового бинаря движка против эталонных выходов. Запускать на srv под systemd-run (nice 19, CPUWeight=1).
+# TK-607: ворота «байт в байт» нового бинаря движка против эталонных выходов. Запускать на srv под systemd-run (приказ координатора 18.11: --nice=0 -p CPUWeight=1000).
 # Использование: bash tk607_gate.sh <BIN> <метка> <окно wa|wb|wc|rtfz> <файл вариантов> [ключи движка: --tick-store … --sig-cache …]
 # Окна wa/wb/wc — как `Engine.command` TK-599 (P42_T0 окна, --symbols, --threads 4); эталон — /data/p42-tk599/out/<окно>/<вариант> (посчитан a03c91df),
 # сравниваются `<сторона>-{trades,daily,coinday,entryrej}.csv`, `<сторона>-detail.jsonl`, `meta.json`.
 # Окно rtfz — ворота TK-597 `rt-fz` (L_C, S_C; P42_DETAIL=1; 80 суток × 566 монет; T0 2026-09-01): эталон /data/p42-t566/out/rt-fz (бинарь v21), без meta.json.
 # Выходы — /data/p42-tk607/gate/<метка>/<окно>/; md5 новых файлов — <метка>/<окно>.md5. REF_LOG=<журнал эталонного вызова> — сверка счётчиков загрузки/диагностики фазы 1
 # (только для холодного прогона: при попадании кэша сигналов диагностические счётчики фазы 1 не накапливаются).
-# Итог: `GATE OK|DIFF <метка> <окно> вариантов=<n> файлов=<n> различий=<n>`.
+# `KEEP_OUT=0` — при 0 различий выход после сверки удаляется (остаются md5 и журнал). Итог: `GATE OK|DIFF <метка> <окно> вариантов=<n> файлов=<n> различий=<n>`.
 set -uo pipefail
 BIN="$1"; LABEL="$2"; W="$3"; VARS="$4"; shift 4
 ROOT=/data/p42-tk599; G=/data/p42-tk607/gate/$LABEL
@@ -49,4 +49,4 @@ if [ -n "${REF_LOG:-}" ] && [ -e "$REF_LOG" ]; then
   n=$((n+1)); if [ "$(cnt "$LOG")" != "$(cnt "$REF_LOG")" ]; then d=$((d+1)); echo "  DIFF счётчики журнала vs $REF_LOG"; fi
 fi
 grep -E "^фаза 1 готова|^готово:|^tick-store|^sig-cache" "$LOG" | sed 's/^/  /'
-if [ "$d" = 0 ]; then echo "GATE OK $LABEL $W вариантов=$nv файлов=$n различий=0"; else echo "GATE DIFF $LABEL $W вариантов=$nv файлов=$n различий=$d"; fi
+if [ "$d" = 0 ]; then [ "${KEEP_OUT:-1}" = 1 ] || rm -rf "$OUT"; echo "GATE OK $LABEL $W вариантов=$nv файлов=$n различий=0"; else echo "GATE DIFF $LABEL $W вариантов=$nv файлов=$n различий=$d"; fi

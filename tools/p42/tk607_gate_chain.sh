@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # TK-607: цепочка ворот L1 (склад сделок) нового бинаря. Запуск на srv:
-#   systemd-run --unit=tk607-gate-l1 --nice=19 -p CPUWeight=1 bash /data/p42-tk607/tk607_gate_chain.sh <BIN> l1
+#   systemd-run --unit=tk607-gate-l1 --nice=0 -p CPUWeight=1000 --setenv=CAP_GB=8 bash /data/p42-tk607/tk607_gate_chain.sh <BIN> l1
 # Порядок (§8 п. 3, §13.24.6 п. 2): wa холодный склад → wb на складе wa (08.08–29.08 тёплые) → wc → wa повторно (всё тёплое) → rt-fz холодный (свой склад) → rt-fz тёплый.
 # Все вызовы — те же варианты b0002 (16, эталон /data/p42-tk599/out/<окно>), второй пакет b0006 (11) — на тёплом складе по wb, чтобы другой набор сигнальных ключей читал/дописывал склад.
 # Итог — /data/p42-tk607/gate/<метка>.summary (строки GATE OK|DIFF|FAIL); пустой склад на старте обязателен.
