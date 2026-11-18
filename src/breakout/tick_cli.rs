@@ -7,6 +7,8 @@ use super::ftab::{filter_sigs, FeatTab};
 use super::levels::build_levels_tracked;
 use super::params::ExitCfg;
 use super::params::{parse_variant, Params, SigCfg};
+use super::sigcache::{SigCache, SigCacheOpts};
+use super::store::{StoreOpts, TickStore};
 use super::tick::{
     old_entry, run_tick, signals_for_coin, sort_tsigs, tape_last_side, EntryRej, TSig, TickCtr,
     TickResult, TradeSrc, ZipSrc, DAY_MS,
@@ -17,6 +19,7 @@ use std::collections::HashMap;
 use std::fmt::Write as _;
 use std::fs;
 use std::path::Path;
+use std::sync::Arc;
 use std::time::Instant;
 
 fn mean(v: &[f64]) -> f64 {
@@ -279,6 +282,8 @@ pub fn run(
     symbols: Option<String>,
     cap_gb: usize,
     ftab: Option<&Path>,
+    store: Option<StoreOpts>,
+    sig_cache: Option<SigCacheOpts>,
 ) -> Result<()> {
     let t0 = Instant::now();
     let only: Option<Vec<String>> = symbols.map(|s| s.split(',').map(str::to_string).collect());
@@ -342,29 +347,60 @@ pub fn run(
             }
         }
     }
-    let src = ZipSrc::new(trades.to_path_buf(), cap_gb << 30);
+    let store = store
+        .map(|o| TickStore::open(&o).map(Arc::new))
+        .transpose()
+        .context("склад сделок")?;
+    let mut src = ZipSrc::new(trades.to_path_buf(), cap_gb << 30);
+    if let Some(st) = &store {
+        src = src.with_store(Arc::clone(st));
+    }
     eprintln!(
         "фаза 1: монет {}, заданий сигналов {}",
         syms.len(),
         jobs.len()
     );
-    let idx: Vec<usize> = (0..syms.len()).collect();
-    let parts = par_map(&idx, threads, |&i| {
-        let mut outs: Vec<Vec<TSig>> = vec![Vec::new(); jobs.len()];
-        let mut ctrs: Vec<TickCtr> = vec![TickCtr::default(); jobs.len()];
-        signals_for_coin(&syms[i], i as u16, &jobs, &src, &mut outs, &mut ctrs);
-        outs.into_iter().zip(ctrs).collect::<Vec<_>>()
-    });
+    // TK-607 (L2): задания с записью в кэше сигналов фазу 1 не проходят; остальные считаются как прежде
+    let names: Vec<&str> = syms.iter().map(|s| s.name.as_str()).collect();
+    let sigcache = sig_cache
+        .map(|o| SigCache::open(&o, cache, trades, &names))
+        .transpose()
+        .context("кэш сигналов")?;
+    let keys: Vec<Option<String>> = jobs
+        .iter()
+        .map(|(cfg, side)| sigcache.as_ref().and_then(|c| c.key(cfg, *side)))
+        .collect();
     let mut sigs: Vec<Vec<TSig>> = vec![Vec::new(); jobs.len()];
     let mut ctr: Vec<TickCtr> = vec![TickCtr::default(); jobs.len()];
-    for part in parts {
-        for (j, (v, c)) in part.into_iter().enumerate() {
-            sigs[j].extend(v);
-            ctr[j].add(&c);
+    let mut todo: Vec<usize> = Vec::new();
+    for (j, key) in keys.iter().enumerate() {
+        match key
+            .as_deref()
+            .zip(sigcache.as_ref())
+            .and_then(|(k, c)| c.get(k))
+        {
+            Some((s, c)) => (sigs[j], ctr[j]) = (s, c),
+            None => todo.push(j),
         }
     }
-    for s in &mut sigs {
-        sort_tsigs(s);
+    if !todo.is_empty() {
+        let tjobs: Vec<(SigCfg, Side)> = todo.iter().map(|&j| jobs[j].clone()).collect();
+        let idx: Vec<usize> = (0..syms.len()).collect();
+        let parts = par_map(&idx, threads, |&i| {
+            let mut outs: Vec<Vec<TSig>> = vec![Vec::new(); tjobs.len()];
+            let mut ctrs: Vec<TickCtr> = vec![TickCtr::default(); tjobs.len()];
+            signals_for_coin(&syms[i], i as u16, &tjobs, &src, &mut outs, &mut ctrs);
+            outs.into_iter().zip(ctrs).collect::<Vec<_>>()
+        });
+        for part in parts {
+            for (k, (v, c)) in part.into_iter().enumerate() {
+                sigs[todo[k]].extend(v);
+                ctr[todo[k]].add(&c);
+            }
+        }
+        for &j in &todo {
+            sort_tsigs(&mut sigs[j]);
+        }
     }
     if vs.iter().any(|(_, p)| p.sig.lv.pk) {
         use std::sync::atomic::Ordering::Relaxed;
@@ -398,6 +434,20 @@ pub fn run(
         ls.bad_rows,
         ls.errors
     );
+    if let Some(st) = &store {
+        eprintln!("{}", st.summary());
+    }
+    if let Some(sc) = &sigcache {
+        // ошибка загрузки суток неотличима от «нет файла»: при ошибках запись не закрепляется
+        if ls.errors == 0 {
+            for &j in &todo {
+                if let Some(k) = &keys[j] {
+                    sc.put(k, &sigs[j], &ctr[j]);
+                }
+            }
+        }
+        eprintln!("{}", sc.summary());
+    }
     // фаза 2: портфель и исходы — задания (вариант, сторона) параллельно
     let tasks: Vec<(usize, Side)> = (0..vs.len())
         .flat_map(|i| [(i, Side::Long), (i, Side::Short)])
@@ -544,6 +594,9 @@ pub fn run(
         ls.files,
         ls.errors
     );
+    if let Some(st) = &store {
+        eprintln!("{}", st.summary());
+    }
     if ls.errors > 0 {
         bail!("ошибок загрузки: {}", ls.errors);
     }

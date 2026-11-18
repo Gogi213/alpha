@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """П-42 §13.21 (TK-595), стадия F: таблицы признаков кандидатов для `breakout tick --ftab` и границы срезов 10 / 20 / 25 %.
 
-  python3 retitr_ftab.py build <L|S> --sigsx <side-sigsx.csv> --work <каталог> --out <ftab.csv> [--prod /data/tk594/py] [--procs 6] [--force]
+  python3 retitr_ftab.py build <L|S> --sigsx <side-sigsx.csv> --work <каталог> --out <ftab.csv> [--prod /data/tk594/py] [--procs 6] [--base-date 2026-09-01] [--force]
       поток кандидатов `sigsx` базы стороны (после стадии P) → признаки каждого кандидата → CSV `sym,sig_ms,<признаки>` (пусто = NaN).
       Признаки считаются ПРОИЗВОДСТВЕННЫМ кодом TK-588/592/594, не переписанным: каталог `--prod` (srv: /data/tk594/py) = копия
       sigfeat_run.py / sigfeat_lib.py / tk594_feat.py ветки TK-594. Эпизодный класс `Worker.process` вызывается как есть, переопределена
@@ -47,6 +47,7 @@ TK594_MODE = {"oi_c24": "deriv", "loi_turn": "deriv", "big1800": "flow"}   # п�
 SIDE_NAME = {"L": "long", "S": "short"}
 SIDE_SIGN = {"long": 1, "short": -1}
 DAYS_TOTAL = 80                  # сетка движка v21 (cache80)
+BASE_DATE = "2026-09-01"         # T0 сетки TK-595 (`P42_T0`); TK-599 передаёт T0 своего окна (`--base-date`): sig_ms окна отсчитывается от него
 PASS_LO, PASS_HI = "-1e18", "1e18"
 
 
@@ -171,13 +172,13 @@ _SR = None          # модуль sigfeat_run (производственный
 _CAND = None        # класс CandWorker
 
 
-def load_prod(prod, cache, trades, days=DAYS_TOTAL):
+def load_prod(prod, cache, trades, days=DAYS_TOTAL, base_date=BASE_DATE):
     """Подключает производственные модули TK-588/592: окружение задаётся ДО импорта (sigfeat_lib читает его при импорте)."""
     global _SR, _CAND
     os.environ["SIGFEAT_DAYS"] = str(days)
     os.environ["SIGFEAT_CACHE"] = cache
     os.environ["SIGFEAT_TRADES"] = trades
-    os.environ["SIGFEAT_BASE_DATE"] = "2026-09-01"
+    os.environ["SIGFEAT_BASE_DATE"] = base_date
     os.environ.pop("SIGFEAT_MIN_DAY", None)
     sys.path.insert(0, prod)
     import sigfeat_run as sr
@@ -235,9 +236,9 @@ def build_episodes(side, sigsx, out, procs):
     return tot
 
 
-def run_tk594(prod, eps, out, mode, procs):
+def run_tk594(prod, eps, out, mode, procs, base_date=BASE_DATE):
     """Производственный CLI TK-594 по таблице эпизодов (читает ключи и turn24h; метки не открывает)."""
-    cmd = [sys.executable, os.path.join(prod, "tk594_feat.py"), eps, out, "--mode", mode, "--base-date", "2026-09-01", "--procs", str(procs)]
+    cmd = [sys.executable, os.path.join(prod, "tk594_feat.py"), eps, out, "--mode", mode, "--base-date", base_date, "--procs", str(procs)]
     print("запуск:", " ".join(cmd), flush=True)
     subprocess.run(cmd, check=True)
 
@@ -247,7 +248,7 @@ def cmd_build(a):
     side = SIDE_NAME[a.side]
     names = [n for n, _ in FEATURES[a.side]]
     os.makedirs(a.work, exist_ok=True)
-    load_prod(a.prod, a.cache, a.trades)
+    load_prod(a.prod, a.cache, a.trades, base_date=a.base_date)
     eps_path = os.path.join(a.work, "eps-%s.parquet" % a.side)
     if a.force or not os.path.exists(eps_path):
         build_episodes(side, a.sigsx, eps_path, a.procs)
@@ -256,7 +257,7 @@ def cmd_build(a):
     for mode in sorted({TK594_MODE[n] for n in names if n in TK594_MODE}):
         p = os.path.join(a.work, "tk594-%s-%s.parquet" % (mode, a.side))
         if a.force or not os.path.exists(p):
-            run_tk594(a.prod, eps_path, p, mode, a.procs)
+            run_tk594(a.prod, eps_path, p, mode, a.procs, a.base_date)
         parts[mode] = pd.read_parquet(p)
     sig = _SR.read_sigsx(a.sigsx)
     if sig.duplicated(["sym", "sig_ms"]).any():
@@ -501,6 +502,7 @@ def main(argv=None):
     b.add_argument("--cache", default="/data/p42-t566/cache80")
     b.add_argument("--trades", default="/data/aggtrades/binance")
     b.add_argument("--procs", type=int, default=6)
+    b.add_argument("--base-date", default=BASE_DATE, help="T0 окна (`P42_T0`): сутки sig_ms считаются от неё (по умолчанию 2026-09-01 — TK-595)")
     b.add_argument("--force", action="store_true")
     c = sp.add_parser("cuts")
     c.add_argument("side", choices=["L", "S"])

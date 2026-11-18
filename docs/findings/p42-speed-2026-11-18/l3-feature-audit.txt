@@ -1,0 +1,135 @@
+P-42 / TK-607 - L3 audit: is every group-6 ftab column a pure function of (coin, sig_ms, its own sigsx row, window data), independent of the other candidates in the stream?
+=============================================================================================================================================================================
+Date 2026-11-18. Branch bb/tk-607-p42-ultra-speed-v1-thr_j667egy23c, HEAD 5c8a095c + uncommitted edits (the audited files are unmodified vs HEAD).
+Method: code reading + one synthetic run (section 4). Nothing was run on srv; real-data frequencies (metrics gaps, key collisions) are NOT measured.
+file:line = working tree at audit time; re-check after any edit. Language: English per the task brief (AGENTS.md keeps docs/** in Russian: translate when folded into the findings doc).
+Audited copies (md5 = git HEAD, LF): sigfeat_run.py aa8294baf32554dda26358e1f84caa62 | sigfeat_lib.py c445d5eb8b28579b8dd780fef8513cd1 | tk594_feat.py 9df7e26b17d927a1bf6180aac7e0e04e | retitr_ftab.py 896b45ef86f3108855a2c93006d5158d.
+PROD /data/tk594/py was NOT readable here: compare with `prod_md5` in any `<ftab.csv>.info.json` (retitr_ftab.py:273,278-283) before applying this audit to the srv copy.
+
+0. VERDICT
+----------
+subset-safe per produced column (ftab column set = retitr_ftab.py:42-45; grids use L: maxmv1, oi_c24, loi_turn; S: all five; depth_* produced but EXCLUDED, retitr_full_spec.py:90-94):
+  S  tpm15 yes | cons60 yes | tpm60 yes | big1800 yes | since_born_h yes
+  L  maxmv1 yes | oi_c24 yes | depth_mean_bp yes | depth_min_bp yes | loi_turn NO (conditional, section 4)
+OVERALL: NO as the code stands - ONE column, loi_turn (L side), depends on the stream: tk594_feat.py:242 gate `first_row <= T*-24h`, where first_row comes from the metrics window
+  [dmin-2, dmax] and dmin = the coin's earliest candidate day IN THE STREAM (tk594_feat.py:284,289). Triggers only when a metrics day file of the coin is missing right before
+  the subset's first candidate day (details + synthetic proof: section 4). S side is fully subset-safe.
+  Fix without touching prod code: (P1) either a data pre-scan proving no per-coin metrics day gaps in the window, or anchor rows (section 5).
+Precondition for ALL columns (engine side, not a column): the sigsx ROW for a key (sym, sig_ms) must be identical in every stream. Not guaranteed by construction (section 3, item K);
+  today caught fail-stop by merge_union equality (retitr_full_run.py:319-321) - that protection disappears for keys that are no longer recomputed -> (P2) row-fingerprint check.
+Every other column value is a function of (its row, coin bars, coin trades, coin metrics) only.
+
+1. WHAT IS BUILT (per window w, side)
+-------------------------------------
+retitr_full_run.py:359-392 FtabStore.build: engine dump (P42_SIGSX_ONLY=1, P42_SIGSX=14:73; retitr_full_run.py:237-239) -> sx/<w>/<vid>/<side>-sigsx.csv (write_sigsx, src/breakout/tick_cli.rs:141-187)
+ -> `retitr_ftab.py build` (retitr_full_run.py:353-357; --base-date = w.t0 = engine P42_T0, :237) -> ftab/<w>/<vid>/ftab.csv -> merge_union into ftab/<w>/<side>-union.csv (:303-331).
+retitr_ftab.py:246-275 cmd_build: (1) build_episodes (:211-236): production Worker, ONLY do_universe overridden (:187-203): every candidate = its own one-signal episode ("first signal");
+  universes: cfg sigs {"b0": {}, "b0p0": sigs} (:221) => only U0 is run (sigfeat_run.py:95-102), so no controls, no traded-set logic, no crossings (cfg levels = {} -> sigfeat_run.py:104-107 skips).
+  (2) one tk594_feat.py CLI per needed mode (:257-261): L -> `deriv` (oi_c24, loi_turn); S -> `flow` (big1800). Other modes are never run for that side.
+  (3) left-merge back onto the sigsx rows (:265-270), write_ftab (:64-74).
+Emitted columns: L = oi_c24, maxmv1, depth_mean_bp, depth_min_bp, loi_turn | S = tpm15, cons60, tpm60, big1800, since_born_h (retitr_ftab.py:42-46; TK594_MODE: oi_c24, loi_turn -> deriv; big1800 -> flow; rest from the episode table).
+
+2. PER-COLUMN TRACE  (class: a = pure f(sym, sig_ms, row, window data); b = depends on other rows; c = depends on window/base-date params)
+---------------------------------------------------------------------------------------------------------------------------------------
+Common to all episode-table columns: sigfeat_run.py:179-213 Worker.episode. It reads ONLY: the row (sig_ms, level, dist_e8, level_px_e8, born, first_bar, natr_e8, members; `end` is read by
+  read_sigsx but never used), the coin's minute cache (m, cf), the coin's ticks (tk), side s. No argument carries other candidates; no state is mutated across calls that feeds the output
+  (self.trade_rows only for U1, sigfeat_run.py:152; Ticks LRU sigfeat_lib.py:53-87 affects speed only). `ep_no`=i and n_sig=1/last_ms=sig_ms are passed (retitr_ftab.py:196) and do not enter any emitted column.
+  If the signal tick is not found (find_signal_tick -> None, sigfeat_run.py:200-202) the row is emitted with NaN features (retitr_ftab.py:198-200) - row-local, depends only on (row, ticks).
+S side (s = -1):
+  tpm15, tpm60  [a, c]  sigfeat_lib.py:356-365 tick_sparse_features(pre_t, sig_ms); called sigfeat_run.py:210. pre_t = tt[:k] (:193-195,205): window-ticks in [sig-60min, sig] with index < k,
+                k = first tick with time == sig_ms and dist_e8(R, P) == row.dist_e8 (sigfeat_lib.py:183-190), R = s*row.level_px_e8. Quirk: earlier ticks with the SAME ms are counted, so row.dist_e8 matters.
+                Inputs: row + coin aggTrades of the window (SIGFEAT_TRADES = --trades) + T0 (SIGFEAT_BASE_DATE = --base-date).
+  cons60        [a, c]  sigfeat_lib.py:390-395 (approach_features, called sigfeat_run.py:212): count of minutes in [t-60, t), t = sig_ms//60000, with data, long-frame close < R and R-close <= |R|*0.5%
+                (B_PM=500, :28). cons120 = same with 120 (:391, not emitted). Inputs: row.level_px_e8, coin minute bars of the window (--cache), s.
+  big1800       [a, c]  tk594_feat.py:159-165 (flow_features) + :125-134 q99_edge + :328-332. Value = share of $-turnover of trades in [sig-30min, sig) whose size >= q99, q99 from the coin's hourly
+                size histogram over hours [h_end-168, h_end), h_end = sig//1h (needs >= 24 non-empty hours). H is cumulative over days dmin-8..dmax (:300-301,308-337) but for every candidate
+                h_end >= 24*dmin so the slice start h_end-168-h0 >= 24 (:329): every hour read is inside the loaded range in ANY subset -> independent of dmin/dmax and of other rows.
+                Side-independent; has24/coin_first (:333) is not used by big1800. Inputs: coin aggTrades days [d-8, d] (TK594_TRADES), base-date (abs_sig = base + sig_ms, :280).
+  since_born_h  [a, c]  sigfeat_lib.py:266 `(t - born)/60.0`; t = sig_ms//60000 (sigfeat_run.py:182); born = int(row.born) (sigfeat_run.py:206). `born` is the ROW's own column = engine
+                lv.born of the signalled level (tick_cli.rs:161,178; levels.rs:303 `born: now`; level list = build_levels_tracked(sym, p.sig.lv, side) - a function of coin bars + LevelCfg only).
+                NOT a per-stream structure, no min/first over candidates. t and born are both minutes from the window T0 -> consistent only for the same window (c).
+L side:
+  maxmv1        [a, c]  sigfeat_lib.py:376-383: max over minutes [t-60, t) with data of s*(c-o)/c divided by natr = row.natr_e8/1e8 (sigfeat_run.py:211-212). natr_e8 = engine natr[t-1] at the fixed
+                natr_p (tick_cli.rs:167-169; natr_p is not a grid axis, params.rs:304).
+  oi_c24        [a, c]  tk594_feat.py:246-251: (OI(T*)/OI(T*-24h) - 1)*1e4 with T* = floor((sig-10min)/5min)*5min (:240). Cells come from load_metrics(sym, d0 = dmin-2, dmax) (:182-200,289-291).
+                Index g-288 >= 286 >= 0 for every candidate (earliest candidate T* >= 24*dmin h - 10min, d0 = dmin-2) -> never clipped; the same files fill the same cells in any subset.
+                The gate at :242 is implied whenever the T*-24h row exists (that row is loaded, so first_row <= its time). => values and NaN pattern identical (synthetic check, section 4).
+  loi_turn      [b (conditional), c]  tk594_feat.py:252-253: log10(OIV(T*)/turn24h); turn24h = sum qv of the 1440 min before t, /1e5 (sigfeat_lib.py:403; row-pure). Sits behind the :242 gate
+                (`first_row <= T*-24h`); first_row = earliest create_time among the files loaded for days [dmin-2, dmax] (:187,194-195); dmin = per-coin minimum candidate day IN THE STREAM (:284).
+                A different subset => different d0 => different first_row => gate can flip. Section 4.
+  depth_mean_bp, depth_min_bp  [a, c]  sigfeat_lib.py:286-304 from row.members/born/first_bar + coin bars; pure. Produced and part of the union column set (merge_union :311-312 compares column lists).
+Computed in the episode table but NOT emitted (pure too, in case FEATURES is extended): spread_tau (:263), pierce_* / touch_ep / since_touch_h (:276-285), age_h, n_piv, spread_bp, ext_gap_bp, dist_bp,
+  fresh_prior_features (:308-333), emp2h/emp6h/flat60/zv2h/zv6h (:336-353; first_valid is a per-coin constant of the bars), mv5/15/60, maxrng15, cons120, natr_bp, turn1h, turn24h, c5_/c15_/c1_ and
+  btc_/eth_ mv (sigfeat_run.py:340-358, refs loaded in Worker.__init__ :65-72).
+NOT pure and NOT in the build path - never add to FEATURES without a new audit: n_sig_ep, last_sig_ms, ep_first, gap_prev_sig_min, indep (production do_universe sigfeat_run.py:112-165 uses prev/tail_prev/away
+  = first-occurrence logic; sigfeat_join.py:41-51), cosig15, peers7, peer_sig30 (sigfeat_join.py, other coins' signals).
+
+3. CROSS-ROW COUPLING CHECKLIST (searched; result)
+--------------------------------------------------
+- rank / quantile / normalisation over the stream: none in the build. Quantiles exist only in the cut stage (retitr_ftab.py:106-113 quantile_cut; retitr_full.py:370-374 feature_cuts) - consumers, section 6.
+- groupby / shift / diff / cummax / rolling over candidates: only groupby(level|sym) for iteration (retitr_ftab.py:193,219; tk594_feat.py:361); no shift/diff/cum across rows.
+- first-occurrence / episode dedup: bypassed by the do_universe override (retitr_ftab.py:190-202) - candidate k never looks at candidate k-1.
+- per-level state (since_born_h): row's own born (see above), not a stream structure.
+- row drop / dedup / NaN filter: none. Left merges are one_to_one (retitr_ftab.py:266-270), assert len(tab)==len(sig) (:270), ep None -> NaN row (:198-200), duplicate (sym, sig_ms) in sigsx -> SystemExit
+  (:263-264), write_ftab uniqueness (:68-70). NaN features pass the engine filter (ftab.rs; no_value).
+- ordering: `i` (running index over (level, sig_ms)) and Pool.imap_unordered order only affect ep_id, a join key valid inside one build (retitr_ftab.py:228,266-268).
+- stream-derived scalars: ONLY dmin/dmax per coin in tk594_feat.process_coin (:284). Effects: flow window start (no value effect, big1800 above) and the metrics window (loi_turn, section 4).
+- randomness: none for emitted columns (controls RNG only for U1, sigfeat_run.py:303-304; U0 here).
+- K. Row identity of a key. Engine rows are produced per (level, minute) candidate (tick.rs:551-611 signals_for_coin; no cross-level dedup); sigsx row = level, dist, lp, born, end, first_bar, natr, members
+  (tick_cli.rs:152-183). Level list / born / members do not depend on the grid keys (levels.rs:167-169; the grid changes only sig.e_pm, natr_min_pm, t1h_u, t24_u among sig.* keys: params.rs:305-307,317).
+  So a (sym, level, tick) triple yields the same row in every stream. But the key is only (sym, sig_ms): two levels (or two ticks in the same ms with different dist, changing k and hence tpm15/tpm60)
+  can map to one key in different streams. The repo already records the phenomenon: retitr_ftab.py:301-305 ("у одной сделки (sym, sig_ms) бывают два уровня - ключ движка их не различает"), P-42:290 (CCUSDT).
+  Inside one stream it is fail-stop (:263-264); across streams it is caught today only by merge_union value equality (retitr_full_run.py:319-321, exact: np.array_equal, equal_nan). Not measured how often it occurs.
+
+4. loi_turn: MECHANISM AND SYNTHETIC EVIDENCE
+---------------------------------------------
+Gate: tk594_feat.py:242 `if first_row is not None and first_row <= Ts - DAY_MS:` guards oi_c1/oi_c4/oi_c24/loi_turn/ls_*; first_row = min create_time over the files of days d0..dmax that exist (:187,194-195), d0 = dmin - 2.
+Full stream A and subset B (same key, dmin_B > dmin_A) differ only if first_B > Ts - 24h >= first_A. Ts - 24h >= (dmin_B - 1)*day - 10min, so first_B must be later than that: the metrics file of day dmin_B-2 is absent
+(or starts after 23:50) AND the coin has earlier files (otherwise first_row = listing time in both). Variants: (i) file dmin_B-2 missing and the candidate in the first ~15 min of day dmin_B; (ii) files dmin_B-2 and dmin_B-1
+both missing -> every candidate of day dmin_B. oi_c24 is immune (its own T*-24h row implies the gate); loi_turn needs only OIV at T* -> value in A, NaN in B.
+No gap => file dmin_B-2 exists, first row <= (dmin_B-2)*day + 5min < Ts - 24h => gate true in both; coin listed inside the range => first_row = listing in both.
+Synthetic run (REAL tk594_feat.deriv_features; load_metrics hand-emulated because pandas is broken on this PC; 5-min rows 00:00-23:55 on existing days; OIV const; turn24h = 5e6):
+  scenario                          full stream {Y(D+2), X(D+7)}            subset {X}
+  S2 no gap, X 00:20                oi_c24 1573.77 loi_turn -0.69897        identical
+  S1 files D+5,D+6 missing, X 00:20 oi_c24 NaN     loi_turn -0.69897        oi_c24 NaN, loi_turn NaN   <- DIFF
+  S3 file D+5 missing, X 00:05      oi_c24 NaN     loi_turn -0.69897        oi_c24 NaN, loi_turn NaN   <- DIFF
+  S4 file D+5 missing, X 00:12      oi_c24 1575.49 loi_turn -0.69897        identical
+  S5 files D+5,D+6 missing, X 12:00 oi_c24 NaN     loi_turn -0.69897        oi_c24 NaN, loi_turn NaN   <- DIFF
+Fixes (prod code stays frozen): (P1a) data pre-scan: for each coin in the window, metrics day files contiguous from the first file to the window end (ls per coin dir under systemd-run); if no coin has a gap the
+condition cannot trigger. (P1b) anchors: add to the subset sigsx, per coin with a missing key, the coin's EARLIEST stream candidate row (and optionally latest) -> subset dmin == stream dmin -> identical d0, first_row;
+anchors are recomputed and compared by merge_union (retitr_full_run.py:319-321), giving the same fail-stop as today. Note the edge already exists between two FULL streams with different per-coin dmin (merge_union would stop) - L3 must not make it silent.
+
+5. EXACT INPUTS TO COMPUTE FEATURES FOR AN ARBITRARY SUBSET OF CANDIDATES
+-------------------------------------------------------------------------
+(1) A sigsx CSV with the verbatim engine rows (all 10 columns: sym,level,sig_ms,dist_e8,level_px_e8,born,end,first_bar,natr_e8,members; header ignored, read by name list sigfeat_lib.py:108-114) of the MISSING keys,
+    taken from THIS stream's own dump (sx/<w>/<vid>/<side>-sigsx.csv), not from another stream's dump (K). Row order, coin mix and level mix are free.
+(2) L side only, if P1b is used: + the anchor rows above (their keys are already in the union; values must match).
+(3) Window environment identical to the full build: --base-date = engine P42_T0 of that window (retitr_full_run.py:357); --cache = that window's cache80 incl. BTCUSDT.b42/ETHUSDT.b42 (Worker.__init__ loads them,
+    sigfeat_run.py:65-72; SIGFEAT_DAYS = 80, retitr_ftab.py:49,178); --trades and TK594_TRADES = that window's aggTrades (needed days: sig-60min..sig+240min for the episode step, dmin-8..dmax for S flow);
+    TK594_METRICS = metrics-all tree (L: days dmin-2..dmax); same PROD code (prod_md5 equal to the one that built the union).
+(4) Fresh --work directory per subset: retitr_ftab.py:253 and :258-261 REUSE existing eps-*.parquet / tk594-*.parquet in --work; FtabStore.build_cmd points --work at ftab/<w>/<vid> (retitr_full_run.py:101,354),
+    so a rerun with a different sigsx would join stale tables (misaligned ep_id numbering `i`, or silent NaN from the left merge :269). Key the dir by the subset hash or pass --force.
+(5) Non-empty subset only: an empty subset or one where every row has ep None raises KeyError at retitr_ftab.py:265 (missing columns) and ValueError in tk594_feat.py:375 (pd.concat([])): skip the build, still mark ready.
+(6) Cost note (inference, not measured): S `flow` reads/histograms every day in [dmin-8, dmax] per coin regardless of how many rows (tk594_feat.py:308-337; wa flow = 684 s, p42-speed-2026-11-18.md:33), so the saving
+    scales with the number of coins and the span of the subset, not with the row count; the episode step scales with rows.
+
+6. CONSUMERS THAT STILL NEED THE FULL PER-STREAM TABLE (not feature values, but stream-dependent by design)
+----------------------------------------------------------------------------------------------------------
+FtabStore.table/candidates (retitr_full_run.py:394-411), FtabProvider cuts (:429-431 -> retitr_full.py:370-374 quantile over the stream's training-day candidates) and gate5 shares (:513-525 -> retitr_full.py:360-367)
+read ftab/<w>/<vid>/ftab.csv of the stream, not the union. With L3 that file must be re-assembled for ALL stream keys (union lookup), never written with the subset only; otherwise cuts and G5 shares are computed on the delta.
+The engine side needs full key coverage of the stream in the union; the guard exists: retitr_full.py:772-780 (no_key != 0 -> GuardError). Keep it.
+
+7. GUARD LIST (file:line -> test)
+---------------------------------
+G1 retitr_ftab.py:190-202 + sigfeat_run.py:179-213   per-row independence: synthetic coin; features of rows R vs the same rows inside a permuted / larger stream are equal (all emitted eps columns: maxmv1, depth_*, tpm15, tpm60, cons60, since_born_h).
+G2 tk594_feat.py:284,289,242,187-195                 loi_turn/oi_c24 full vs subset with synthetic metrics gaps (scenarios S1-S5 above as unit test); after P1b the DIFF rows must be SAME.
+G3 tk594_feat.py:300-301,308,328-332                 big1800 full vs subset (dmin-8 window start, 168-h lookback at the subset's first day, missing trade day).
+G4 retitr_ftab.py:253,258-261                        stale --work reuse (different sigsx, same dir) must fail or rebuild.
+G5 retitr_ftab.py:263-270                            keep dup check; add: every sigsx key matched an episode row (merge indicator), len(eps) == len(sigsx); empty-subset short circuit (:265, tk594_feat.py:375).
+G6 retitr_full_run.py:303-331                        merge_union with overlap/anchor rows: equal values pass, one differing value -> GuardError, column-list mismatch -> GuardError (existing test tests/test_retitr_full_run.py:260 covers the base case).
+G7 tick_cli.rs:152-183 / retitr_ftab.py:263          P2 row fingerprint (level, dist_e8, level_px_e8, born, first_bar, natr_e8, members) kept per union key; a stream row with the same key but a different fingerprint -> GuardError.
+G8 retitr_full_run.py:394-411,429-431,513-525        table()/candidates()/gate5 on a union-assembled stream table == on a fully built table (cuts and shares equal).
+G9 retitr_full.py:772-780                            no_key guard stays (engine counter vs union coverage).
+G10 retitr_ftab.py:175-185                           load_prod freezes module constants (BASE_DATE, DAYS_TOTAL, CACHE, TRADES) at first import: run one process per (window, stream) as today (retitr_full_run.py:386-387);
+                                                     in-process loops over windows would silently reuse the first window's T0 (existing test tests/test_retitr_full_run.py:409 covers the argument only).
+Gate recommended for the first stream of each side (extends the plan, p42-speed-2026-11-18.md:138): full recompute vs union+delta, row by row incl. NaN pattern, on a stream that contains coins with metrics gaps (if any, from P1a).
