@@ -171,13 +171,13 @@ _SR = None          # модуль sigfeat_run (производственный
 _CAND = None        # класс CandWorker
 
 
-def load_prod(prod, cache, trades, days=DAYS_TOTAL):
+def load_prod(prod, cache, trades, days=DAYS_TOTAL, base_date="2026-09-01"):
     """Подключает производственные модули TK-588/592: окружение задаётся ДО импорта (sigfeat_lib читает его при импорте)."""
     global _SR, _CAND
     os.environ["SIGFEAT_DAYS"] = str(days)
     os.environ["SIGFEAT_CACHE"] = cache
     os.environ["SIGFEAT_TRADES"] = trades
-    os.environ["SIGFEAT_BASE_DATE"] = "2026-09-01"
+    os.environ["SIGFEAT_BASE_DATE"] = base_date   # TK-598: окна июль / август / 14–16.11 — другая дата начала сетки (по умолчанию 01.09.2026)
     os.environ.pop("SIGFEAT_MIN_DAY", None)
     sys.path.insert(0, prod)
     import sigfeat_run as sr

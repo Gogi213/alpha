@@ -1,0 +1,94 @@
+{
+ "side": "short",
+ "common_keys": 175,
+ "excluded_by_input": 0,
+ "tol": 1e-09,
+ "features": {
+  "pierce_ep": {
+   "n_common": 175,
+   "n_both_finite": 175,
+   "n_nan_mismatch": 0,
+   "n_mismatch": 0,
+   "max_abs_diff": 0.0
+  },
+  "spread_tau": {
+   "n_common": 175,
+   "n_both_finite": 175,
+   "n_nan_mismatch": 0,
+   "n_mismatch": 0,
+   "max_abs_diff": 0.0
+  },
+  "zv6h": {
+   "n_common": 175,
+   "n_both_finite": 175,
+   "n_nan_mismatch": 0,
+   "n_mismatch": 0,
+   "max_abs_diff": 0.0
+  },
+  "tpm60": {
+   "n_common": 175,
+   "n_both_finite": 175,
+   "n_nan_mismatch": 0,
+   "n_mismatch": 0,
+   "max_abs_diff": 0.0
+  },
+  "mv5": {
+   "n_common": 175,
+   "n_both_finite": 175,
+   "n_nan_mismatch": 0,
+   "n_mismatch": 0,
+   "max_abs_diff": 0.0
+  },
+  "cons60": {
+   "n_common": 175,
+   "n_both_finite": 175,
+   "n_nan_mismatch": 0,
+   "n_mismatch": 0,
+   "max_abs_diff": 0.0
+  },
+  "c5_btc_7d": {
+   "n_common": 175,
+   "n_both_finite": 173,
+   "n_nan_mismatch": 0,
+   "n_mismatch": 0,
+   "max_abs_diff": 0.0
+  },
+  "c5_eth_7d": {
+   "n_common": 175,
+   "n_both_finite": 175,
+   "n_nan_mismatch": 0,
+   "n_mismatch": 0,
+   "max_abs_diff": 0.0
+  },
+  "lturn24": {
+   "n_common": 175,
+   "n_both_finite": 175,
+   "n_nan_mismatch": 0,
+   "n_mismatch": 0,
+   "max_abs_diff": 0.0
+  },
+  "age_h": {
+   "n_common": 175,
+   "n_both_finite": 175,
+   "n_nan_mismatch": 0,
+   "n_mismatch": 0,
+   "max_abs_diff": 0.0
+  },
+  "natr_bp": {
+   "n_common": 175,
+   "n_both_finite": 175,
+   "n_nan_mismatch": 0,
+   "n_mismatch": 0,
+   "max_abs_diff": 0.0
+  },
+  "since_touch_prior_h": {
+   "n_common": 175,
+   "n_both_finite": 175,
+   "n_nan_mismatch": 0,
+   "n_mismatch": 0,
+   "max_abs_diff": 0.0
+  }
+ },
+ "ok": false,
+ "excluded_syms": []
+}
