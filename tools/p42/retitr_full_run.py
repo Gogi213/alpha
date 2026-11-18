@@ -52,7 +52,7 @@ RECORDED = {
     "bin_md5": "a03c91df5a70c8eb32cbb7122943b8f9",
     "symbols_sha256": "25c9ad8caab30af583b18f0678189f381282cce23b5d42c043471481bf0eaae0",
     "grids_sha256": "e1d6bded92ddd44c68c130b98187756f9f3eaa36759291a619435e0e9a369e5d",
-    "manifests_sha256": "06e0993e189046f700c73c7eb88dfe19b60660030c314b7925999b83410a057d",   # §13.24.3 п. 7 (геометрия окон 18.11); до этого 9f52379e…
+    "manifests_sha256": "e377de791796bcc93bee2ad5ad70c5ee69cf1e45499369637cdf293e07c9bd59",   # §13.24.4 п. 8 (глубина предыстории H = 32, 18.11); до этого 06e0993e… (§13.24.3 п. 7), 9f52379e…
 }
 GuardError = rf.GuardError
 
@@ -436,7 +436,7 @@ def gate12(paths, bin_path=BIN, symbols=SYMBOLS, grids=GRIDS, manifests=MANIFEST
     res["G2_grids_sha256"] = file_hashes(grids)[0] == recorded["grids_sha256"]
     res["G2_manifests_sha256"] = file_hashes(manifests)[0] == recorded["manifests_sha256"]
     rec = parse_manifests(open(manifests, encoding="utf-8").read())
-    for w in rf.WINDOWS:
+    for w in rf.WINDOWS + rf.CONV_WINDOWS:
         p = paths.j(w.name, "MANIFEST")
         got = [ln.strip() for ln in open(p, encoding="utf-8").read().splitlines() if ln.strip()] if os.path.exists(p) else None
         res["G2_manifest_" + w.name] = got is not None and got == rec.get(w.name)
@@ -444,27 +444,40 @@ def gate12(paths, bin_path=BIN, symbols=SYMBOLS, grids=GRIDS, manifests=MANIFEST
     return res
 
 
-def gate3(paths, engine, spec):
-    """G3 «окна без потерь» и G3b (обрезка конца данных) на `L_base`, `S_base`: прогон баз на трёх окнах, различия множеств сделок на внутренней части перекрытий — список.
-    Возвращает {сторона: {'diff': [...], 'forced_ok': n}}; любое различие или forced вне 13.11 — GuardError (check_forced)."""
+def gate3(paths, engine, spec, engine_conv=None):
+    """G3 «окна без потерь» (§13.24.4 п. 4), G3b (обрезка конца данных) и проверка сходимости (п. 5) на `L_base`, `S_base`: прогон баз на трёх окнах (и на `wbx`, `wcx` — `engine_conv`), различия множеств сделок
+    на зачётных кусках перекрытий (`G3_RANGES`) и на зачётных диапазонах окон с T0 на 7 суток раньше (`CONV_PAIRS`), диагностика разгона (`G3_RAMP`, не ворота).
+    Возвращает {сторона: {'diff': [...], 'conv': [...], 'ramp': {...}, 'forced_ok': n, 'last_exit_ms': {...}}}; forced вне 13.11 или сделка за концом данных — GuardError."""
     reqs = [rf.Req(s, rf.cfg_keys(spec, s, {}), False) for s in rf.SIDES]
     engine.launch(reqs)
+    if engine_conv is not None:
+        engine_conv.launch(reqs)
+    wins = {w.name: w for w in rf.WINDOWS + rf.CONV_WINDOWS}
     res = {}
     for r in reqs:
-        tabs = {w.name: rf.read_trades_csv(os.path.join(paths.out(w.name), r.vid, rf.ENGINE_SIDE[r.side] + "-trades.csv")) for w in rf.WINDOWS}
-        wins = {w.name: w for w in rf.WINDOWS}
-        diff = []
+        def read(w):
+            return rf.read_trades_csv(os.path.join(paths.out(w.name), r.vid, rf.ENGINE_SIDE[r.side] + "-trades.csv"))
+        tabs = {w.name: read(w) for w in rf.WINDOWS}
+        diff, ramp, conv = [], {}, []
         for a, b, lo, hi in rf.G3_RANGES:
             diff += ["%s–%s: %s" % (a, b, x) for x in rf.overlap_diff(tabs[a], wins[a], tabs[b], wins[b], lo, hi)]
+        for a, b, lo, hi in rf.G3_RAMP:
+            ramp["%s–%s %s…%s" % (a, b, lo, hi)] = rf.diff_by_day(tabs[a], wins[a], tabs[b], wins[b], lo, hi)
+        if engine_conv is not None:
+            for m, x in rf.CONV_PAIRS:
+                tx = read(wins[x])
+                dm = rf.overlap_diff(tabs[m], wins[m], tx, wins[x], wins[x].lo, wins[x].hi)
+                conv += ["%s–%s: %s" % (m, x, d) for d in dm]
+                ramp["conv %s–%s %s…%s" % (m, x, wins[x].lo, wins[x].hi)] = {"n_trades": len(rf._keyset(tabs[m], wins[m], wins[x].lo, wins[x].hi)), "n_diff": len(dm)}
         forced_ok = rf.check_forced(tabs)
         last = rf.check_data_end(tabs)                                                                  # §13.24.3 п. 7: сделок за концом данных нет
-        res[r.side] = {"diff": diff, "forced_ok": forced_ok, "last_exit_ms": last}
+        res[r.side] = {"diff": diff, "conv": conv, "ramp": ramp, "forced_ok": forced_ok, "last_exit_ms": last}
     return res
 
 
 def g3_failures(g3):
-    """{сторона: первые различия} по результату `gate3`; пусто — окна без потерь."""
-    return {s: v["diff"][:5] for s, v in g3.items() if v["diff"]}
+    """{сторона: первые различия} по результату `gate3` (перекрытия и сходимость); пусто — окна без потерь, предыстории достаточно."""
+    return {s: (v["diff"] + v.get("conv", []))[:5] for s, v in g3.items() if v["diff"] or v.get("conv")}
 
 
 def gate5(store, spec, base_keys_by_side=None):
@@ -499,6 +512,7 @@ class Ctx:
     store: FtabStore
     ev: object
     nboot: int
+    engine_conv: object = None                              # движок окон проверки сходимости (wbx, wcx); нужен только воротам G3
 
 
 def make_ctx(root=ROOT, runner=None, nboot=rf.NBOOT, chunk=None, procs=6, threads=THREADS, bin_path=None, symbols=SYMBOLS, grids=GRIDS, funding=FUNDING,
@@ -508,12 +522,13 @@ def make_ctx(root=ROOT, runner=None, nboot=rf.NBOOT, chunk=None, procs=6, thread
     spec = rf.Spec.load(grids)
     text, coins = read_symbols(symbols)
     engine = Engine(paths, runner, text, bin_path or paths.j("bin", "alpha-master"), threads, chunk)
+    engine_conv = Engine(paths, runner, text, bin_path or paths.j("bin", "alpha-master"), threads, chunk, windows=rf.CONV_WINDOWS)
     store = FtabStore(paths, runner, engine, prod, procs, python=python, prepare=(lambda: metrics_tree(paths)) if metrics else None)
     engine.ensure_tables = store.build
     os.makedirs(paths.npz, exist_ok=True)
     ev = rf.OutDirEvaluator(paths.j("out"), coins, rates if rates is not None else rf.load_funding_rates(funding, coins), launch=engine.launch, cache_dir=paths.npz,
                             run_t0={w.name: w.t0 for w in rf.WINDOWS}, ftab_builder=store.build, ftab_ready=store.ready)
-    return Ctx(paths, runner, spec, coins, text, engine, store, ev, nboot)
+    return Ctx(paths, runner, spec, coins, text, engine, store, ev, nboot, engine_conv)
 
 
 def c595_keys(path=C595):
@@ -614,6 +629,10 @@ def cmd_plan(a):
         cmd, env = eng.command(w, paths.var + "/b0001.txt", paths.out(w.name), None)
         print(show_cmd(cmd, env))
     print(variants_text(reqs), end="")
+    print("# проверка сходимости (§13.24.4 п. 5): базы на окнах с T0 на 7 суток раньше")
+    for w in rf.CONV_WINDOWS:
+        cmd, env = eng.command(w, paths.var + "/b0001.txt", paths.out(w.name), None)
+        print(show_cmd(cmd, env))
     print("# пример вызова с фильтром признака (группа 6): --ftab <union окна и стороны>")
     w = rf.WINDOWS[0]
     print(show_cmd(*eng.command(w, paths.var + "/b00NN.txt", paths.out(w.name), paths.union(w.name, "L"))))
@@ -634,10 +653,10 @@ def run_gates(ctx, with_g5=True):
     g = {"G12": gate12(ctx.paths, ctx.engine.bin)}
     if g["G12"]["fail"]:
         raise GuardError("ворота G1/G2 не пройдены: %s" % g["G12"]["fail"])
-    g["G3"] = gate3(ctx.paths, ctx.engine, ctx.spec)
+    g["G3"] = gate3(ctx.paths, ctx.engine, ctx.spec, ctx.engine_conv)
     bad = g3_failures(g["G3"])
     if bad:
-        raise GuardError("G3 «окна без потерь»: различия на перекрытиях %s" % bad)
+        raise GuardError("G3 «окна без потерь» / сходимость предыстории: различия %s" % bad)
     if with_g5:
         g["G5"] = gate5(ctx.store, ctx.spec)
     return g

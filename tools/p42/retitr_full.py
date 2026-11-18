@@ -76,10 +76,17 @@ class Window:
         return datetime.date.fromisoformat(self.hi)
 
 
-WINDOWS = (Window("wa", "2026-06-17", "2026-07-01", "2026-08-25"),     # §13.24.3: зачёт 56 + 48 + 32 = 136 суток
-           Window("wb", "2026-08-04", "2026-08-26", "2026-10-12"),
-           Window("wc", "2026-09-21", "2026-10-13", "2026-11-13"))
-G3_RANGES = (("wa", "wb", "2026-08-21", "2026-08-28"), ("wb", "wc", "2026-10-08", "2026-10-15"))   # внутренняя часть перекрытий
+WINDOWS = (Window("wa", "2026-06-17", "2026-07-01", "2026-08-25"),     # §13.24.4: зачёт 56 + 38 + 42 = 136 суток; глубина предыстории H = 32 у wb, wc (у wa — 14: данных до 17.06 нет)
+           Window("wb", "2026-07-25", "2026-08-26", "2026-10-02"),
+           Window("wc", "2026-09-01", "2026-10-03", "2026-11-13"))
+# G3 (§13.24.4 п. 4): множества сделок соседних окон равны на всём зачётном куске перекрытия — от начала зачёта позднего окна до T0+72 раннего (последние сутки данных — хвост)
+G3_RANGES = (("wa", "wb", "2026-08-26", "2026-08-28"), ("wb", "wc", "2026-10-03", "2026-10-05"))
+# диагностика разгона (не ворота): та же сверка на [T0 позднего + 14 + 3, начало зачёта − 1] — число различий по суткам
+G3_RAMP = (("wa", "wb", "2026-08-11", "2026-08-25"), ("wb", "wc", "2026-09-18", "2026-10-02"))
+# проверка сходимости (§13.24.4 п. 5): окно с T0 на 7 суток раньше даёт на зачётном диапазоне тот же набор сделок; сравнение до T0x+69 (хвост 4 сут. — обрезка конца данных)
+CONV_WINDOWS = (Window("wbx", "2026-07-18", "2026-08-26", "2026-09-25"),
+                Window("wcx", "2026-08-25", "2026-10-03", "2026-11-02"))
+CONV_PAIRS = (("wb", "wbx"), ("wc", "wcx"))
 
 
 def check_windows(windows=WINDOWS, t0_used=None):
@@ -264,21 +271,35 @@ def splice(tables, coins, windows=WINDOWS, daily=None, rates=None):
 
 # ---- ворота окон ----------------------------------------------------------------------------------------------------------
 
+def _keyset(t, w, lo, hi):
+    """{(монета, абсолютный вход, абсолютный выход): (gross, fees)} по сделкам окна с датой входа lo…hi включительно."""
+    d = abs_day(w, t.entry_ms)
+    a, b = (datetime.date.fromisoformat(lo) - D0).days, (datetime.date.fromisoformat(hi) - D0).days
+    out = {}
+    for i in np.nonzero((d >= a) & (d <= b))[0]:
+        out[(t.sym[i], int(t.entry_ms[i]) + _t0_ms(w), int(t.exit_ms[i]) + _t0_ms(w))] = (round(float(t.gross[i]), 6), round(float(t.fees[i]), 6))
+    return out
+
+
 def overlap_diff(ta, wa, tb, wb, lo, hi):
-    """G3: на внутренней части перекрытия (даты входа lo…hi включительно) множества сделок двух окон равны по (монета, абсолютный вход, выход, gross, fees). Возвращает список различий."""
-    def keyset(t, w):
-        d = abs_day(w, t.entry_ms)
-        a, b = (datetime.date.fromisoformat(lo) - D0).days, (datetime.date.fromisoformat(hi) - D0).days
-        out = {}
-        for i in np.nonzero((d >= a) & (d <= b))[0]:
-            out[(t.sym[i], int(t.entry_ms[i]) + _t0_ms(w), int(t.exit_ms[i]) + _t0_ms(w))] = (round(float(t.gross[i]), 6), round(float(t.fees[i]), 6))
-        return out
-    A, B = keyset(ta, wa), keyset(tb, wb)
+    """G3 / проверка сходимости: на куске lo…hi (даты входа, включительно) множества сделок двух окон равны по (монета, абсолютный вход, выход, gross, fees). Возвращает список различий."""
+    A, B = _keyset(ta, wa, lo, hi), _keyset(tb, wb, lo, hi)
     diff = ["только в %s: %s" % (wa.name, k) for k in sorted(set(A) - set(B))] + ["только в %s: %s" % (wb.name, k) for k in sorted(set(B) - set(A))]
     for k in sorted(set(A) & set(B)):
         if abs(A[k][0] - B[k][0]) > 1e-6 or abs(A[k][1] - B[k][1]) > 1e-6:
             diff.append("различие gross/fees %s: %s ≠ %s" % (k, A[k], B[k]))
     return diff
+
+
+def diff_by_day(ta, wa, tb, wb, lo, hi):
+    """Диагностика разгона (не ворота): {дата входа: число различий} на куске lo…hi — только сутки с различиями; число суток и сделок в куске — `n_days`, `n_trades` (по окну wa)."""
+    A, B = _keyset(ta, wa, lo, hi), _keyset(tb, wb, lo, hi)
+    day = lambda k: datetime.datetime.fromtimestamp(k[1] / 1000, tz=datetime.timezone.utc).date().isoformat()     # noqa: E731
+    bad = list(set(A) ^ set(B)) + [k for k in set(A) & set(B) if abs(A[k][0] - B[k][0]) > 1e-6 or abs(A[k][1] - B[k][1]) > 1e-6]
+    out = {}
+    for k in bad:
+        out[day(k)] = out.get(day(k), 0) + 1
+    return {"by_day": dict(sorted(out.items())), "n_trades": len(A), "n_diff": len(bad)}
 
 
 def forced_in_range(t, w):

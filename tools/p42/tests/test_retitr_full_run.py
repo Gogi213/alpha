@@ -76,7 +76,7 @@ class FakeSrv:
     def engine(self, cmd, env):
         vfile, out, ftab = self.arg(cmd, "--variants"), self.arg(cmd, "--out"), self.arg(cmd, "--ftab")
         t0 = env["P42_T0"]
-        win = next(w for w in rf.WINDOWS if w.t0 == t0)
+        win = next(w for w in rf.WINDOWS + rf.CONV_WINDOWS if w.t0 == t0)
         for ln in open(vfile, encoding="utf-8").read().splitlines():
             vid, _, keys = ln.partition(" ")
             d = os.path.join(out, vid)
@@ -160,9 +160,9 @@ def test_engine_command_shape():
         cmd, env = ctx.engine.command(w, "/v/b1.txt", "/o/wb", "/f/u.csv")
         assert cmd == ["/x/alpha-master", "breakout", "tick", "--cache", os.path.join(ctx.paths.root, "wb", "cache"), "--trades", os.path.join(ctx.paths.root, "wb", "aggtrades"),
                        "--variants", "/v/b1.txt", "--symbols", ",".join(COINS), "--out", "/o/wb", "--threads", "6", "--ftab", "/f/u.csv"]
-        assert env == {"P42_T0": "2026-08-04"}
+        assert env == {"P42_T0": "2026-07-25"}
         cmd, env = ctx.engine.command(w, "/v/b1.txt", "/o/wb", None, sigsx_only=True)
-        assert "--ftab" not in cmd and env == {"P42_T0": "2026-08-04", "P42_SIGSX_ONLY": "1", "P42_SIGSX": "14:73"}
+        assert "--ftab" not in cmd and env == {"P42_T0": "2026-07-25", "P42_SIGSX_ONLY": "1", "P42_SIGSX": "14:73"}
 
 
 def test_groups_split_and_chunks():
@@ -194,7 +194,7 @@ def test_launch_three_windows_marks_and_skips_done():
 
 def test_launch_failure_is_guard_error_with_log_tail():
     with tempfile.TemporaryDirectory() as tmp:
-        ctx, srv = make(tmp, World(lambda k, s, d: 0.0), runner=FakeSrv(World(lambda k, s, d: 0.0), fail=lambda c, e: e.get("P42_T0") == "2026-08-04"))
+        ctx, srv = make(tmp, World(lambda k, s, d: 0.0), runner=FakeSrv(World(lambda k, s, d: 0.0), fail=lambda c, e: e.get("P42_T0") == "2026-07-25"))
         msg = raises(rr.GuardError, ctx.engine.launch, [rf.Req("L", "s=3", False)])
         assert "окно wb" in msg and "код возврата 7" in msg and "ОШИБКА" in msg
         assert not os.path.exists(os.path.join(ctx.paths.out("wa"), rf.Req("L", "s=3", False).vid, rr.DONE_MARK))   # метка — только после всех окон
@@ -307,10 +307,10 @@ def test_gate12_hashes_and_manifests():
         b, s, g, m = (os.path.join(tmp, n) for n in ("bin", "sym", "grids", "man"))
         for p, txt in ((b, "B"), (s, "S"), (g, "G")):
             open(p, "w").write(txt)
-        open(m, "w", encoding="utf-8").write("== wa\nline1 x\nbinary b\n== wb\nline2\n== wc\nline3\n")
+        open(m, "w", encoding="utf-8").write("== wa\nline1 x\nbinary b\n== wb\nline2\n== wc\nline3\n== wbx\nline4\n== wcx\nline5\n")
         rec = {"bin_sha256": rr.file_hashes(b)[0], "bin_md5": rr.file_hashes(b)[1], "symbols_sha256": rr.file_hashes(s)[0], "grids_sha256": rr.file_hashes(g)[0],
                "manifests_sha256": rr.file_hashes(m)[0]}
-        for w, txt in (("wa", "line1 x\nbinary b\n"), ("wb", "line2\n"), ("wc", "line3\n")):
+        for w, txt in (("wa", "line1 x\nbinary b\n"), ("wb", "line2\n"), ("wc", "line3\n"), ("wbx", "line4\n"), ("wcx", "line5\n")):
             os.makedirs(paths.j(w))
             open(paths.j(w, "MANIFEST"), "w", encoding="utf-8").write(txt)
         r = rr.gate12(paths, b, s, g, m, rec)
@@ -325,16 +325,32 @@ def test_gate12_hashes_and_manifests():
 def test_gate3_overlap_difference_stops():
     w = World(lambda k, s, d: 0.0)
     with tempfile.TemporaryDirectory() as tmp:
-        ctx, _ = make(tmp, w)
-        res = rr.gate3(ctx.paths, ctx.engine, ctx.spec)
-        assert res["L"]["diff"] == [] and res["S"]["diff"] == [] and res["L"]["forced_ok"] == 0
+        ctx, srv = make(tmp, w)
+        res = rr.gate3(ctx.paths, ctx.engine, ctx.spec, ctx.engine_conv)
+        assert res["L"]["diff"] == [] and res["S"]["diff"] == [] and res["L"]["conv"] == [] and res["S"]["conv"] == [] and res["L"]["forced_ok"] == 0
+        assert rr.g3_failures(res) == {}
+        t0s = {e["P42_T0"] for _, e in srv.calls}
+        assert t0s == {w_.t0 for w_ in rf.WINDOWS + rf.CONV_WINDOWS}                               # базы посчитаны на пяти окнах
+        ramp = res["L"]["ramp"]
+        assert set(ramp) == {"wa–wb 2026-08-11…2026-08-25", "wb–wc 2026-09-18…2026-10-02", "conv wb–wbx 2026-08-26…2026-09-25", "conv wc–wcx 2026-10-03…2026-11-02"}
+        assert all(v["n_diff"] == 0 and v["n_trades"] > 0 for v in ramp.values())
     with tempfile.TemporaryDirectory() as tmp:
-        srv = FakeSrv(w, perturb=lambda win, day: win.name == "wb" and day == 55)                  # во внутренней части перекрытия wa∩wb (абс. сутки 51…58 — 21–28.08)
+        srv = FakeSrv(w, perturb=lambda win, day: win.name == "wb" and day == 57)                  # зачётный кусок перекрытия wa∩wb: абс. сутки 56…58 — 26–28.08
         ctx, _ = make(tmp, runner=srv)
-        res = rr.gate3(ctx.paths, ctx.engine, ctx.spec)
-        assert res["L"]["diff"] and all("wa–wb" in x for x in res["L"]["diff"])
+        res = rr.gate3(ctx.paths, ctx.engine, ctx.spec, ctx.engine_conv)
+        assert res["L"]["diff"] and all("wa–wb" in x for x in res["L"]["diff"]) and res["L"]["conv"], res["L"]["conv"]     # wb ≠ wbx на тех же сутках — сходимость тоже нарушена
         bad = rr.g3_failures(res)
         assert set(bad) == {"L", "S"} and rr.g3_failures({"L": {"diff": [], "forced_ok": 0}}) == {}
+    with tempfile.TemporaryDirectory() as tmp:
+        srv = FakeSrv(w, perturb=lambda win, day: win.name == "wb" and day == 55)                  # разгон wb (25.08): не ворота, только диагностика
+        ctx, _ = make(tmp, runner=srv)
+        res = rr.gate3(ctx.paths, ctx.engine, ctx.spec, ctx.engine_conv)
+        assert res["L"]["diff"] == [] and res["L"]["ramp"]["wa–wb 2026-08-11…2026-08-25"]["n_diff"] >= 1
+    with tempfile.TemporaryDirectory() as tmp:
+        srv = FakeSrv(w, perturb=lambda win, day: win.name == "wcx" and day == 100)                # wcx ≠ wc в зачётном диапазоне wc (абс. сутки 94…135), G3 чист
+        ctx, _ = make(tmp, runner=srv)
+        res = rr.gate3(ctx.paths, ctx.engine, ctx.spec, ctx.engine_conv)
+        assert res["L"]["diff"] == [] and res["L"]["conv"] and all("wc–wcx" in x for x in res["L"]["conv"]) and set(rr.g3_failures(res)) == {"L", "S"}
 
 
 # ---- `--base-date` у retitr_ftab -----------------------------------------------------------------------------------------------------------
@@ -369,7 +385,7 @@ def test_plan_prints_commands_without_running():
         with redirect_stdout(buf):
             assert rr.cmd_plan(a) == 0
         t = buf.getvalue()
-        assert "P42_SIGSX_ONLY=1" in t and "--base-date 2026-09-21" in t and "--ftab" in t
+        assert "P42_SIGSX_ONLY=1" in t and "--base-date 2026-09-01" in t and "--ftab" in t and "P42_T0=2026-07-18" in t and "P42_T0=2026-08-25" in t
         assert "breakout tick" in t and "<566 монет" in t and not os.path.exists(os.path.join(tmp, "root"))
 
 
