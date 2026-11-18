@@ -1,0 +1,46 @@
+{
+ "long_AtoB": {
+  "search_n": 11210,
+  "test_n": 10091,
+  "cells_readable": 506,
+  "pairs_median": 38,
+  "bh_pass_raw": 0,
+  "screen_passed": 0,
+  "shortlist": 0,
+  "confirmed": 0,
+  "tertile_cells": 468
+ },
+ "long_BtoA": {
+  "search_n": 10091,
+  "test_n": 11210,
+  "cells_readable": 439,
+  "pairs_median": 98,
+  "bh_pass_raw": 0,
+  "screen_passed": 0,
+  "shortlist": 0,
+  "confirmed": 0,
+  "tertile_cells": 341
+ },
+ "short_AtoB": {
+  "search_n": 12159,
+  "test_n": 11603,
+  "cells_readable": 532,
+  "pairs_median": 18,
+  "bh_pass_raw": 0,
+  "screen_passed": 0,
+  "shortlist": 0,
+  "confirmed": 0,
+  "tertile_cells": 514
+ },
+ "short_BtoA": {
+  "search_n": 11603,
+  "test_n": 12159,
+  "cells_readable": 504,
+  "pairs_median": 42,
+  "bh_pass_raw": 0,
+  "screen_passed": 0,
+  "shortlist": 0,
+  "confirmed": 0,
+  "tertile_cells": 462
+ }
+}

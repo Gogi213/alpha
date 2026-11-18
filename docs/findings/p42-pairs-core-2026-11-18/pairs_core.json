@@ -1,0 +1,20 @@
+{
+ "core_features_from_confirmed": [],
+ "core_used": [
+  "pierce_ep",
+  "spread_tau",
+  "zv6h",
+  "tpm60",
+  "mv5",
+  "cons60",
+  "c5_btc_7d",
+  "c5_eth_7d",
+  "lturn24",
+  "age_h",
+  "natr_bp",
+  "since_touch_prior_h"
+ ],
+ "core_empty_fallback_all12": true,
+ "confirmed_both_directions": [],
+ "reproduced_in_search_both_ways": []
+}

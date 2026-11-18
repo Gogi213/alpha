@@ -502,11 +502,11 @@ fn pk_rechecks_history_when_pivot_joins() {
         (98.0, 97.6),
         (98.0, 97.6),
     ];
-    // окно L = 60 сут.: до конца данных никто не выпадает
+    // окно L = 90 сут. > сетки (80 сут., v20): до конца данных никто не выпадает
     let mut p0 = lv_params();
-    p0.sig.lv.l_days = 60;
+    p0.sig.lv.l_days = 90;
     let mut p1 = pk_params();
-    p1.sig.lv.l_days = 60;
+    p1.sig.lv.l_days = 90;
     let off = build_levels(&sym(bars_world(&spec)), &p0.sig.lv, Side::Long);
     assert_eq!(off.len(), 1);
     assert_eq!(
