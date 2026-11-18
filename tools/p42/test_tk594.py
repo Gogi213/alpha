@@ -204,5 +204,18 @@ class DerivTests(unittest.TestCase):
         self.assertTrue(math.isnan(f["basis"]))
 
 
+class JoinTests(unittest.TestCase):
+    def test_join_takes_own_columns_only(self):
+        import pandas as pd
+        raw = pd.DataFrame({"ep_id": [1, 2], "y": [0.0, 1.0]})
+        nan = float("nan")
+        fl = pd.DataFrame({"ep_id": [1, 2], **{c: [1.0, 2.0] for c in F.FLOW}, **{c: [nan, nan] for c in F.DERIV}})
+        dv = pd.DataFrame({"ep_id": [1, 2], **{c: [nan, nan] for c in F.FLOW}, **{c: [3.0, 4.0] for c in F.DERIV}})
+        j = F.join_feats(raw, fl, dv)
+        self.assertEqual(list(j.columns), ["ep_id", "y"] + F.FLOW + F.DERIV)
+        self.assertEqual(float(j["tfv10"][1]), 2.0)
+        self.assertEqual(float(j["oi_c1"][0]), 3.0)
+
+
 if __name__ == "__main__":
     unittest.main()

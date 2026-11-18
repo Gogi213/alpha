@@ -256,7 +256,7 @@ def deriv_brute(sym: str, sig: int, turn24h: float) -> dict:
     if first is not None and first <= Ts - DAY:
         def val(col, back):
             r = rows.get(Ts - back * 300_000)
-            return float(r[col]) if r is not None else nan
+            return float(r[col]) if r is not None and r[col].strip() != "" else nan   # пустая ячейка = пусто (как NaN у pandas)
         oi = val("sum_open_interest", 0)
         for h, key in ((12, "oi_c1"), (48, "oi_c4"), (288, "oi_c24")):
             o2 = val("sum_open_interest", h)

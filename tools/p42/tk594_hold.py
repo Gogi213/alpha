@@ -23,7 +23,7 @@ from catboost import CatBoostClassifier  # noqa: E402
 from tk592_lib import prepare  # noqa: E402
 from tk592_tree import CB  # noqa: E402
 from tk594_cmp import SETS, B_BOOT, LogitModel, auc, boot, ci  # noqa: E402
-from tk594_feat import DERIV, FLOW  # noqa: E402
+from tk594_feat import DERIV, FLOW, join_feats  # noqa: E402
 
 SEED = 594
 
@@ -34,7 +34,7 @@ def sha(path: str) -> str:
 
 def freeze(ep_path, flow_path, deriv_path, iters_path, out):
     os.makedirs(f"{out}/models", exist_ok=True)
-    raw = pd.read_parquet(ep_path).merge(pd.read_parquet(flow_path), on="ep_id", validate="one_to_one").merge(pd.read_parquet(deriv_path), on="ep_id", validate="one_to_one")
+    raw = join_feats(pd.read_parquet(ep_path), pd.read_parquet(flow_path), pd.read_parquet(deriv_path))
     df = prepare(raw)
     iters = json.load(open(iters_path))
     frozen = {"sets": SETS, "rows": {}, "files": {}}
@@ -80,7 +80,7 @@ def read(aug_u0, flow_path, deriv_path, fdir, out):
         assert sha(f"{fdir}/models/{k}.{ext}") == v["sha256"], f"модель {k} изменена после заморозки"
     open(f"{out}/read.done", "w").write(time.strftime("%F %T"))
     t0 = time.time()
-    raw = pd.read_parquet(aug_u0).merge(pd.read_parquet(flow_path), on="ep_id", validate="one_to_one").merge(pd.read_parquet(deriv_path), on="ep_id", validate="one_to_one")
+    raw = join_feats(pd.read_parquet(aug_u0), pd.read_parquet(flow_path), pd.read_parquet(deriv_path))
     d = raw.copy()
     d["lturn24"] = np.log10(d["turn24h"].clip(lower=1))
     n_all = len(d)

@@ -19,7 +19,7 @@ from scipy.stats import rankdata
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from tk592_lib import FEATS, prepare  # noqa: E402
 from tk592_tree import fit_cb, tertile_table  # noqa: E402
-from tk594_feat import DERIV, FLOW  # noqa: E402
+from tk594_feat import DERIV, FLOW, join_feats  # noqa: E402
 
 SEED = 594
 B_BOOT = 2000
@@ -158,7 +158,7 @@ def main():
     fl = pd.read_parquet(flow_path)
     dv = pd.read_parquet(deriv_path)
     assert len(fl) == len(raw) == len(dv) and fl["ep_id"].is_unique and dv["ep_id"].is_unique, "G7: 1:1 по ep_id"
-    raw = raw.merge(fl, on="ep_id", how="left", validate="one_to_one").merge(dv, on="ep_id", how="left", validate="one_to_one")
+    raw = join_feats(raw, fl, dv)
     df = prepare(raw)
     counts = {s: int((df.side == s).sum()) for s in ("long", "short")}
     print("после prepare:", counts, flush=True)

@@ -35,6 +35,13 @@ FLOW = ["tfv10", "tfv60", "tfv300", "tfv1800", "tfn10", "tfn60", "tfn300", "tfn1
 DERIV = ["oi_c1", "oi_c4", "oi_c24", "loi_turn", "ls_tc", "ls_ts", "ls_a", "dls_tc", "dls_ts", "dls_a", "fund_last", "fund_chg24", "fund_int", "basis"]
 WIN_S = (10, 60, 300, 1800)
 
+
+def join_feats(raw: pd.DataFrame, fl: pd.DataFrame, dv: pd.DataFrame) -> pd.DataFrame:
+    """Таблица эпизодов + признаки потока (только FLOW из `fl`) + признаки производных (только DERIV из `dv`), 1:1 по `ep_id`
+    (файлы режимов `flow` и `deriv` содержат все 30 столбцов — чужие пустые, без отбора слияние дало бы суффиксы)."""
+    return raw.merge(fl[["ep_id"] + FLOW], on="ep_id", how="left", validate="one_to_one").merge(
+        dv[["ep_id"] + DERIV], on="ep_id", how="left", validate="one_to_one")
+
 TRADES = os.environ.get("TK594_TRADES", "/data/aggtrades/binance").split(":")
 METRICS = os.environ.get("TK594_METRICS", "/data/p42-metrics")
 PREMIUM = os.environ.get("TK594_PREMIUM", "/data/p42-premium")
