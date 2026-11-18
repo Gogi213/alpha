@@ -26,4 +26,6 @@ if [ "$sig" -gt 0 ] && [ "$sig" -lt "$tot" ]; then
   done < <(printf '%s\n' "$ids" | grep '_sig$')
 fi
 echo "retitr_run: $NAME — $tot вариантов ($sig сигнальных двойников)${P42_FTAB:+, --ftab $P42_FTAB}"
+# v21 (сетка 80 суток) читает кэш `cache80` (старый кэш на 74 суток движок отвергает); P42_CACHE переопределяет
+export P42_CACHE="${P42_CACHE:-/data/p42-t566/cache80}"
 exec bash "$HERE/runentry.sh" "$NAME" "$VF" "$BIN"

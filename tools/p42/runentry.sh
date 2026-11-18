@@ -17,7 +17,7 @@ ssh "${K[@]}" "$H" "cat > $SRV/run-$NAME.sh" <<EOS
 #!/usr/bin/env bash
 cd $SRV
 rm -rf out/$NAME
-env$ENVS $BIN breakout tick --cache $SRV/cache --trades /data/aggtrades/binance --variants $SRV/variants-$NAME.txt --symbols "\$(cat $SRV/symbols.txt)" --out $SRV/out/$NAME --threads $TH$FT > /tmp/p42-t566-$NAME.log 2>&1
+env$ENVS $BIN breakout tick --cache ${P42_CACHE:-$SRV/cache} --trades /data/aggtrades/binance --variants $SRV/variants-$NAME.txt --symbols "\$(cat $SRV/symbols.txt)" --out $SRV/out/$NAME --threads $TH$FT > /tmp/p42-t566-$NAME.log 2>&1
 rc=\$?
 mkdir -p $SRV/out/$NAME
 echo \$rc > $SRV/out/$NAME/DONE
