@@ -5,9 +5,16 @@
 //! стабильная сортировка при `unsorted` уже применены; `off` — мс от полуночи календарной даты файла, поэтому окна с разным
 //! `P42_T0` делят одни файлы) и счётчики `LoadStat`. `Vec<Tick>` со склада равен прежнему байт в байт.
 //!
-//! Формат (little-endian): заголовок `HEAD_LEN` байт — магия, версия, размер и mtime zip, число строк, счётчики, длина
-//! нагрузки; нагрузка — zstd (с контрольной суммой) от «первая цена `i64`, НОД шагов цены `u64`, затем на сделку два varint:
-//! зигзаг `(цена − прежняя) / НОД` и `(off − прежний) << 1 | bm`». Запись — во временный файл и `rename`.
+//! Формат v2 (little-endian): заголовок `HEAD_LEN` байт — магия, версия, размер и mtime zip, число строк, счётчики, длины
+//! блоков, флаги точности, масштаб и шаг количества; блок A — zstd (с контрольной суммой) от «первая цена `i64`, НОД шагов
+//! цены `u64`, затем на сделку два varint: зигзаг `(цена − прежняя) / НОД` и `(off − прежний) << 1 | bm`»; блок Q (количество,
+//! TK-609) — zstd от varint `количество / шаг` на сделку, в порядке блока A. Путь движка читает только заголовок и блок A (`read`),
+//! потребители признаков — оба (`read_day`). Запись — во временный файл и `rename`.
+//!
+//! Количество — целое в единицах `10^-qty_dec` (`qty_dec` — максимум знаков после точки в файле без хвостовых нулей, ≤ 18);
+//! `qty / 10^qty_dec` как `f64` равно разбору десятичной строки (`pandas`/`strtod`) при `flags == 0`: оба числа точны в `f64`, одно
+//! деление. Флаги: `F_PX_INEXACT` — цена с > 8 знаками (отброшены `parse_px`) или > 2^53 в ×1e8; `F_QTY_BAD` — количество не
+//! разобрано / > 18 знаков / переполнение (записан 0); `F_QTY_F64` — количество > 2^53 (двойное округление).
 //!
 //! Предохранители: потолок объёма (`cap_bytes`, считается при открытии по каталогу и растёт с записями этого процесса;
 //! параллельные процессы видят потолок приблизительно) и страж `df`: при свободном месте < `min_free_bytes` запись
@@ -22,9 +29,9 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::UNIX_EPOCH;
 
 /// Версия формата склада (входит в ключ кэша сигналов L2).
-pub const STORE_VERSION: u32 = 1;
+pub const STORE_VERSION: u32 = 2;
 const MAGIC: [u8; 4] = *b"TK42";
-const HEAD_LEN: usize = 4 + 4 + 8 + 8 + 4 + 4 + 4 * 8 + 4 + 4;
+const HEAD_LEN: usize = 4 + 4 + 8 + 8 + 4 + 4 + 4 * 8 + 4 + 4 + 4 + 4 + 8 + 4 + 4;
 const ZSTD_LEVEL: i32 = 3;
 /// Проверка `df` — раз в столько попыток записи.
 const DF_EVERY: u64 = 128;
@@ -65,6 +72,9 @@ pub struct StoreCounters {
     pub bad: u64,
     pub write_err: u64,
     pub used_bytes: u64,
+    /// Сжатый блок количества и строки по записанным этим процессом суткам (для оценки доли количества в объёме).
+    pub qty_bytes: u64,
+    pub rows: u64,
 }
 
 pub struct TickStore {
@@ -78,6 +88,8 @@ pub struct TickStore {
     hit: AtomicU64,
     miss: AtomicU64,
     written: AtomicU64,
+    qty_bytes: AtomicU64,
+    rows: AtomicU64,
     skipped: AtomicU64,
     bad: AtomicU64,
     write_err: AtomicU64,
@@ -112,6 +124,148 @@ fn gcd(mut a: u64, mut b: u64) -> u64 {
         (a, b) = (b, a % b);
     }
     a
+}
+
+pub const F_PX_INEXACT: u32 = 1;
+pub const F_QTY_BAD: u32 = 2;
+pub const F_QTY_F64: u32 = 4;
+/// Наибольшее целое, точное в `f64`.
+const F64_EXACT: u64 = 1 << 53;
+/// Больше знаков после точки в количестве не храним (`10^18` ещё в `u64`, `10^22` точно в `f64`).
+const MAX_QTY_DEC: u8 = 18;
+const BAD_DEC: u8 = u8::MAX;
+const POW10: [f64; MAX_QTY_DEC as usize + 1] = [
+    1e0, 1e1, 1e2, 1e3, 1e4, 1e5, 1e6, 1e7, 1e8, 1e9, 1e10, 1e11, 1e12, 1e13, 1e14, 1e15, 1e16,
+    1e17, 1e18,
+];
+
+/// Количество сделок «как разобрано»: на строку мантисса и число знаков (`BAD_DEC` — не разобрано). Заполняется при разборе
+/// CSV вместе с `Vec<Tick>` и переставляется с ним при сортировке.
+#[derive(Default)]
+pub struct QtyRaw {
+    mant: Vec<u64>,
+    dec: Vec<u8>,
+    px_inexact: bool,
+}
+
+impl QtyRaw {
+    /// `p`, `q` — поля цены и количества строки; `px` — цена ×1e8, как её разобрал движок.
+    pub fn push(&mut self, p: &[u8], px: i64, q: Option<&[u8]>) {
+        match q.and_then(super::tick::dec_parts) {
+            Some((m, d)) => {
+                self.mant.push(m);
+                self.dec.push(d);
+            }
+            None => {
+                self.mant.push(0);
+                self.dec.push(BAD_DEC);
+            }
+        }
+        if !self.px_inexact
+            && (px.unsigned_abs() > F64_EXACT
+                || super::tick::dec_parts(p).is_none_or(|(_, d)| d > 8))
+        {
+            self.px_inexact = true;
+        }
+    }
+
+    /// Та же устойчивая сортировка по `off`, что у `Vec<Tick>` без количества.
+    pub fn sort_with(&mut self, v: &mut Vec<Tick>) {
+        let mut idx: Vec<u32> = (0..v.len() as u32).collect();
+        idx.sort_by_key(|&i| v[i as usize].off);
+        *v = idx.iter().map(|&i| v[i as usize]).collect();
+        self.mant = idx.iter().map(|&i| self.mant[i as usize]).collect();
+        self.dec = idx.iter().map(|&i| self.dec[i as usize]).collect();
+    }
+
+    /// Единый масштаб файла: `(qty_dec, количество целым в единицах 10^-qty_dec, флаги)`.
+    fn finish(self) -> (u8, Vec<u64>, u32) {
+        let d = self
+            .dec
+            .iter()
+            .copied()
+            .filter(|&d| d <= MAX_QTY_DEC)
+            .max()
+            .unwrap_or(0);
+        let mut flags = if self.px_inexact { F_PX_INEXACT } else { 0 };
+        let q = self
+            .mant
+            .iter()
+            .zip(&self.dec)
+            .map(|(&m, &rd)| {
+                let v = (rd <= MAX_QTY_DEC)
+                    .then(|| 10u64.checked_pow(u32::from(d - rd)))
+                    .flatten()
+                    .and_then(|k| m.checked_mul(k));
+                match v {
+                    Some(v) => {
+                        if v > F64_EXACT {
+                            flags |= F_QTY_F64;
+                        }
+                        v
+                    }
+                    None => {
+                        flags |= F_QTY_BAD;
+                        0
+                    }
+                }
+            })
+            .collect();
+        (d, q, flags)
+    }
+}
+
+/// Сутки сделок со склада или из zip: путь движка берёт `ticks`, признаки — ещё `qty`.
+#[derive(Debug, Default, Clone)]
+pub struct DayTrades {
+    pub ticks: Vec<Tick>,
+    /// Количество целым в единицах `10^-qty_dec`, по сделке параллельно `ticks`; пусто, если читали без количества.
+    pub qty: Vec<u64>,
+    pub qty_dec: u8,
+    /// `F_*`; 0 — цена и количество переводятся в `f64` точно как десятичные строки.
+    pub flags: u32,
+    pub stat: LoadStat,
+}
+
+impl DayTrades {
+    pub fn new(ticks: Vec<Tick>, raw: QtyRaw, stat: LoadStat) -> DayTrades {
+        let (qty_dec, qty, flags) = raw.finish();
+        DayTrades {
+            ticks,
+            qty,
+            qty_dec,
+            flags,
+            stat,
+        }
+    }
+
+    /// Цена сделки `i` как `f64` (точна при `flags & F_PX_INEXACT == 0`).
+    pub fn px_f64(&self, i: usize) -> f64 {
+        self.ticks[i].px as f64 / 1e8
+    }
+
+    /// Количество сделки `i` как `f64` (точно при `flags & (F_QTY_BAD | F_QTY_F64) == 0`).
+    pub fn qty_f64(&self, i: usize) -> f64 {
+        self.qty[i] as f64 / POW10[usize::from(self.qty_dec)]
+    }
+}
+
+/// Количество → `(шаг, нагрузка)`: шаг — НОД ненулевых значений, на сделку varint `значение / шаг`.
+fn encode_qty(q: &[u64]) -> (u64, Vec<u8>) {
+    let g = q.iter().fold(0u64, |g, &x| gcd(g, x)).max(1);
+    let mut out = Vec::with_capacity(q.len() * 2 + 8);
+    for &x in q {
+        put(&mut out, x / g);
+    }
+    (g, out)
+}
+
+fn decode_qty(b: &[u8], n: usize, step: u64) -> Option<Vec<u64>> {
+    let (mut v, mut i) = (Vec::with_capacity(n), 0usize);
+    for _ in 0..n {
+        v.push(get(b, &mut i)?.checked_mul(step)?);
+    }
+    (i == b.len()).then_some(v)
 }
 
 /// Сделки → несжатая нагрузка. `None` — сделки вне допущений кодека (не по порядку, переполнение шага цены): склад не пишется.
@@ -179,31 +333,45 @@ pub(super) fn compress(raw: &[u8]) -> Option<Vec<u8>> {
     enc.finish().ok()
 }
 
-fn head(
-    meta: &SrcMeta,
+/// Разобранный заголовок файла.
+struct Head {
     n: usize,
-    st: &LoadStat,
-    raw_len: usize,
-    comp_len: usize,
-) -> Option<Vec<u8>> {
+    st: LoadStat,
+    raw_a: usize,
+    comp_a: usize,
+    flags: u32,
+    qty_dec: u8,
+    qty_step: u64,
+    raw_q: usize,
+    comp_q: usize,
+}
+
+fn head(meta: &SrcMeta, d: &DayTrades, step: u64, lens: [usize; 4]) -> Option<Vec<u8>> {
     let mut h = Vec::with_capacity(HEAD_LEN);
     h.extend_from_slice(&MAGIC);
     h.extend_from_slice(&STORE_VERSION.to_le_bytes());
     h.extend_from_slice(&meta.size.to_le_bytes());
     h.extend_from_slice(&meta.mtime_s.to_le_bytes());
     h.extend_from_slice(&meta.mtime_ns.to_le_bytes());
-    h.extend_from_slice(&u32::try_from(n).ok()?.to_le_bytes());
+    h.extend_from_slice(&u32::try_from(d.ticks.len()).ok()?.to_le_bytes());
+    let st = &d.stat;
     for c in [st.rows, st.unsorted_files, st.out_of_day, st.bad_rows] {
         h.extend_from_slice(&c.to_le_bytes());
     }
-    h.extend_from_slice(&u32::try_from(raw_len).ok()?.to_le_bytes());
-    h.extend_from_slice(&u32::try_from(comp_len).ok()?.to_le_bytes());
+    let [raw_a, comp_a, raw_q, comp_q] = lens.map(u32::try_from);
+    h.extend_from_slice(&raw_a.ok()?.to_le_bytes());
+    h.extend_from_slice(&comp_a.ok()?.to_le_bytes());
+    h.extend_from_slice(&d.flags.to_le_bytes());
+    h.extend_from_slice(&u32::from(d.qty_dec).to_le_bytes());
+    h.extend_from_slice(&step.to_le_bytes());
+    h.extend_from_slice(&raw_q.ok()?.to_le_bytes());
+    h.extend_from_slice(&comp_q.ok()?.to_le_bytes());
     Some(h)
 }
 
-/// Файл склада → сделки и счётчики загрузки. `Err(true)` — файл повреждён, `Err(false)` — устарел или иной формат.
-fn parse_file(buf: &[u8], meta: &SrcMeta) -> Result<(Vec<Tick>, LoadStat), bool> {
-    if buf.len() < HEAD_LEN || buf[..4] != MAGIC {
+/// Заголовок файла. `Err(true)` — повреждён, `Err(false)` — устарел или иной формат.
+fn parse_head(buf: &[u8; HEAD_LEN], meta: &SrcMeta) -> Result<Head, bool> {
+    if buf[..4] != MAGIC {
         return Err(true);
     }
     let u32_at = |o: usize| u32::from_le_bytes([buf[o], buf[o + 1], buf[o + 2], buf[o + 3]]);
@@ -223,26 +391,61 @@ fn parse_file(buf: &[u8], meta: &SrcMeta) -> Result<(Vec<Tick>, LoadStat), bool>
     if src != *meta {
         return Err(false);
     }
-    let n = u32_at(28) as usize;
-    let st = LoadStat {
-        files: 1,
-        rows: u64_at(32),
-        unsorted_files: u64_at(40),
-        out_of_day: u64_at(48),
-        bad_rows: u64_at(56),
-        errors: 0,
-    };
-    let (raw_len, comp_len) = (u32_at(64) as usize, u32_at(68) as usize);
-    let body = buf.get(HEAD_LEN..HEAD_LEN + comp_len).ok_or(true)?;
-    if buf.len() != HEAD_LEN + comp_len {
+    Ok(Head {
+        n: u32_at(28) as usize,
+        st: LoadStat {
+            files: 1,
+            rows: u64_at(32),
+            unsorted_files: u64_at(40),
+            out_of_day: u64_at(48),
+            bad_rows: u64_at(56),
+            errors: 0,
+        },
+        raw_a: u32_at(64) as usize,
+        comp_a: u32_at(68) as usize,
+        flags: u32_at(72),
+        qty_dec: u8::try_from(u32_at(76)).map_err(|_| true)?,
+        qty_step: u64_at(80),
+        raw_q: u32_at(88) as usize,
+        comp_q: u32_at(92) as usize,
+    })
+}
+
+/// Файл склада → сутки (`full` — с количеством). `Err(true)` — файл повреждён, `Err(false)` — нет, устарел или иной формат.
+fn read_file(p: &Path, meta: &SrcMeta, full: bool) -> Result<DayTrades, bool> {
+    let mut f = fs::File::open(p).map_err(|_| false)?;
+    let mut hb = [0u8; HEAD_LEN];
+    f.read_exact(&mut hb)
+        .map_err(|e| e.kind() == std::io::ErrorKind::UnexpectedEof)?;
+    let h = parse_head(&hb, meta)?;
+    let total = (HEAD_LEN + h.comp_a + h.comp_q) as u64;
+    if f.metadata().map_err(|_| false)?.len() != total {
         return Err(true);
     }
-    let raw = zstd::bulk::decompress(body, raw_len).map_err(|_| true)?;
-    if raw.len() != raw_len {
+    let mut body = vec![0u8; h.comp_a];
+    f.read_exact(&mut body).map_err(|_| true)?;
+    let raw = zstd::bulk::decompress(&body, h.raw_a).map_err(|_| true)?;
+    if raw.len() != h.raw_a {
         return Err(true);
     }
-    let v = decode(&raw, n).ok_or(true)?;
-    Ok((v, st))
+    let ticks = decode(&raw, h.n).ok_or(true)?;
+    let mut qty = Vec::new();
+    if full {
+        let mut qb = vec![0u8; h.comp_q];
+        f.read_exact(&mut qb).map_err(|_| true)?;
+        let qraw = zstd::bulk::decompress(&qb, h.raw_q).map_err(|_| true)?;
+        if qraw.len() != h.raw_q {
+            return Err(true);
+        }
+        qty = decode_qty(&qraw, h.n, h.qty_step).ok_or(true)?;
+    }
+    Ok(DayTrades {
+        ticks,
+        qty,
+        qty_dec: h.qty_dec,
+        flags: h.flags,
+        stat: h.st,
+    })
 }
 
 pub(super) fn free_bytes(dir: &Path) -> Option<u64> {
@@ -287,6 +490,8 @@ impl TickStore {
             hit: AtomicU64::new(0),
             miss: AtomicU64::new(0),
             written: AtomicU64::new(0),
+            qty_bytes: AtomicU64::new(0),
+            rows: AtomicU64::new(0),
             skipped: AtomicU64::new(0),
             bad: AtomicU64::new(0),
             write_err: AtomicU64::new(0),
@@ -306,16 +511,20 @@ impl TickStore {
         self.dir.join(name).join(format!("{name}-{date}.tk"))
     }
 
-    /// Сутки со склада; `None` — нет файла, устарел, повреждён (сосчитано) — вызывающий читает zip.
+    /// Сутки со склада для движка (сделки без количества); `None` — нет файла, устарел, повреждён (сосчитано) — вызывающий читает zip.
     pub fn read(&self, name: &str, date: &str, meta: &SrcMeta) -> Option<(Vec<Tick>, LoadStat)> {
+        self.read_with(name, date, meta, false)
+            .map(|d| (d.ticks, d.stat))
+    }
+
+    /// Сутки со склада целиком (сделки и количество) для признаков; `None` — как у `read`.
+    pub fn read_day(&self, name: &str, date: &str, meta: &SrcMeta) -> Option<DayTrades> {
+        self.read_with(name, date, meta, true)
+    }
+
+    fn read_with(&self, name: &str, date: &str, meta: &SrcMeta, full: bool) -> Option<DayTrades> {
         let p = self.path(name, date);
-        let mut buf = Vec::new();
-        let opened = fs::File::open(&p).and_then(|mut f| f.read_to_end(&mut buf));
-        if opened.is_err() {
-            self.miss.fetch_add(1, Ordering::Relaxed);
-            return None;
-        }
-        match parse_file(&buf, meta) {
+        match read_file(&p, meta, full) {
             Ok(x) => {
                 self.hit.fetch_add(1, Ordering::Relaxed);
                 Some(x)
@@ -332,19 +541,22 @@ impl TickStore {
     }
 
     /// Записать сутки (после успешного разбора zip). Сбой записи — предупреждение: склад не влияет на результат счёта.
-    pub fn write(&self, name: &str, date: &str, meta: &SrcMeta, ticks: &[Tick], st: &LoadStat) {
+    pub fn write(&self, name: &str, date: &str, meta: &SrcMeta, d: &DayTrades) {
         if self.attempts.fetch_add(1, Ordering::Relaxed) % DF_EVERY == DF_EVERY - 1 {
             self.check_limits();
         }
-        if self.read_only.load(Ordering::Relaxed) {
+        if self.read_only.load(Ordering::Relaxed) || d.qty.len() != d.ticks.len() {
             self.skipped.fetch_add(1, Ordering::Relaxed);
             return;
         }
-        let Some(file) = encode(ticks).and_then(|raw| {
-            let comp = compress(&raw)?;
-            let mut f = head(meta, ticks.len(), st, raw.len(), comp.len())?;
-            f.extend_from_slice(&comp);
-            Some(f)
+        let Some((file, qlen)) = encode(&d.ticks).and_then(|raw| {
+            let ca = compress(&raw)?;
+            let (step, qraw) = encode_qty(&d.qty);
+            let cq = compress(&qraw)?;
+            let mut f = head(meta, d, step, [raw.len(), ca.len(), qraw.len(), cq.len()])?;
+            f.extend_from_slice(&ca);
+            f.extend_from_slice(&cq);
+            Some((f, cq.len()))
         }) else {
             self.skipped.fetch_add(1, Ordering::Relaxed);
             return;
@@ -363,6 +575,8 @@ impl TickStore {
         match res {
             Ok(()) => {
                 self.written.fetch_add(1, Ordering::Relaxed);
+                self.qty_bytes.fetch_add(qlen as u64, Ordering::Relaxed);
+                self.rows.fetch_add(d.ticks.len() as u64, Ordering::Relaxed);
                 if self.used.fetch_add(file.len() as u64, Ordering::Relaxed) + file.len() as u64
                     >= self.cap_bytes
                 {
@@ -389,13 +603,15 @@ impl TickStore {
             bad: self.bad.load(Ordering::Relaxed),
             write_err: self.write_err.load(Ordering::Relaxed),
             used_bytes: self.used.load(Ordering::Relaxed),
+            qty_bytes: self.qty_bytes.load(Ordering::Relaxed),
+            rows: self.rows.load(Ordering::Relaxed),
         }
     }
 
     pub fn summary(&self) -> String {
         let c = self.counters();
         format!(
-            "tick-store: hit {} miss {} written {} skipped {} bad {} write_err {}, объём {:.2} ГБ{}",
+            "tick-store: hit {} miss {} written {} skipped {} bad {} write_err {}, объём {:.2} ГБ, из записанного: блок количества {:.2} МБ, строк {}{}",
             c.hit,
             c.miss,
             c.written,
@@ -403,6 +619,8 @@ impl TickStore {
             c.bad,
             c.write_err,
             c.used_bytes as f64 / f64::from(1u32 << 30),
+            c.qty_bytes as f64 / f64::from(1u32 << 20),
+            c.rows,
             if self.read_only.load(Ordering::Relaxed) {
                 " (только чтение)"
             } else {

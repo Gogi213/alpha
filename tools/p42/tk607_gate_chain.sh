@@ -11,7 +11,7 @@ GATE=$D/tk607_gate.sh; SUM=$D/gate/$TAG.summary
 mkdir -p $D/gate; : > "$SUM"
 ST=$D/store-$TAG; ST2=$D/store-rtfz-$TAG
 rm -rf "$ST" "$ST2"
-FL=(--tick-store-cap-gb 3 --tick-store-min-free-gb 5)
+FL=(--tick-store-cap-gb "${CAP_GB:-3}" --tick-store-min-free-gb 5)
 run() { # метка окно варианты [ключи...]
   local label="$1" w="$2" vars="$3"; shift 3
   echo "== $label $w $(date +%H:%M:%S)" >> "$SUM"

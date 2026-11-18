@@ -16,7 +16,7 @@ use super::data::{
 use super::levels::{build_levels_far, Level};
 use super::params::{ExitCfg, LevelCfg, PortCfg, SigCfg};
 use super::portfolio::Settled;
-use super::store::{SrcMeta, TickStore};
+use super::store::{DayTrades, QtyRaw, SrcMeta, TickStore};
 use super::trade::{frac, ExitKind, NOTIONAL_U};
 use super::Side;
 use crate::lob::costs::leg_fee_bps;
@@ -133,8 +133,81 @@ pub fn parse_px(b: &[u8]) -> Option<i64> {
     }
 }
 
+/// Неотрицательная десятичная строка (в том числе `1.5E-4`) → `(мантисса, знаков после точки)`: значение = мантисса / 10^знаков,
+/// хвостовые нули дробной части убраны; `None` — не число или не помещается в `u64`/`u8`.
+pub fn dec_parts(b: &[u8]) -> Option<(u64, u8)> {
+    let (m, e) = match b.iter().position(|&c| c == b'E' || c == b'e') {
+        Some(k) => (&b[..k], Some(&b[k + 1..])),
+        None => (b, None),
+    };
+    let mut exp = 0i32;
+    if let Some(e) = e {
+        let (neg, e) = match e.first()? {
+            b'-' => (true, &e[1..]),
+            b'+' => (false, &e[1..]),
+            _ => (false, e),
+        };
+        if e.is_empty() || e.len() > 3 {
+            return None;
+        }
+        for &c in e {
+            let d = c.wrapping_sub(b'0');
+            if d > 9 {
+                return None;
+            }
+            exp = exp * 10 + i32::from(d);
+        }
+        if neg {
+            exp = -exp;
+        }
+    }
+    let (mut mant, mut dec, mut dot, mut any) = (0u64, 0i32, false, false);
+    for &c in m {
+        if c == b'.' && !dot {
+            dot = true;
+            continue;
+        }
+        let d = c.wrapping_sub(b'0');
+        if d > 9 {
+            return None;
+        }
+        mant = mant.checked_mul(10)?.checked_add(u64::from(d))?;
+        dec += i32::from(dot);
+        any = true;
+    }
+    if !any {
+        return None;
+    }
+    dec -= exp;
+    while dec > 0 && mant % 10 == 0 {
+        mant /= 10;
+        dec -= 1;
+    }
+    if dec < 0 {
+        mant = mant.checked_mul(10u64.checked_pow(dec.unsigned_abs())?)?;
+        dec = 0;
+    }
+    u8::try_from(dec).ok().map(|d| (mant, d))
+}
+
 /// CSV суток (`agg_trade_id,price,quantity,first_trade_id,last_trade_id,transact_time,is_buyer_maker`) → сделки.
-pub fn parse_trades(mut rd: impl BufRead, day: usize, st: &mut LoadStat) -> Result<Vec<Tick>> {
+pub fn parse_trades(rd: impl BufRead, day: usize, st: &mut LoadStat) -> Result<Vec<Tick>> {
+    parse_rows(rd, day, st, None)
+}
+
+/// То же и количество (TK-609): сделки те же, что у `parse_trades`, плюс количество по строкам и флаги точности.
+pub fn parse_trades_full(rd: impl BufRead, day: usize, mut st: LoadStat) -> Result<DayTrades> {
+    let mut raw = QtyRaw::default();
+    let ticks = parse_rows(rd, day, &mut st, Some(&mut raw))?;
+    Ok(DayTrades::new(ticks, raw, st))
+}
+
+fn parse_rows(
+    mut rd: impl BufRead,
+    day: usize,
+    st: &mut LoadStat,
+    mut col: Option<&mut QtyRaw>,
+) -> Result<Vec<Tick>> {
     let base = super::data::t0_ms() + day as i64 * DAY_MS;
     let mut v: Vec<Tick> = Vec::new();
     let mut line: Vec<u8> = Vec::with_capacity(128);
@@ -149,7 +222,7 @@ pub fn parse_trades(mut rd: impl BufRead, day: usize, st: &mut LoadStat) -> Resu
             continue;
         }
         let mut f = line.split(|&c| c == b',');
-        let (_, Some(p), _, _, _, Some(t), Some(b)) = (
+        let (_, Some(p), q, _, _, Some(t), Some(b)) = (
             f.next(),
             f.next(),
             f.next(),
@@ -192,11 +265,17 @@ pub fn parse_trades(mut rd: impl BufRead, day: usize, st: &mut LoadStat) -> Resu
             off,
             bm: b.first() == Some(&b't'),
         });
+        if let Some(c) = col.as_deref_mut() {
+            c.push(p, px, q);
+        }
         st.rows += 1;
     }
     if unsorted {
         st.unsorted_files += 1;
-        v.sort_by_key(|x| x.off);
+        match col {
+            Some(c) => c.sort_with(&mut v),
+            None => v.sort_by_key(|x| x.off),
+        }
     }
     Ok(v)
 }
@@ -237,7 +316,9 @@ impl ZipSrc {
         self
     }
 
-    fn load(&self, name: &str, day: usize) -> Result<Option<Vec<Tick>>> {
+    /// Сутки монеты со склада или из zip. `full` — вместе с количеством (TK-609, `read_day`); без него — путь движка: со склада
+    /// читается только блок сделок, а количество при первой загрузке разбирается лишь ради записи в склад и отбрасывается.
+    fn load_day(&self, name: &str, day: usize, full: bool) -> Result<Option<DayTrades>> {
         let date = day_string(day);
         let p = self
             .dir
@@ -248,11 +329,22 @@ impl ZipSrc {
         };
         let meta = SrcMeta::of(&md);
         if let (Some(store), Some(meta)) = (&self.store, &meta) {
-            if let Some((v, st)) = store.read(name, &date, meta) {
+            let hit = if full {
+                store.read_day(name, &date, meta)
+            } else {
+                store
+                    .read(name, &date, meta)
+                    .map(|(ticks, stat)| DayTrades {
+                        ticks,
+                        stat,
+                        ..DayTrades::default()
+                    })
+            };
+            if let Some(d) = hit {
                 if let Ok(mut g) = self.stat.lock() {
-                    g.add(&st);
+                    g.add(&d.stat);
                 }
-                return Ok(Some(v));
+                return Ok(Some(d));
             }
         }
         let mut child = Command::new("unzip")
@@ -263,21 +355,38 @@ impl ZipSrc {
             .spawn()
             .with_context(|| format!("unzip {}", p.display()))?;
         let out = child.stdout.take().context("unzip: нет stdout")?;
-        let mut st = LoadStat::default();
-        let v = parse_trades(BufReader::with_capacity(1 << 20, out), day, &mut st);
+        let rd = BufReader::with_capacity(1 << 20, out);
+        let parsed = if full || self.store.is_some() {
+            parse_trades_full(rd, day, LoadStat::default())
+        } else {
+            let mut st = LoadStat::default();
+            parse_trades(rd, day, &mut st).map(|ticks| DayTrades {
+                ticks,
+                stat: st,
+                ..DayTrades::default()
+            })
+        };
         let status = child.wait()?;
-        let v = v?;
+        let mut d = parsed?;
         if !status.success() {
             bail!("unzip {}: {status}", p.display());
         }
-        st.files = 1;
+        d.stat.files = 1;
         if let (Some(store), Some(meta)) = (&self.store, &meta) {
-            store.write(name, &date, meta, &v, &st);
+            store.write(name, &date, meta, &d);
         }
         if let Ok(mut g) = self.stat.lock() {
-            g.add(&st);
+            g.add(&d.stat);
         }
-        Ok(Some(v))
+        if !full {
+            d.qty = Vec::new();
+        }
+        Ok(Some(d))
+    }
+
+    /// Сутки с количеством, без кэша (потребитель решает сам, что держать в памяти): со склада или из zip с записью в склад.
+    pub fn read_day(&self, name: &str, day: usize) -> Result<Option<DayTrades>> {
+        self.load_day(name, day, true)
     }
 }
 
@@ -289,8 +398,8 @@ impl TradeSrc for ZipSrc {
                 return v.clone();
             }
         }
-        let loaded = match self.load(sym, day) {
-            Ok(v) => v.map(Arc::new),
+        let loaded = match self.load_day(sym, day, false) {
+            Ok(v) => v.map(|d| Arc::new(d.ticks)),
             Err(e) => {
                 eprintln!("ОШИБКА загрузки {sym} день {day}: {e:#}");
                 if let Ok(mut g) = self.stat.lock() {
