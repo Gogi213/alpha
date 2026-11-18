@@ -1,7 +1,8 @@
 //! TK-609: таблицы признаков П-42 (поток сделок + производные метрики) — замена `tools/p42/tk594_feat.py`, побитово.
 //! `alpha-feat flow|deriv|all --eps <csv> --out <csv> --base-date YYYY-MM-DD [--threads N] [--coins A,B]`;
 //! каталоги источников — флагами или переменными `TK594_TRADES`, `TK594_METRICS`, `TK594_PREMIUM`, `TK594_FUNDING_CSV`, `TK594_FUNDING_M`
-//! (как у Python); `--store <каталог>` — склад суток TK-607 (`StoreDaySrc`). Последняя строка stdout — JSON итога.
+//! (как у Python); `--store <каталог>` (или `TK594_STORE`, потолок `TK594_STORE_CAP_GB`, свободное место `TK594_STORE_MIN_FREE_GB`) — склад суток TK-607
+//! (`StoreDaySrc`): вызывающий код (`rustfeat_run.py` в `retitr_ftab`) аргументов бинарю не добавляет, склад включается окружением. Последняя строка stdout — JSON итога.
 
 use alpha::breakout::feat::deriv::DerivDirs;
 use alpha::breakout::feat::io::{run, Cfg, Mode, StoreCfg};
@@ -46,15 +47,15 @@ struct Opts {
     /// корни aggTrades через `:` (по умолчанию TK594_TRADES или /data/aggtrades/binance)
     #[arg(long)]
     trades: Option<String>,
-    /// склад суток TK-607 (формат v2, `.tk`): чтение без `unzip`, промах — разбор zip с записью в склад (только flow/all)
+    /// склад суток TK-607 (формат v2, `.tk`): чтение без `unzip`, промах — разбор zip с записью в склад (только flow/all); по умолчанию `TK594_STORE`
     #[arg(long)]
     store: Option<PathBuf>,
-    /// потолок объёма склада, ГБ
-    #[arg(long, default_value_t = 3)]
-    store_cap_gb: u64,
-    /// запись в склад прекращается при свободном месте ниже, ГБ
-    #[arg(long, default_value_t = 5)]
-    store_min_free_gb: u64,
+    /// потолок объёма склада, ГБ (по умолчанию `TK594_STORE_CAP_GB`, иначе 3; 0 — склад только читается)
+    #[arg(long)]
+    store_cap_gb: Option<u64>,
+    /// запись в склад прекращается при свободном месте ниже, ГБ (по умолчанию `TK594_STORE_MIN_FREE_GB`, иначе 5)
+    #[arg(long)]
+    store_min_free_gb: Option<u64>,
     /// сверять каждые сутки склада с разбором zip побитово (ворота; вдвое дороже)
     #[arg(long)]
     store_verify: bool,
@@ -70,6 +71,10 @@ struct Opts {
 
 fn env_or(name: &str, default: &str) -> String {
     std::env::var(name).unwrap_or_else(|_| default.to_string())
+}
+
+fn env_u64(name: &str) -> Option<u64> {
+    std::env::var(name).ok().and_then(|v| v.trim().parse().ok())
 }
 
 fn main() -> Result<()> {
@@ -92,12 +97,26 @@ fn main() -> Result<()> {
             .filter(|c| !c.is_empty())
             .map(|c| c.split(',').map(str::to_string).collect()),
         trades: trades.split(':').map(PathBuf::from).collect(),
-        store: o.store.map(|dir| StoreCfg {
-            dir,
-            cap_gb: o.store_cap_gb,
-            min_free_gb: o.store_min_free_gb,
-            verify: o.store_verify,
-        }),
+        store: o
+            .store
+            .or_else(|| {
+                std::env::var("TK594_STORE")
+                    .ok()
+                    .filter(|d| !d.is_empty())
+                    .map(PathBuf::from)
+            })
+            .map(|dir| StoreCfg {
+                dir,
+                cap_gb: o
+                    .store_cap_gb
+                    .or_else(|| env_u64("TK594_STORE_CAP_GB"))
+                    .unwrap_or(3),
+                min_free_gb: o
+                    .store_min_free_gb
+                    .or_else(|| env_u64("TK594_STORE_MIN_FREE_GB"))
+                    .unwrap_or(5),
+                verify: o.store_verify,
+            }),
         deriv: DerivDirs {
             metrics: o
                 .metrics
