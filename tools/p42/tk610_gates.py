@@ -43,8 +43,18 @@ def compare_dirs(a, b, side):
     for (n, pa), (_, pb) in zip(_files(a, side), _files(b, side)):
         ma = T.md5_file(pa) if os.path.exists(pa) else None
         mb = T.md5_file(pb) if os.path.exists(pb) else None
-        out[n] = {"a": ma, "b": mb, "equal": bool(ma is not None and ma == mb)}
+        eq = bool(ma is not None and ma == mb)
+        if n == "meta" and ma is not None and mb is not None and not eq:
+            eq = _meta_sans_id(pa) == _meta_sans_id(pb)   # id варианта у сторон разный (`L_r1` против vid TK-599)
+        out[n] = {"a": ma, "b": mb, "equal": eq}
     return out
+
+
+def _meta_sans_id(path):
+    with open(path, encoding="utf-8") as f:
+        m = json.load(f)
+    m.pop("id", None)
+    return m
 
 
 def meta_filter(path, side):

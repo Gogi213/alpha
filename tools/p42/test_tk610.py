@@ -291,6 +291,15 @@ class GateTests(unittest.TestCase):
             open(os.path.join(d, "long-%s.csv" % n), "w").write(trades if n == "trades" else n + "\n")
         json.dump(meta or {"long": {"filter_[cands,dropped,no_key,no_value]": [10, 3, 0, 0]}}, open(os.path.join(d, "meta.json"), "w"))
 
+    def test_compare_dirs_meta_ignores_id(self):
+        with tempfile.TemporaryDirectory() as td:
+            x, y = os.path.join(td, "x"), os.path.join(td, "y")
+            self._mk(x, meta={"id": "L_r1", "long": {"n": 1}})
+            self._mk(y, meta={"id": "c53a116125b39", "long": {"n": 1}})
+            self.assertTrue(GT.compare_dirs(x, y, "long")["meta"]["equal"])
+            json.dump({"id": "c53a116125b39", "long": {"n": 2}}, open(os.path.join(y, "meta.json"), "w"))
+            self.assertFalse(GT.compare_dirs(x, y, "long")["meta"]["equal"])
+
     def test_g5(self):
         with tempfile.TemporaryDirectory() as td:
             r1, r2 = os.path.join(td, "r1"), os.path.join(td, "r2")
