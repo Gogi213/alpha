@@ -30,7 +30,7 @@ import tk598_lib as L  # noqa: E402
 
 CB_BASE = dict(learning_rate=0.05, grow_policy="Depthwise", random_seed=L.SEED, thread_count=1, verbose=0, allow_writing_files=False)
 ITER_CAP = 1000
-FINAL_CUTOFF_DAYS = 74   # конец окна F (сутки 14…74): сделки, закрытые позже, в обучение не идут (ни в фолдах, ни в финальной модели)
+FINAL_CUTOFF_DAYS = 74   # конец окна F (сутки 14…73): сделки, закрытые позже, в обучение не идут (ни в фолдах, ни в финальной модели)
 OD_WAIT = 50
 MIN_ITERS = 10
 # цель → подмодели: (имя, вид); вид: rmse | wlogloss | logloss | rank
@@ -144,7 +144,6 @@ def cv_task(args):
     """Одна подгонка (подмодель, клетка, блок): потеря на проверке при лучшей итерации и лучшая итерация."""
     sub, cell, k = args
     U0, blk = G["U0"], G["blk"]
-    d0, d1 = L.F_BLOCKS[k]
     va_idx = np.nonzero(blk == k)[0]
     tr_idx = train_idx(U0, k)[0]
     D = prep(U0, sub, tr_idx, va_idx)
@@ -159,7 +158,6 @@ def refit_task(args):
     """Фолдовая модель выбранной клетки на фиксированных iterations; возвращает модель в виде байтов .cbm и метаданные."""
     sub, cell, n_it, k = args
     U0, blk = G["U0"], G["blk"]
-    d0, d1 = L.F_BLOCKS[k]
     va_idx = np.nonzero(blk == k)[0]
     tr_idx = train_idx(U0, k)[0]
     D = prep(U0, sub, tr_idx, va_idx)
