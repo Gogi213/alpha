@@ -4,7 +4,7 @@
          [--sig-base <клетка-база сигнального режима>] [--prev-accepted <json|ключи>] [--variants <файл вариантов>] [--out <каталог>]
          [--spec auto|s19|<json>] [--min-trades 70] [--btc <BTCUSDT.b42>]
   python3 retitr_report.py final --side long --cand <каталог сборки C> --base <простая база> [--stage-base <база стадии>] [--out <каталог>] [--btc <файл>] [--force]
-  python3 retitr_report.py confirm --side long --cand <клетка августа> --days <от:до> [--out <каталог>] [--force]
+  python3 retitr_report.py confirm --side long --cand <клетка> --days <от:до: номера строк daily от P42_T0> --t0 <P42_T0> --expect-dates <YYYY-MM-DD:YYYY-MM-DD> [--out <каталог>] [--force]
   python3 retitr_report.py holm --out <каталог с accepted-*.json> [--side long|short|both]
 
 stage — по клетке и стороне печатается ТОЛЬКО половина A (и число сделок B): сделок A, сделок B (ТОЛЬКО ЧИСЛО), сумма $ A, среднее $ на сделку A, доля сделок в плюсе A
@@ -43,6 +43,7 @@ holm — накопленный счёт испытаний: старт 694 / 68
 import argparse
 import collections
 import csv
+import datetime
 import dataclasses
 import glob
 import hashlib
@@ -60,6 +61,7 @@ import retitr_cells as rc  # noqa: E402
 from lib import ND  # noqa: E402
 
 NA = 30                                     # суток в половине A (сутки 0…29); B — сутки 30…59
+START_DAY = 14                               # сутки сетки, с которых движок считает (строка 0 daily = сутки сетки 14; `breakout/data.rs`)
 MIN_TRADES = 70
 M_START = {"long": 694, "short": 687}       # накопленный Холм после TK-591 (§13.21)
 M_UPPER = {"long": 754, "short": 747}       # верхняя граница: старт + 60 клеток
@@ -798,9 +800,29 @@ def confirm_verdict(day, coin):
                 best_coins=best_c, worst_coins=worst_c, verdict=verdict)
 
 
-def confirm_lines(side, cand_dir, lo, hi):
+def window_dates(t0, lo, hi):
+    """Календарные даты первой и последней строки среза daily [lo, hi): строка 0 = сутки сетки START_DAY от P42_T0 (`--t0`, `YYYY-MM-DD`)."""
+    d0 = datetime.date.fromisoformat(t0) + datetime.timedelta(days=START_DAY)
+    return d0 + datetime.timedelta(days=lo), d0 + datetime.timedelta(days=hi - 1)
+
+
+def check_window(t0, expect, lo, hi):
+    """Срез `--days` — номера строк daily от P42_T0, не сутки сетки (ошибка чтения августа 18.11: `14:45` вместо `0:31` дало 15–31.08 + пустые сутки).
+    Календарное окно среза обязано совпасть с заявленным `--expect-dates YYYY-MM-DD:YYYY-MM-DD` (включительно); иначе остановка."""
+    a, b = (datetime.date.fromisoformat(x) for x in expect.split(":"))
+    first, last = window_dates(t0, lo, hi)
+    if (first, last) != (a, b):
+        raise SystemExit("срез daily %d:%d при P42_T0=%s — это %s…%s, а заявлено %s…%s (--days — номера строк от P42_T0, строка 0 = сутки сетки %d)" % (
+            lo, hi, t0, first, last, a, b, START_DAY))
+    return first, last
+
+
+def confirm_lines(side, cand_dir, lo, hi, t0, expect):
+    first, last = check_window(t0, expect, lo, hi)
     full = load_full(cand_dir, side)
     day = full["daily"][lo:hi]
+    if len(day) != hi - lo:
+        raise SystemExit("в daily только %d строк, срез %d:%d выходит за них" % (len(full["daily"]), lo, hi))
     coin = {}
     with open(os.path.join(cand_dir, side + "-coinday.csv"), encoding="utf-8", newline="") as f:
         for r in csv.DictReader(f):
@@ -808,10 +830,15 @@ def confirm_lines(side, cand_dir, lo, hi):
             if lo <= d < hi:
                 coin.setdefault(r["sym"], np.zeros(hi - lo))[d - lo] += float(r["pnl"])
     nets = [t[2] for t in full["trades"].values() if lo <= t[0] < hi]
+    # охрана: сумма строк среза daily = сумма net сделок с entry_day в окне (допуск — округление csv до 6 знаков на сделку)
+    tol = max(1e-4, 2e-6 * len(nets))
+    if abs(float(day.sum()) - float(sum(nets))) > tol:
+        raise SystemExit("срез %d:%d не сходится: сумма daily %+.6f, сумма net сделок с entry_day в окне %+.6f (допуск %.1e)" % (lo, hi, float(day.sum()), float(sum(nets)), tol))
     ts = _tstat(nets)
     v = confirm_verdict(day, coin)
     st = v["st"]
-    lines = ["== confirm %s: подтверждающий тест m = 1, односторонне 5 %% (замороженный кандидат, август: сутки %d…%d, %d сут.)" % (side, lo, hi - 1, hi - lo),
+    lines = ["== confirm %s: подтверждающий тест m = 1, односторонне 5 %% (замороженный кандидат, строки daily %d…%d = %s…%s, %d сут.; строка 0 = сутки сетки %d)" % (
+                 side, lo, hi - 1, first, last, hi - lo, START_DAY),
              "  сделок %d, сумма %+.2f $, среднее %+.3f $/сд., в плюсе %.1f %%" % (ts["n"], ts["sum"], ts["mean"], ts["pos"] * 100),
              "  средний $/сут. %+.2f, SE %.2f, нижняя односторонняя 95 %%-граница %+.2f, верхняя %+.2f" % (st["mean"], st["se"], st["lower"], st["upper"]),
              "  устойчивость (знак среднего $/сут.): без 2 лучших суток %+.2f; без 2 лучших монет (%s) %+.2f | без 2 худших суток %+.2f; без 2 худших монет (%s) %+.2f" % (
@@ -822,7 +849,7 @@ def confirm_lines(side, cand_dir, lo, hi):
 
 def run_confirm(a, side):
     lo, hi = (int(x) for x in a.days.split(":"))
-    _guarded(a, side, "confirm", lambda: confirm_lines(side, a.cand, lo, hi))
+    _guarded(a, side, "confirm", lambda: confirm_lines(side, a.cand, lo, hi, a.t0, a.expect_dates))
 
 
 # ---- main --------------------------------------------------------------------------------------------------------------------
@@ -856,7 +883,9 @@ def main(argv=None):
     c = sub.add_parser("confirm")
     c.add_argument("--side", choices=("long", "short"), required=True)
     c.add_argument("--cand", required=True)
-    c.add_argument("--days", required=True, help="срез суток окна августа в строках daily: от:до (до не включая)")
+    c.add_argument("--days", required=True, help="срез строк daily: от:до (до не включая); номера строк от P42_T0 (строка 0 = сутки сетки 14), не сутки сетки")
+    c.add_argument("--t0", required=True, help="P42_T0 прогона, YYYY-MM-DD (основной набор — 2026-09-01; август — 2026-07-18)")
+    c.add_argument("--expect-dates", required=True, help="календарное окно среза YYYY-MM-DD:YYYY-MM-DD включительно; несовпадение — остановка")
     c.add_argument("--out")
     c.add_argument("--force", action="store_true")
     h = sub.add_parser("holm")

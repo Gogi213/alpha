@@ -517,7 +517,7 @@ def test_confirm_cli_reads_window_and_guard():
     with tempfile.TemporaryDirectory() as td:
         cand = os.path.join(td, "aug", "L_C")
         rng = np.random.default_rng(11)
-        trades = [("S%d" % (i % 5), 5_000 + i, 14 + (i % 31), (14 + i % 31) * 1440, float(rng.normal(1.0, 3.0))) for i in range(200)]
+        trades = [("S%d" % (i % 5), 5_000 + i, i % 31, (i % 31) * 1440, float(rng.normal(1.0, 3.0))) for i in range(200)]   # строки daily 0…30 = 01–31.08 при P42_T0 = 2026-07-18
         os.makedirs(cand)
         daily, coin = np.zeros(60), {}
         with open(os.path.join(cand, "long-trades.csv"), "w", newline="") as f:
@@ -539,9 +539,9 @@ def test_confirm_cli_reads_window_and_guard():
                 for i in range(60):
                     if arr[i]:
                         w.writerow([sym, i, "%.6f" % arr[i]])
-        out = run_main(["confirm", "--side", "long", "--cand", cand, "--days", "14:45"])
+        out = run_main(["confirm", "--side", "long", "--cand", cand, "--days", "0:31", "--t0", "2026-07-18", "--expect-dates", "2026-08-01:2026-08-31"])
         assert "подтверждающий тест m = 1, односторонне 5 %" in out and "вердикт (m = 1, односторонне 5 %)" in out and "31 сут." in out
-        out2 = run_main(["confirm", "--side", "long", "--cand", cand, "--days", "14:45"])
+        out2 = run_main(["confirm", "--side", "long", "--cand", cand, "--days", "0:31", "--t0", "2026-07-18", "--expect-dates", "2026-08-01:2026-08-31"])
         assert "уже прочитана" in out2
 
 
