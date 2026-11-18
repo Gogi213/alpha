@@ -11,6 +11,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 pub const T0_MS: i64 = 1_788_220_800_000;
+const T0_DATE: (i32, u32, u32) = (2026, 9, 1);
 pub const MIN_MS: i64 = 60_000;
 pub const DAYS_TOTAL: usize = 80;
 pub const N_MIN: usize = DAYS_TOTAL * 1440;
@@ -23,6 +24,30 @@ pub const SCALE: i64 = 100_000_000;
 pub const NATR_PERIODS: [usize; 3] = [15, 30, 60];
 pub const TF_MINUTES: [usize; 3] = [30, 60, 240];
 const MAGIC: [u8; 4] = *b"B42\x01";
+
+/// Начало сетки минуток: дата и мс UTC. По умолчанию 2026-09-01 (`T0_MS`); `P42_T0=<YYYY-MM-DD>` (TK-594, §13.20) сдвигает сетку — для прошлых суток
+/// (`2026-07-18`: сутки сетки 14 = 01.08). Читается один раз; неверная дата — остановка, а не тихий возврат к умолчанию.
+fn grid_start() -> (chrono::NaiveDate, i64) {
+    static G: std::sync::OnceLock<(chrono::NaiveDate, i64)> = std::sync::OnceLock::new();
+    *G.get_or_init(|| {
+        let d = match std::env::var("P42_T0") {
+            Ok(v) => chrono::NaiveDate::parse_from_str(&v, "%Y-%m-%d")
+                .unwrap_or_else(|e| panic!("P42_T0={v}: {e}")),
+            Err(_) => {
+                chrono::NaiveDate::from_ymd_opt(T0_DATE.0, T0_DATE.1, T0_DATE.2).unwrap_or_default()
+            }
+        };
+        let ms = d
+            .and_hms_opt(0, 0, 0)
+            .map_or(T0_MS, |t| t.and_utc().timestamp_millis());
+        (d, ms)
+    })
+}
+
+/// Начало сетки, мс UTC (см. `grid_start`).
+pub fn t0_ms() -> i64 {
+    grid_start().1
+}
 
 /// Десятичная строка → целое в единицах `10^-digits` (лишние знаки отбрасываются).
 pub fn parse_dec(b: &[u8], digits: usize) -> Option<i64> {
@@ -95,6 +120,7 @@ impl Cols {
 
 /// Строки дневного файла → столбцы. Возвращает число разобранных строк.
 pub fn parse_day(buf: &[u8], cols: &mut Cols) -> Result<usize> {
+    let t0 = t0_ms();
     let mut rows = 0;
     for line in buf.split(|&c| c == b'\n') {
         let line = line.strip_suffix(b"\r").unwrap_or(line);
@@ -115,8 +141,8 @@ pub fn parse_day(buf: &[u8], cols: &mut Cols) -> Result<usize> {
             bail!("строка не 8 полей: {}", String::from_utf8_lossy(line));
         };
         let ot = parse_dec(ot, 0).context("open_time")?;
-        let idx = (ot - T0_MS) / MIN_MS;
-        if ot < T0_MS || idx as usize >= N_MIN {
+        let idx = (ot - t0) / MIN_MS;
+        if ot < t0 || idx as usize >= N_MIN {
             continue;
         }
         let i = idx as usize;
@@ -138,6 +164,7 @@ pub struct Fund {
 }
 
 fn parse_funding(buf: &[u8]) -> Result<Vec<Fund>> {
+    let t0 = t0_ms();
     let mut v = Vec::new();
     for line in buf.split(|&c| c == b'\n') {
         let line = line.strip_suffix(b"\r").unwrap_or(line);
@@ -149,10 +176,10 @@ fn parse_funding(buf: &[u8]) -> Result<Vec<Fund>> {
             bail!("funding: мало полей");
         };
         let t = parse_dec(t, 0).context("funding_time")?;
-        if t < T0_MS {
+        if t < t0 {
             continue;
         }
-        let min = (t - T0_MS) / MIN_MS;
+        let min = (t - t0) / MIN_MS;
         if min as usize >= N_MIN {
             continue;
         }
@@ -167,8 +194,9 @@ fn parse_funding(buf: &[u8]) -> Result<Vec<Fund>> {
 }
 
 pub fn day_string(d: usize) -> String {
-    chrono::NaiveDate::from_ymd_opt(2026, 9, 1)
-        .and_then(|b| b.checked_add_days(chrono::Days::new(d as u64)))
+    grid_start()
+        .0
+        .checked_add_days(chrono::Days::new(d as u64))
         .map(|x| x.format("%Y-%m-%d").to_string())
         .unwrap_or_default()
 }
