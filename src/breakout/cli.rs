@@ -62,6 +62,9 @@ pub enum BreakoutCommand {
         /// Предел памяти кэша распакованных суток, ГБ.
         #[arg(long, default_value_t = 24)]
         cap_gb: usize,
+        /// §13.21: таблица признаков кандидатов `sym,sig_ms,<признак>,…` для фильтров `fa/fo/fv`.
+        #[arg(long)]
+        ftab: Option<PathBuf>,
     },
     /// Одна сделка базы по монете со всеми шагами и арифметикой P&L.
     Hand {
@@ -112,7 +115,17 @@ pub fn dispatch(cmd: BreakoutCommand) -> Result<()> {
             threads,
             symbols,
             cap_gb,
-        } => super::tick_cli::run(&cache, &trades, &variants, &out, threads, symbols, cap_gb),
+            ftab,
+        } => super::tick_cli::run(
+            &cache,
+            &trades,
+            &variants,
+            &out,
+            threads,
+            symbols,
+            cap_gb,
+            ftab.as_deref(),
+        ),
         BreakoutCommand::Hand {
             cache,
             sym,
@@ -226,6 +239,41 @@ fn mean(v: &[f64]) -> f64 {
     }
 }
 
+/// Ключи, которые считает только `breakout tick` (по сделкам ленты): минутный движок их отвергает, а не игнорирует.
+pub(super) fn reject_tick_only(p: &Params, line: &str) -> Result<()> {
+    if p.port.reentry > 0 {
+        bail!("reentry считает только `breakout tick`: {line}");
+    }
+    if p.sig.lv.pk {
+        bail!("pk считает только `breakout tick`: {line}");
+    }
+    if p.sig.ap != 0 || p.sig.pb {
+        bail!("ap и pb считает только `breakout tick`: {line}");
+    }
+    if p.sig.fresh_on() {
+        bail!("fh/fm (свежий уровень) считает только `breakout tick`: {line}");
+    }
+    if p.exit.take_grid_opts() {
+        bail!("tpg/tpk/ns считает только `breakout tick`: {line}");
+    }
+    if p.exit.ent_w_ms != 0 || p.exit.ent_x_bp != 0 {
+        bail!("ew/ex (вход по ленте) считает только `breakout tick`: {line}");
+    }
+    if p.exit.lvl_exit_opts() || p.exit.tx_x_pm != 0 || p.exit.rt_s != 0 {
+        bail!("ls/tt/tb/rf/rs/bm/e2 (§13.19) считает только `breakout tick`: {line}");
+    }
+    if p.exit.natr_stop_opts() {
+        bail!("sn/sg/sb/sr/sd/tj (§13.21) считает только `breakout tick`: {line}");
+    }
+    if !p.port.busy {
+        bail!("busy=0 (§13.21) считает только `breakout tick`: {line}");
+    }
+    if p.filt.on() {
+        bail!("fa/fo/fv (§13.21, фильтр признаков) считает только `breakout tick`: {line}");
+    }
+    Ok(())
+}
+
 fn run(
     cache: &Path,
     variants: &Path,
@@ -250,27 +298,7 @@ fn run(
             continue;
         }
         let v = parse_variant(line).with_context(|| line.to_string())?;
-        if v.1.port.reentry > 0 {
-            bail!("reentry считает только `breakout tick`: {line}");
-        }
-        if v.1.sig.lv.pk {
-            bail!("pk считает только `breakout tick`: {line}");
-        }
-        if v.1.sig.ap != 0 || v.1.sig.pb {
-            bail!("ap и pb считает только `breakout tick`: {line}");
-        }
-        if v.1.sig.fresh_on() {
-            bail!("fh/fm (свежий уровень) считает только `breakout tick`: {line}");
-        }
-        if v.1.exit.take_grid_opts() {
-            bail!("tpg/tpk/ns считает только `breakout tick`: {line}");
-        }
-        if v.1.exit.ent_w_ms != 0 || v.1.exit.ent_x_bp != 0 {
-            bail!("ew/ex (вход по ленте) считает только `breakout tick`: {line}");
-        }
-        if v.1.exit.lvl_exit_opts() || v.1.exit.tx_x_pm != 0 || v.1.exit.rt_s != 0 {
-            bail!("ls/tt/tb/rf/rs/bm/e2 (§13.19) считает только `breakout tick`: {line}");
-        }
+        reject_tick_only(&v.1, line)?;
         vs.push(v);
     }
     if vs.is_empty() {

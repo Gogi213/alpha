@@ -2020,3 +2020,834 @@ fn lot2_decision_does_not_enter_after_lot1_exit_time() {
         }
     );
 }
+
+// ───────────────────────── §13.21: NATR-стоп (`sn/sg/sb/sr/sd`), шаг тейков (`tj`), фильтр признаков (`fa/fo/fv`) ─────────────────────────
+
+use super::ftab::{filter_sigs, FeatTab};
+
+/// Расстояние NATR-стопа без множителя `g`: `|e|·NATR·k0` (формула движка, цена ×1e8).
+fn natr_d(e: i64, natr: i64, k0_m: i64) -> i64 {
+    (i128::from(e) * i128::from(natr) * i128::from(k0_m) / (100_000_000i128 * 1000)) as i64
+}
+
+/// ex_test + NATR-стоп: 1 NATR = 0,5 при входе 100; тейки 100,5 / 101,0; безубыток выключен (`bm = 1`), чтобы j-семейства были осмысленны.
+fn nex(sn: f64, sg: u8) -> super::params::ExitCfg {
+    let mut e = ex_test();
+    e.sn_m = (sn * 1000.0).round() as i64;
+    e.sg = sg;
+    e.be_mode = 1;
+    e
+}
+
+/// Исход по потоку: вход по первой сделке покупателя-тейкера (лонг) / продавца (шорт) в момент ≥ 0.
+fn sim(ticks: Vec<(i64, f64, bool)>, side: Side, ex: &super::params::ExitCfg) -> TickOut {
+    sim_stream(&mut stream(ticks), 0, side, NATR, ex).expect("исход")
+}
+
+#[test]
+fn v21_keys_parse_validate_default_off_and_minute_engine_rejects() {
+    let (_, p) = super::params::parse_variant("x sn=3 sg=3 sd=0.5 bm=1 tj=0.25").expect("разбор");
+    let e = &p.exit;
+    assert_eq!((e.sn_m, e.sg, e.sd_m, e.tj_m), (3000, 3, 500, 250));
+    assert!(e.natr_stop_opts());
+    let (_, p) = super::params::parse_variant("x sn=3 sg=1 sb=1").expect("разбор");
+    assert_eq!((p.exit.sg, p.exit.sb_m), (1, 1000));
+    let (_, p) = super::params::parse_variant("x sn=3 sg=2 sr=1.5").expect("разбор");
+    assert_eq!((p.exit.sg, p.exit.sr_m), (2, 1500));
+    // выключено по умолчанию; явные нули = база
+    let (_, base) = super::params::parse_variant("x lat=4").expect("разбор");
+    assert!(!base.exit.natr_stop_opts() && !base.filt.on());
+    let (_, zero) =
+        super::params::parse_variant("x lat=4 sn=0 sg=0 sb=0 sr=0 sd=0 tj=0").expect("разбор");
+    assert_eq!(zero.exit, base.exit);
+    assert_eq!(zero.filt, base.filt);
+    for bad in [
+        "sn=-1",
+        "tj=-0.1",
+        "sg=4 sn=3",
+        "sg=1 sb=1",             // семейство без sn
+        "sn=3 sg=1",             // sg=1 без β
+        "sn=3 sg=2",             // sg=2 без ρ
+        "sn=3 sg=3",             // sg=3 без δ
+        "sn=3 sb=1",             // β при sg=0
+        "sn=3 sg=1 sb=1 sd=0.5", // чужой параметр
+        "sn=3 ns=1",             // NATR стопа — минута t−1
+    ] {
+        assert!(
+            super::params::parse_variant(&format!("x {bad}")).is_err(),
+            "{bad}"
+        );
+    }
+    // фильтр признаков
+    let (_, p) = super::params::parse_variant("x fa=tfv300 fo=hi fv=-1.5").expect("разбор");
+    assert!(p.filt.on());
+    assert_eq!(
+        (p.filt.name.as_str(), p.filt.hi, p.filt.v),
+        ("tfv300", Some(true), Some(-1.5))
+    );
+    let (_, p) = super::params::parse_variant("x fa=f fo=lo fv=0").expect("разбор");
+    assert_eq!(p.filt.hi, Some(false));
+    for bad in [
+        "fa=f fo=lo",        // нет порога
+        "fa=f fv=1",         // нет направления
+        "fo=lo fv=1",        // без имени
+        "fa=f fo=mid fv=1",  // направление
+        "fa=f fo=lo fv=nan", // не конечное
+        "fa=f-g fo=lo fv=1", // имя
+        "fv=1",
+    ] {
+        assert!(
+            super::params::parse_variant(&format!("x {bad}")).is_err(),
+            "{bad}"
+        );
+    }
+    // минутный движок отвергает новые ключи, а не игнорирует
+    for line in [
+        "x sn=3",
+        "x sn=3 sg=1 sb=1",
+        "x tj=0.25",
+        "x fa=f fo=lo fv=1",
+    ] {
+        let (_, p) = super::params::parse_variant(line).expect("разбор");
+        assert!(
+            super::cli::reject_tick_only(&p, line).is_err(),
+            "минутный движок принял {line}"
+        );
+    }
+    let (_, p) = super::params::parse_variant("x").expect("разбор");
+    assert!(super::cli::reject_tick_only(&p, "x").is_ok());
+}
+
+#[test]
+fn natr_stop_const_level_is_entry_minus_k0_natr_and_fills_at_or_through() {
+    // k0 = 3 → 3·0,5 = 1,5 → стоп 98,5; касание цены стопа срабатывает, исполнение — по цене сделки
+    let ex = nex(3.0, 0);
+    let t = vec![
+        (10, 100.0, false),
+        (20, 98.6, true),
+        (30, 98.5, true),
+        (40, 90.0, true),
+    ];
+    let out = sim(t, Side::Long, &ex);
+    assert_eq!((out.kind, out.exit_ms), (ExitKind::HardStop, 30));
+    assert_eq!(out.kind.name(), "stop", "вид выхода — «стоп»");
+    assert_eq!(out.legs.last().map(|l| l.px), Some(px(98.5)));
+    // гэп: следующая сделка 97,0 → по её цене
+    let g = vec![(10, 100.0, false), (20, 98.6, true), (30, 97.0, true)];
+    let out = sim(g.clone(), Side::Long, &ex);
+    assert_eq!(
+        (out.exit_ms, out.legs.last().map(|l| l.px)),
+        (30, Some(px(97.0)))
+    );
+    // выключен — стоп 5 % (95), сделки 98,5 и 97,0 его не трогают
+    let out = sim(g, Side::Long, &nex(0.0, 0));
+    assert_eq!(out.kind, ExitKind::Forced);
+}
+
+#[test]
+fn natr_stop_distance_is_clamped_to_half_percent_and_hard_stop() {
+    // нижний зажим 0,5 %: k0 = 0,2 → 0,1 → зажато в 0,5 (стоп 99,5)
+    let t = vec![(10, 100.0, false), (20, 99.6, true), (30, 99.5, true)];
+    let out = sim(t, Side::Long, &nex(0.2, 0));
+    assert_eq!((out.kind, out.exit_ms), (ExitKind::HardStop, 30));
+    // верхний зажим S = 5 %: k0 = 20 → 10 % → стоп 95
+    let t = vec![(10, 100.0, false), (20, 95.01, true), (30, 95.0, true)];
+    let out = sim(t, Side::Long, &nex(20.0, 0));
+    assert_eq!((out.kind, out.exit_ms), (ExitKind::HardStop, 30));
+    // S = 2 %: k0 = 5 → 2,5 % → зажато в 2 % (стоп 98,0); k0 = 3 → 1,5 % — не зажато
+    let mut ex = nex(5.0, 0);
+    ex.s_pm = 2000;
+    let t = vec![(10, 100.0, false), (20, 98.01, true), (30, 98.0, true)];
+    assert_eq!(sim(t, Side::Long, &ex).exit_ms, 30);
+    ex.sn_m = 3000;
+    let t = vec![(10, 100.0, false), (20, 98.51, true), (30, 98.5, true)];
+    assert_eq!(sim(t, Side::Long, &ex).exit_ms, 30);
+    // S < 0,5 %: верхняя граница главнее — стоп = жёсткий (99,7), а не 99,5
+    ex.s_pm = 300;
+    let t = vec![(10, 100.0, false), (20, 99.71, true), (30, 99.7, true)];
+    assert_eq!(sim(t, Side::Long, &ex).exit_ms, 30);
+}
+
+#[test]
+fn natr_stop_short_mirrors_long() {
+    // шорт: вход продавцом-тейкером по 100,0; стоп 100 + 1,5 = 101,5
+    let ex = nex(3.0, 0);
+    let t = vec![
+        (10, 100.0, true),
+        (20, 101.4, false),
+        (30, 101.5, false),
+        (40, 110.0, false),
+    ];
+    let out = sim(t, Side::Short, &ex);
+    assert_eq!((out.kind, out.exit_ms), (ExitKind::HardStop, 30));
+    assert_eq!(out.legs.last().map(|l| l.px), Some(px(101.5)));
+    // зажимы зеркально: k0 = 0,2 → 0,5 % → 100,5; k0 = 20 → S = 5 % → 105
+    let t = vec![(10, 100.0, true), (20, 100.4, false), (30, 100.5, false)];
+    assert_eq!(sim(t, Side::Short, &nex(0.2, 0)).exit_ms, 30);
+    let t = vec![(10, 100.0, true), (20, 104.99, false), (30, 105.0, false)];
+    assert_eq!(sim(t, Side::Short, &nex(20.0, 0)).exit_ms, 30);
+    // j-семейство зеркально: шаг δ = 0,5 → после 1-го тейка (99,5) стоп 100 + 2,25 = 102,25
+    let mut ex = nex(3.0, 3);
+    ex.sd_m = 500;
+    let t = vec![
+        (10, 100.0, true),
+        (20, 99.4, true),
+        (30, 102.0, false),
+        (40, 102.25, false),
+    ];
+    let out = sim(t, Side::Short, &ex);
+    assert_eq!(
+        (out.kind, out.exit_ms, out.takes),
+        (ExitKind::HardStop, 40, 1)
+    );
+}
+
+#[test]
+fn natr_stop_linear_in_hold_time_is_recomputed_on_every_trade() {
+    // β = 1/ч: d = 1,5·(1 + Δt_ч), Δt от входа (10 мс)
+    let mut ex = nex(3.0, 1);
+    ex.sb_m = 1000;
+    // через 0,5 ч стоп 97,75, через 1 ч — 97,0: сделки выше уровня на своё время не выбивают
+    let t = vec![
+        (10, 100.0, false),
+        (1_800_010, 97.76, true),
+        (1_801_010, 97.75, true),
+        (3_600_009, 97.01, true),
+        (3_600_010, 97.0, true),
+        (3_600_011, 90.0, true),
+    ];
+    let out = sim(t, Side::Long, &ex);
+    assert_eq!((out.kind, out.exit_ms), (ExitKind::HardStop, 3_600_010));
+    assert_eq!(out.legs.last().map(|l| l.px), Some(px(97.0)));
+    // та же цена 97,0 на 1 мс позже уже выше уровня (он ушёл ниже: 96,99999996) — не выбивает; следующая 96,99 — выбивает
+    let t = vec![
+        (10, 100.0, false),
+        (3_600_011, 97.0, true),
+        (3_600_012, 96.99, true),
+    ];
+    let out = sim(t, Side::Long, &ex);
+    assert_eq!(out.exit_ms, 3_600_012);
+    assert_eq!(out.legs.last().map(|l| l.px), Some(px(96.99)));
+    // константа (sg = 0): тот же поток выбивает уже на первой сделке ниже 98,5
+    let t = vec![(10, 100.0, false), (1_800_010, 97.76, true)];
+    assert_eq!(sim(t, Side::Long, &nex(3.0, 0)).exit_ms, 1_800_010);
+    // верхний зажим растущего стопа: через 10 ч g = 11 → 16,5 → S = 5 % (95)
+    let t = vec![
+        (10, 100.0, false),
+        (36_000_010, 95.01, true),
+        (36_000_011, 95.0, true),
+    ];
+    assert_eq!(sim(t, Side::Long, &ex).exit_ms, 36_000_011);
+}
+
+#[test]
+fn natr_stop_geometric_and_step_follow_filled_takes_from_the_next_trade() {
+    let mut geo = nex(3.0, 2);
+    geo.sr_m = 1500; // d = 1,5·1,5^j
+    let mut step = nex(3.0, 3);
+    step.sd_m = 500; // d = 1,5·(1 + 0,5·j)
+                     // j = 1 (тейк 100,5): стоп 97,75 — сделка 98,0 уже не выбивает (константа 98,5 выбила бы)
+    let t = vec![
+        (10, 100.0, false),
+        (20, 100.6, false),
+        (30, 98.0, true),
+        (40, 97.75, true),
+    ];
+    for ex in [&geo, &step] {
+        let out = sim(t.clone(), Side::Long, ex);
+        assert_eq!(
+            (out.kind, out.exit_ms, out.takes),
+            (ExitKind::HardStop, 40, 1)
+        );
+        assert_eq!(out.legs.last().map(|l| l.px), Some(px(97.75)));
+    }
+    let out = sim(t, Side::Long, &nex(3.0, 0));
+    assert_eq!(
+        (out.exit_ms, out.takes),
+        (30, 1),
+        "sg = 0: стоп не двигается"
+    );
+    // j = 2 (оба тейка одной сделкой 101,1): geo 96,625; step 97,0
+    let t = vec![
+        (10, 100.0, false),
+        (20, 101.1, false),
+        (30, 96.9, true),
+        (40, 96.62, true),
+    ];
+    let out = sim(t.clone(), Side::Long, &geo);
+    assert_eq!((out.exit_ms, out.takes), (40, 2), "geo: 96,625");
+    let out = sim(t, Side::Long, &step);
+    assert_eq!((out.exit_ms, out.takes), (30, 2), "step: 97,0 — 96,9 ниже");
+    // j = 0 до тейка: оба семейства — как константа (g = 1)
+    let t = vec![(10, 100.0, false), (20, 98.5, true)];
+    assert_eq!(sim(t.clone(), Side::Long, &geo).exit_ms, 20);
+    assert_eq!(sim(t, Side::Long, &step).exit_ms, 20);
+}
+
+fn ex3(tj: f64) -> super::params::ExitCfg {
+    let mut e = ex_test();
+    e.n_tp = 3;
+    e.t_low_m = 1000;
+    e.t_high_m = 3000; // ступени 1, 2, 3 NATR → 100,5 / 101,0 / 101,5
+    e.tj_m = (tj * 1000.0).round() as i64;
+    e
+}
+
+#[test]
+fn tj_recomputes_remaining_ladder_after_each_take_and_acts_from_the_next_trade() {
+    // δ = 1: после j-го тейка оставшиеся ступени — исходные × (1 + j) (не накопительно)
+    let t = vec![
+        (10, 100.0, false),
+        (20, 100.6, false), // тейк 1 (100,5); ступени 2, 3 → ×2: 102,0 / 103,0
+        (30, 101.9, false), // прежняя ступень 2 (101,0) исполнилась бы — новая нет
+        (40, 102.1, false), // тейк 2 по 102,0; ступень 3 → ×3: 104,5
+        (50, 103.2, false), // накопительно было бы 109, исходная 101,5 — здесь не исполняется
+        (60, 104.6, false), // тейк 3 по 104,5
+    ];
+    let out = sim(t, Side::Long, &ex3(1.0));
+    assert_eq!(out.takes, 3);
+    let v: Vec<(i64, i64)> = out.legs.iter().take(3).map(|l| (l.ms, l.px)).collect();
+    assert_eq!(v, vec![(20, px(100.5)), (40, px(102.0)), (60, px(104.5))]);
+    assert!(out.legs.iter().take(3).all(|l| l.maker));
+    // сделка, прошедшая две ступени сразу, исполняет обе по прежним ценам; пересчёт — со следующей сделки
+    let t = vec![
+        (10, 100.0, false),
+        (20, 101.2, false), // тейки 1 и 2 по 100,5 и 101,0 (лестница на начало сделки)
+        (30, 101.6, false), // ступень 3 → ×3: 104,5 — 101,6 не исполняет
+        (40, 104.6, false),
+    ];
+    let out = sim(t.clone(), Side::Long, &ex3(1.0));
+    let v: Vec<(i64, i64)> = out.legs.iter().take(3).map(|l| (l.ms, l.px)).collect();
+    assert_eq!(v, vec![(20, px(100.5)), (20, px(101.0)), (40, px(104.5))]);
+    // выключено (tj = 0): ступень 3 — прежняя 101,5, исполняется на сделке 101,6
+    let out = sim(t, Side::Long, &ex3(0.0));
+    assert_eq!(out.legs.get(2).map(|l| (l.ms, l.px)), Some((30, px(101.5))));
+}
+
+#[test]
+fn natr_stop_coexists_with_other_stops_tightest_wins() {
+    // (а) безубыток: после 1-го тейка стоп → цена входа (100,0) плотнее NATR-стопа 98,5 → «безубыток»
+    let mut ex = nex(3.0, 0);
+    ex.be_mode = 0;
+    let t = vec![(10, 100.0, false), (20, 100.6, false), (30, 99.9, true)];
+    let out = sim(t, Side::Long, &ex);
+    assert_eq!((out.kind, out.exit_ms), (ExitKind::BreakEven, 30));
+    // (б) трейл плотнее: взвод +1 NATR, откат 1 NATR → 100,1 выше 98,5
+    let mut ex = nex(3.0, 0);
+    ex.a_m = 1000;
+    ex.r_m = 1000;
+    ex.t_low_m = 4000;
+    ex.t_high_m = 5000;
+    let t = vec![(10, 100.0, false), (20, 100.6, false), (30, 100.1, true)];
+    let out = sim(t, Side::Long, &ex);
+    assert_eq!((out.kind, out.exit_ms), (ExitKind::Trail, 30));
+    // (в) NATR-стоп плотнее трейла: откат 5 NATR → трейл 98,1 ниже 98,5 → выбивает NATR-стоп, вид «стоп»
+    ex.r_m = 5000;
+    let t = vec![
+        (10, 100.0, false),
+        (20, 100.6, false),
+        (30, 98.5, true),
+        (40, 98.1, true),
+    ];
+    let out = sim(t.clone(), Side::Long, &ex);
+    assert_eq!((out.kind, out.exit_ms), (ExitKind::HardStop, 30));
+    ex.sn_m = 0; // без NATR-стопа выбивает трейл на 98,1
+    let out = sim(t, Side::Long, &ex);
+    assert_eq!((out.kind, out.exit_ms), (ExitKind::Trail, 40));
+    // (г) стоп за краем зоны (`ls`) и NATR-стоп: побеждает ближайший к цене, дальний не берётся
+    let mut ex = nex(1.0, 0); // d = max(0,5, 0,5 %) = 0,5 → 99,5
+    ex.ls_m = 500; // 0,25
+    let t = vec![(1100, 99.7, true), (1200, 99.65, true), (1300, 90.0, true)];
+    // дальний пивот 99,9 → ls-уровень 99,65 плотнее 99,5
+    let out = run_lc(t, Side::Long, &ex, 100.3, 99.9);
+    assert_eq!((out.kind, out.exit_ms), (ExitKind::HardStop, 1200));
+    assert_eq!(out.legs.last().map(|l| l.px), Some(px(99.65)));
+    // дальний пивот 99,0 → ls-уровень 98,75 дальше NATR-стопа 99,5 → выбивает NATR-стоп
+    let t = vec![(1100, 99.6, true), (1200, 99.5, true), (1300, 90.0, true)];
+    let out = run_lc(t, Side::Long, &ex, 100.3, 99.0);
+    assert_eq!((out.kind, out.exit_ms), (ExitKind::HardStop, 1200));
+    assert_eq!(out.legs.last().map(|l| l.px), Some(px(99.5)));
+    // (д) жёсткий стоп S: NATR-стоп зажат в [0,5 %, S], поэтому никогда не дальше жёсткого — при k0 = 20 это ровно 95
+    let t = vec![(10, 100.0, false), (20, 95.0, true)];
+    assert_eq!(sim(t, Side::Long, &nex(20.0, 0)).kind, ExitKind::HardStop);
+}
+
+#[test]
+fn natr_stop_executes_with_exit_latency_and_one_bp_slippage_and_gap() {
+    // slip 1 бп: вход 100,0 → 100,01; стоп 100,01 − 3·0,5 % · 100,01 = 98,50985; latx = 4 мс
+    let mut ex = nex(3.0, 0);
+    ex.slip_bps = 1;
+    ex.lat_exit_ms = 4;
+    let t = vec![
+        (10, 100.0, false),
+        (20, 98.51, true),    // выше стопа
+        (30, 98.50985, true), // ровно на стопе → срабатывание; исполнение не раньше 34
+        (33, 98.0, true),     // раньше срока — не исполняется
+        (40, 97.0, true),     // первая сделка ≥ 34: гэп → по её цене, минус 1 бп
+        (50, 90.0, true),
+    ];
+    let out = sim(t, Side::Long, &ex);
+    assert_eq!(out.entry_px, px(100.0) + px(100.0) / 10_000);
+    assert_eq!((out.kind, out.exit_ms), (ExitKind::HardStop, 40));
+    assert_eq!(
+        out.legs.last().map(|l| l.px),
+        Some(px(97.0) - px(97.0) / 10_000)
+    );
+    assert!(!out.legs.last().is_some_and(|l| l.maker), "стоп — тейкер");
+    // уровень — от цены входа лота с проскальзыванием: 98,51 его не трогает
+    let t = vec![(10, 100.0, false), (20, 98.51, true)];
+    assert_eq!(sim(t, Side::Long, &ex).kind, ExitKind::Forced);
+}
+
+/// Мир для NATR-стопа через портфель: сигнал на минуте `t1`; диапазон минут до неё 0,2; при `t1_range` у сигнальной минуты диапазон 3,0.
+fn natr_world(t1_range: bool) -> E2World {
+    let mut w = e2_world();
+    let mut c = flat(w.t1 + 10, 100.0);
+    for m in w.t1 - 5..w.t1 + 2 {
+        set(&mut c, m, 99.5, 99.6, 99.4, 99.5);
+    }
+    if t1_range {
+        set(&mut c, w.t1, 99.5, 101.0, 98.0, 99.5);
+    }
+    w.syms = vec![Sym::from_cols("TEST", c, Vec::new())];
+    w.ex.e2_pm = 0;
+    w.ex.sn_m = 30_000;
+    w.ex.t_low_m = 100_000; // тейки далеко: выходы — только стопы
+    w.ex.t_high_m = 200_000;
+    w
+}
+
+#[test]
+fn natr_stop_takes_natr_from_the_closed_minute_before_the_signal_not_the_signal_minute() {
+    let w = natr_world(true);
+    let nat = w.syms[0].natr_for(30).expect("кэш 30");
+    let (n_prev, n_sig) = (i64::from(nat[w.t1 - 1]), i64::from(nat[w.t1]));
+    assert!(n_prev > 0 && n_sig > n_prev, "{n_prev} {n_sig}");
+    let e = px(99.7);
+    let (d_prev, d_sig) = (natr_d(e, n_prev, 30_000), natr_d(e, n_sig, 30_000));
+    assert!(
+        e / 200 < d_prev && d_prev < d_sig && d_sig < e / 20,
+        "дистанции внутри зажима: {d_prev} {d_sig}"
+    );
+    let lvl = e - d_prev;
+    let f = |x: i64| x as f64 / 1e8;
+    let ticks = [
+        (0, 99.6, false),
+        (10_000, 99.7, false),
+        (20_000, f(lvl + 1), true),
+        (30_000, f(lvl), true),
+        (40_000, 80.0, true),
+    ];
+    let r = w.run(&ticks);
+    assert_eq!(r.trades.len(), 1);
+    let t = &r.trades[0];
+    assert_eq!(t.natr_e8, n_prev, "NATR выхода — минута t−1");
+    assert_eq!(
+        (t.kind, t.exit_ms),
+        (ExitKind::HardStop, w.abs(30_000)),
+        "стоп по NATR минуты t−1, а не сигнальной (та дала бы уровень на {} ниже)",
+        d_sig - d_prev
+    );
+    assert_eq!(t.legs.last().map(|l| l.px), Some(lvl));
+    assert_eq!(t.entry_px, e);
+    // та же лента без диапазона в сигнальной минуте — тот же стоп (NATR t−1 от неё не зависит)
+    let w2 = natr_world(false);
+    let r2 = w2.run(&ticks);
+    assert_eq!(r2.trades[0].exit_ms, w2.abs(30_000));
+    // вид выхода «стоп» — HardStop: паузы и серии стопов портфеля считают его как жёсткий
+    assert_eq!(r2.trades[0].kind, ExitKind::HardStop);
+}
+
+#[test]
+fn natr_stop_each_lot_of_e2_has_its_own_stop_from_its_own_entry() {
+    let mut w = natr_world(false);
+    w.ex.e2_pm = 100; // 0,1 %: лот 2 входит по 99,95
+    let n = i64::from(w.syms[0].natr_for(30).expect("кэш 30")[w.t1 - 1]);
+    let (e1, e2) = (px(99.7), px(99.95));
+    let (l1, l2) = (e1 - natr_d(e1, n, 30_000), e2 - natr_d(e2, n, 30_000));
+    assert!(l1 < l2);
+    let f = |x: i64| x as f64 / 1e8;
+    let r = w.run(&[
+        (0, 99.6, false),
+        (10_000, 99.7, false), // сигнал, лот 1
+        (20_000, 99.85, false),
+        (30_000, 99.95, false), // лот 2
+        (40_000, f(l2), true),  // стоп лота 2; уровень лота 1 ниже
+        (50_000, f(l1), true),
+    ]);
+    assert_eq!(r.lot2, [0, 1, 0, 0]);
+    let t = &r.trades[0];
+    let l2t = t.lot2.as_ref().expect("второй лот");
+    assert_eq!((l2t.kind, l2t.exit_ms), (ExitKind::HardStop, w.abs(40_000)));
+    assert_eq!((t.kind1, t.exit_ms), (ExitKind::HardStop, w.abs(50_000)));
+    assert_eq!(l2t.legs.last().map(|l| l.px), Some(l2));
+    assert_eq!(t.legs.last().map(|l| l.px), Some(l1));
+}
+
+// ───────────────────────────── фильтр признаков ─────────────────────────────
+
+fn fsig(ms: i64) -> TSig {
+    TSig {
+        ms,
+        sym: 0,
+        level: 0,
+        dist: 0,
+        t: 0,
+        day: 0,
+        idx: 0,
+        lp: 0,
+        far: 0,
+        ws: false,
+    }
+}
+
+fn ftab(text: &str, want: &[&str]) -> anyhow::Result<FeatTab> {
+    let idx: HashMap<&str, u16> = HashMap::from([("TEST", 0), ("OTHER", 1)]);
+    FeatTab::parse(text, &idx, want)
+}
+
+#[test]
+fn feature_filter_semantics_lo_hi_missing_passes() {
+    let text = "sym,sig_ms,f1,f2,note\r\n\
+        TEST,1000,0.5,1,x\r\n\
+        TEST,2000,1.5,,y\r\n\
+        TEST,3000,nan,3,z\r\n\
+        OTHER,1000,9,9,w\r\n\
+        GONE,1000,9,9,v\r\n\
+        TEST,4000,1.0,2,u\r\n";
+    let t = ftab(text, &["f1", "f2"]).expect("разбор");
+    assert_eq!(t.rows(), 5, "TEST×4 + OTHER; чужая монета (GONE) пропущена");
+    let (c1, c2) = (t.col("f1").expect("f1"), t.col("f2").expect("f2"));
+    assert_eq!(t.value(c1, 0, 1000), Some(0.5));
+    assert_eq!(t.value(c1, 1, 1000), Some(9.0), "ключ — (монета, время)");
+    assert_eq!(t.value(c1, 0, 5000), None);
+    assert!(t.value(c1, 0, 3000).is_some_and(f64::is_nan));
+    assert!(
+        t.value(c2, 0, 2000).is_some_and(f64::is_nan),
+        "пусто — нет значения"
+    );
+    let sigs: Vec<TSig> = [1000, 2000, 3000, 4000, 5000].map(fsig).to_vec();
+    let ms = |v: &[TSig]| v.iter().map(|s| s.ms).collect::<Vec<_>>();
+    // lo: отбросить value < 1,0 — 1000 (0,5); 1,0 не отбрасывается; NaN и нет строки — проходят
+    let (kept, st) = filter_sigs(&sigs, &t, c1, false, 1.0);
+    assert_eq!(ms(&kept), vec![2000, 3000, 4000, 5000]);
+    assert_eq!((st.cands, st.dropped, st.no_key, st.no_value), (5, 1, 1, 1));
+    // hi: отбросить value > 1,0 — 2000 (1,5)
+    let (kept, st) = filter_sigs(&sigs, &t, c1, true, 1.0);
+    assert_eq!(ms(&kept), vec![1000, 3000, 4000, 5000]);
+    assert_eq!(st.dropped, 1);
+    // пустое значение второго признака проходит при любом пороге
+    let (kept, _) = filter_sigs(&sigs[1..2], &t, c2, false, 100.0);
+    assert_eq!(ms(&kept), vec![2000]);
+}
+
+#[test]
+fn feature_table_rejects_bad_input_and_skips_unwanted_columns() {
+    assert!(ftab("", &["f"]).is_err());
+    assert!(ftab("coin,sig_ms,f\n", &["f"]).is_err(), "заголовок");
+    assert!(
+        ftab("sym,sig_ms,g\nTEST,1,1\n", &["f"]).is_err(),
+        "нет столбца"
+    );
+    assert!(
+        ftab("sym,sig_ms,f\nTEST,1\n", &["f"]).is_err(),
+        "мало полей"
+    );
+    assert!(
+        ftab("sym,sig_ms,f\nTEST,1,abc\n", &["f"]).is_err(),
+        "не число"
+    );
+    assert!(
+        ftab("sym,sig_ms,f\nTEST,x,1\n", &["f"]).is_err(),
+        "время не число"
+    );
+    // текст в НЕ нужном столбце не разбирается
+    assert!(ftab("sym,sig_ms,f,note\nTEST,1,2,hello\n", &["f"]).is_ok());
+}
+
+/// Один сигнал в мире `natr_world`, лента для него и портфель; `keep` — фильтр по столбцу `f` со значением 5 у кандидата.
+fn filtered_run(
+    w: &E2World,
+    ticks: &[(i64, f64, bool)],
+    keep: Option<(bool, f64)>,
+) -> super::tick::TickResult {
+    let ticks: Vec<Tick> = ticks
+        .iter()
+        .map(|&(off, price, bm)| Tick {
+            px: px(price),
+            off: (w.base + off) as u32,
+            bm,
+        })
+        .collect();
+    let mut m = HashMap::new();
+    m.insert(("TEST".to_string(), w.t1 / 1440), Arc::new(ticks));
+    let src = MemSrc(m);
+    let sg = TSig {
+        ms: (w.t1 as i64 / 1440) * DAY_MS + w.base + 10_000,
+        sym: 0,
+        level: 0,
+        dist: 0,
+        t: w.t1 as u32,
+        day: (w.t1 / 1440) as u16,
+        idx: 1,
+        lp: px(100.0),
+        far: px(99.9),
+        ws: false,
+    };
+    let mut sigs = vec![sg];
+    if let Some((hi, fv)) = keep {
+        let t = ftab(&format!("sym,sig_ms,f\nTEST,{},5\n", sg.ms), &["f"]).expect("таблица");
+        sigs = filter_sigs(&sigs, &t, 0, hi, fv).0;
+    }
+    run_tick(&w.syms, &sigs, Side::Long, &w.ex, &w.port, &src)
+}
+
+#[test]
+fn feature_filter_pass_all_is_identical_and_cut_all_gives_zero_trades() {
+    let w = natr_world(false);
+    let ticks = [
+        (0, 99.6, false),
+        (10_000, 99.7, false),
+        (20_000, 100.6, false),
+        (30_000, 80.0, true),
+    ];
+    let plain = filtered_run(&w, &ticks, None);
+    assert_eq!(plain.trades.len(), 1);
+    // значение 5: lo при пороге не выше 5 и hi при пороге не ниже 5 — пропускают всех
+    for keep in [(false, -1e18), (true, 1e18), (false, 5.0), (true, 5.0)] {
+        let r = filtered_run(&w, &ticks, Some(keep));
+        assert_eq!(
+            format!("{:?}", r.trades),
+            format!("{:?}", plain.trades),
+            "{keep:?}"
+        );
+        assert_eq!(r.daily, plain.daily);
+        assert_eq!(r.coinday, plain.coinday);
+        assert_eq!(r.rej, plain.rej);
+    }
+    // режет всех
+    for keep in [(false, 1e18), (true, -1e18)] {
+        let r = filtered_run(&w, &ticks, Some(keep));
+        assert!(r.trades.is_empty(), "{keep:?}");
+        assert_eq!(r.rej, [0; 6], "отброшенный кандидат не доходит до портфеля");
+        assert!(r.daily.iter().all(|&d| d == 0.0));
+    }
+}
+
+// ───────────────────────────── §13.21: `busy` и режим сигналов портфеля ─────────────────────────────
+
+/// Портфель по сигналам одной монеты: `sigs` — (время сигнала в мс от начала минуты `t1`, номер сделки-триггера в ленте); уровень сигнала — его номер.
+fn multi_run(
+    w: &E2World,
+    ticks: &[(i64, f64, bool)],
+    sigs: &[(i64, u32)],
+    port: &super::params::PortCfg,
+) -> super::tick::TickResult {
+    let ticks: Vec<Tick> = ticks
+        .iter()
+        .map(|&(off, price, bm)| Tick {
+            px: px(price),
+            off: (w.base + off) as u32,
+            bm,
+        })
+        .collect();
+    let mut m = HashMap::new();
+    m.insert(("TEST".to_string(), w.t1 / 1440), Arc::new(ticks));
+    let src = MemSrc(m);
+    let sigs: Vec<TSig> = sigs
+        .iter()
+        .enumerate()
+        .map(|(k, &(off, idx))| TSig {
+            ms: (w.t1 as i64 / 1440) * DAY_MS + w.base + off,
+            sym: 0,
+            level: k as u32,
+            dist: 0,
+            t: w.t1 as u32,
+            day: (w.t1 / 1440) as u16,
+            idx,
+            lp: px(100.0),
+            far: px(99.9),
+            ws: false,
+        })
+        .collect();
+    run_tick(&w.syms, &sigs, Side::Long, &w.ex, port, &src)
+}
+
+/// Режим сигналов (§13.21): лимиты портфеля выключены значениями ключей; одна сделка на уровень остаётся.
+fn sig_mode_port() -> super::params::PortCfg {
+    let (_, p) =
+        super::params::parse_variant("x p=100000 c=0 m=1000000 s_glob=1000000 ww=0 busy=0")
+            .expect("разбор");
+    p.port
+}
+
+fn port_with(line: &str) -> super::params::PortCfg {
+    super::params::parse_variant(&format!("x {line}"))
+        .expect("разбор")
+        .1
+        .port
+}
+
+fn sum_net(r: &super::tick::TickResult) -> f64 {
+    r.trades.iter().map(|t| t.net).sum()
+}
+
+#[test]
+fn busy_key_parses_defaults_to_one_and_minute_engine_rejects_it() {
+    let (_, base) = super::params::parse_variant("x").expect("разбор");
+    assert!(base.port.busy);
+    for on in ["x busy=1", "x busy=2"] {
+        assert!(
+            super::params::parse_variant(on)
+                .expect("разбор")
+                .1
+                .port
+                .busy
+        );
+    }
+    assert_eq!(
+        super::params::parse_variant("x busy=1").expect("разбор").1,
+        base,
+        "явное busy=1 = база"
+    );
+    let (_, off) = super::params::parse_variant("x busy=0").expect("разбор");
+    assert!(!off.port.busy);
+    assert!(super::cli::reject_tick_only(&off, "x busy=0").is_err());
+    assert!(super::cli::reject_tick_only(&base, "x busy=1").is_ok());
+}
+
+#[test]
+fn busy_off_lets_a_busy_coin_take_a_second_level_with_independent_exits_and_sums_accounting() {
+    let mut w = natr_world(false);
+    w.ex.e2_pm = 0;
+    w.ex.sn_m = 0;
+    // сигнал A (лента 1) и сигнал B другого уровня (лента 3) на той же монете; жёсткий стоп 5 %: A (99,7) → 94,715; B (99,85) → 94,8575
+    let ticks = [
+        (0, 99.6, false),
+        (10_000, 99.7, false), // сигнал A
+        (20_000, 99.8, false),
+        (30_000, 99.85, false), // сигнал B, позиция A ещё открыта
+        (40_000, 94.8, true),   // ниже стопа B, выше стопа A
+        (50_000, 94.7, true),   // ниже стопа A
+    ];
+    let sigs = [(10_000, 1), (30_000, 3)];
+    // busy = 1 (по умолчанию и явно): B отвергнут как «занята», результат = только A
+    let mut p1 = port_with("busy=1");
+    p1.p = 3;
+    let r1 = multi_run(&w, &ticks, &sigs, &p1);
+    assert_eq!((r1.trades.len(), r1.rej), (1, [0, 1, 0, 0, 0, 0]));
+    let r_def = multi_run(&w, &ticks, &sigs, &w.port);
+    assert_eq!(
+        (format!("{:?}", r_def.trades), r_def.rej, r_def.daily),
+        (format!("{:?}", r1.trades), r1.rej, r1.daily),
+        "лимиты по умолчанию и busy=1 — одно и то же"
+    );
+    // busy = 0: обе позиции открыты одновременно, выходы независимы
+    let mut p0 = w.port.clone();
+    p0.busy = false;
+    let r0 = multi_run(&w, &ticks, &sigs, &p0);
+    assert_eq!((r0.trades.len(), r0.rej), (2, [0; 6]));
+    let (a, b) = (&r0.trades[0], &r0.trades[1]);
+    assert_eq!(
+        (a.level, a.exit_ms, a.kind),
+        (0, w.abs(50_000), ExitKind::HardStop)
+    );
+    assert_eq!(
+        (b.level, b.exit_ms, b.kind),
+        (1, w.abs(40_000), ExitKind::HardStop)
+    );
+    assert!(
+        b.entry_ms > a.entry_ms && b.entry_ms < a.exit_ms,
+        "одновременно"
+    );
+    assert_eq!(a.legs.last().map(|l| l.px), Some(px(94.7)));
+    assert_eq!(b.legs.last().map(|l| l.px), Some(px(94.8)));
+    // сделка A при busy = 0 такая же, как при busy = 1
+    assert_eq!(format!("{:?}", a), format!("{:?}", r1.trades[0]));
+    // учёт: сумма по суткам и по монето-суткам = сумма сделок
+    let tot = sum_net(&r0);
+    assert!((r0.daily.iter().sum::<f64>() - tot).abs() < 1e-9);
+    assert!((r0.coinday.values().sum::<f64>() - tot).abs() < 1e-9);
+    assert!((tot - (sum_net(&r1) + b.net)).abs() < 1e-9);
+}
+
+#[test]
+fn sig_mode_off_values_disable_every_portfolio_limit_and_each_one_alone_binds() {
+    let mut w = natr_world(false);
+    w.ex.sn_m = 0;
+    // 6 сигналов одной монеты (разные уровни), каждый выбит жёстким стоп-ордером через 5 с, следующий — через 15 с
+    let (mut ticks, mut sigs) = (vec![(0, 99.6, false)], Vec::new());
+    for k in 0..6i64 {
+        let b = 20_000 * k;
+        sigs.push((b + 10_000, ticks.len() as u32));
+        ticks.push((b + 10_000, 99.7, false));
+        ticks.push((b + 15_000, 90.0, true));
+    }
+    let run = |port: &super::params::PortCfg| multi_run(&w, &ticks, &sigs, port);
+    // по умолчанию: пауза после стопа (c = 5 мин) отвергает остальные
+    let r = run(&w.port);
+    assert_eq!((r.trades.len(), r.rej), (1, [0, 0, 5, 0, 0, 0]));
+    // режим сигналов — все 6 сделок, ни одного отказа
+    let r = run(&sig_mode_port());
+    assert_eq!((r.trades.len(), r.rej), (6, [0; 6]));
+    assert!(r.trades.iter().all(|t| t.kind == ExitKind::HardStop));
+    // каждый ключ режима по отдельности (остальные — как в режиме сигналов) действует
+    let r = run(&port_with(
+        "p=100000 c=5 m=1000000 s_glob=1000000 ww=0 busy=0",
+    ));
+    assert_eq!((r.trades.len(), r.rej[2]), (1, 5), "c = 5");
+    let r = run(&port_with(
+        "p=100000 c=0 m=3 mm=60 s_glob=1000000 ww=0 busy=0",
+    ));
+    assert_eq!(
+        (r.trades.len(), r.rej[2]),
+        (3, 3),
+        "m = 3: пауза монеты после 3-го стопа"
+    );
+    let r = run(&port_with(
+        "p=100000 c=0 m=1000000 s_glob=4 w=10 ww=60 busy=0",
+    ));
+    assert_eq!(
+        (r.trades.len(), r.rej[3]),
+        (4, 2),
+        "s_glob = 4, ww = 60: общая пауза"
+    );
+    let r = run(&port_with(
+        "p=100000 c=0 m=1000000 s_glob=4 w=10 ww=0 busy=0",
+    ));
+    assert_eq!(
+        (r.trades.len(), r.rej),
+        (6, [0; 6]),
+        "ww = 0 выключает общую паузу и при малом s_glob"
+    );
+    // потолок позиций p и «занята»: пять сигналов подряд, позиции живут до общего выбива
+    let (mut t2, mut s2) = (vec![(0, 99.6, false)], Vec::new());
+    for k in 0..5i64 {
+        s2.push((10_000 + 1000 * k, t2.len() as u32));
+        t2.push((10_000 + 1000 * k, 99.7, false));
+    }
+    t2.push((60_000, 90.0, true));
+    let r = multi_run(&w, &t2, &s2, &sig_mode_port());
+    assert_eq!(
+        (r.trades.len(), r.rej),
+        (5, [0; 6]),
+        "пять позиций одной монеты разом"
+    );
+    let tot = sum_net(&r);
+    assert!((r.daily.iter().sum::<f64>() - tot).abs() < 1e-9);
+    assert!((r.coinday.values().sum::<f64>() - tot).abs() < 1e-9);
+    let r = multi_run(
+        &w,
+        &t2,
+        &s2,
+        &port_with("p=3 c=0 m=1000000 s_glob=1000000 ww=0 busy=0"),
+    );
+    assert_eq!((r.trades.len(), r.rej[4]), (3, 2), "p = 3: потолок");
+    let r = multi_run(
+        &w,
+        &t2,
+        &s2,
+        &port_with("p=100000 c=0 m=1000000 s_glob=1000000 ww=0 busy=1"),
+    );
+    assert_eq!((r.trades.len(), r.rej[1]), (1, 4), "busy = 1: «занята»");
+}

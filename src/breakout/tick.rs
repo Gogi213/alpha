@@ -702,6 +702,55 @@ pub struct LevelCtx {
 
 const NONE_MS: i64 = i64::MIN;
 
+/// §13.21 (`sn`): NATR-стоп лота. Расстояние `d = clamp(k0·NATR·g, 0,5 %, S_жёсткий)` от цены входа; NATR — закрытая минутка `t−1`
+/// (`exit_natr` при `ns = 0`), заморожен на входе. Уровень стопа пересчитывается на каждой сделке (`g` зависит от времени и числа тейков `j`).
+struct NatrStop {
+    k0_m: i64,
+    sg: u8,
+    sb_m: i64,
+    sr_m: i64,
+    sd_m: i64,
+    /// `|e|·NATR` (e8): расстояние в NATR → цена = `unit·x/(SCALE·1000)` при `x` в тысячных NATR.
+    unit: i128,
+    /// Зажим дистанции: 0,5 % и жёсткий стоп S от цены входа (цена ×1e8).
+    lo: i64,
+    hi: i64,
+    entry_ms: i64,
+}
+
+/// Доля NATR-стопа в 0,5 % цены входа (нижний зажим), тысячные процента.
+const NATR_STOP_MIN_PM: i64 = 500;
+const HOUR_MS: i128 = 3_600_000;
+
+impl NatrStop {
+    /// Расстояние стопа от цены входа (цена ×1e8) на сделке в `ms`, когда исполнено `j` тейков.
+    fn dist(&self, ms: i64, j: usize) -> i64 {
+        let nat = self.unit * i128::from(self.k0_m) / (i128::from(SCALE) * 1000);
+        let d = match self.sg {
+            1 => {
+                let dt = i128::from((ms - self.entry_ms).max(0));
+                nat * (1000 * HOUR_MS + i128::from(self.sb_m) * dt) / (1000 * HOUR_MS)
+            }
+            2 => {
+                let g = (self.sr_m as f64 / 1000.0).powi(j.min(i32::MAX as usize) as i32);
+                (nat as f64 * g) as i128
+            }
+            3 => nat * (1000 + i128::from(self.sd_m) * j as i128) / 1000,
+            _ => nat,
+        };
+        // верхняя граница главнее нижней: при S < 0,5 % жёсткий стоп и так ближе
+        d.max(i128::from(self.lo)).min(i128::from(self.hi)) as i64
+    }
+}
+
+/// §13.21 (`tj`): пересчёт оставшихся ступеней лестницы тейков после исполнения тейков.
+struct StepLadder {
+    delta_m: i64,
+    /// Исходные множители ступеней, тысячные NATR (`tp_mult_m`).
+    mults: Vec<i64>,
+    unit: i128,
+}
+
 /// Состояние позиции в длинной раме; сделки подаются по одной.
 struct Pos {
     e: i64,
@@ -732,13 +781,18 @@ struct Pos {
     touched_ms: i64,
     broke: bool,
     below_since: i64,
+    /// §13.21: NATR-стоп (`sn`) и шаг лестницы тейков (`tj`); `None` — выкл.
+    natr_stop: Option<NatrStop>,
+    step: Option<StepLadder>,
 }
 
 impl Pos {
+    #[allow(clippy::too_many_arguments)]
     fn new(
         s: i64,
         e: i64,
         p0: i64,
+        entry_ms: i64,
         natr_e8: i64,
         ex: &ExitCfg,
         lc: Option<LevelCtx>,
@@ -764,6 +818,23 @@ impl Pos {
         let rules = lc.is_some() && (ex.tx_min > 0 || ex.rt_f_pm > 0);
         let lp = lc.map_or(0, |l| l.lp);
         let dist = |x_pm: i64| (i128::from(lp.abs()) * i128::from(x_pm) / 100_000) as i64;
+        let unit = i128::from(ea) * i128::from(natr_e8);
+        let natr_stop = (ex.sn_m > 0).then(|| NatrStop {
+            k0_m: ex.sn_m,
+            sg: ex.sg,
+            sb_m: ex.sb_m,
+            sr_m: ex.sr_m,
+            sd_m: ex.sd_m,
+            unit,
+            lo: frac(ea, NATR_STOP_MIN_PM, 100_000),
+            hi: frac(ea, ex.s_pm, 100_000),
+            entry_ms,
+        });
+        let step = (ex.tj_m > 0).then(|| StepLadder {
+            delta_m: ex.tj_m,
+            mults: (0..n).map(|i| tp_mult_m(ex, i, n)).collect(),
+            unit,
+        });
         Pos {
             e,
             tps: (0..n).map(|i| e + nat(tp_mult_m(ex, i, n))).collect(),
@@ -791,11 +862,14 @@ impl Pos {
             touched_ms: NONE_MS,
             broke: false,
             below_since: NONE_MS,
+            natr_stop,
+            step,
         }
     }
 
     /// Тейки-лимитки, пройденные сделкой `p` строго насквозь.
     fn fill_takes(&mut self, ms: i64, p: i64) {
+        let filled0 = self.next_tp;
         while self.next_tp < self.tps.len() && p > self.tps[self.next_tp] {
             let lot = self.lots[self.next_tp];
             self.legs.push(TLeg {
@@ -818,15 +892,35 @@ impl Pos {
             }
             self.next_tp += 1;
         }
+        // §13.21 (`tj`): лестница пересчитана после этой сделки — действует со следующей (внутри сделки ступени идут по прежним ценам)
+        if self.next_tp > filled0 {
+            if let Some(st) = &self.step {
+                let f = 1000 + i128::from(st.delta_m) * self.next_tp as i128;
+                let rest = self.tps[self.next_tp..]
+                    .iter_mut()
+                    .zip(&st.mults[self.next_tp..]);
+                for (tp, &m) in rest {
+                    *tp = self.e
+                        + (st.unit * i128::from(m) * f / (i128::from(SCALE) * 1_000_000)) as i64;
+                }
+            }
+        }
     }
 
     /// Сделка с ценой `p` (рама) в момент `ms`. `Some(вид)` — стоп сработал на этой сделке (исполнение по `p`).
     fn on_trade(&mut self, ms: i64, p: i64) -> Option<ExitKind> {
         let trail_lvl = if self.armed { self.trail } else { i64::MIN };
-        let sp = self.stop_base.max(trail_lvl);
+        // §13.21: NATR-стоп пересчитывается на каждой сделке; «самый плотный из активных» — уровень, ближайший к цене (в рамe — наибольший)
+        let natr_lvl = self
+            .natr_stop
+            .as_ref()
+            .map_or(i64::MIN, |n| self.e - n.dist(ms, self.next_tp));
+        let sp = self.stop_base.max(trail_lvl).max(natr_lvl);
         if p <= sp {
-            return Some(if trail_lvl > self.stop_base {
+            return Some(if trail_lvl > self.stop_base.max(natr_lvl) {
                 ExitKind::Trail
+            } else if natr_lvl > self.stop_base {
+                ExitKind::HardStop
             } else if self.be_on {
                 ExitKind::BreakEven
             } else {
@@ -993,7 +1087,7 @@ fn sim_tail(
 ) -> TickOut {
     let s = side.s();
     let e = p0 + frac(p0.abs(), ex.slip_bps, 10_000);
-    let mut pos = Pos::new(s, e, p0, natr_e8, ex, lc, notional);
+    let mut pos = Pos::new(s, e, p0, entry_ms, natr_e8, ex, lc, notional);
     let mut cur_day = (entry_ms / DAY_MS) as usize;
     let mut marks: Vec<(usize, i64)> = Vec::new();
     let mut last = (entry_ms, p0);
@@ -1411,6 +1505,7 @@ impl TickResult {
             daily: [0.0; COUNT_DAYS],
             coinday: BTreeMap::new(),
             rej: [0; 6],
+            lot2: [0; 4],
         }
     }
 }
@@ -1488,7 +1583,8 @@ pub fn run_tick(
             res.rej[0] += 1;
             continue;
         }
-        if busy[si] {
+        // §13.21 (`busy = 0`): монета с открытой позицией принимает сигналы других уровней
+        if pc.busy && busy[si] {
             res.rej[1] += 1;
             continue;
         }
