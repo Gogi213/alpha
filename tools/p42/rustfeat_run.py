@@ -11,6 +11,7 @@ import hashlib
 import json
 import os
 import resource
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -45,6 +46,7 @@ def main():
     ap.add_argument("--base-date", default="2026-09-01")
     ap.add_argument("--mode", default="all", choices=["all", "flow", "deriv"])
     ap.add_argument("--bin", default=os.environ.get("P42_FEAT_BIN", ""))
+    ap.add_argument("--bin-args", default=os.environ.get("P42_FEAT_ARGS", ""), help="доп. аргументы бинаря (например `--store <каталог> --store-cap-gb 40`)")
     a = ap.parse_args()
     if not a.bin:
         sys.exit("нужен --bin или P42_FEAT_BIN (путь к alpha-feat)")
@@ -58,6 +60,7 @@ def main():
     cmd = [a.bin, a.mode, "--eps", eps_csv, "--out", out_csv, "--base-date", a.base_date, "--threads", str(a.procs)]
     if a.coins:
         cmd += ["--coins", a.coins]
+    cmd += shlex.split(a.bin_args)
     print("запуск:", " ".join(cmd), flush=True)
     r = subprocess.run(cmd, stdout=subprocess.PIPE, text=True)
     sys.stdout.write(r.stdout)
