@@ -11,9 +11,9 @@
 
 use super::data::{
     day_string, parse_dec, Sym, COUNT_DAYS, DAYS_TOTAL, HALF_DAYS, MIN_MS, N_MIN, SCALE, START_DAY,
-    START_MIN, T0_MS,
+    START_MIN,
 };
-use super::levels::{build_levels, Level};
+use super::levels::{build_levels_far, Level};
 use super::params::{ExitCfg, LevelCfg, PortCfg, SigCfg};
 use super::portfolio::Settled;
 use super::trade::{frac, ExitKind, NOTIONAL_U};
@@ -124,7 +124,7 @@ pub fn parse_px(b: &[u8]) -> Option<i64> {
 
 /// CSV суток (`agg_trade_id,price,quantity,first_trade_id,last_trade_id,transact_time,is_buyer_maker`) → сделки.
 pub fn parse_trades(mut rd: impl BufRead, day: usize, st: &mut LoadStat) -> Result<Vec<Tick>> {
-    let base = T0_MS + day as i64 * DAY_MS;
+    let base = super::data::t0_ms() + day as i64 * DAY_MS;
     let mut v: Vec<Tick> = Vec::new();
     let mut line: Vec<u8> = Vec::with_capacity(128);
     let mut prev = 0u32;
@@ -297,6 +297,8 @@ pub struct Cand {
     pub t: u32,
     pub level: u32,
     pub lp: i64,
+    /// §13.19: дальний край зоны версии цены (длинная рама); без журнала членов — равен `lp`.
+    pub far: i64,
 }
 
 /// Сигнал по сделке: `ms` — время сделки от 01.09 00:00 UTC, `day`/`idx` — её место в файле суток.
@@ -311,6 +313,8 @@ pub struct TSig {
     pub idx: u32,
     /// §13.16: цена версии уровня в минуте сигнала, длинная рама (`s·цена`, ×1e8).
     pub lp: i64,
+    /// §13.19: дальний край зоны версии уровня (минимум цен пивотов в длинной раме), для стопа от уровня (`ls`, `bm = 3`).
+    pub far: i64,
     /// §13.13 (`ap = 2`): цена пришла в зону сверху (сигнал помечен, не отвергнут).
     pub ws: bool,
 }
@@ -396,6 +400,7 @@ pub fn candidates(sym: &Sym, levels: &[Level], cfg: &SigCfg, side: Side, out: &m
         let end = (lv.end as usize).min(N_MIN);
         let mut seg = 0;
         let mut price = lv.segs[0].1;
+        let mut far = lv.far_edge(0, s);
         let mut pend: Option<usize> = None;
         let mut forbidden = false;
         let mut pk_dead = false;
@@ -403,6 +408,7 @@ pub fn candidates(sym: &Sym, levels: &[Level], cfg: &SigCfg, side: Side, out: &m
             while seg + 1 < lv.segs.len() && lv.segs[seg + 1].0 as usize <= t {
                 seg += 1;
                 price = lv.segs[seg].1;
+                far = lv.far_edge(seg, s);
             }
             if sym.o[t] == 0 {
                 continue;
@@ -429,6 +435,7 @@ pub fn candidates(sym: &Sym, levels: &[Level], cfg: &SigCfg, side: Side, out: &m
                             t: t as u32,
                             level: li as u32,
                             lp,
+                            far: far.unwrap_or(lp),
                         });
                     } else {
                         FR_REJECTED.fetch_add(1, Ordering::Relaxed);
@@ -527,7 +534,7 @@ pub fn signals_for_coin(
     for (j, (cfg, side)) in jobs.iter().enumerate() {
         let levels = lev
             .entry((cfg.lv.clone(), *side))
-            .or_insert_with(|| build_levels(sym, &cfg.lv, *side));
+            .or_insert_with(|| build_levels_far(sym, &cfg.lv, *side));
         let mut cs = Vec::new();
         candidates(sym, levels, cfg, *side, &mut cs);
         ctrs[j].cands += cs.len() as u64;
@@ -567,6 +574,7 @@ pub fn signals_for_coin(
                     day: day as u16,
                     idx: k as u32,
                     lp: c.lp,
+                    far: c.far,
                     ws,
                 });
                 ctrs[j].signals[half_of_day(day)] += 1;
@@ -654,11 +662,16 @@ pub fn tp_mult_m(ex: &ExitCfg, i: i64, n: i64) -> i64 {
 /// Доли ступеней в мкУЕ (§13.12): вес ∝ `1 + κ·i/(n−1)`, сумма — `q` от позиции, остаток целого деления — последней ступени;
 /// κ = 0 — прежний равный лот.
 pub fn tp_lots(ex: &ExitCfg) -> Vec<i64> {
+    tp_lots_n(ex, NOTIONAL_U)
+}
+
+/// То же для лота размера `notional` (мкУЕ): §13.19 — два входа по 50 %.
+pub fn tp_lots_n(ex: &ExitCfg, notional: i64) -> Vec<i64> {
     let n = ex.n_tp as i64;
     if ex.tp_kappa_m == 0 {
-        return vec![NOTIONAL_U * ex.q_pct / (100 * n); ex.n_tp];
+        return vec![notional * ex.q_pct / (100 * n); ex.n_tp];
     }
-    let total = NOTIONAL_U * ex.q_pct / 100;
+    let total = notional * ex.q_pct / 100;
     let w: Vec<i128> = (0..n)
         .map(|i| i128::from(1000 * (n - 1) + ex.tp_kappa_m * i))
         .collect();
@@ -680,6 +693,64 @@ pub fn exit_natr(sym: &Sym, ex: &ExitCfg, t: usize) -> i64 {
         .map_or(-1, |v| i64::from(v[t - 1 + usize::from(ex.natr_src)]))
 }
 
+/// Цена версии уровня на сигнале и дальний край зоны (длинная рама) — для выходов от уровня (§13.19).
+#[derive(Debug, Clone, Copy)]
+pub struct LevelCtx {
+    pub lp: i64,
+    pub far: i64,
+}
+
+const NONE_MS: i64 = i64::MIN;
+
+/// §13.21 (`sn`): NATR-стоп лота. Расстояние `d = clamp(k0·NATR·g, 0,5 %, S_жёсткий)` от цены входа; NATR — закрытая минутка `t−1`
+/// (`exit_natr` при `ns = 0`), заморожен на входе. Уровень стопа пересчитывается на каждой сделке (`g` зависит от времени и числа тейков `j`).
+struct NatrStop {
+    k0_m: i64,
+    sg: u8,
+    sb_m: i64,
+    sr_m: i64,
+    sd_m: i64,
+    /// `|e|·NATR` (e8): расстояние в NATR → цена = `unit·x/(SCALE·1000)` при `x` в тысячных NATR.
+    unit: i128,
+    /// Зажим дистанции: 0,5 % и жёсткий стоп S от цены входа (цена ×1e8).
+    lo: i64,
+    hi: i64,
+    entry_ms: i64,
+}
+
+/// Доля NATR-стопа в 0,5 % цены входа (нижний зажим), тысячные процента.
+const NATR_STOP_MIN_PM: i64 = 500;
+const HOUR_MS: i128 = 3_600_000;
+
+impl NatrStop {
+    /// Расстояние стопа от цены входа (цена ×1e8) на сделке в `ms`, когда исполнено `j` тейков.
+    fn dist(&self, ms: i64, j: usize) -> i64 {
+        let nat = self.unit * i128::from(self.k0_m) / (i128::from(SCALE) * 1000);
+        let d = match self.sg {
+            1 => {
+                let dt = i128::from((ms - self.entry_ms).max(0));
+                nat * (1000 * HOUR_MS + i128::from(self.sb_m) * dt) / (1000 * HOUR_MS)
+            }
+            2 => {
+                let g = (self.sr_m as f64 / 1000.0).powi(j.min(i32::MAX as usize) as i32);
+                (nat as f64 * g) as i128
+            }
+            3 => nat * (1000 + i128::from(self.sd_m) * j as i128) / 1000,
+            _ => nat,
+        };
+        // верхняя граница главнее нижней: при S < 0,5 % жёсткий стоп и так ближе
+        d.max(i128::from(self.lo)).min(i128::from(self.hi)) as i64
+    }
+}
+
+/// §13.21 (`tj`): пересчёт оставшихся ступеней лестницы тейков после исполнения тейков.
+struct StepLadder {
+    delta_m: i64,
+    /// Исходные множители ступеней, тысячные NATR (`tp_mult_m`).
+    mults: Vec<i64>,
+    unit: i128,
+}
+
 /// Состояние позиции в длинной раме; сделки подаются по одной.
 struct Pos {
     e: i64,
@@ -697,25 +768,82 @@ struct Pos {
     next_tp: usize,
     legs: Vec<TLeg>,
     s: i64,
+    /// §13.19: безубыток (режим `bm`) и его стоп «за уровнем».
+    be_mode: u8,
+    be_lvl: Option<i64>,
+    /// §13.19: правила от уровня — цена уровня (рама), выход по времени (мс; 0 — нет) и глубина «пробоя», возврат (глубина, мс; 0 — нет).
+    rules: bool,
+    lp: i64,
+    tx_ms: i64,
+    tx_x: i64,
+    rt_d: i64,
+    rt_ms: i64,
+    touched_ms: i64,
+    broke: bool,
+    below_since: i64,
+    /// §13.21: NATR-стоп (`sn`) и шаг лестницы тейков (`tj`); `None` — выкл.
+    natr_stop: Option<NatrStop>,
+    step: Option<StepLadder>,
 }
 
 impl Pos {
-    fn new(s: i64, e: i64, p0: i64, natr_e8: i64, ex: &ExitCfg) -> Pos {
+    #[allow(clippy::too_many_arguments)]
+    fn new(
+        s: i64,
+        e: i64,
+        p0: i64,
+        entry_ms: i64,
+        natr_e8: i64,
+        ex: &ExitCfg,
+        lc: Option<LevelCtx>,
+        notional: i64,
+    ) -> Pos {
         let ea = e.abs();
         let nat = |x_m: i64| -> i64 {
             (i128::from(ea) * i128::from(natr_e8) * i128::from(x_m) / (i128::from(SCALE) * 1000))
                 as i64
         };
         let n = ex.n_tp as i64;
+        let mut stop_base = e - frac(ea, ex.s_pm, 100_000);
+        let mut be_lvl = None;
+        if let Some(l) = lc {
+            if ex.ls_m > 0 {
+                stop_base = stop_base.max(e.min(l.far) - nat(ex.ls_m));
+            }
+            if ex.be_mode == 3 {
+                let kb = if ex.ls_m > 0 { ex.ls_m } else { 500 };
+                be_lvl = Some(e.min(l.far) - nat(kb));
+            }
+        }
+        let rules = lc.is_some() && (ex.tx_min > 0 || ex.rt_f_pm > 0);
+        let lp = lc.map_or(0, |l| l.lp);
+        let dist = |x_pm: i64| (i128::from(lp.abs()) * i128::from(x_pm) / 100_000) as i64;
+        let unit = i128::from(ea) * i128::from(natr_e8);
+        let natr_stop = (ex.sn_m > 0).then(|| NatrStop {
+            k0_m: ex.sn_m,
+            sg: ex.sg,
+            sb_m: ex.sb_m,
+            sr_m: ex.sr_m,
+            sd_m: ex.sd_m,
+            unit,
+            lo: frac(ea, NATR_STOP_MIN_PM, 100_000),
+            hi: frac(ea, ex.s_pm, 100_000),
+            entry_ms,
+        });
+        let step = (ex.tj_m > 0).then(|| StepLadder {
+            delta_m: ex.tj_m,
+            mults: (0..n).map(|i| tp_mult_m(ex, i, n)).collect(),
+            unit,
+        });
         Pos {
             e,
             tps: (0..n).map(|i| e + nat(tp_mult_m(ex, i, n))).collect(),
-            lots: tp_lots(ex),
+            lots: tp_lots_n(ex, notional),
             a_dist: nat(ex.a_m),
             r_dist: nat(ex.r_m),
             be_cfg: ex.be,
-            rem: NOTIONAL_U,
-            stop_base: e - frac(ea, ex.s_pm, 100_000),
+            rem: notional,
+            stop_base,
             be_on: false,
             armed: false,
             trail: i64::MIN,
@@ -723,11 +851,25 @@ impl Pos {
             next_tp: 0,
             legs: Vec::new(),
             s,
+            be_mode: ex.be_mode,
+            be_lvl,
+            rules,
+            lp,
+            tx_ms: ex.tx_min * 60_000,
+            tx_x: dist(ex.tx_x_pm),
+            rt_d: dist(ex.rt_f_pm),
+            rt_ms: ex.rt_s * 1000,
+            touched_ms: NONE_MS,
+            broke: false,
+            below_since: NONE_MS,
+            natr_stop,
+            step,
         }
     }
 
     /// Тейки-лимитки, пройденные сделкой `p` строго насквозь.
     fn fill_takes(&mut self, ms: i64, p: i64) {
+        let filled0 = self.next_tp;
         while self.next_tp < self.tps.len() && p > self.tps[self.next_tp] {
             let lot = self.lots[self.next_tp];
             self.legs.push(TLeg {
@@ -737,21 +879,48 @@ impl Pos {
                 maker: true,
             });
             self.rem -= lot;
-            if self.next_tp == 0 && self.be_cfg {
-                self.be_on = true;
-                self.stop_base = self.stop_base.max(self.e);
+            if self.be_cfg {
+                // §13.19 `bm`: 0 — стоп в цену входа после 1-го тейка; 1 — выкл; 2 — после 2-го; 3 — за уровнем
+                let to = match (self.be_mode, self.next_tp) {
+                    (0 | 3, 0) | (2, 1) => Some(self.be_lvl.unwrap_or(self.e)),
+                    _ => None,
+                };
+                if let Some(lvl) = to {
+                    self.be_on = true;
+                    self.stop_base = self.stop_base.max(lvl);
+                }
             }
             self.next_tp += 1;
+        }
+        // §13.21 (`tj`): лестница пересчитана после этой сделки — действует со следующей (внутри сделки ступени идут по прежним ценам)
+        if self.next_tp > filled0 {
+            if let Some(st) = &self.step {
+                let f = 1000 + i128::from(st.delta_m) * self.next_tp as i128;
+                let rest = self.tps[self.next_tp..]
+                    .iter_mut()
+                    .zip(&st.mults[self.next_tp..]);
+                for (tp, &m) in rest {
+                    *tp = self.e
+                        + (st.unit * i128::from(m) * f / (i128::from(SCALE) * 1_000_000)) as i64;
+                }
+            }
         }
     }
 
     /// Сделка с ценой `p` (рама) в момент `ms`. `Some(вид)` — стоп сработал на этой сделке (исполнение по `p`).
     fn on_trade(&mut self, ms: i64, p: i64) -> Option<ExitKind> {
         let trail_lvl = if self.armed { self.trail } else { i64::MIN };
-        let sp = self.stop_base.max(trail_lvl);
+        // §13.21: NATR-стоп пересчитывается на каждой сделке; «самый плотный из активных» — уровень, ближайший к цене (в рамe — наибольший)
+        let natr_lvl = self
+            .natr_stop
+            .as_ref()
+            .map_or(i64::MIN, |n| self.e - n.dist(ms, self.next_tp));
+        let sp = self.stop_base.max(trail_lvl).max(natr_lvl);
         if p <= sp {
-            return Some(if trail_lvl > self.stop_base {
+            return Some(if trail_lvl > self.stop_base.max(natr_lvl) {
                 ExitKind::Trail
+            } else if natr_lvl > self.stop_base {
+                ExitKind::HardStop
             } else if self.be_on {
                 ExitKind::BreakEven
             } else {
@@ -765,6 +934,38 @@ impl Pos {
         }
         if self.armed {
             self.trail = self.trail.max(self.maxp - self.r_dist);
+        }
+        if self.rules {
+            return self.level_exit(ms, p);
+        }
+        None
+    }
+
+    /// §13.19: выход по времени (`tt/tb`) и при возврате за уровень (`rf/rs`); «пересекли» — сделка `p ≥ L`.
+    fn level_exit(&mut self, ms: i64, p: i64) -> Option<ExitKind> {
+        if self.touched_ms == NONE_MS && p >= self.lp {
+            self.touched_ms = ms;
+        }
+        if self.touched_ms == NONE_MS {
+            return None;
+        }
+        if !self.broke && p >= self.lp + self.tx_x {
+            self.broke = true;
+        }
+        if self.tx_ms > 0 && !self.broke && ms >= self.touched_ms + self.tx_ms {
+            return Some(ExitKind::TimeExit);
+        }
+        if self.rt_d > 0 {
+            if p <= self.lp - self.rt_d {
+                if self.below_since == NONE_MS {
+                    self.below_since = ms;
+                }
+                if ms - self.below_since >= self.rt_ms {
+                    return Some(ExitKind::Return);
+                }
+            } else {
+                self.below_since = NONE_MS;
+            }
         }
         None
     }
@@ -832,7 +1033,9 @@ pub fn sim_stream(
             break (ms, s * px);
         }
     };
-    Some(sim_tail(next, entry_ms, p0, side, natr_e8, ex))
+    Some(sim_tail(
+        next, entry_ms, p0, side, natr_e8, ex, None, NOTIONAL_U,
+    ))
 }
 
 /// §13.16: вход заполнен в момент `entry_ms` по цене `p0` (рама); выходы — по сделкам со временем строго после `entry_ms`.
@@ -844,6 +1047,21 @@ pub fn sim_fill(
     natr_e8: i64,
     ex: &ExitCfg,
 ) -> TickOut {
+    sim_fill_lc(next, entry_ms, p0, side, natr_e8, ex, None, NOTIONAL_U)
+}
+
+/// `sim_fill` с контекстом уровня (§13.19: стоп/выходы от уровня) и размером лота `notional` (мкУЕ).
+#[allow(clippy::too_many_arguments)]
+pub fn sim_fill_lc(
+    next: &mut dyn FnMut() -> Option<(i64, i64, bool)>,
+    entry_ms: i64,
+    p0: i64,
+    side: Side,
+    natr_e8: i64,
+    ex: &ExitCfg,
+    lc: Option<LevelCtx>,
+    notional: i64,
+) -> TickOut {
     let mut after = || -> Option<(i64, i64, bool)> {
         loop {
             let t = next()?;
@@ -852,10 +1070,11 @@ pub fn sim_fill(
             }
         }
     };
-    sim_tail(&mut after, entry_ms, p0, side, natr_e8, ex)
+    sim_tail(&mut after, entry_ms, p0, side, natr_e8, ex, lc, notional)
 }
 
 /// Позиция после входа: цена входа `p0` (рама) ± проскальзывание, тейки, стоп, трейл по потоку `next` (сделки после входа).
+#[allow(clippy::too_many_arguments)]
 fn sim_tail(
     next: &mut dyn FnMut() -> Option<(i64, i64, bool)>,
     entry_ms: i64,
@@ -863,10 +1082,12 @@ fn sim_tail(
     side: Side,
     natr_e8: i64,
     ex: &ExitCfg,
+    lc: Option<LevelCtx>,
+    notional: i64,
 ) -> TickOut {
     let s = side.s();
     let e = p0 + frac(p0.abs(), ex.slip_bps, 10_000);
-    let mut pos = Pos::new(s, e, p0, natr_e8, ex);
+    let mut pos = Pos::new(s, e, p0, entry_ms, natr_e8, ex, lc, notional);
     let mut cur_day = (entry_ms / DAY_MS) as usize;
     let mut marks: Vec<(usize, i64)> = Vec::new();
     let mut last = (entry_ms, p0);
@@ -926,7 +1147,28 @@ pub fn simulate_tick(
     ex: &ExitCfg,
 ) -> Option<TickOut> {
     let mut cur = Cursor::new(src, &sym.name, usize::from(sig.day), sig.idx as usize + 1);
-    sim_stream(&mut || cur.next_tick(), sig.ms, side, natr_e8, ex)
+    let taker_bm = side == Side::Short;
+    let mut next = || cur.next_tick();
+    let (entry_ms, p0) = loop {
+        let (ms, px, bm) = next()?;
+        if ms >= sig.ms + ex.lat_ms && bm == taker_bm {
+            break (ms, side.s() * px);
+        }
+    };
+    let lc = LevelCtx {
+        lp: sig.lp,
+        far: sig.far,
+    };
+    Some(sim_tail(
+        &mut next,
+        entry_ms,
+        p0,
+        side,
+        natr_e8,
+        ex,
+        Some(lc),
+        NOTIONAL_U,
+    ))
 }
 
 /// Причина отказа входа по ленте (§13.16).
@@ -998,11 +1240,31 @@ pub fn entry_decision(
     if !ex.tape_entry() {
         return EntryDec::Next;
     }
-    let day = usize::from(sig.day);
+    entry_at(
+        src,
+        sym,
+        side,
+        usize::from(sig.day),
+        sig.ms + ex.lat_ms,
+        sig.lp,
+        ex,
+    )
+}
+
+/// Вход по ленте на момент `t` (мс от 01.09; сутки файла — `day`) при цене уровня `lp` (рама): цена-заменитель — последняя сделка
+/// стороны ≤ `t` не старше W; за уровнем больше чем на X бп — отказ.
+pub fn entry_at(
+    src: &dyn TradeSrc,
+    sym: &Sym,
+    side: Side,
+    day: usize,
+    t: i64,
+    lp: i64,
+    ex: &ExitCfg,
+) -> EntryDec {
     let Some(ticks) = src.day(&sym.name, day) else {
         return EntryDec::Reject(EntryRej::Stale);
     };
-    let t = sig.ms + ex.lat_ms;
     let Some((px, _)) = tape_last_side(
         src,
         &sym.name,
@@ -1015,10 +1277,72 @@ pub fn entry_decision(
         return EntryDec::Reject(EntryRej::Stale);
     };
     let p = side.s() * px;
-    if i128::from(p - sig.lp) * 10_000 > i128::from(ex.ent_x_bp) * i128::from(sig.lp.abs()) {
+    if i128::from(p - lp) * 10_000 > i128::from(ex.ent_x_bp) * i128::from(lp.abs()) {
         return EntryDec::Reject(EntryRej::Beyond);
     }
     EntryDec::Fill { ms: t, p0: p }
+}
+
+/// Решение о втором лоте (§13.19, `e2`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Lot2Dec {
+    /// Лот 2 входит в `ms` по цене `p0` (рама); `immediate` — цена лота 1 уже в пределах d, вход в тот же момент по той же цене.
+    Fill { ms: i64, p0: i64, immediate: bool },
+    /// Лот 1 закрыт к моменту входа / цена пересекла уровень раньше, чем подошла на d.
+    Cancel,
+    /// Цена-заменитель лота 2 за уровнем или ленты нет — отказ (как у лота 1).
+    Reject,
+}
+
+/// Второй лот (§13.19): рыночный вход, когда цена подошла к уровню ближе d (`p ≥ L − d·|L|`) и ещё не пересекла (`p < L`), пока лот 1 открыт.
+/// `lot1` — (время входа, цена без проскальзывания) лота 1, `lot1_exit_ms` — время его выхода.
+pub fn lot2_decision(
+    src: &dyn TradeSrc,
+    sym: &Sym,
+    side: Side,
+    sig: &TSig,
+    ex: &ExitCfg,
+    lot1: (i64, i64),
+    lot1_exit_ms: i64,
+) -> Lot2Dec {
+    let d = (i128::from(sig.lp.abs()) * i128::from(ex.e2_pm) / 100_000) as i64;
+    let (ms1, p1) = lot1;
+    if p1 >= sig.lp - d {
+        return Lot2Dec::Fill {
+            ms: ms1,
+            p0: p1,
+            immediate: true,
+        };
+    }
+    let s = side.s();
+    let mut cur = Cursor::new(src, &sym.name, usize::from(sig.day), sig.idx as usize + 1);
+    while let Some((ms, px, _)) = cur.next_tick() {
+        if ms <= ms1 {
+            continue;
+        }
+        if ms >= lot1_exit_ms {
+            return Lot2Dec::Cancel;
+        }
+        let p = s * px;
+        if p >= sig.lp {
+            return Lot2Dec::Cancel;
+        }
+        if p >= sig.lp - d {
+            let t2 = ms + ex.lat_ms;
+            if t2 >= lot1_exit_ms {
+                return Lot2Dec::Cancel;
+            }
+            return match entry_at(src, sym, side, (t2 / DAY_MS) as usize, t2, sig.lp, ex) {
+                EntryDec::Fill { ms, p0 } => Lot2Dec::Fill {
+                    ms,
+                    p0,
+                    immediate: false,
+                },
+                _ => Lot2Dec::Reject,
+            };
+        }
+    }
+    Lot2Dec::Cancel
 }
 
 /// Вход прежней модели для сигнала (§13.2 п. 2): (время, цена ×1e8 без проскальзывания) первой сделки стороны со временем
@@ -1048,9 +1372,14 @@ fn with_slip(side: Side, px: i64, slip_bps: i64) -> i64 {
 
 /// Деньги сделки (как `portfolio::settle`, но по времени сделок): валовая, комиссии, фандинг, суточные приращения.
 pub fn settle_tick(sym: &Sym, side: Side, tr: &TickOut) -> Settled {
+    settle_tick_n(sym, side, tr, NOTIONAL_U)
+}
+
+/// `settle_tick` для лота размера `notional` (мкУЕ): §13.19 — два входа по 50 %.
+pub fn settle_tick_n(sym: &Sym, side: Side, tr: &TickOut, notional: i64) -> Settled {
     let s = side.s() as f64;
     let e = tr.entry_px as f64;
-    let n0 = NOTIONAL_U as f64 / 1e6;
+    let n0 = notional as f64 / 1e6;
     let mut flows: Vec<(i64, f64)> = Vec::new();
     let entry_fee = n0 * leg_fee_bps(true) / 1e4;
     flows.push((tr.entry_ms, -entry_fee));
@@ -1077,7 +1406,7 @@ pub fn settle_tick(sym: &Sym, side: Side, tr: &TickOut) -> Settled {
             .filter(|l| l.maker && l.ms < fms)
             .map(|l| l.u)
             .sum();
-        let rem = (NOTIONAL_U - closed) as f64 / 1e6;
+        let rem = (notional - closed) as f64 / 1e6;
         let pay = -s * (f.rate_e8 as f64 / 1e8) * rem * (f.mark as f64 / e);
         funding += pay;
         flows.push((fms, pay));
@@ -1099,7 +1428,7 @@ pub fn settle_tick(sym: &Sym, side: Side, tr: &TickOut) -> Settled {
                 .filter(|l| l.maker && l.ms < b)
                 .map(|l| l.u)
                 .sum();
-            let rem = (NOTIONAL_U - closed) as f64 / 1e6;
+            let rem = (notional - closed) as f64 / 1e6;
             let mk = tr
                 .marks
                 .iter()
@@ -1148,6 +1477,10 @@ pub struct TickTrade {
     pub ws: bool,
     /// §13.16 (только при `ew > 0`): вход прежней модели для этого сигнала — (время мс от 01.09, цена ×1e8 с проскальзыванием).
     pub old_entry: Option<(i64, i64)>,
+    /// §13.19 (`e2`): второй лот (свой вход, ноги, выход); `entry_ms`, `entry_px`, `legs` выше — лот 1, `exit_ms` — последний выход.
+    pub lot2: Option<TickOut>,
+    /// §13.19: вид выхода лота 1 (при `lot2` поле `kind` — вид сделки целиком).
+    pub kind1: ExitKind,
 }
 
 #[derive(Debug, Clone)]
@@ -1159,6 +1492,22 @@ pub struct TickResult {
     pub coinday: BTreeMap<(u16, usize), f64>,
     /// Отказы: уровень израсходован, монета занята, пауза монеты, общая пауза, потолок P, нет исхода.
     pub rej: [u64; 6],
+    /// §13.19 (`e2`): лот 2 — вошёл сразу (цена лота 1 уже в пределах d), вошёл позже, отменён (лот 1 закрыт / цена пересекла уровень), отказ (за уровнем / нет ленты).
+    pub lot2: [u64; 4],
+}
+
+impl TickResult {
+    /// Пустой результат (режим `P42_SIGSX_ONLY`, §13.18: только сигналы и дампы, без портфеля и без сделок).
+    pub fn empty() -> TickResult {
+        TickResult {
+            trades: Vec::new(),
+            entry_rej: Vec::new(),
+            daily: [0.0; COUNT_DAYS],
+            coinday: BTreeMap::new(),
+            rej: [0; 6],
+            lot2: [0; 4],
+        }
+    }
 }
 
 impl TickResult {
@@ -1197,6 +1546,7 @@ pub fn run_tick(
         daily: [0.0; COUNT_DAYS],
         coinday: BTreeMap::new(),
         rej: [0; 6],
+        lot2: [0; 4],
     };
     let mut busy = vec![false; ns];
     let mut cool_until = vec![0i64; ns];
@@ -1246,7 +1596,8 @@ pub fn run_tick(
             res.rej[0] += 1;
             continue;
         }
-        if busy[si] {
+        // §13.21 (`busy = 0`): монета с открытой позицией принимает сигналы других уровней
+        if pc.busy && busy[si] {
             res.rej[1] += 1;
             continue;
         }
@@ -1265,6 +1616,13 @@ pub fn run_tick(
         let sym = &syms[si];
         let natr = exit_natr(sym, ex, sg.t as usize);
         let mut dec = EntryDec::Next;
+        let mut tr2: Option<TickOut> = None;
+        let lc = LevelCtx {
+            lp: sg.lp,
+            far: sg.far,
+        };
+        let split = ex.e2_pm > 0;
+        let lot_n = if split { NOTIONAL_U / 2 } else { NOTIONAL_U };
         let tr = if natr > 0 {
             dec = entry_decision(src, sym, side, sg, ex);
             match dec {
@@ -1272,7 +1630,46 @@ pub fn run_tick(
                 EntryDec::Fill { ms, p0 } => {
                     let mut cur =
                         Cursor::new(src, &sym.name, usize::from(sg.day), sg.idx as usize + 1);
-                    Some(sim_fill(&mut || cur.next_tick(), ms, p0, side, natr, ex))
+                    let t1 = sim_fill_lc(
+                        &mut || cur.next_tick(),
+                        ms,
+                        p0,
+                        side,
+                        natr,
+                        ex,
+                        Some(lc),
+                        lot_n,
+                    );
+                    if split {
+                        match lot2_decision(src, sym, side, sg, ex, (ms, p0), t1.exit_ms) {
+                            Lot2Dec::Fill {
+                                ms: m2,
+                                p0: q0,
+                                immediate,
+                            } => {
+                                res.lot2[usize::from(!immediate)] += 1;
+                                let mut cur2 = Cursor::new(
+                                    src,
+                                    &sym.name,
+                                    usize::from(sg.day),
+                                    sg.idx as usize + 1,
+                                );
+                                tr2 = Some(sim_fill_lc(
+                                    &mut || cur2.next_tick(),
+                                    m2,
+                                    q0,
+                                    side,
+                                    natr,
+                                    ex,
+                                    Some(lc),
+                                    lot_n,
+                                ));
+                            }
+                            Lot2Dec::Cancel => res.lot2[2] += 1,
+                            Lot2Dec::Reject => res.lot2[3] += 1,
+                        }
+                    }
+                    Some(t1)
                 }
                 EntryDec::Reject(why) => {
                     res.entry_rej.push((sg.sym, sg.level, sg.ms, why));
@@ -1290,14 +1687,35 @@ pub fn run_tick(
             consumed.insert(key);
         }
         busy[si] = true;
+        // §13.19: позиция из двух лотов — выход последнего лота; «стоп», если хоть один лот закрыт стопом
+        let (exit_all, kind_all) = match &tr2 {
+            Some(t2) => (
+                tr.exit_ms.max(t2.exit_ms),
+                if tr.kind == ExitKind::HardStop || t2.kind == ExitKind::HardStop {
+                    ExitKind::HardStop
+                } else if t2.exit_ms > tr.exit_ms {
+                    t2.kind
+                } else {
+                    tr.kind
+                },
+            ),
+            None => (tr.exit_ms, tr.kind),
+        };
         open.push(Open {
-            exit_ms: tr.exit_ms,
+            exit_ms: exit_all,
             sym: si,
             key,
-            kind: tr.kind,
+            kind: kind_all,
         });
         open.sort_by_key(|o| o.exit_ms);
-        let st = settle_tick(sym, side, &tr);
+        let mut st = settle_tick_n(sym, side, &tr, lot_n);
+        if let Some(t2) = &tr2 {
+            let s2 = settle_tick_n(sym, side, t2, lot_n);
+            st.gross += s2.gross;
+            st.fees += s2.fees;
+            st.funding += s2.funding;
+            st.daily.extend(s2.daily);
+        }
         for (d, v) in &st.daily {
             res.daily[*d] += v;
             *res.coinday.entry((sg.sym, *d)).or_insert(0.0) += v;
@@ -1308,10 +1726,10 @@ pub fn run_tick(
             sig_ms: sg.ms,
             sig_min: sg.t,
             entry_ms: tr.entry_ms,
-            exit_ms: tr.exit_ms,
+            exit_ms: exit_all,
             entry_px: tr.entry_px,
-            kind: tr.kind,
-            takes: tr.takes,
+            kind: kind_all,
+            takes: tr.takes + tr2.as_ref().map_or(0, |t| t.takes),
             gross: st.gross,
             fees: st.fees,
             funding: st.funding,
@@ -1326,6 +1744,8 @@ pub fn run_tick(
             } else {
                 None
             },
+            kind1: tr.kind,
+            lot2: tr2,
         });
     }
     res

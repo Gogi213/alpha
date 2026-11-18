@@ -37,8 +37,8 @@ TAKER_BPS = 3.5 * 0.9
 CFG = dict(tf_min=60, tau=0.002, e=0.003, l_days=7, s=0.05)
 OLD_KEYS = None  # (монета, сторона, entry_ms) сделок прежней базы b0 — по ним признак «новая» (--old)
 
-KIND_RU = {"stop": "стоп", "be": "безубыток", "trail": "трейл", "forced": "принудительное закрытие"}
-KIND_SHORT = {"stop": "стоп", "be": "безубыток", "trail": "трейл", "forced": "принуд."}
+KIND_RU = {"stop": "стоп", "be": "безубыток", "trail": "трейл", "forced": "принудительное закрытие", "tx": "выход по времени", "rt": "выход при возврате под уровень"}
+KIND_SHORT = {"stop": "стоп", "be": "безубыток", "trail": "трейл", "forced": "принуд.", "tx": "время", "rt": "возврат"}
 SIDE_RU = {"long": "лонг", "short": "шорт"}
 
 UP, DOWN = "#b3c1d3", "#5a626d"
@@ -46,7 +46,32 @@ INK, INK2, GRID = "#0b0b0b", "#52514e", "#e4e3df"
 C_TAKE, C_BE, C_TRAIL, C_STOP, C_FORCED = "#008300", "#6250d6", "#0f9fb0", "#d03b3b", "#6b6a66"
 C_CROSS = "#e07b00"  # переходы цены через уровень (приближение)
 CROSS_MAX = 60  # не больше стольких отметок переходов на графике
-KIND_COLOR = {"stop": C_STOP, "be": C_BE, "trail": C_TRAIL, "forced": C_FORCED}
+C_TIME, C_RET = "#7d6608", "#a3478f"  # §13.19: выход по времени, выход при возврате под уровень
+KIND_COLOR = {"stop": C_STOP, "be": C_BE, "trail": C_TRAIL, "forced": C_FORCED, "tx": C_TIME, "rt": C_RET}
+RULES = {"long": {}, "short": {}}  # §13.19: ключи варианта по сторонам (--rules): tt tb rf rs bm e e2 ls — нужны для линий правил на графике
+
+
+def rule(r, key, default=0.0):
+    return float(RULES.get(r["side"], {}).get(key, default))
+
+
+def parse_rules(txt):
+    """«long:tt=20 tb=0.3;short:bm=1 e2=0.05» → {'long': {...}, 'short': {...}}."""
+    out = {"long": {}, "short": {}}
+    for part in (txt or "").split(";"):
+        if ":" in part:
+            side, kv = part.split(":", 1)
+            out[side.strip()] = dict(x.split("=", 1) for x in kv.split())
+    return out
+
+
+def rules_text(side):
+    return " ".join("%s=%s" % kv for kv in RULES.get(side, {}).items())
+
+
+def k1(r):
+    """Вид выхода лота 1 (при втором лоте `kind` — вид сделки целиком, лот 1 — `kind1`)."""
+    return r.get("kind1", r["kind"])
 
 
 def fmt_ts(ms, tz=GMT4, secs=True, ms_=False):
@@ -86,6 +111,12 @@ def load_trades(detail_dir, only=None):
                     r[k] += T0
             for g in r["legs"]:
                 g[0] += T0
+            if r.get("lot2"):  # §13.19 (e2): второй лот — свой вход и выход
+                l2 = r["lot2"]
+                l2["entry_ms"] += T0
+                l2["exit_ms"] += T0
+                for g in l2["legs"]:
+                    g[0] += T0
             out.append(r)
     if only:
         out = [r for r in out if r["id"] in only or r["id"].split("_")[0] in only]
@@ -169,26 +200,37 @@ def load_ticks(work, tid):
 # ───────────────────────────── ноги и признаки ─────────────────────────────
 
 
-def legs_of(r):
-    """Ноги с деньгами: [{n, kind, ms, px, u_usd, gross, fee, net, bps}]; entry — отдельно."""
+def legs_of(r, lot=1):
+    """Ноги с деньгами: [{n, kind, ms, px, u_usd, gross, fee, net, bps}]; entry — отдельно. lot = 2 — второй лот (§13.19, `r["lot2"]`)."""
     s = 1 if r["side"] == "long" else -1
-    e = r["entry_px_e8"] / 1e8
+    src = r["lot2"] if lot == 2 else r
+    e = src["entry_px_e8"] / 1e8
     out = []
     tk = 0
-    for k, (ms, px, u, maker) in enumerate(r["legs"]):
+    for k, (ms, px, u, maker) in enumerate(src["legs"]):
         p = px / 1e8
         usd = u / 1e6
         g = usd * s * (p - e) / e
         fee = usd * (p / e) * (MAKER_BPS if maker else TAKER_BPS) / 1e4
-        last = k == len(r["legs"]) - 1
+        last = k == len(src["legs"]) - 1
         if last:
-            kind, label = r["kind"], KIND_SHORT[r["kind"]]
+            kd = src["kind"] if lot == 2 else k1(r)
+            kind, label = kd, KIND_SHORT[kd]
         else:
             tk += 1
             kind, label = "take", f"тейк {tk}"
         out.append(dict(n=k, kind=kind, label=label, ms=ms, px=p, usd=usd, gross=g, fee=fee, net=g - fee,
                         bps=s * (p - e) / e * 1e4, maker=bool(maker)))
     return out
+
+
+def lot_usd(legs):
+    return sum(x["usd"] for x in legs)
+
+
+def lot_net(legs):
+    """Итог лота без фандинга: ноги минус комиссия входа (тейкер) на размер лота."""
+    return sum(x["net"] for x in legs) - lot_usd(legs) * TAKER_BPS / 1e4
 
 
 def features(r, tk, a):
@@ -290,14 +332,28 @@ def features(r, tk, a):
     f["hold_s"] = round((xm - em) / 1000, 3)
     f["exit_px"] = legs[-1]["px"]
     f["exit_bps"] = legs[-1]["bps"]
-    f["first_take_s"] = round((legs[0]["ms"] - em) / 1000, 3) if r["takes"] > 0 else None
+    f["first_take_s"] = round((legs[0]["ms"] - em) / 1000, 3) if len(legs) > 1 else None
+    l2 = legs_of(r, 2) if r.get("lot2") else None  # §13.19 (e2)
+    f["lot2"] = l2 is not None
+    f["exit_kind_ru"] = KIND_RU[r["kind"]]
+    f["lot1_kind"] = KIND_SHORT[k1(r)]
+    f["lot1_net"] = lot_net(legs)
+    f["rules"] = rules_text(r["side"])
+    if l2:
+        em2 = r["lot2"]["entry_ms"]
+        f["lot2_entry_gmt4"] = datetime.fromtimestamp((em2 + GMT4) / 1000, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+        f["lot2_entry_px"] = r["lot2"]["entry_px_e8"] / 1e8
+        f["lot2_kind"] = KIND_SHORT[r["lot2"]["kind"]]
+        f["lot2_net"] = lot_net(l2)
+        f["lot2_exit_px"] = l2[-1]["px"]
     f["gross_usd"], f["fees_usd"], f["funding_usd"], f["net_usd"] = r["gross"], r["fees"], r["funding"], r["net"]
     f["net_bps"] = r["net"] / NOTIONAL * 1e4
     f["outcome"] = r["kind"] if r["takes"] == 0 or r["kind"] == "forced" else f"{r['kind']}+тейки"
     # проверки целостности: сумма ног = итог движка; вход — реальная сделка сторона-агрессор ± 1 бп
-    entry_fee = NOTIONAL * TAKER_BPS / 1e4
-    f["chk_fee_diff"] = abs(sum(x["fee"] for x in legs) + entry_fee - r["fees"])
-    f["chk_gross_diff"] = abs(sum(x["gross"] for x in legs) - r["gross"])
+    all_legs = legs + (l2 or [])
+    entry_fee = (lot_usd(legs) + (lot_usd(l2) if l2 else 0.0)) * TAKER_BPS / 1e4  # лот 1 — $250 даже без лота 2 (§13.19 e2)
+    f["chk_fee_diff"] = abs(sum(x["fee"] for x in all_legs) + entry_fee - r["fees"])
+    f["chk_gross_diff"] = abs(sum(x["gross"] for x in all_legs) - r["gross"])
     p0 = e / (1 + s * 1e-4)
     if "old_entry_ms" in r:  # §13.16: цена входа = цена последней сделки стороны (агрессор на стороне входа) со временем ≤ времени входа
         side_t = (t <= em) & (bm == (s < 0))
@@ -324,6 +380,7 @@ def feat_worker(args):
 
 def cmd_features(a):
     global OLD_KEYS
+    RULES.update(parse_rules(a.rules))
     os.makedirs(os.path.join(a.work, "ticks"), exist_ok=True)
     if a.old:
         OLD_KEYS = {(x["sym"], x["side"], x["sig_ms"]) for x in load_trades(a.old)}
@@ -349,7 +406,7 @@ def cmd_features(a):
     with open(os.path.join(a.work, "features.jsonl"), "w", encoding="utf-8") as fo:
         for f in rows:
             fo.write(json.dumps(f, ensure_ascii=False) + "\n")
-    keys = list(rows[0].keys())
+    keys = list(dict.fromkeys(k for f in rows for k in f))  # §13.19: поля второго лота есть не у всех строк
     with open(os.path.join(a.work, "features.csv"), "w", newline="", encoding="utf-8") as fo:
         w = csv.DictWriter(fo, fieldnames=keys)
         w.writeheader()
@@ -705,7 +762,7 @@ def exit_lines(r, tk, kl, legs):
             trail = lvl if trail is None else max(trail, lvl)
             if trail * 1e8 > ef:
                 pts.append((m + 1.0, s * trail))
-    first_take = (legs[0]["ms"] - T0) / MIN if r["takes"] > 0 else None
+    first_take = (legs[0]["ms"] - T0) / MIN if len(legs) > 1 and rule(r, "bm") != 1 else None  # bm=1 — стоп остаётся на −5 %
     return dict(hard=hard, first_take=first_take, trail=pts)
 
 
@@ -748,7 +805,15 @@ def dodge(ds, lo, hi, gap=LH):
     return ys
 
 
-def field_items(r, legs, ln, touches, e, L, ft, zoom=False, cross=None):
+def first_touch_ms(r, tk):
+    """Первая сделка после входа с ценой на уровне или за ним (§13.19 «пересекли»), по кэшу тиков; None — нет."""
+    s = 1 if r["side"] == "long" else -1
+    t, p, _ = tk
+    m = (t > r["entry_ms"]) & (s * p >= s * r["level_px_e8"] / 1e8)
+    return int(t[m][0]) if m.any() else None
+
+
+def field_items(r, legs, ln, touches, e, L, ft, zoom=False, cross=None, legs2=None, touch_ms=None):
     """Подписи правого поля: items — линии графика [{ys: [цены], text, color, bold}], rows — список касаний.
     zoom — приближение: каждый тейк и выход отдельной строкой, с временем до мс; cross — переходы уровня (см. level_crossings)."""
     s = 1 if r["side"] == "long" else -1
@@ -764,8 +829,11 @@ def field_items(r, legs, ln, touches, e, L, ft, zoom=False, cross=None):
         it.append(dict(ys=[oe], text=f"прежний вход {fmt_px(oe)} · {fmt_hms(r['old_entry_ms'], em)} (+{(r['old_entry_ms'] - em) / 1000:.3f} с)",
                        color="#8a6d00", bold=False))
     last = legs[-1]
+    if legs2:
+        e2 = r["lot2"]["entry_px_e8"] / 1e8
+        it.append(dict(ys=[e2], text=f"вход 2 {fmt_px(e2)} · {fmt_hms_ms(r['lot2']['entry_ms'], em)}", color=acol, bold=True))
     stop_txt = f"стоп −5 % {fmt_px(ln['hard'])}"
-    if r["kind"] == "stop":
+    if k1(r) == "stop":
         stop_txt += (f" · выход {fmt_px(last['px'])}{tm(last['ms'])}" if zoom else "") + f" {usd(last['net'])}"
     elif ft is not None:
         stop_txt += ", после тейка 1 → вход"
@@ -776,9 +844,19 @@ def field_items(r, legs, ln, touches, e, L, ft, zoom=False, cross=None):
                        text=f"тейк 1–{len(tk)} {fmt_px(tk[0]['px'])}…{fmt_px(tk[-1]['px'])} {usd(sum(g['net'] for g in tk))}"))
     else:
         it += [dict(ys=[g["px"]], text=f"{g['label']} {fmt_px(g['px'])}{tm(g['ms'])} {usd(g['net'])}", color=C_TAKE, bold=False) for g in tk]
-    if r["kind"] != "stop":
-        name = "принуд." if r["kind"] == "forced" else KIND_RU[r["kind"]]
-        it.append(dict(ys=[last["px"]], text=f"{name} {fmt_px(last['px'])}{tm(last['ms'])} {usd(last['net'])}", color=KIND_COLOR[r["kind"]], bold=False))
+    if k1(r) != "stop":
+        name = "принуд." if k1(r) == "forced" else KIND_RU[k1(r)]
+        it.append(dict(ys=[last["px"]], text=f"{name} {fmt_px(last['px'])}{tm(last['ms'])} {usd(last['net'])}", color=KIND_COLOR[k1(r)], bold=False))
+    if legs2:  # лот 2: свои тейки и выход
+        for g in legs2:
+            if g["kind"] == "take":
+                it.append(dict(ys=[g["px"]], text=f"лот 2 {g['label']} {fmt_px(g['px'])}{tm(g['ms'])} {usd(g['net'])}", color=C_TAKE, bold=False))
+            else:
+                nm = "принуд." if g["kind"] == "forced" else KIND_RU[g["kind"]]
+                it.append(dict(ys=[g["px"]], text=f"лот 2: {nm} {fmt_px(g['px'])}{tm(g['ms'])} {usd(g['net'])}", color=KIND_COLOR[g["kind"]], bold=False))
+    if rule(r, "rf") > 0 and touch_ms is not None:
+        thr = L * (1 - s * rule(r, "rf") / 100)
+        it.append(dict(ys=[thr], text=f"порог возврата −{rule(r, 'rf'):g} % от уровня {fmt_px(thr)} · ≥ {rule(r, 'rs'):g} с", color=C_RET, bold=False))
     if cross is not None:
         after = [c for c in cross if c[0] >= (em - T0) / MIN - 1e-9 and c[2] > 0]
         if after:
@@ -823,17 +901,19 @@ def render(r, kl, tk, out_png, plt, zoom=False):
         cross = None
     ln = exit_lines(r, tk, kl, legs)
     ft = ln["first_take"]
-    items, rows = field_items(r, legs, ln, touches, e, L, ft, zoom, cross)
+    legs2 = legs_of(r, 2) if r.get("lot2") else None
+    touch_ms = first_touch_ms(r, tk) if (rule(r, "rf") > 0 or rule(r, "tt") > 0) else None
+    items, rows = field_items(r, legs, ln, touches, e, L, ft, zoom, cross, legs2, touch_ms)
     ex = (em - T0) / MIN
     xx = (xm - T0) / MIN
     xs = (sm - T0) / MIN
-    pxs = [g["px"] for g in legs] + [e, L] + [d["px"] for d in touches]
+    pxs = [g["px"] for g in legs] + [e, L] + [d["px"] for d in touches] + ([g["px"] for g in legs2] + [r["lot2"]["entry_px_e8"] / 1e8] if legs2 else [])
     if "old_entry_ms" in r:
         pxs.append(r["old_entry_px_e8"] / 1e8)
     t, o, h_, l_, c = agg_bars(kl, x0, x1, 1)
     ymin, ymax = min(np.nanmin(l_), min(pxs)), max(np.nanmax(h_), max(pxs))
     show_hard = True
-    if zoom and r["kind"] != "stop" and not (ymin <= ln["hard"] <= ymax):  # приближение: стоп −5 % далеко — осью не растягиваем
+    if zoom and k1(r) != "stop" and not (ymin <= ln["hard"] <= ymax):  # приближение: стоп −5 % далеко — осью не растягиваем
         show_hard = False
         items = [i for i in items if not (i["color"] == C_STOP and i["ys"] == [ln["hard"]])]
     else:
@@ -898,16 +978,34 @@ def render(r, kl, tk, out_png, plt, zoom=False):
     # стоп: −5 % до 1-го тейка (или до выхода), дальше ступенька в точку входа
     ds = (0, (5, 3))
     if show_hard:
-        seg(ln["hard"], vis(ft if ft is not None else xx), C_STOP, 1.2, 9, ls=ds, tick=r["kind"] == "stop" and ft is None)
+        seg(ln["hard"], vis(ft if ft is not None else xx), C_STOP, 1.2, 9, ls=ds, tick=k1(r) == "stop" and ft is None)
     if ft is not None:
         tr = [pt for pt in ln["trail"] if pt[0] < xx]
         be_end = vis(min(tr[0][0], xx) if tr else xx)
         if show_hard:
             ax.vlines(ft, min(ln["hard"], e), max(ln["hard"], e), color=C_STOP, lw=1.2 * PXW, ls=ds, zorder=9)
         ax.hlines(e, ft, max(be_end, ft + 12 / px), color=C_STOP, lw=1.2 * PXW, ls=ds, zorder=9)
-        if r["kind"] == "be":
+        if k1(r) == "be":
             ax.plot([be_end], [legs[-1]["px"]], marker="|", ms=9, mew=1.2 * PXW, color=C_BE, ls="none", zorder=10)
-    seg(e, vis(xx), acol, 1.5, 24)  # вход: от времени входа до времени выхода; поверх маркеров касаний
+    x1_lot1 = (legs[-1]["ms"] - T0) / MIN if legs2 else xx
+    seg(e, vis(x1_lot1), acol, 1.5, 24)  # вход: от времени входа до времени выхода лота 1; поверх маркеров касаний
+    if legs2:  # §13.19 (e2): вход 2 — белый треугольник с рамкой цвета стороны; линия до выхода лота 2
+        e2, ex2 = r["lot2"]["entry_px_e8"] / 1e8, (r["lot2"]["entry_ms"] - T0) / MIN
+        xx2 = (r["lot2"]["exit_ms"] - T0) / MIN
+        ax.hlines(e2, ex2, max(xx2, ex2 + 12 / px), color=acol, lw=1.5 * PXW, ls=(0, (6, 2)), zorder=24)
+        ax.plot([ex2], [e2], marker="^" if s > 0 else "v", ms=11, mfc="white", mec=acol, mew=1.8, ls="none", zorder=28)
+        ax.text(ex2, e2, "2", ha="center", va="center", fontsize=6, fontweight="bold", color=acol, zorder=29)
+        for g in legs2:
+            if g["kind"] == "take":
+                seg(g["px"], vis((g["ms"] - T0) / MIN), C_TAKE, 1.0, 8, ls=(0, (6, 2)))
+    if rule(r, "rf") > 0 and touch_ms is not None:  # порог возврата — от первого касания до выхода
+        thr = L * (1 - s * rule(r, "rf") / 100)
+        ax.hlines(thr, (touch_ms - T0) / MIN, max(xx, (touch_ms - T0) / MIN + 12 / px), color=C_RET, lw=1.0, ls=(0, (1, 2)), zorder=7)
+    if rule(r, "tt") > 0 and touch_ms is not None:  # срок выхода по времени — T мин от первого касания
+        xd = (touch_ms - T0) / MIN + rule(r, "tt")
+        if x0 < xd < xend:
+            ax.axvline(xd, color=C_TIME, lw=1.0, ls=(0, (1, 2)), zorder=4)
+            ax.text(xd, 0.905, f"срок {rule(r, 'tt'):g} мин от касания (пробой {rule(r, 'tb'):g} %)", ha="left", va="top", **lab)
     if "old_entry_ms" in r:  # §13.16: ромб — где вошла бы прежняя модель («следующая сделка стороны»)
         ax.plot([(r["old_entry_ms"] - T0) / MIN], [r["old_entry_px_e8"] / 1e8], marker="D", ms=7, mfc="white", mec="#8a6d00", mew=1.6, ls="none", zorder=26)
 
@@ -928,10 +1026,15 @@ def render(r, kl, tk, out_png, plt, zoom=False):
                 ax.plot([gx], [g["px"]], marker="o", ms=13, mfc=C_TAKE, mec="white", mew=1.0, ls="none", zorder=28)
                 ax.text(gx, g["px"], str(g["n"] + 1), ha="center", va="center", fontsize=6.5, fontweight="bold", color="white", zorder=29)
             else:
-                ax.plot([gx], [g["px"]], marker="s", ms=11, mfc=KIND_COLOR[g["kind"]], mec="white", mew=1.0, ls="none", zorder=28)
                 if g["kind"] in ("stop", "be"):
                     ax.hlines(g["px"], gx, xend, color=KIND_COLOR[g["kind"]], lw=0.7, ls=(0, (1, 3)), alpha=0.55, zorder=7)
 
+    for lg in [legs] + ([legs2] if legs2 else []):  # явный маркер каждого выхода — квадрат цвета вида и подпись вида (§13.19)
+        g = lg[-1]
+        gx = (g["ms"] - T0) / MIN
+        ax.plot([gx], [g["px"]], marker="s", ms=11, mfc=KIND_COLOR[g["kind"]], mec="white", mew=1.0, ls="none", zorder=28)
+        ax.text(gx, g["px"], "  " + KIND_SHORT[g["kind"]] + (" (лот 2)" if lg is not legs else ""), ha="left", va="bottom", fontsize=8.5, fontweight="bold",
+                color=KIND_COLOR[g["kind"]], zorder=30, clip_on=True)
     # оси
     step = tick_step(px)
     base = (T0 // MIN + 240)  # минут от эпохи до 01.09 00:00 по GMT+4
@@ -983,14 +1086,122 @@ def render(r, kl, tk, out_png, plt, zoom=False):
     net_usd, net_bps = r["net"], r["net"] / NOTIONAL * 1e4
     day = datetime.fromtimestamp((em + GMT4) / 1000, tz=timezone.utc).strftime("%d.%m.%Y")
     title = (f"{r['sym']} · {SIDE_RU[r['side']]} · {day} · итог {net_usd:+.2f} $ ({net_bps:+.1f} бп) · "
-             f"{KIND_RU[r['kind']]} · держали {fmt_dur(hold)} · касаний {len(touches)}" + (" · приближение" if zoom else ""))
+             f"{KIND_RU[r['kind']]}" + (" · 2 лота" if legs2 else "") + f" · держали {fmt_dur(hold)} · касаний {len(touches)}" + (" · приближение" if zoom else ""))
     fig.text(20 / W, 1 - 30 / H, title, fontsize=16, color=INK, fontweight="bold", va="center")
     fig.savefig(out_png, dpi=80)
     plt.close(fig)
     return W, H, int(LEFT + (ex - x0) * px), len(touches)
 
 
+def render_secs(r, tk, out_png, plt):
+    """§13.19: сделка короче 2 мин — график в секундном масштабе: сделки ленты точками (светлая — покупатель-тейкер, тёмная — продавец-тейкер) и ступенью цены,
+    уровень, вход (и вход 2), тейки, выходы квадратами цвета вида с подписью (время до мс, цена, $), порог возврата, стоп."""
+    from matplotlib.lines import Line2D
+    from matplotlib.ticker import FuncFormatter
+
+    s = 1 if r["side"] == "long" else -1
+    L = r["level_px_e8"] / 1e8
+    e = r["entry_px_e8"] / 1e8
+    em, sm = r["entry_ms"], r["sig_ms"]
+    legs = legs_of(r)
+    legs2 = legs_of(r, 2) if r.get("lot2") else None
+    xm = r["exit_ms"]
+    t, p, bm = tk
+    hold_ms = xm - em
+    lo, hi = min(sm, em) - max(3000, int(0.15 * hold_ms)), xm + max(3000, int(0.3 * hold_ms))  # окно растёт с удержанием, но остаётся секундным
+    w = (t >= lo) & (t <= hi)
+    hard = (r["entry_px_e8"] - s * (r["entry_px_e8"] * EXIT["s_pm"] // 100_000)) / 1e8
+    touch_ms = first_touch_ms(r, tk)
+    evp = [e, L] + [g["px"] for g in legs] + ([r["lot2"]["entry_px_e8"] / 1e8] + [g["px"] for g in legs2] if legs2 else [])
+    ymin, ymax = min(list(p[w]) + evp), max(list(p[w]) + evp)
+    items = [dict(ys=[L], text=f"уровень {fmt_px(L)}", color=INK, bold=True),
+             dict(ys=[e], text=f"вход {fmt_px(e)} · {fmt_hms_ms(em, em)}", color="#0a8f3c" if s > 0 else "#d03b3b", bold=True)]
+    if legs2:
+        items.append(dict(ys=[r["lot2"]["entry_px_e8"] / 1e8], text=f"вход 2 {fmt_px(r['lot2']['entry_px_e8'] / 1e8)} · {fmt_hms_ms(r['lot2']['entry_ms'], em)}",
+                          color="#0a8f3c" if s > 0 else "#d03b3b", bold=True))
+    for tag, lg in (("", legs), ("лот 2 ", legs2 or [])):
+        for g in lg:
+            nm = g["label"] if g["kind"] == "take" else ("принуд." if g["kind"] == "forced" else KIND_RU[g["kind"]])
+            items.append(dict(ys=[g["px"]], text=f"{tag}{nm} {fmt_px(g['px'])} · {fmt_hms_ms(g['ms'], em)} {usd(g['net'])}",
+                              color=C_TAKE if g["kind"] == "take" else KIND_COLOR[g["kind"]], bold=False))
+    hard_in = ymin <= hard <= ymax  # стоп −5 % — осью не растягиваем: далеко от цены
+    items.append(dict(ys=[min(max(hard, ymin), ymax)], text=f"стоп −5 % {fmt_px(hard)}" + ("" if hard_in else " (вне графика)"), color=C_STOP, bold=False))
+    thr = None
+    if rule(r, "rf") > 0 and touch_ms is not None:
+        thr = L * (1 - s * rule(r, "rf") / 100)
+        ymin, ymax = min(ymin, thr), max(ymax, thr)
+        items.append(dict(ys=[thr], text=f"порог возврата −{rule(r, 'rf'):g} % от уровня {fmt_px(thr)} · ≥ {rule(r, 'rs'):g} с", color=C_RET, bold=False))
+    GAP, LEFT, TOP, BOT, PADR = 34, 95, 78, 62, 40
+    FIELD = int(GAP + max([text_w(i["text"], 9.5, "bold" if i["bold"] else "normal") for i in items] + [150]) + 18)
+    axw = 1400
+    axh = max(620, (len(items) + 3) * LH + 20)
+    W, H = int(LEFT + axw + FIELD), axh + TOP + BOT
+    fig = plt.figure(figsize=(W / 80, H / 80), dpi=80)
+    ax = fig.add_axes([LEFT / W, BOT / H, axw / W, axh / H])
+    pad = (ymax - ymin) * 0.12 or ymax * 1e-4
+    ax.set_ylim(ymin - pad, ymax + pad)
+    x0, x1 = (lo - em) / 1000.0, (hi - em) / 1000.0
+    ax.set_xlim(x0, x1)
+    tt, pp, bb = (t[w] - em) / 1000.0, p[w], bm[w]
+    ax.step(tt, pp, where="post", color="#9aa3ae", lw=0.8, zorder=3)
+    ax.scatter(tt[~bb], pp[~bb], s=9, color=UP, edgecolors="#6f7d90", linewidths=0.4, zorder=4)  # покупатель-тейкер
+    ax.scatter(tt[bb], pp[bb], s=9, color=DOWN, zorder=4)  # продавец-тейкер
+    ax.hlines(L, x0, x1, color=INK, lw=2.0, zorder=5)
+    if hard_in:
+        ax.hlines(hard, 0, (legs[-1]["ms"] - em) / 1000.0, color=C_STOP, lw=1.2, ls=(0, (5, 3)), zorder=6)
+    if thr is not None:
+        ax.hlines(thr, (touch_ms - em) / 1000.0, x1, color=C_RET, lw=1.0, ls=(0, (1, 2)), zorder=6)
+    ax.axvline((sm - em) / 1000.0, color=INK2, lw=1.0, ls=(0, (3, 3)), zorder=4)
+    lab = dict(fontsize=8.5, color=INK2, zorder=30, transform=ax.get_xaxis_transform(), bbox=dict(fc="#fcfcfb", ec="none", alpha=0.85, pad=1.5))
+    ax.text((sm - em) / 1000.0, 0.985, "сигнал " + fmt_hms_ms(sm, em), ha="left", va="top", **lab)
+    if touch_ms is not None:
+        ax.axvline((touch_ms - em) / 1000.0, color=C_CROSS, lw=1.0, ls=(0, (1, 2)), zorder=4)
+        ax.text((touch_ms - em) / 1000.0, 0.945, "первое касание уровня " + fmt_hms_ms(touch_ms, em), ha="left", va="top", **lab)
+    acol = "#0a8f3c" if s > 0 else "#d03b3b"
+    ax.plot([0], [e], marker="^" if s > 0 else "v", ms=12, mfc=acol, mec="white", mew=1.0, ls="none", zorder=28)
+    ax.hlines(e, 0, (legs[-1]["ms"] - em) / 1000.0, color=acol, lw=1.5, zorder=24)
+    if legs2:
+        e2, ex2 = r["lot2"]["entry_px_e8"] / 1e8, (r["lot2"]["entry_ms"] - em) / 1000.0
+        ax.plot([ex2], [e2], marker="^" if s > 0 else "v", ms=12, mfc="white", mec=acol, mew=1.8, ls="none", zorder=28)
+        ax.hlines(e2, ex2, (legs2[-1]["ms"] - em) / 1000.0, color=acol, lw=1.5, ls=(0, (6, 2)), zorder=24)
+    for lg in [legs] + ([legs2] if legs2 else []):
+        for g in lg:
+            gx = (g["ms"] - em) / 1000.0
+            if g["kind"] == "take":
+                ax.plot([gx], [g["px"]], marker="o", ms=13, mfc=C_TAKE, mec="white", mew=1.0, ls="none", zorder=28)
+                ax.text(gx, g["px"], str(g["n"] + 1), ha="center", va="center", fontsize=6.5, fontweight="bold", color="white", zorder=29)
+            else:
+                ax.plot([gx], [g["px"]], marker="s", ms=12, mfc=KIND_COLOR[g["kind"]], mec="white", mew=1.0, ls="none", zorder=28)
+                ax.text(gx, g["px"], "  " + KIND_SHORT[g["kind"]] + (" (лот 2)" if lg is not legs else ""), ha="left", va="bottom", fontsize=9, fontweight="bold",
+                        color=KIND_COLOR[g["kind"]], zorder=30)
+    ax.xaxis.set_major_formatter(FuncFormatter(lambda v, _: fmt_hms(int(em + v * 1000), em)))
+    price_axis(ax)
+    ax.tick_params(labelsize=9)
+    ax.set_xlabel("сделки ленты (светлая точка — покупатель-тейкер, тёмная — продавец-тейкер), время GMT+4", loc="left", fontsize=9)
+    xr_px = LEFT + axw
+    lo_, hi_ = float(BOT), float(BOT + axh)
+    yd = [[ax.transData.transform((0, y))[1] for y in it["ys"]] for it in items]
+    want = [(min(v) + max(v)) / 2 for v in yd]
+    ys = dodge(want, lo_, hi_)
+    tx_ = xr_px + GAP
+    for it, v, y in zip(items, yd, ys):
+        col = it["color"]
+        for yy in v:
+            fig.add_artist(Line2D([xr_px / W, (xr_px + 10) / W], [yy / H, yy / H], color=col, lw=0.8, alpha=0.6, transform=fig.transFigure))
+        fig.add_artist(Line2D([q / W for q in (xr_px + 10, xr_px + GAP - 8, xr_px + GAP - 3)], [q / H for q in ((min(v) + max(v)) / 2, y, y)], color=col, lw=0.8, alpha=0.6,
+                              transform=fig.transFigure))
+        fig.text(tx_ / W, y / H, it["text"], fontsize=9.5, fontweight="bold" if it["bold"] else "normal", color=col, va="center", ha="left")
+    day = datetime.fromtimestamp((em + GMT4) / 1000, tz=timezone.utc).strftime("%d.%m.%Y")
+    title = (f"{r['sym']} · {SIDE_RU[r['side']]} · {day} · итог {r['net']:+.2f} $ ({r['net'] / NOTIONAL * 1e4:+.1f} бп) · {KIND_RU[r['kind']]}"
+             + (" · 2 лота" if legs2 else "") + f" · держали {fmt_dur((xm - em) / 1000)} · секундный масштаб")
+    fig.text(20 / W, 1 - 30 / H, title, fontsize=16, color=INK, fontweight="bold", va="center")
+    fig.savefig(out_png, dpi=80)
+    plt.close(fig)
+    return W, H, int(LEFT + (0 - x0) / (x1 - x0) * axw), 0
+
+
 def cmd_render(a):
+    RULES.update(parse_rules(a.rules))
     plt = setup_mpl()
     only = set(a.only.split(",")) if a.only else None
     trades = load_trades(a.detail, only)
@@ -1007,6 +1218,9 @@ def cmd_render(a):
             meta[r["id"]] = [W, H, ex, nt]
             W, H, ex, nt = render(r, kl, tk, os.path.join(a.out, f"{r['id']}_zoom.png"), plt, zoom=True)
             meta[r["id"] + "_zoom"] = [W, H, ex, nt]
+            if (r["exit_ms"] - r["entry_ms"]) < 120_000:  # §13.19: удержание < 2 мин — секундный график
+                W, H, ex, nt = render_secs(r, tk, os.path.join(a.out, f"{r['id']}_sec.png"), plt)
+                meta[r["id"] + "_sec"] = [W, H, ex, nt]
             n += 1
             if n % 25 == 0:
                 print(f"PNG {n}/{len(trades)}", flush=True)
@@ -1034,7 +1248,7 @@ th.l,td.l{text-align:left}th .ar{color:var(--acc)}tbody tr{cursor:pointer}tbody 
 .pos{color:var(--pos)}.neg{color:var(--neg)}
 .tag{display:inline-block;padding:0 7px;border-radius:9px;font-size:12px;border:1px solid #c9c8c2}
 .t-gone{border-color:#d03b3b;color:#a02222}.t-newm{border-color:#2a78d6;color:#1b5aa8}.t-cm{border-color:#c9c8c2;color:#6b6a66}
-.t-stop{border-color:#d03b3b;color:#a02222}.t-be{border-color:#6250d6;color:#4a3aa7}.t-trail{border-color:#1baf7a;color:#0b7a55}.t-forced{border-color:#6b6a66;color:#6b6a66}
+.t-tx{border-color:#7d6608;color:#7d6608}.t-rt{border-color:#a3478f;color:#a3478f}.t-stop{border-color:#d03b3b;color:#a02222}.t-be{border-color:#6250d6;color:#4a3aa7}.t-trail{border-color:#1baf7a;color:#0b7a55}.t-forced{border-color:#6b6a66;color:#6b6a66}
 .fl{text-align:center;padding:5px 4px}.fl b{color:#c33}.flh{text-align:center}
 #st{padding:6px 18px 10px;border-bottom:1px solid var(--line);font-size:13px}#st summary{cursor:pointer;color:var(--ink2)}
 #st table{width:auto;margin-top:6px}#st td,#st th{position:static;cursor:default;padding:3px 9px;font-weight:400;white-space:normal;text-align:right}#st td.l,#st th.l{text-align:left}
@@ -1064,16 +1278,16 @@ th.l,td.l{text-align:left}th .ar{color:var(--acc)}tbody tr{cursor:pointer}tbody 
 <button id="reset">Сброс</button><span id="cnt"></span></div>
 <details id="st" open><summary>Флаги уровня A–G — статистика (клик по строке — фильтр, клик по id — три примера)</summary><div id="stb"></div></details>
 <table><thead><tr id="hdr"></tr></thead><tbody id="tb"></tbody></table>
-<div id="modal"><div class="top"><b id="m_t"></b><span id="m_s"></span><span class="sp">← → · Esc · Z масштаб · <a id="m_az" style="color:#9cf" target="_blank">приближение</a> · <a id="m_a" style="color:#9cf" target="_blank">обзор</a></span></div><div class="imgw"><div class="pn" id="pz"><h4>Приближение: от 30 мин до сигнала до 30 мин после выхода</h4><div class="sc" id="sz"><img id="m_z"></div></div><div class="pn"><h4 id="po_h">Обзор: от первого пивота до выхода</h4><div class="sc" id="so"><img id="m_i"></div></div></div></div>
+<div id="modal"><div class="top"><b id="m_t"></b><span id="m_s"></span><span class="sp">← → · Esc · Z масштаб · <a id="m_az" style="color:#9cf" target="_blank">приближение</a> · <a id="m_a" style="color:#9cf" target="_blank">обзор</a></span></div><div class="imgw"><div class="pn" id="ps"><h4>Секундный график (удержание &lt; 2 мин): лента сделок, вход, выходы по виду</h4><div class="sc" id="ss"><img id="m_sc"></div></div><div class="pn" id="pz"><h4>Приближение: от 30 мин до сигнала до 30 мин после выхода</h4><div class="sc" id="sz"><img id="m_z"></div></div><div class="pn"><h4 id="po_h">Обзор: от первого пивота до выхода</h4><div class="sc" id="so"><img id="m_i"></div></div></div></div>
 <script>
-const D=__DATA__;
-const COLS=[["#","n",0],["Монета","sym",1],["Сторона","side_ru",1],["Вход (GMT+4)","entry_gmt4",1],["Исход","outcome",1],["Тейков","takes",0],["$ итог","net_usd",0],["бп итог","net_bps",0],
+const D=__DATA__;const OLDNAME=__OLDNAME__;
+const COLS=[["#","n",0],["Монета","sym",1],["Сторона","side_ru",1],["Вход (GMT+4)","entry_gmt4",1],["Исход","outcome",1],["Вид выхода","exit_kind_ru",1],["Лот 1: вид, $","lot1_txt",1],["Лот 2: вход, цена → вид, $","lot2_txt",1],["Тейков","takes",0],["$ итог","net_usd",0],["бп итог","net_bps",0],
 ["Держали","hold_s",0],["Сигнал→вход, с","sig_to_fill_s",0],["Прежний вход (GMT+4)","old_entry_gmt4",1],["Цена прежнего","old_entry_px",0],["Цена нового","entry_px",0],["Δ цены, бп","entry_diff_bp",0],["Метка","mark",1],["NATR %","natr_pct",0],["До уровня, бп","dist_entry_bps",0],["Возраст ур., ч","age_h",0],["Пивотов","n_pivots",0],["Касаний","touches",0],["разброс отскоков, bp","pivot_spread_bps",0],["касание до входа, мин","last_touch_age_min",0],["MFE 30м, бп","mfe_30m_bps",0],["MAE 30м, бп","mae_30m_bps",0],["Пересёк","crossed",1],
 ["Новая","is_new",2],["Допуск","adm",1],["A","flag_A",2],["B","flag_B",2],["C","flag_C",2],["D","flag_D",2],["E","flag_E",2],["F","flag_F",2],["G","flag_G",2]];
 const FT=__FLAGTXT__,ST=__FLAGS__;
 const TIPS={pivot_spread_bps:"разброс цен пивотов (отскоков) уровня: (макс − мин) / среднее, бп; уровень — среднее пивотов, допуск каждого τ = 20 бп от среднего, для двух пивотов разброс до 40 бп",last_touch_age_min:"минут от последнего касания уровня до минуты входа; касание — минута, где high (лонг) / low (шорт) дошёл до нижней (верхней) границы полосы ±τ; считаются и пивоты, и подход цены к уровню перед сигналом"};
-const OUTR={stop:"стоп","be":"безубыток",trail:"трейл",forced:"принуд."};
-D.forEach((d,i)=>{d.n=i+1;d.side_ru=d.side==="long"?"лонг":"шорт";d.age_h=d.level_age_min/60;d.crossed=d.crossed_30m?"да":"нет";d.date=d.entry_gmt4.slice(0,10)});
+const OUTR={stop:"стоп","be":"безубыток",trail:"трейл",forced:"принуд.",tx:"время",rt:"возврат"};
+D.forEach((d,i)=>{d.lot1_txt=d.lot2?d.lot1_kind+" "+d.lot1_net.toFixed(2):"—";d.lot2_txt=d.lot2?d.lot2_entry_gmt4.slice(11,23)+" · "+String(+(+d.lot2_entry_px).toPrecision(6))+" → "+d.lot2_kind+" "+d.lot2_net.toFixed(2):"—";d.n=i+1;d.side_ru=d.side==="long"?"лонг":"шорт";d.age_h=d.level_age_min/60;d.crossed=d.crossed_30m?"да":"нет";d.date=d.entry_gmt4.slice(0,10)});
 const fmtDur=s=>{s=Math.round(s);if(s<60)return s+" с";if(s<3600)return Math.floor(s/60)+" мин "+String(s%60).padStart(2,"0")+" с";const h=Math.floor(s/3600);if(h<48)return h+" ч "+String(Math.floor(s%3600/60)).padStart(2,"0")+" мин";return Math.floor(h/24)+" сут. "+(h%24)+" ч"};
 const outs=[...new Set(D.map(d=>d.exit_kind))];const so=document.getElementById("f_out");outs.forEach(o=>{const e=document.createElement("option");e.value=o;e.textContent=OUTR[o]||o;so.appendChild(e)});
 let sk="entry_gmt4",sd=1,view=[],nav=[],cur=-1;
@@ -1100,8 +1314,9 @@ const tr=e.target.closest("tr.fr");if(tr){const k=tr.dataset.k;$("f_flag").value
 $("tb").onclick=e=>{const tr=e.target.closest("tr");if(tr){nav=view;open(+tr.dataset.i)}};
 function flagLine(d){if(!d.n_flags)return " · флагов уровня нет";const t=[];if(d.flag_A)t.push(`A прокол ${d.pierce_over_bps.toFixed(1)} бп, закрытий за уровнем ${d.pierce_close_n}`+(d.flag_A_post?` (после рождения: ${d.pierce_over_bps_post.toFixed(1)} бп, ${d.pierce_close_n_post})`:" (только до рождения уровня)"));if(d.flag_B)t.push(`B пивоты ${d.min_pivot_gap_min} мин друг от друга`);if(d.flag_C)t.push(`C уровень известен ${d.level_known_min} мин`);if(d.flag_D)t.push(`D диапазон ${d.spike_range_natr.toFixed(1)} NATR`);if(d.flag_E)t.push(`E разброс ${d.pivot_spread_bps.toFixed(1)} бп`+(d.level_vs_mean_e8?`, цена ≠ среднему на ${d.level_vs_mean_e8} e8`:""));if(d.flag_F)t.push(`F пивот не экстремум (${d.pivot_not_extreme_n})`);if(d.flag_G)t.push(`G закрытий за уровнем ${d.late_close_beyond_n}, до ${d.late_close_over_bps.toFixed(1)} бп`);return " · флаги: "+t.join("; ")}
 function open(i){if(i<0||i>=nav.length)return;cur=i;const d=nav[i];const im=$("m_i"),so=$("so"),iz=$("m_z"),sz=$("sz");document.querySelector(".imgw").scrollTop=0;im.onload=()=>{so.scrollLeft=Math.max(0,(d.ex||0)-so.clientWidth*0.35)};const src=d.img||("charts/"+d.id+".png");im.src=src;$("m_a").href=src;
+if(d.sec){$("ps").style.display="";const ic=$("m_sc");ic.src=d.sec}else{$("ps").style.display="none";$("m_sc").removeAttribute("src")}
 if(d.zoom){$("pz").style.display="";iz.onload=()=>{sz.scrollLeft=Math.max(0,(d.zex||0)-sz.clientWidth*0.35)};iz.src=d.zoom;$("m_az").href=d.zoom;$("m_az").style.display=""}else{$("pz").style.display="none";iz.removeAttribute("src");$("m_az").style.display="none"}
-$("po_h").textContent=d.mark==="исчезла"?"График прежнего набора (вход «следующая сделка», 15.11): от первого пивота до выхода":"Обзор: от первого пивота до выхода";$("m_t").textContent=`${d.sym} ${d.side_ru} ${d.entry_gmt4.slice(0,19)}`;
+$("po_h").textContent=d.mark==="исчезла"?"График прежнего набора ("+OLDNAME+"): от первого пивота до выхода":"Обзор: от первого пивота до выхода";$("m_t").textContent=`${d.sym} ${d.side_ru} ${d.entry_gmt4.slice(0,19)}`;
 $("m_s").textContent=`${d.net_usd.toFixed(2)} $ · ${d.net_bps.toFixed(1)} бп · ${OUTR[d.exit_kind]} · держали ${fmtDur(d.hold_s)} · касаний ${d.touches} · ${i+1}/${nav.length}`+(d.sig_to_fill_s!=null?` · сигнал→вход ${d.sig_to_fill_s.toFixed(3)} с`:d.old_sig_to_fill_s!=null?` · прежний вход: сигнал→вход ${(+d.old_sig_to_fill_s).toFixed(3)} с`:"")+flagLine(d)+(d.mark==="исчезла"?" · ИСЧЕЗЛА при новом входе ("+d.mark_why+"); график прежнего входа":d.mark==="появилась"?" · появилась (нет при старом входе)":"")+(d.entry_diff_bp!=null?` · цена входа новая − прежняя ${d.entry_diff_bp.toFixed(2)} бп`:"");$("modal").classList.add("on")}
 document.addEventListener("keydown",e=>{if(!$("modal").classList.contains("on"))return;if(e.key==="Escape")$("modal").classList.remove("on");else if(e.key==="ArrowRight")open(cur+1);else if(e.key==="ArrowLeft")open(cur-1);else if(e.key==="z"||e.key==="Z")$("modal").classList.toggle("fit")});
 $("modal").onclick=e=>{if(e.target.id==="modal"||e.target.classList.contains("imgw")||e.target.classList.contains("sc"))$("modal").classList.remove("on")};
@@ -1188,16 +1403,18 @@ def cmd_index(a):
     for fn in os.listdir(cdir) if os.path.isdir(cdir) else []:
         if fn.startswith("_meta_"):
             meta.update(json.load(open(os.path.join(cdir, fn))))
-    extra = ["entry_px", "entry_model", "old_entry_gmt4", "old_entry_px", "entry_diff_bp", "old_sig_to_fill_s", "old_entry_beyond_level", "entry_beyond_level"]
+    extra = ["exit_kind_ru", "lot2", "lot1_kind", "lot1_net", "lot2_entry_gmt4", "lot2_entry_px", "lot2_kind", "lot2_net", "rules", "entry_px", "entry_model", "old_entry_gmt4", "old_entry_px", "entry_diff_bp", "old_sig_to_fill_s", "old_entry_beyond_level", "entry_beyond_level"]
     data = [{**{k: r[k] for k in keep}, **{k: r.get(k) for k in extra}} for r in rows]
     for d, r in zip(data, rows):
         d["mark"] = ("появилась" if r["is_new"] else "общая") if r.get("is_new") is not None else ""
     pknote = ""
+    if a.rules:
+        pknote = "Правила набора (ключи варианта §13.19): " + a.rules.replace(";", "; ") + ". "
     if a.old:  # прежний набор: «появилась» — нет среди сделок прежнего набора; «исчезла» — сделка прежнего набора, которой нет в новом (ключ — монета, сторона, время сигнала)
         new_keys = {(r["sym"], r["side"], r["sig_ms"]) for r in load_trades(a.detail)}
         old_tr = load_trades(a.old)
         old_keys = {(r["sym"], r["side"], r["sig_ms"]) for r in old_tr}
-        pknote = (f"Набор = {a.name}: {len(new_keys)} сделок; из прежних {len(old_keys)} (вход «следующая сделка», 15.11) исчезло {len(old_keys - new_keys)}, "
+        pknote += (f"Набор = {a.name}: {len(new_keys)} сделок; из прежних {len(old_keys)} ({a.oldname}) исчезло {len(old_keys - new_keys)}, "
                   f"появилось новых {len(new_keys - old_keys)}.")
         if a.oldfeat:  # исчезнувшие — строки с графиком прежнего набора (подпапка), причина — из <сторона>-entryrej.csv прогона
             rj = {}
@@ -1230,6 +1447,8 @@ def cmd_index(a):
         z = meta.get(d["id"] + "_zoom")
         if z:  # приближение: charts/<id>_zoom.png; zex — x входа в пикселях картинки (по нему окно прокручивается)
             d["zoom"], d["zex"] = f"charts/{d['id']}_zoom.png", z[2]
+        if meta.get(d["id"] + "_sec"):  # §13.19: секундный график (удержание < 2 мин)
+            d["sec"] = f"charts/{d['id']}_sec.png"
     for d in data:
         for k, v in d.items():
             if isinstance(v, float) and k not in ("entry_px", "old_entry_px"):
@@ -1239,7 +1458,7 @@ def cmd_index(a):
     json.dump(st, open(os.path.join(a.work, "flagstats.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
     open(os.path.join(a.work, "flagstats.md"), "w", encoding="utf-8").write(flagstats_md(st))
     html = INDEX_HTML.replace("__DATA__", json.dumps(data, ensure_ascii=False)).replace("__FLAGS__", json.dumps(st, ensure_ascii=False)) \
-        .replace("__FLAGTXT__", json.dumps(FLAG_TXT, ensure_ascii=False)).replace("__PKNOTE__", pknote).replace("__NAME__", a.name)
+        .replace("__FLAGTXT__", json.dumps(FLAG_TXT, ensure_ascii=False)).replace("__OLDNAME__", json.dumps(a.oldname, ensure_ascii=False)).replace("__PKNOTE__", pknote).replace("__NAME__", a.name)
     open(os.path.join(a.pub, "index.html"), "w", encoding="utf-8").write(html)
     for fn in ("features.csv", "features.jsonl", "flagstats.md", "flagstats.json"):
         with open(os.path.join(a.work, fn), "rb") as fi, open(os.path.join(a.pub, fn), "wb") as fo:
@@ -1253,14 +1472,18 @@ def main():
     p = sub.add_parser("features")
     p.add_argument("detail"); p.add_argument("work"); p.add_argument("--only"); p.add_argument("--workers", type=int, default=2)
     p.add_argument("--old", help="каталог с b0_lx4/<сторона>-detail.jsonl прежней базы b0 (для признака is_new)")
+    p.add_argument("--rules", default="", help="§13.19: ключи варианта по сторонам, «long:tt=20 tb=0.3;short:bm=1 e2=0.05» — линии правил и подписи")
     p = sub.add_parser("render")
     p.add_argument("detail"); p.add_argument("work"); p.add_argument("--only"); p.add_argument("--out", required=True); p.add_argument("--tag", default="all")
+    p.add_argument("--rules", default="", help="§13.19: ключи варианта по сторонам, «long:tt=20 tb=0.3;short:bm=1 e2=0.05»")
     p = sub.add_parser("index")
     p.add_argument("work"); p.add_argument("pub"); p.add_argument("--charts")
     p.add_argument("--detail", default="out"); p.add_argument("--name", default="b0 + pk=1", help="название набора в заголовке"); p.add_argument("--old", help="каталог с b0_lx4/<сторона>-detail.jsonl прежней базы b0")
     p.add_argument("--oldfeat", help="features.jsonl прежнего набора — по нему строки исчезнувших сделок (§13.16)")
     p.add_argument("--oldcharts", default="старый вход 15.11/charts", help="путь к графикам прежнего набора относительно index.html")
+    p.add_argument("--oldname", default="вход «следующая сделка», 15.11", help="как называть прежний набор (--old) в шапке и подсказках")
     p.add_argument("--rej", help="каталог клетки нового входа с <сторона>-entryrej.csv — причина «исчезла»")
+    p.add_argument("--rules", default="", help="§13.19: ключи варианта по сторонам — строка в шапке индекса")
     p = sub.add_parser("flagstats")
     p.add_argument("work")
     a = ap.parse_args()

@@ -80,6 +80,53 @@ pub struct ExitCfg {
     pub ent_w_ms: i64,
     /// §13.16: допустимый перелёт цены-заменителя за уровень, бп (0 — строго за уровнем отвергается). Действует при `ent_w_ms > 0`.
     pub ent_x_bp: i64,
+    /// §13.19 (`ls`): стоп за дальним краем зоны + k·NATR (k ×1000; 0 — выкл): `max(e − S%, min(e, P_far) − nat(k))`. Только `breakout tick`.
+    pub ls_m: i64,
+    /// §13.19 (`tt`): выход по времени — T мин от первого «пересекли»; 0 — выкл.
+    pub tx_min: i64,
+    /// §13.19 (`tb`): «пробой» глубиной X (тысячные процента от уровня) отменяет выход по времени.
+    pub tx_x_pm: i64,
+    /// §13.19 (`rf`): выход при возврате — глубина f (тысячные процента от уровня); 0 — выкл.
+    pub rt_f_pm: i64,
+    /// §13.19 (`rs`): длительность возврата, с.
+    pub rt_s: i64,
+    /// §13.19 (`bm`): безубыток — 0 как раньше; 1 выкл; 2 после 2-го тейка; 3 за уровнем.
+    pub be_mode: u8,
+    /// §13.19 (`e2`): второй вход 50/50 при подходе к уровню ближе d (тысячные процента от уровня); 0 — выкл. Требует `ew > 0`.
+    pub e2_pm: i64,
+    /// §13.21 (`sn`): стоп в NATR — k0 ×1000 (0 — выкл.): `d = clamp(k0·NATR·g, 0,5 %, S_жёсткий)`, стоп = цена входа лота ∓ `d`; NATR — закрытая
+    /// минутка `t−1`, заморожен на входе. Только `breakout tick`.
+    pub sn_m: i64,
+    /// §13.21 (`sg`): семейство множителя `g` — 0 константа (`g = 1`); 1 линейно по времени удержания (`g = 1 + β·Δt_ч`, пересчёт на каждой сделке);
+    /// 2 геометрически по числу исполненных тейков `j` (`g = ρ^j`); 3 шаг по `j` (`g = 1 + δ·j`).
+    pub sg: u8,
+    /// §13.21 (`sb`): β семейства `sg = 1`, 1/ч ×1000.
+    pub sb_m: i64,
+    /// §13.21 (`sr`): ρ семейства `sg = 2`, ×1000.
+    pub sr_m: i64,
+    /// §13.21 (`sd`): δ семейства `sg = 3`, ×1000.
+    pub sd_m: i64,
+    /// §13.21 (`tj`): шаг лестницы тейков δ ×1000 (0 — выкл.): после исполнения тейков оставшиеся ступени стоят на `mult_i·(1 + δ·j)` NATR, `j` — число
+    /// исполненных тейков; пересчитанная лестница действует со следующей сделки. Только `breakout tick`.
+    pub tj_m: i64,
+}
+
+/// §13.21: фильтр кандидатов по признаку (`fa=<имя> fo=lo|hi fv=<число>`): кандидат отбрасывается ДО портфеля, если значение признака
+/// меньше `fv` (`fo=lo`) или больше `fv` (`fo=hi`); нет строки в таблице или значение пусто/NaN — кандидат проходит. Таблица — `--ftab`.
+/// Только `breakout tick`.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct FilterCfg {
+    /// Имя столбца таблицы признаков; пусто — фильтра нет.
+    pub name: String,
+    /// `fo`: `Some(false)` — `lo` (отбросить значения ниже `fv`), `Some(true)` — `hi` (выше `fv`).
+    pub hi: Option<bool>,
+    pub v: Option<f64>,
+}
+
+impl FilterCfg {
+    pub fn on(&self) -> bool {
+        !self.name.is_empty()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -95,6 +142,10 @@ pub struct PortCfg {
     /// трейла, уровень расходует только жёсткий стоп; 2 — выходы уровень не расходуют вовсе (ложный и истинный пробой —
     /// как и раньше). Только `breakout tick`.
     pub reentry: u8,
+    /// §13.21 (`busy`): `true` (по умолчанию) — монета с открытой позицией отвергает новые сигналы (отказ «занята»); `false` — второй сигнал
+    /// другого уровня той же монеты входит при открытой позиции (режим сигналов: одна сделка на уровень, лимиты портфеля — `p`, `c`, `m`, `s_glob`,
+    /// `ww` — выключаются своими значениями). Только `breakout tick`.
+    pub busy: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -102,6 +153,8 @@ pub struct Params {
     pub sig: SigCfg,
     pub exit: ExitCfg,
     pub port: PortCfg,
+    /// §13.21: фильтр кандидатов по признаку (`fa/fo/fv`); выключен по умолчанию.
+    pub filt: FilterCfg,
 }
 
 fn pm(x: f64) -> i64 {
@@ -119,6 +172,26 @@ impl ExitCfg {
     /// Вход по ленте §13.16 включён (`ew > 0`).
     pub fn tape_entry(&self) -> bool {
         self.ent_w_ms > 0
+    }
+
+    /// Опции §13.19, зависящие от цены уровня (`ls`, `tt`, `rf`, `bm = 3`) включены — нужны `lp` и `P_far`.
+    pub fn level_opts(&self) -> bool {
+        self.ls_m > 0 || self.tx_min > 0 || self.rt_f_pm > 0 || self.be_mode == 3
+    }
+
+    /// Любая опция §13.19 включена (`breakout tick` only).
+    pub fn lvl_exit_opts(&self) -> bool {
+        self.level_opts() || self.be_mode != 0 || self.e2_pm > 0
+    }
+
+    /// Опции §13.21 (NATR-стоп `sn/sg/sb/sr/sd`, шаг тейков `tj`) включены — `breakout tick` only.
+    pub fn natr_stop_opts(&self) -> bool {
+        self.sn_m != 0
+            || self.sg != 0
+            || self.sb_m != 0
+            || self.sr_m != 0
+            || self.sd_m != 0
+            || self.tj_m != 0
     }
 
     /// Опции §13.12 не по умолчанию (лестница тейков с перекосом или NATR по другой минутке) — только `breakout tick`.
@@ -177,6 +250,19 @@ impl Params {
                 natr_src: 0,
                 ent_w_ms: 0,
                 ent_x_bp: 0,
+                ls_m: 0,
+                tx_min: 0,
+                tx_x_pm: 0,
+                rt_f_pm: 0,
+                rt_s: 0,
+                be_mode: 0,
+                e2_pm: 0,
+                sn_m: 0,
+                sg: 0,
+                sb_m: 0,
+                sr_m: 0,
+                sd_m: 0,
+                tj_m: 0,
             },
             port: PortCfg {
                 cool_min: 5,
@@ -187,12 +273,30 @@ impl Params {
                 ww_min: 60,
                 p: 3,
                 reentry: 0,
+                busy: true,
             },
+            filt: FilterCfg::default(),
         }
     }
 
     /// Применяет одно переопределение; ключи — в `docs/research/P-42-level-breakout.md` §5.2.
     pub fn set(&mut self, key: &str, val: &str) -> Result<()> {
+        // §13.21: строковые значения фильтра признаков — до числового разбора
+        match key {
+            "fa" => {
+                self.filt.name = val.to_string();
+                return Ok(());
+            }
+            "fo" => {
+                self.filt.hi = Some(match val {
+                    "lo" => false,
+                    "hi" => true,
+                    _ => bail!("fo ∈ {{lo, hi}}: {val}"),
+                });
+                return Ok(());
+            }
+            _ => {}
+        }
         let f: f64 = val.parse().with_context(|| format!("{key}={val}"))?;
         let u = f.round() as usize;
         let b = f != 0.0;
@@ -238,6 +342,20 @@ impl Params {
             "ns" => self.exit.natr_src = u.min(255) as u8,
             "ew" => self.exit.ent_w_ms = f.round() as i64,
             "ex" => self.exit.ent_x_bp = f.round() as i64,
+            "ls" => self.exit.ls_m = pm(f),
+            "tt" => self.exit.tx_min = f.round() as i64,
+            "tb" => self.exit.tx_x_pm = pm(f),
+            "rf" => self.exit.rt_f_pm = pm(f),
+            "rs" => self.exit.rt_s = f.round() as i64,
+            "bm" => self.exit.be_mode = u.min(255) as u8,
+            "e2" => self.exit.e2_pm = pm(f),
+            "sn" => self.exit.sn_m = pm(f),
+            "sg" => self.exit.sg = u.min(255) as u8,
+            "sb" => self.exit.sb_m = pm(f),
+            "sr" => self.exit.sr_m = pm(f),
+            "sd" => self.exit.sd_m = pm(f),
+            "tj" => self.exit.tj_m = pm(f),
+            "fv" => self.filt.v = Some(f),
             "c" => self.port.cool_min = u,
             "m" => self.port.m_stops = u,
             "mm" => self.port.mm_min = u,
@@ -246,6 +364,7 @@ impl Params {
             "ww" => self.port.ww_min = u,
             "p" => self.port.p = u,
             "reentry" => self.port.reentry = u.min(255) as u8,
+            "busy" => self.port.busy = b,
             _ => bail!("неизвестный ключ {key}"),
         }
         Ok(())
@@ -276,11 +395,73 @@ impl Params {
         if self.exit.ent_w_ms < 0 || self.exit.ent_x_bp < 0 {
             bail!("ew ≥ 0, ex ≥ 0");
         }
+        if self.exit.ls_m < 0
+            || self.exit.tx_min < 0
+            || self.exit.tx_x_pm < 0
+            || self.exit.rt_f_pm < 0
+            || self.exit.rt_s < 0
+            || self.exit.e2_pm < 0
+        {
+            bail!("ls, tt, tb, rf, rs, e2 ≥ 0");
+        }
+        if self.exit.be_mode > 3 {
+            bail!("bm ∈ {{0, 1, 2, 3}}");
+        }
+        if self.exit.e2_pm > 0 && !self.exit.tape_entry() {
+            bail!("e2 требует ew > 0 (вход по ленте)");
+        }
         if self.port.reentry > 2 {
             bail!("reentry ∈ {{0, 1, 2}}");
         }
+        self.validate_v21()?;
         if self.exit.n_tp < 2 || self.port.p == 0 || self.sig.lv.k == 0 || self.sig.lv.n == 0 {
             bail!("n_tp ≥ 2, p ≥ 1, k ≥ 1, n_bounce ≥ 1");
+        }
+        Ok(())
+    }
+
+    /// §13.21: NATR-стоп (`sn/sg/sb/sr/sd`), шаг тейков (`tj`), фильтр признаков (`fa/fo/fv`).
+    fn validate_v21(&self) -> Result<()> {
+        let e = &self.exit;
+        if e.sn_m < 0 || e.sb_m < 0 || e.sr_m < 0 || e.sd_m < 0 || e.tj_m < 0 {
+            bail!("sn, sb, sr, sd, tj ≥ 0");
+        }
+        if e.sg > 3 {
+            bail!("sg ∈ {{0, 1, 2, 3}}");
+        }
+        if e.sn_m == 0 && (e.sg != 0 || e.sb_m != 0 || e.sr_m != 0 || e.sd_m != 0) {
+            bail!("sg/sb/sr/sd требуют sn > 0 (NATR-стоп)");
+        }
+        if e.sn_m > 0 && e.natr_src != 0 {
+            bail!("sn требует ns = 0: NATR стопа — закрытая минутка t−1");
+        }
+        // параметр семейства задан ровно для своего семейства: ключ без семейства (или семейство без ключа) — опечатка, а не «выкл.»
+        let fam = [(1u8, e.sb_m, "sb"), (2, e.sr_m, "sr"), (3, e.sd_m, "sd")];
+        for (g, v, name) in fam {
+            if e.sg == g && v == 0 {
+                bail!("sg={g} требует {name} > 0");
+            }
+            if e.sg != g && v != 0 {
+                bail!("{name} задан при sg={}", e.sg);
+            }
+        }
+        let fl = &self.filt;
+        if fl.on() {
+            if !fl
+                .name
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '_')
+            {
+                bail!("fa: имя признака — буквы, цифры, «_»: {}", fl.name);
+            }
+            let (Some(_), Some(v)) = (fl.hi, fl.v) else {
+                bail!("fa требует fo (lo|hi) и fv (число)");
+            };
+            if !v.is_finite() {
+                bail!("fv должен быть конечным числом");
+            }
+        } else if fl.hi.is_some() || fl.v.is_some() {
+            bail!("fo/fv без fa");
         }
         Ok(())
     }

@@ -3,6 +3,7 @@
 //! `trades.csv` в конце добавлены `sig_ms,entry_ms,exit_ms` (мс от 01.09 00:00 UTC).
 
 use super::data::{self, Sym, HALF_DAYS, MIN_MS, START_DAY};
+use super::ftab::{filter_sigs, FeatTab};
 use super::levels::build_levels_tracked;
 use super::params::ExitCfg;
 use super::params::{parse_variant, Params, SigCfg};
@@ -253,6 +254,14 @@ fn write_detail(dir: &Path, syms: &[Sym], side: Side, p: &Params, r: &TickResult
             rec["old_entry_ms"] = ms.into();
             rec["old_entry_px_e8"] = px.into();
         }
+        if let Some(t2) = &x.lot2 {
+            rec["kind1"] = x.kind1.name().into();
+            rec["lot2"] = serde_json::json!({
+                "entry_ms": t2.entry_ms, "entry_px_e8": t2.entry_px, "exit_ms": t2.exit_ms,
+                "kind": t2.kind.name(), "takes": t2.takes,
+                "legs": t2.legs.iter().map(|l| serde_json::json!([l.ms, l.px, l.u, l.maker])).collect::<Vec<_>>(),
+            });
+        }
         t.push_str(&rec.to_string());
         t.push('\n');
     }
@@ -260,6 +269,7 @@ fn write_detail(dir: &Path, syms: &[Sym], side: Side, p: &Params, r: &TickResult
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn run(
     cache: &Path,
     trades: &Path,
@@ -268,6 +278,7 @@ pub fn run(
     threads: usize,
     symbols: Option<String>,
     cap_gb: usize,
+    ftab: Option<&Path>,
 ) -> Result<()> {
     let t0 = Instant::now();
     let only: Option<Vec<String>> = symbols.map(|s| s.split(',').map(str::to_string).collect());
@@ -289,6 +300,35 @@ pub fn run(
     if vs.is_empty() {
         bail!("нет вариантов");
     }
+    // §13.21: таблица признаков кандидатов — один раз, только столбцы, названные в `fa`; ошибка таблицы — до тяжёлой фазы 1
+    let mut want: Vec<&str> = vs
+        .iter()
+        .filter(|(_, p)| p.filt.on())
+        .map(|(_, p)| p.filt.name.as_str())
+        .collect();
+    want.sort_unstable();
+    want.dedup();
+    let tab: Option<FeatTab> = if want.is_empty() {
+        None
+    } else {
+        let Some(path) = ftab else {
+            bail!("варианты с фильтром признаков (fa/fo/fv) требуют --ftab <csv>");
+        };
+        let idx: HashMap<&str, u16> = syms
+            .iter()
+            .enumerate()
+            .map(|(i, s)| (s.name.as_str(), i as u16))
+            .collect();
+        let text = fs::read_to_string(path).with_context(|| path.display().to_string())?;
+        let t = FeatTab::parse(&text, &idx, &want).with_context(|| path.display().to_string())?;
+        eprintln!(
+            "таблица признаков: строк {} (монеты задания), столбцов {} за {:.1} с",
+            t.rows(),
+            want.len(),
+            t0.elapsed().as_secs_f64()
+        );
+        Some(t)
+    };
     fs::create_dir_all(out)?;
     // задания фазы 1: различные (SigCfg, сторона)
     let mut job_idx: HashMap<(SigCfg, Side), usize> = HashMap::new();
@@ -374,11 +414,30 @@ pub fn run(
             let Some(&j) = job_idx.get(&(p.sig.clone(), side)) else {
                 bail!("{id}: нет задания сигналов");
             };
+            // §13.21: фильтр признаков — кандидат отбрасывается до портфеля; дампы ниже остаются по полному потоку кандидатов
+            let mut fstat = None;
+            let filtered;
+            let port_sigs: &[TSig] = match (&tab, p.filt.on()) {
+                (Some(t), true) => {
+                    let c = t.col(&p.filt.name).context("нет столбца признака")?;
+                    let (v, st) = filter_sigs(
+                        &sigs[j],
+                        t,
+                        c,
+                        p.filt.hi == Some(true),
+                        p.filt.v.unwrap_or(0.0),
+                    );
+                    fstat = Some(st);
+                    filtered = v;
+                    &filtered
+                }
+                _ => &sigs[j],
+            };
             // `P42_SIGSX_ONLY` (§13.18, v20): сетка суток длиннее окна сделок (COUNT_DAYS), портфель не считается — только сигналы и дампы.
             let r = if std::env::var_os("P42_SIGSX_ONLY").is_some() {
                 TickResult::empty()
             } else {
-                run_tick(&syms, &sigs[j], side, &p.exit, &p.port, &src)
+                run_tick(&syms, port_sigs, side, &p.exit, &p.port, &src)
             };
             write_outputs(&dir, &syms, side, &r)?;
             if p.exit.tape_entry() {
@@ -427,6 +486,13 @@ pub fn run(
             });
             if p.sig.ap != 0 {
                 meta["ap_wrong_signals"] = ctr[j].ap_wrong.into();
+            }
+            if let Some(st) = fstat {
+                meta["filter_[cands,dropped,no_key,no_value]"] =
+                    serde_json::json!([st.cands, st.dropped, st.no_key, st.no_value]);
+            }
+            if p.exit.e2_pm > 0 {
+                meta["lot2_[now,later,cancelled,rejected]"] = serde_json::json!(r.lot2);
             }
             if p.exit.tape_entry() {
                 let n_of = |w: EntryRej| r.entry_rej.iter().filter(|x| x.3 == w).count();

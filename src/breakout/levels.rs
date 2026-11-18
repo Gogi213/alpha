@@ -141,12 +141,41 @@ pub fn build_levels(sym: &Sym, cfg: &LevelCfg, side: Side) -> Vec<Level> {
     build_levels_tracked(sym, cfg, side, false)
 }
 
+/// Как `build_levels`, но с журналом членов (`Level::mem`) и со счётчиками `pk` (§13.19: дальний край зоны `P_far` для стопа от уровня).
+pub fn build_levels_far(sym: &Sym, cfg: &LevelCfg, side: Side) -> Vec<Level> {
+    build_levels_impl(sym, cfg, side, true, true)
+}
+
+impl Level {
+    /// Дальний край зоны версии цены `seg` в длинной раме: минимум цен пивотов (лонг — самый низкий, шорт — минус самый высокий).
+    /// Без журнала членов — `None`.
+    pub fn far_edge(&self, seg: usize, s: i64) -> Option<i64> {
+        let m = self.mem.get(seg)?;
+        if s > 0 {
+            m.iter().map(|x| x.1).min()
+        } else {
+            m.iter().map(|x| -x.1).min()
+        }
+    }
+}
+
 fn members(m: &[Pv]) -> Vec<(u32, i64)> {
     m.iter().map(|p| (p.bar, p.p.abs())).collect()
 }
 
 /// `track` — вести журнал членов уровня (`Level::mem`); цены, рождение и конец уровней от него не зависят.
 pub fn build_levels_tracked(sym: &Sym, cfg: &LevelCfg, side: Side, track: bool) -> Vec<Level> {
+    build_levels_impl(sym, cfg, side, track, !track)
+}
+
+/// `count` — считать счётчики `pk` (диагностика): обычная сборка — да, журнал для графиков — нет (не удваиваем).
+fn build_levels_impl(
+    sym: &Sym,
+    cfg: &LevelCfg,
+    side: Side,
+    track: bool,
+    count: bool,
+) -> Vec<Level> {
     let Some(bars) = sym.bars_for(cfg.tf_min) else {
         return Vec::new();
     };
@@ -186,7 +215,7 @@ pub fn build_levels_tracked(sym: &Sym, cfg: &LevelCfg, side: Side, track: bool) 
                 if cfg.pk {
                     let from = live[li].members.iter().map(|p| p.bar as usize).min();
                     if from.is_some_and(|from| pk_violated(&f, bars, from, b, mean, cfg.tau_pm)) {
-                        if !track {
+                        if count {
                             PK_RETRO_KILLED.fetch_add(1, Ordering::Relaxed);
                         }
                         levels[id].end = now as u32;
@@ -222,7 +251,7 @@ pub fn build_levels_tracked(sym: &Sym, cfg: &LevelCfg, side: Side, track: bool) 
                         let from = live[li].members.iter().map(|p| p.bar as usize).min();
                         if from.is_some_and(|from| pk_violated(&f, bars, from, b, mean, cfg.tau_pm))
                         {
-                            if !track {
+                            if count {
                                 PK_RETRO_KILLED.fetch_add(1, Ordering::Relaxed);
                             }
                             levels[id].end = now as u32;
@@ -260,7 +289,7 @@ pub fn build_levels_tracked(sym: &Sym, cfg: &LevelCfg, side: Side, track: bool) 
             free.retain(|p| !grp.iter().any(|q| q.bar == p.bar && q.p == p.p));
             let dead = if cfg.pk {
                 let d = pk_violated(&f, bars, first_bar as usize, b, mean, cfg.tau_pm);
-                if d && !track
+                if d && count
                     && !(first_bar as usize + 1..=b).any(|bb| bars.ok[bb] && f.cl(bb) > mean)
                 {
                     PK_BIRTH_BLOCKED.fetch_add(1, Ordering::Relaxed);

@@ -1,0 +1,28 @@
+# П-42 §13.19 (TK-591): клетки-испытания поверх ow_e (ow + ew=5 ex=0), тики 4 мс; ow_e — контроль (= v18 побайтово), не испытание
+# запуск: P42_DETAIL=1 bash tools/p42/runentry.sh s19 tools/p42/variants-13.19.txt /data/p42v2/bin/alpha-p42-v20
+ow_e lat=4 latx=4 pk=1 pb=1 fh=4 fk=120 fm=50 fb=0.5 ew=5 ex=0
+# (a) стоп за дальним краем зоны + k·NATR
+ls05 lat=4 latx=4 pk=1 pb=1 fh=4 fk=120 fm=50 fb=0.5 ew=5 ex=0 ls=0.5
+ls10 lat=4 latx=4 pk=1 pb=1 fh=4 fk=120 fm=50 fb=0.5 ew=5 ex=0 ls=1
+# (b) выход по времени: T мин от касания × «пробой» X %
+tx5_x1 lat=4 latx=4 pk=1 pb=1 fh=4 fk=120 fm=50 fb=0.5 ew=5 ex=0 tt=5 tb=0.1
+tx5_x3 lat=4 latx=4 pk=1 pb=1 fh=4 fk=120 fm=50 fb=0.5 ew=5 ex=0 tt=5 tb=0.3
+tx20_x1 lat=4 latx=4 pk=1 pb=1 fh=4 fk=120 fm=50 fb=0.5 ew=5 ex=0 tt=20 tb=0.1
+tx20_x3 lat=4 latx=4 pk=1 pb=1 fh=4 fk=120 fm=50 fb=0.5 ew=5 ex=0 tt=20 tb=0.3
+# (c) выход при возврате за уровень: глубина f % × длительность t с
+rt01_2 lat=4 latx=4 pk=1 pb=1 fh=4 fk=120 fm=50 fb=0.5 ew=5 ex=0 rf=0.1 rs=2
+rt01_20 lat=4 latx=4 pk=1 pb=1 fh=4 fk=120 fm=50 fb=0.5 ew=5 ex=0 rf=0.1 rs=20
+rt02_2 lat=4 latx=4 pk=1 pb=1 fh=4 fk=120 fm=50 fb=0.5 ew=5 ex=0 rf=0.2 rs=2
+rt02_20 lat=4 latx=4 pk=1 pb=1 fh=4 fk=120 fm=50 fb=0.5 ew=5 ex=0 rf=0.2 rs=20
+# (d) безубыток: выкл / после 2-го тейка / за уровнем
+bm1 lat=4 latx=4 pk=1 pb=1 fh=4 fk=120 fm=50 fb=0.5 ew=5 ex=0 bm=1
+bm2 lat=4 latx=4 pk=1 pb=1 fh=4 fk=120 fm=50 fb=0.5 ew=5 ex=0 bm=2
+bm3 lat=4 latx=4 pk=1 pb=1 fh=4 fk=120 fm=50 fb=0.5 ew=5 ex=0 bm=3
+# (e) два входа 50/50, второй ближе d % (обе стороны)
+e2_10 lat=4 latx=4 pk=1 pb=1 fh=4 fk=120 fm=50 fb=0.5 ew=5 ex=0 e2=0.1
+e2_05 lat=4 latx=4 pk=1 pb=1 fh=4 fk=120 fm=50 fb=0.5 ew=5 ex=0 e2=0.05
+# (e-шорт) ближе к уровню: E, и пара E=0,15 + второй вход 0,05 (читается только шорт)
+es15 lat=4 latx=4 pk=1 pb=1 fh=4 fk=120 fm=50 fb=0.5 ew=5 ex=0 e=0.15
+es10 lat=4 latx=4 pk=1 pb=1 fh=4 fk=120 fm=50 fb=0.5 ew=5 ex=0 e=0.1
+es05 lat=4 latx=4 pk=1 pb=1 fh=4 fk=120 fm=50 fb=0.5 ew=5 ex=0 e=0.05
+es15_e2_05 lat=4 latx=4 pk=1 pb=1 fh=4 fk=120 fm=50 fb=0.5 ew=5 ex=0 e=0.15 e2=0.05
