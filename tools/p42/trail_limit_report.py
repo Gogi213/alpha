@@ -25,10 +25,10 @@ def load(d, side, lo, hi):
 
 
 def lots(r):
-    out = [{"kind": r.get("kind1", r["kind"]), "legs": r["legs"], "tl": r.get("tl")}]
+    out = [{"kind": r.get("kind1", r["kind"]), "legs": r["legs"], "tl": r.get("tl"), "e": r["entry_px_e8"]}]
     if "lot2" in r:
         l2 = r["lot2"]
-        out.append({"kind": l2["kind"], "legs": l2["legs"], "tl": l2.get("tl")})
+        out.append({"kind": l2["kind"], "legs": l2["legs"], "tl": l2.get("tl"), "e": l2["entry_px_e8"]})
     return out
 
 
@@ -127,11 +127,61 @@ def pair(old, new):
     }
 
 
+TAKER_BPS, MAKER_BPS = 3.5 * 0.9, 1.4 * 0.9  # тариф владельца после возврата 10 % (В-47)
+SLIP_BPS = 1  # slip_bps баз L_base / S_base
+
+
+def decomp(old, new, side):
+    """Разложение Δ на лот, у которого v21 вышел трейлом тейкером, а новый вариант исполнил приказ мейкером по L (без фандинга: net_nf).
+    Лот остатка u, цена входа лота e, v21: выход по цене px_o = p ∓ slip·p (p — цена сделки выхода), новый: выход по L, мейкер. Точно:
+    Δ = (a) комиссия: u/e·(px_o·taker − L·maker)/1e4  +  (b) избежанное проскальзывание: s·u·(p − px_o)/e  +  (c) цена: s·u·(L − p)/e.
+    Проверка: на сделках, где все лоты — такие или не изменились, Σ(a+b+c) = Σ Δnf сделки."""
+    s = 1 if side == "long" else -1
+    o = {key(r): r for r in old}
+    n = {key(r): r for r in new}
+    z = lambda: {"lots": 0, "a_fee": 0.0, "b_slip": 0.0, "c_price": 0.0, "u": 0.0}
+    tot = z()
+    chk = {"trades": 0, "sum_resid": 0.0, "max_abs_resid": 0.0}
+    per_trade = {}
+    for k in sorted(set(o) & set(n)):
+        lo, ln = lots(o[k]), lots(n[k])
+        if len(lo) != len(ln):
+            continue
+        dec, same = 0.0, True
+        for a, b in zip(lo, ln):
+            lg_o, lg_n = a["legs"][-1], b["legs"][-1]
+            if a["kind"] == "trail" and b["kind"] == "trail" and not lg_o[3] and lg_n[3] and lg_o[2] == lg_n[2]:
+                u, e, L = lg_o[2] / 1e6, a["e"], lg_n[1]
+                px_o = lg_o[1]
+                p = px_o / (1 - s * SLIP_BPS / 1e4)
+                fa = u / e * (px_o * TAKER_BPS - L * MAKER_BPS) / 1e4
+                fb = s * u * (p - px_o) / e
+                fc = s * u * (L - p) / e
+                tot["lots"] += 1
+                tot["u"] += u
+                tot["a_fee"] += fa
+                tot["b_slip"] += fb
+                tot["c_price"] += fc
+                dec += fa + fb + fc
+            elif a["legs"] != b["legs"]:
+                same = False
+        if dec != 0.0:
+            per_trade[k] = (dec, same)
+    for k, (dec, same) in per_trade.items():
+        if same:
+            r = nf(n[k]) - nf(o[k]) - dec
+            chk["trades"] += 1
+            chk["sum_resid"] += r
+            chk["max_abs_resid"] = max(chk["max_abs_resid"], abs(r))
+    tot["sum"] = tot["a_fee"] + tot["b_slip"] + tot["c_price"]
+    return {"total": tot, "check": chk}
+
+
 def fmt(x, p=2):
     return f"{x:,.{p}f}".replace(",", " ") if isinstance(x, float) else str(x)
 
 
-def lines(label, so, sn, pr):
+def lines(label, so, sn, pr, dc=None):
     L = [f"**{label}**", "", "| | tl=0 (было) | tl>0 (стало) |", "|---|---:|---:|"]
     for name, k, p in [
         ("сделок", "trades", 0), ("Σ net_nf, $", "sum_net_nf", 2), ("среднее net_nf на сделку, $", "mean_net_nf", 3),
@@ -149,6 +199,14 @@ def lines(label, so, sn, pr):
                   ("трейл-выходов не было (разница — каскад портфеля)", "old_no_trail")]:
         a = pr[k]
         L.append(f"- {nm}: {a['n']} сделок, Σ Δ {fmt(a['sum_d_nf'])} $, среднее {fmt(a['mean_d_nf'], 3)} $; лучше {a['better']}, хуже {a['worse']}.")
+    if dc:
+        t, c = dc["total"], dc["check"]
+        m = t["lots"] or float("nan")
+        L.append(
+            f"Разложение Δ на лотах, где v21 вышел трейлом тейкером, а приказ исполнен мейкером по L: {t['lots']} лотов, Σ Δ {fmt(t['sum'])} $ "
+            f"= комиссия {fmt(t['a_fee'])} + избежанное проскальзывание {fmt(t['b_slip'])} + цена L против цены сделки v21 {fmt(t['c_price'])}; "
+            f"на лот {fmt(t['sum'] / m, 3)} = {fmt(t['a_fee'] / m, 3)} + {fmt(t['b_slip'] / m, 3)} + {fmt(t['c_price'] / m, 3)} $. "
+            f"Сверка с Δnf сделок, где все лоты такие или без изменений: {c['trades']} сделок, Σ невязки {fmt(c['sum_resid'], 4)} $, макс |невязки| {fmt(c['max_abs_resid'], 4)} $.")
     L.append(f"Только в «было»: {pr['only_old']['n']} сделок (Σ {fmt(pr['only_old']['sum_nf'])} $); только в «стало»: {pr['only_new']['n']} (Σ {fmt(pr['only_new']['sum_nf'])} $).")
     return "\n".join(L)
 
@@ -165,10 +223,11 @@ def main():
     lo, hi = (int(x) for x in a.days.split(":"))
     old, new = load(a.old, a.side, lo, hi), load(a.new, a.side, lo, hi)
     so, sn, pr = stats(old), stats(new), pair(old, new)
-    print(lines(a.label or f"{a.side}, сутки {lo}:{hi}", so, sn, pr))
+    dc = decomp(old, new, a.side)
+    print(lines(a.label or f"{a.side}, сутки {lo}:{hi}", so, sn, pr, dc))
     if a.json:
         with open(a.json, "w", encoding="utf8") as f:
-            json.dump({"old": so, "new": sn, "pair": pr}, f, ensure_ascii=False, indent=1)
+            json.dump({"old": so, "new": sn, "pair": pr, "decomp": dc}, f, ensure_ascii=False, indent=1)
 
 
 if __name__ == "__main__":
