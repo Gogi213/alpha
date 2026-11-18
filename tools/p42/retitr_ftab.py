@@ -237,8 +237,15 @@ def build_episodes(side, sigsx, out, procs):
 
 
 def run_tk594(prod, eps, out, mode, procs, base_date=BASE_DATE):
-    """Производственный CLI TK-594 по таблице эпизодов (читает ключи и turn24h; метки не открывает)."""
-    cmd = [sys.executable, os.path.join(prod, "tk594_feat.py"), eps, out, "--mode", mode, "--base-date", base_date, "--procs", str(procs)]
+    """Производственный CLI TK-594 по таблице эпизодов (читает ключи и turn24h; метки не открывает).
+    TK-609: при `P42_FEAT_BIN=<путь alpha-feat>` счёт делает Rust (`rustfeat_run.py` — те же аргументы и таблица, побитово равная Python: ворота
+    G-A1…G-A3, §13.24.7); без переменной — прежний `tk594_feat.py`."""
+    feat_bin = os.environ.get("P42_FEAT_BIN", "")
+    if feat_bin:
+        cmd = [sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), "rustfeat_run.py"), eps, out, "--mode", mode,
+               "--base-date", base_date, "--procs", str(procs), "--bin", feat_bin]
+    else:
+        cmd = [sys.executable, os.path.join(prod, "tk594_feat.py"), eps, out, "--mode", mode, "--base-date", base_date, "--procs", str(procs)]
     print("запуск:", " ".join(cmd), flush=True)
     subprocess.run(cmd, check=True)
 
@@ -271,6 +278,9 @@ def cmd_build(a):
     write_ftab(a.out, list(tab["sym"]), tab["sig_ms"].to_numpy(np.int64), names, [tab[n].to_numpy(np.float64) for n in names])
     info = {"side": a.side, "rows": int(len(tab)), "nan_share": {n: float(tab[n].isna().mean()) for n in names},
             "prod_md5": prod_md5(a.prod)}
+    if os.environ.get("P42_FEAT_BIN"):   # TK-609: признаки TK-594 посчитал Rust — md5 бинаря в таблицу (аудит §13.24.7)
+        import hashlib
+        info["feat_bin_md5"] = hashlib.md5(open(os.environ["P42_FEAT_BIN"], "rb").read()).hexdigest()
     json.dump(info, open(a.out + ".info.json", "w"), ensure_ascii=False, indent=1)
     print(json.dumps(info, ensure_ascii=False))
 
