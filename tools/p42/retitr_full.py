@@ -42,7 +42,8 @@ NDAYS = sum(MONTH_LEN)                                           # 136
 MONTH_OF_DAY = np.repeat(np.arange(len(MONTH_LEN)), MONTH_LEN)
 MIN_TRADES = (20, 20, 20, 20, 8)                                 # в месяц, у клетки и у эталона; 01–13.11 — 8
 Z_STEP, Z_CAT, PLATEAU, VETO_SE = 2.0, 2.5, 0.5, 1.0
-GRID_START_DAY, GRID_DAYS = 14, 80                               # движок: прогрев 14 суток, сетка 80 (торговля с суток 14 по 79)
+GRID_START_DAY, GRID_DAYS, COUNT_DAYS = 14, 80, 60                  # движок: прогрев 14 суток, сетка 80, торговое окно 60 суток (`COUNT_DAYS`, §13.24.3)
+TRADE_END = GRID_START_DAY + COUNT_DAYS - 1                       # последние торговые сутки сетки (73); данные окна кончаются T0+73
 NOTIONAL = 500.0                                                 # граница фандинга: Σ|ставка|·$500
 FOLDS = (((0,), 1), ((0, 1), 2), ((0, 1, 2), 3), ((0, 1, 2, 3), 4))   # (месяцы подбора, месяц проверки)
 SIDES = ("L", "S")
@@ -75,20 +76,20 @@ class Window:
         return datetime.date.fromisoformat(self.hi)
 
 
-WINDOWS = (Window("wa", "2026-06-17", "2026-07-01", "2026-08-31"),
-           Window("wb", "2026-08-10", "2026-09-01", "2026-10-24"),
-           Window("wc", "2026-10-05", "2026-10-25", "2026-11-13"))
-G3_RANGES = (("wa", "wb", "2026-08-27", "2026-09-03"), ("wb", "wc", "2026-10-22", "2026-10-27"))   # внутренняя часть перекрытий
+WINDOWS = (Window("wa", "2026-06-17", "2026-07-01", "2026-08-25"),     # §13.24.3: зачёт 56 + 48 + 32 = 136 суток
+           Window("wb", "2026-08-04", "2026-08-26", "2026-10-12"),
+           Window("wc", "2026-09-21", "2026-10-13", "2026-11-13"))
+G3_RANGES = (("wa", "wb", "2026-08-21", "2026-08-28"), ("wb", "wc", "2026-10-08", "2026-10-15"))   # внутренняя часть перекрытий
 
 
 def check_windows(windows=WINDOWS, t0_used=None):
-    """Окна: T0 прогона = записанному; диапазоны смыкаются без наложений и пропусков, покрывают 01.07–13.11; зачёт внутри торговой части окна (T0+14 … T0+79)."""
+    """Окна: T0 прогона = записанному; диапазоны смыкаются без наложений и пропусков, покрывают 01.07–13.11; зачёт внутри торговой части окна (T0+14 … T0+73, §13.24.3)."""
     prev_hi = None
     for w in windows:
         if t0_used is not None and t0_used.get(w.name) != w.t0:
             raise GuardError("окно %s: P42_T0 прогона %r ≠ записанному %s" % (w.name, t0_used.get(w.name), w.t0))
-        if w.lod < w.t0d + datetime.timedelta(days=GRID_START_DAY) or w.hid > w.t0d + datetime.timedelta(days=GRID_DAYS - 1):
-            raise GuardError("окно %s: зачётный диапазон %s…%s вне торговой части (T0+%d … T0+%d)" % (w.name, w.lo, w.hi, GRID_START_DAY, GRID_DAYS - 1))
+        if w.lod < w.t0d + datetime.timedelta(days=GRID_START_DAY) or w.hid > w.t0d + datetime.timedelta(days=TRADE_END):
+            raise GuardError("окно %s: зачётный диапазон %s…%s вне торговой части (T0+%d … T0+%d)" % (w.name, w.lo, w.hi, GRID_START_DAY, TRADE_END))
         if prev_hi is None:
             if w.lod != D0:
                 raise GuardError("первое окно начинается %s, а не %s" % (w.lo, D0))

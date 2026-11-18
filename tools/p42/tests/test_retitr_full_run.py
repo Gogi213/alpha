@@ -91,7 +91,7 @@ class FakeSrv:
     @staticmethod
     def stream_rows(keys, win):
         n = 3 if "natr_min=0.3" in keys.split() else 2                      # поток зависит от ключей пула
-        return [(s, day * rf.DAY_MS + 5000 + 1000 * k) for s in CAND_COINS for day in range(rf.GRID_START_DAY, rf.GRID_DAYS) for k in range(n)]
+        return [(s, day * rf.DAY_MS + 5000 + 1000 * k) for s in CAND_COINS for day in range(rf.GRID_START_DAY, rf.TRADE_END + 1) for k in range(n)]
 
     def sigsx(self, d, keys, win):
         for side in ("long", "short"):
@@ -103,7 +103,7 @@ class FakeSrv:
     def trades(self, d, keys, win, ftab):
         ser = self.world(types.SimpleNamespace(keys=keys, sig="s_glob=1000000" in keys.split()))
         t0d = (win.t0d - rf.D0).days
-        m = (ser.day >= t0d + rf.GRID_START_DAY) & (ser.day <= t0d + rf.GRID_DAYS - 1)
+        m = (ser.day >= t0d + rf.GRID_START_DAY) & (ser.day <= t0d + rf.TRADE_END)         # данные окна кончаются T0+73 (§13.24.3)
         sel = np.nonzero(m)[0]
         rows = []
         for i in sel:
@@ -160,9 +160,9 @@ def test_engine_command_shape():
         cmd, env = ctx.engine.command(w, "/v/b1.txt", "/o/wb", "/f/u.csv")
         assert cmd == ["/x/alpha-master", "breakout", "tick", "--cache", os.path.join(ctx.paths.root, "wb", "cache"), "--trades", os.path.join(ctx.paths.root, "wb", "aggtrades"),
                        "--variants", "/v/b1.txt", "--symbols", ",".join(COINS), "--out", "/o/wb", "--threads", "6", "--ftab", "/f/u.csv"]
-        assert env == {"P42_T0": "2026-08-10"}
+        assert env == {"P42_T0": "2026-08-04"}
         cmd, env = ctx.engine.command(w, "/v/b1.txt", "/o/wb", None, sigsx_only=True)
-        assert "--ftab" not in cmd and env == {"P42_T0": "2026-08-10", "P42_SIGSX_ONLY": "1", "P42_SIGSX": "14:79"}
+        assert "--ftab" not in cmd and env == {"P42_T0": "2026-08-04", "P42_SIGSX_ONLY": "1", "P42_SIGSX": "14:73"}
 
 
 def test_groups_split_and_chunks():
@@ -194,7 +194,7 @@ def test_launch_three_windows_marks_and_skips_done():
 
 def test_launch_failure_is_guard_error_with_log_tail():
     with tempfile.TemporaryDirectory() as tmp:
-        ctx, srv = make(tmp, World(lambda k, s, d: 0.0), runner=FakeSrv(World(lambda k, s, d: 0.0), fail=lambda c, e: e.get("P42_T0") == "2026-08-10"))
+        ctx, srv = make(tmp, World(lambda k, s, d: 0.0), runner=FakeSrv(World(lambda k, s, d: 0.0), fail=lambda c, e: e.get("P42_T0") == "2026-08-04"))
         msg = raises(rr.GuardError, ctx.engine.launch, [rf.Req("L", "s=3", False)])
         assert "окно wb" in msg and "код возврата 7" in msg and "ОШИБКА" in msg
         assert not os.path.exists(os.path.join(ctx.paths.out("wa"), rf.Req("L", "s=3", False).vid, rr.DONE_MARK))   # метка — только после всех окон
@@ -235,17 +235,17 @@ def test_ftab_store_build_union_base_date_and_ready():
         envs = [e for c, e in srv.calls if c[0] == sys.executable]
         assert [e["TK594_TRADES"] for e in envs] == [ctx.paths.trades(w.name) for w in rf.WINDOWS] and all(e["TK594_METRICS"] == ctx.paths.metrics_all for e in envs)
         sx = [(c, e) for c, e in srv.calls if e.get("P42_SIGSX_ONLY")]
-        assert [e["P42_T0"] for _, e in sx] == [w.t0 for w in rf.WINDOWS] and all(e["P42_SIGSX"] == "14:79" for _, e in sx)
+        assert [e["P42_T0"] for _, e in sx] == [w.t0 for w in rf.WINDOWS] and all(e["P42_SIGSX"] == "14:73" for _, e in sx)
         for w in rf.WINDOWS:
             syms, ms, cols = rfx.read_ftab(ctx.paths.union(w.name, "L"))
-            assert len(syms) == len(CAND_COINS) * (rf.GRID_DAYS - rf.GRID_START_DAY) * 2 and set(cols) == {n for n, _ in rfx.FEATURES["L"]}
+            assert len(syms) == len(CAND_COINS) * (rf.TRADE_END + 1 - rf.GRID_START_DAY) * 2 and set(cols) == {n for n, _ in rfx.FEATURES["L"]}
         n = len(srv.calls)
         ctx.store.build([need])
         assert len(srv.calls) == n                                                                 # готовое не собирается повторно
         need2 = rf.FtabNeed("L", rf.cfg_keys(SPEC, "L", {}) + " natr_min=0.3")                    # другой поток: ключи новые, общие значения те же
         ctx.store.build([need2])
         syms, ms, _ = rfx.read_ftab(ctx.paths.union("wa", "L"))
-        assert len(syms) == len(CAND_COINS) * (rf.GRID_DAYS - rf.GRID_START_DAY) * 3
+        assert len(syms) == len(CAND_COINS) * (rf.TRADE_END + 1 - rf.GRID_START_DAY) * 3
         days, cols = ctx.store.candidates(need)                                                    # зачётные диапазоны без перекрытий
         assert (np.bincount(days, minlength=rf.NDAYS) == len(CAND_COINS) * 2).all()                # каждые сутки 0…135 — ровно в одном окне
 
@@ -284,7 +284,7 @@ def test_provider_cuts_use_training_days_and_gate5():
         vals, dd = [], []
         for w in rf.WINDOWS:
             for sym in CAND_COINS:
-                for day in range(rf.GRID_START_DAY, rf.GRID_DAYS):
+                for day in range(rf.GRID_START_DAY, rf.TRADE_END + 1):
                     for k in range(2):
                         ms = day * rf.DAY_MS + 5000 + 1000 * k
                         a = (w.t0d - rf.D0).days + day
@@ -329,7 +329,7 @@ def test_gate3_overlap_difference_stops():
         res = rr.gate3(ctx.paths, ctx.engine, ctx.spec)
         assert res["L"]["diff"] == [] and res["S"]["diff"] == [] and res["L"]["forced_ok"] == 0
     with tempfile.TemporaryDirectory() as tmp:
-        srv = FakeSrv(w, perturb=lambda win, day: win.name == "wb" and day == 60)                  # в перекрытии wa∩wb (абс. сутки 57…64 — 27.08–03.09)
+        srv = FakeSrv(w, perturb=lambda win, day: win.name == "wb" and day == 55)                  # во внутренней части перекрытия wa∩wb (абс. сутки 51…58 — 21–28.08)
         ctx, _ = make(tmp, runner=srv)
         res = rr.gate3(ctx.paths, ctx.engine, ctx.spec)
         assert res["L"]["diff"] and all("wa–wb" in x for x in res["L"]["diff"])
@@ -345,11 +345,11 @@ def test_ftab_base_date_argument_and_default():
     rfx.subprocess.run = lambda cmd, check=False: seen.setdefault("cmds", []).append(cmd)
     try:
         rfx.run_tk594("/p", "e.parquet", "o.parquet", "deriv", 4)
-        rfx.run_tk594("/p", "e.parquet", "o.parquet", "flow", 4, "2026-10-05")
+        rfx.run_tk594("/p", "e.parquet", "o.parquet", "flow", 4, "2026-09-21")
     finally:
         rfx.subprocess.run = old_run
     c0, c1 = seen["cmds"]
-    assert c0[c0.index("--base-date") + 1] == "2026-09-01" and c1[c1.index("--base-date") + 1] == "2026-10-05"          # поведение TK-595 не меняется
+    assert c0[c0.index("--base-date") + 1] == "2026-09-01" and c1[c1.index("--base-date") + 1] == "2026-09-21"          # поведение TK-595 не меняется
     old = rfx.cmd_build
     got = {}
     rfx.cmd_build = lambda a: got.update(vars(a))
@@ -369,7 +369,7 @@ def test_plan_prints_commands_without_running():
         with redirect_stdout(buf):
             assert rr.cmd_plan(a) == 0
         t = buf.getvalue()
-        assert "P42_SIGSX_ONLY=1" in t and "--base-date 2026-10-05" in t and "--ftab" in t
+        assert "P42_SIGSX_ONLY=1" in t and "--base-date 2026-09-21" in t and "--ftab" in t
         assert "breakout tick" in t and "<566 монет" in t and not os.path.exists(os.path.join(tmp, "root"))
 
 

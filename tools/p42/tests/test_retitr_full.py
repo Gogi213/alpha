@@ -105,25 +105,29 @@ def tables(entries_by_win):
 
 def test_check_windows():
     rf.check_windows()
-    assert "P42_T0" in raises(rf.GuardError, rf.check_windows, rf.WINDOWS, {"wa": "2026-06-17", "wb": "2026-08-11", "wc": "2026-10-05"})
-    gap = (rf.WINDOWS[0], rf.Window("wb", "2026-08-10", "2026-09-02", "2026-10-24"), rf.WINDOWS[2])
+    assert "P42_T0" in raises(rf.GuardError, rf.check_windows, rf.WINDOWS, {"wa": "2026-06-17", "wb": "2026-08-05", "wc": "2026-09-21"})
+    gap = (rf.WINDOWS[0], rf.Window("wb", "2026-08-04", "2026-08-27", "2026-10-12"), rf.WINDOWS[2])
     assert "не смыкаются" in raises(rf.GuardError, rf.check_windows, gap)
-    over = (rf.WINDOWS[0], rf.Window("wb", "2026-08-10", "2026-08-31", "2026-10-24"), rf.WINDOWS[2])
+    over = (rf.WINDOWS[0], rf.Window("wb", "2026-08-04", "2026-08-25", "2026-10-12"), rf.WINDOWS[2])
     assert "не смыкаются" in raises(rf.GuardError, rf.check_windows, over)
-    short = (rf.WINDOWS[0], rf.WINDOWS[1], rf.Window("wc", "2026-10-05", "2026-10-25", "2026-11-12"))
+    short = (rf.WINDOWS[0], rf.WINDOWS[1], rf.Window("wc", "2026-09-21", "2026-10-13", "2026-11-12"))
     assert "покрывают" in raises(rf.GuardError, rf.check_windows, short)
-    out = (rf.Window("wa", "2026-06-17", "2026-06-30", "2026-08-31"),) + rf.WINDOWS[1:]
+    out = (rf.Window("wa", "2026-06-17", "2026-06-30", "2026-08-25"),) + rf.WINDOWS[1:]
     assert "вне торговой" in raises(rf.GuardError, rf.check_windows, out)
+    late = (rf.Window("wa", "2026-06-17", "2026-07-01", "2026-08-30"),) + rf.WINDOWS[1:]            # T0+73 = 29.08 — последние торговые сутки (§13.24.3)
+    assert "вне торговой" in raises(rf.GuardError, rf.check_windows, late)
+    assert rf.TRADE_END == 73 and [(w.t0d + datetime.timedelta(days=rf.TRADE_END)).isoformat() for w in rf.WINDOWS][:2] == ["2026-08-29", "2026-10-16"]
+    assert [(w.hid - w.lod).days + 1 for w in rf.WINDOWS] == [56, 48, 32]
 
 
 def test_splice_days_and_ranges():
     coins = ["AAA", "BBB"]
-    ent = {"wa": [("AAA", "2026-07-01", 3.0, 0.5, 0.0, "stop"), ("BBB", "2026-08-31", 2.0, 0.5, 0.0, "tx"), ("AAA", "2026-09-02", 9.0, 0.5, 0.0, "stop")],   # хвост wa — вне зачёта
-           "wb": [("AAA", "2026-08-28", 7.0, 0.5, 0.0, "stop"), ("BBB", "2026-09-01", 4.0, 0.5, 0.1, "be"), ("AAA", "2026-10-24", 1.0, 0.5, 0.0, "rt")],
-           "wc": [("BBB", "2026-10-25", 5.0, 0.5, 0.0, "stop"), ("AAA", "2026-11-13", 6.0, 0.5, 0.0, "forced")]}
+    ent = {"wa": [("AAA", "2026-07-01", 3.0, 0.5, 0.0, "stop"), ("BBB", "2026-08-25", 2.0, 0.5, 0.0, "tx"), ("AAA", "2026-08-27", 9.0, 0.5, 0.0, "stop")],   # хвост wa — вне зачёта
+           "wb": [("AAA", "2026-08-25", 7.0, 0.5, 0.0, "stop"), ("BBB", "2026-08-26", 4.0, 0.5, 0.1, "be"), ("AAA", "2026-10-12", 1.0, 0.5, 0.0, "rt")],   # 25.08 — разгон wb
+           "wc": [("BBB", "2026-10-12", 8.0, 0.5, 0.0, "stop"), ("BBB", "2026-10-13", 5.0, 0.5, 0.0, "stop"), ("AAA", "2026-11-13", 6.0, 0.5, 0.0, "forced")]}   # 12.10 — разгон wc
     t = tables(ent)
     s = rf.splice(t, coins)
-    assert list(s.day) == [0, 61, 62, 115, 116, 135], list(s.day)          # 01.07, 31.08, 01.09, 24.10, 25.10, 13.11
+    assert list(s.day) == [0, 55, 56, 103, 104, 135], list(s.day)          # 01.07, 25.08, 26.08, 12.10, 13.10, 13.11
     assert list(s.sym) == [0, 1, 1, 0, 1, 0]
     assert np.allclose(s.val, [2.5, 1.5, 3.5, 0.5, 4.5, 5.5])
     assert np.isclose(s.fund[2], 0.1)
@@ -151,15 +155,15 @@ def test_splice_guards():
 
 def test_overlap_gate():
     wa, wb = rf.WINDOWS[0], rf.WINDOWS[1]
-    e = [("AAA", "2026-08-30", 3.0, 0.5, 0.0, "stop"), ("BBB", "2026-09-01", 2.0, 0.5, 0.0, "tx")]
+    e = [("AAA", "2026-08-24", 3.0, 0.5, 0.0, "stop"), ("BBB", "2026-08-27", 2.0, 0.5, 0.0, "tx")]
     ta, tb = rf.table_from_rows(rows_for(wa, e)), rf.table_from_rows(rows_for(wb, e))
-    assert rf.overlap_diff(ta, wa, tb, wb, "2026-08-27", "2026-09-03") == []
-    e2 = [e[0], ("BBB", "2026-09-01", 2.1, 0.5, 0.0, "tx")]
-    d = rf.overlap_diff(ta, wa, rf.table_from_rows(rows_for(wb, e2)), wb, "2026-08-27", "2026-09-03")
+    assert rf.overlap_diff(ta, wa, tb, wb, "2026-08-21", "2026-08-28") == []
+    e2 = [e[0], ("BBB", "2026-08-27", 2.1, 0.5, 0.0, "tx")]
+    d = rf.overlap_diff(ta, wa, rf.table_from_rows(rows_for(wb, e2)), wb, "2026-08-21", "2026-08-28")
     assert len(d) == 1 and "gross" in d[0]
-    d = rf.overlap_diff(ta, wa, rf.table_from_rows(rows_for(wb, e[:1])), wb, "2026-08-27", "2026-09-03")
+    d = rf.overlap_diff(ta, wa, rf.table_from_rows(rows_for(wb, e[:1])), wb, "2026-08-21", "2026-08-28")
     assert len(d) == 1 and "только в wa" in d[0]
-    assert rf.overlap_diff(ta, wa, rf.table_from_rows(rows_for(wb, e[:1])), wb, "2026-08-27", "2026-08-31") == []     # вне диапазона сравнения
+    assert rf.overlap_diff(ta, wa, rf.table_from_rows(rows_for(wb, e[:1])), wb, "2026-08-21", "2026-08-26") == []     # вне диапазона сравнения
 
 
 def test_funding_bound_and_loader():
@@ -178,18 +182,18 @@ def test_funding_bound_and_loader():
 
 def test_splice_attaches_bound():
     wa = rf.WINDOWS[0]
-    ent = {"wa": [("AAA", "2026-07-03", 1.0, 0.0, 0.0, "stop"), ("AAA", "2026-08-31", 1.0, 0.0, 0.0, "stop")],
+    ent = {"wa": [("AAA", "2026-07-03", 1.0, 0.0, 0.0, "stop"), ("AAA", "2026-08-25", 1.0, 0.0, 0.0, "stop")],
            "wb": [("AAA", "2026-09-02", 1.0, 0.0, 0.0, "stop")]}
     t = tables(ent)
     t0 = rf._t0_ms(wa)
-    rates = {"AAA": (np.array([t0 + (16 * rf.DAY_MS) + 1_800_000, t0 + 75 * rf.DAY_MS + 1_800_000]), np.array([0.01, 0.01]))}   # 03.07 00:30 (до входа 01:00) … 01.09 00:30
+    rates = {"AAA": (np.array([t0 + (16 * rf.DAY_MS) + 1_800_000, t0 + 75 * rf.DAY_MS + 1_800_000]), np.array([0.01, 0.01]))}   # 03.07 00:30 (до входа 01:00) … 31.08 00:30
     s = rf.splice(t, ["AAA"], rates=rates)
     assert np.allclose(s.fb, 0.0)                                          # входы в 01:00 ушли на 10 минут: выплат 00:30 не пересекают
     rates = {"AAA": (np.array([rf._t0_ms(wa) + 16 * rf.DAY_MS + 3_600_000 + 300_000]), np.array([0.01]))}                    # 03.07 01:05 — внутри сделки
     s = rf.splice(t, ["AAA"], rates=rates)
     assert np.allclose(s.fb, [5.0, 0.0, 0.0]), s.fb
     ent["wb"] = [("AAA", "2026-09-02", 1.0, 0.0, 0.0, "stop")]
-    rates = {"AAA": (np.array([rf._t0_ms(rf.WINDOWS[1]) + 23 * rf.DAY_MS + 3_600_000 + 300_000]), np.array([0.01]))}          # 02.09 01:05 — сентябрь: граница не нужна
+    rates = {"AAA": (np.array([rf._t0_ms(rf.WINDOWS[1]) + 29 * rf.DAY_MS + 3_600_000 + 300_000]), np.array([0.01]))}          # 02.09 01:05 — сентябрь: граница не нужна
     s = rf.splice(tables(ent), ["AAA"], rates=rates)
     assert s.fb[2] == 0.0
 
@@ -708,7 +712,7 @@ def test_outdir_evaluator_ingest_and_npz_cache():
         ev2 = rf.OutDirEvaluator(out, ["AAA"], {}, launch=None, cache_dir=cache)
         assert ev2.missing([req]) == [] and np.allclose(ev2.get(req).val, s.val)                 # из .npz без запуска
         raises(rf.GuardError, rf.OutDirEvaluator, out, ["AAA"], None)
-        ev3 = rf.OutDirEvaluator(out, ["AAA"], {}, launch=launch, run_t0={"wa": "2026-06-18", "wb": "2026-08-10", "wc": "2026-10-05"})
+        ev3 = rf.OutDirEvaluator(out, ["AAA"], {}, launch=launch, run_t0={"wa": "2026-06-18", "wb": "2026-08-04", "wc": "2026-09-21"})
         assert "P42_T0" in raises(rf.GuardError, ev3.ingest, req)
 
 
