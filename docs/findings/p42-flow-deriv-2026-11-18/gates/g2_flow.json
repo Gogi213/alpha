@@ -1,0 +1,16 @@
+{
+ "kind": "flow",
+ "episodes": 220,
+ "mismatches": 0,
+ "sides": {
+  "long": 98,
+  "short": 122
+ },
+ "halves": {
+  "A": 113,
+  "B": 107
+ },
+ "coins": 186,
+ "nan_share_checked": 0.009659090909090909,
+ "examples": []
+}
