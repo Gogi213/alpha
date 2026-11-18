@@ -369,5 +369,35 @@ class MissingDayTests(unittest.TestCase):
             self.assertEqual(st["rows_on_missing_day"], 1)
 
 
+class ReuseTests(unittest.TestCase):
+    """cmd_reuse: дубль ключа (sym, side, abs_ms) в таблице TK-594 схлопывается только при совпадении значений; у эпизодов TK-598 допустим."""
+
+    def run_reuse(self, td, dup_value):
+        import argparse
+        base = F4.base_ms("2026-09-01")
+        t = pd.DataFrame({"ep_id": ["t1", "t2", "t3"], "sym": ["AAA", "AAA", "BBB"], "side": "long", "sig_ms": [1000, 1000, 2000], "turn24h": [5.0, 5.0, 7.0]})
+        fl = pd.DataFrame({"ep_id": ["t1", "t2", "t3"], **{c: [1.0, dup_value, 3.0] for c in F4.FLOW}})
+        dv = pd.DataFrame({"ep_id": ["t1", "t2", "t3"], **{c: [1.0, 1.0, 3.0] for c in F4.DERIV}})
+        e = pd.DataFrame({"ep_id": ["e1", "e2", "e3", "e4"], "sym": ["AAA", "AAA", "BBB", "CCC"], "side": "long", "sig_ms": [1000, 1000, 2000, 3000], "day": 14,
+                          "turn24h": [5.0, 5.0, 7.0, 9.0]})
+        paths = {k: os.path.join(td, k + ".parquet") for k in ("t", "fl", "dv", "e", "have", "need")}
+        for k, d in (("t", t), ("fl", fl), ("dv", dv), ("e", e)):
+            d.to_parquet(paths[k])
+        F.cmd_reuse(argparse.Namespace(eps=paths["e"], base_date="2026-09-01", tk594_base_date="2026-09-01", tk594_eps=paths["t"], tk594_flow=paths["fl"], tk594_deriv=paths["dv"],
+                                       have=paths["have"], need=paths["need"]))
+        return pd.read_parquet(paths["have"]), pd.read_parquet(paths["need"]), base
+
+    def test_identical_duplicates_collapse(self):
+        with tempfile.TemporaryDirectory() as td:
+            have, need, _ = self.run_reuse(td, 1.0)
+            self.assertEqual(sorted(have["ep_id"]), ["e1", "e2", "e3"])
+            self.assertEqual(need["ep_id"].tolist(), ["e4"])
+
+    def test_conflicting_duplicates_stop(self):
+        with tempfile.TemporaryDirectory() as td:
+            with self.assertRaises(SystemExit):
+                self.run_reuse(td, 2.0)
+
+
 if __name__ == "__main__":
     unittest.main()

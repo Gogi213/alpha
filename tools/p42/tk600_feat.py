@@ -252,13 +252,18 @@ def cmd_reuse(a):
     t = pd.read_parquet(a.tk594_eps, columns=["ep_id", "sym", "side", "sig_ms", "turn24h"])
     e["abs_ms"] = e["sig_ms"].astype(np.int64) + F4.base_ms(a.base_date)
     t["abs_ms"] = t["sig_ms"].astype(np.int64) + F4.base_ms(a.tk594_base_date)
-    if t.duplicated(["sym", "side", "abs_ms"]).any() or e.duplicated(["sym", "side", "abs_ms"]).any():
-        raise SystemExit("дубль (sym, side, abs_ms)")
     fl = pd.read_parquet(a.tk594_flow)[["ep_id"] + F4.FLOW]
     dv = pd.read_parquet(a.tk594_deriv)[["ep_id"] + F4.DERIV]
     t = t.merge(fl, on="ep_id", how="left", validate="one_to_one").merge(dv, on="ep_id", how="left", validate="one_to_one")
     t = t.drop(columns=["ep_id", "sig_ms"]).rename(columns={"turn24h": "turn24h_594"})
-    m = e[["ep_id", "sym", "side", "abs_ms", "turn24h"]].merge(t, on=["sym", "side", "abs_ms"], how="left", indicator=True, validate="one_to_one")
+    # одна и та же (sym, side, abs_ms) может стоять у нескольких эпизодов / уровней: признаки — функция ключа, значения обязаны совпасть
+    dup = t.duplicated(["sym", "side", "abs_ms"], keep=False)
+    if dup.any():
+        cols = F4.FLOW + F4.DERIV + ["turn24h_594"]
+        if (t[dup].groupby(["sym", "side", "abs_ms"])[cols].nunique(dropna=False) > 1).any(axis=None):
+            raise SystemExit("G-R: у дублей ключа TK-594 разные значения признаков")
+        t = t.drop_duplicates(["sym", "side", "abs_ms"])
+    m = e[["ep_id", "sym", "side", "abs_ms", "turn24h"]].merge(t, on=["sym", "side", "abs_ms"], how="left", indicator=True, validate="many_to_one")
     both = m[m["_merge"] == "both"]
     bad_turn = int((~(np.isclose(both["turn24h"].to_numpy(float), both["turn24h_594"].to_numpy(float), rtol=1e-12, atol=0.0)
                       | (both["turn24h"].isna() & both["turn24h_594"].isna()))).sum())

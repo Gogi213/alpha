@@ -64,7 +64,7 @@ for V in $VARS; do
   EPS=$FE/eps-$RUN-$V.parquet; F12=$FE/feat-$RUN-$V.parquet; T=$W/tmp/$WIN-$V
   [ -s "$EPS" ] && [ -s "$F12" ] || fail "нет входа $V"
   log "== $WIN $V: tox"
-  $PY tk600_feat.py tox "$EPS" "$T-tox.parquet" --base-date $T0 --procs "$PROCS" >> "$W/log/feat-$WIN.log" 2>&1 || fail "tox $V"
+  [ -s "$T-tox.parquet" ] || $PY tk600_feat.py tox "$EPS" "$T-tox.parquet" --base-date $T0 --procs "$PROCS" >> "$W/log/feat-$WIN.log" 2>&1 || fail "tox $V"
   if [ -n "$T594_EPS" ]; then
     $PY tk600_feat.py reuse "$EPS" --base-date $T0 --tk594-base-date $T594_T0 --tk594-eps $T594_EPS --tk594-flow $T594_FLOW --tk594-deriv $T594_DERIV \
       --have "$T-have.parquet" --need "$T-need.parquet" >> "$W/log/feat-$WIN.log" 2>&1 || fail "reuse $V"
