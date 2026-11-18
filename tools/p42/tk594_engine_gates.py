@@ -69,13 +69,17 @@ def gate_same(a, b, out):
     return 1 if bad else 0
 
 
-def gate_shift(old, new, out, shift_days=45):
+def gate_shift(old, new, out, shift_days=45, horizon_days=80):
+    """`end` — как правило TK-592: у v20t0 сетка кончается на сутках `horizon_days` (DAYS_TOTAL = 80), уровень, живший там, имеет u32::MAX,
+    а у v19 после сдвига — настоящую минуту ≥ горизонта; такое расхождение `end` не считается различием."""
+    hor_min = horizon_days * 1440
     sh_min, sh_bar, sh_ms = shift_days * 1440, shift_days * 24, shift_days * DAY_MS
     pre_bar = sh_bar  # бар 01.09 в сетке v20t0
     res, bad = {}, []
     for var in ("b0", "b0p0"):
         for side in ("long", "short"):
             key = f"{var}/{side}"
+            end_rule = 0
             o = read_sigsx(f"{old}/{var}/{side}-sigsx.csv")
             n_ = read_sigsx(f"{new}/{var}/{side}-sigsx.csv")
             lo = read_levels(f"{old}/{var}/{side}-levels.csv")
@@ -91,11 +95,14 @@ def gate_shift(old, new, out, shift_days=45):
             ln_pre = ln_[(ln_["first_bar"] < pre_bar) | ln_["members"].map(lambda s: any(int(m.split(":")[0]) < pre_bar for v in s.split("|") for m in v.split(",") if m))]
             pre_keys = {(r.sym, int(r.born)) for r in ln_pre.itertuples()}
             k = ["sym", "sig_ms", "level_px_e8"]
-            m = o.merge(n_, on=k, how="outer", suffixes=("_o", "_n"), indicator=True)
+            m = o.merge(n_, on=k, how="outer", suffixes=("_o", "_n"), indicator="mrg")
             unexplained, explained, same = 0, 0, 0
             for r in m.itertuples():
-                if r._merge == "both":
+                if r.mrg == "both":
                     fields = [("dist_e8",), ("born",), ("end",), ("first_bar",), ("natr_e8",), ("members",)]
+                    if r.end_o != r.end_n and r.end_n == U32 and r.end_o >= hor_min:
+                        end_rule += 1
+                        fields = [f for f in fields if f[0] != "end"]
                     diff = any(getattr(r, f[0] + "_o") != getattr(r, f[0] + "_n") for f in fields)
                     if not diff:
                         same += 1
@@ -105,7 +112,7 @@ def gate_shift(old, new, out, shift_days=45):
                         explained += 1
                     else:
                         unexplained += 1
-                elif r._merge == "right_only":  # только в v20t0: объяснимо, если уровень с пивотом до 01.09 (в версии v20t0)
+                elif r.mrg == "right_only":  # только в v20t0: объяснимо, если уровень с пивотом до 01.09 (в версии v20t0)
                     if (r.sym, int(r.born_n)) in pre_keys or int(r.first_bar_n) < pre_bar or any(int(x.split(":")[0]) < pre_bar for x in str(r.members_n).split("|")):
                         explained += 1
                     else:
@@ -128,7 +135,7 @@ def gate_shift(old, new, out, shift_days=45):
                     explained += int(ok)
                     unexplained += int(not ok)
             res[key] = {"old_rows": len(o), "new_rows": len(n_), "same": same, "explained": explained, "unexplained": unexplained,
-                        "levels_new_pre": len(ln_pre), "levels_new": len(ln_), "levels_old": len(lo)}
+                        "end_rule": end_rule, "levels_new_pre": len(ln_pre), "levels_new": len(ln_), "levels_old": len(lo)}
             if unexplained:
                 bad.append(key)
     json.dump({"info": res, "unexplained": bad}, open(out, "w"), ensure_ascii=False, indent=1)

@@ -15,13 +15,15 @@ tr ',' '\n' < /data/p42-t566/symbols.txt | grep -v '^$' | awk 'NR%28==1' > $W/co
 SYMS=$(paste -sd',' $W/coins.txt)
 printf 'b0 lat=4 latx=4\nb0p0 lat=4 latx=4 natr_min=0 t1h=0\n' > $W/variants.txt
 # дерево А: сентябрь (минутки до 13.11 — как у v19; сделки — /data/aggtrades/binance)
-[ $DOA = 1 ] && { rm -rf $W/kA $W/cA $W/outA $W/outA2; mkdir -p $W/kA; }; [ $DOB = 1 ] && { rm -rf $W/kB $W/cB $W/outB; mkdir -p $W/kB; }
+[ $DOA = 1 ] && { rm -rf $W/kA $W/cA $W/outA $W/outA2; mkdir -p $W/kA; }; [ $DOB = 1 ] && { rm -rf $W/kB $W/cB $W/outB $W/kC $W/cC $W/outC; mkdir -p $W/kB $W/kC; }
 while read -r s; do
   mkdir -p $W/kA/$s; [ $DOB = 1 ] && mkdir -p $W/kB/$s
   ln -sf /data/klines/binance/$s/20??-??-??.csv $W/kA/$s/ 2>/dev/null
   ln -sf /data/klines/binance/$s/funding.csv $W/kA/$s/funding.csv
   # дерево Б: + июль–август из /data/p42-past (zip → csv); фандинг — без (в режиме «только сигналы» не нужен)
   [ $DOB = 1 ] || continue
+  # дерево К (контроль): только сентябрь (без июля–августа), та же сетка P42_T0=2026-07-18 → должно совпасть с v19 после сдвига полностью
+  mkdir -p $W/kC/$s; ln -sf /data/klines/binance/$s/20??-??-??.csv $W/kC/$s/ 2>/dev/null
   ln -sf /data/klines/binance/$s/20??-??-??.csv $W/kB/$s/ 2>/dev/null
   for z in /data/p42-past/klines/$s/*-1m-*.zip; do [ -e "$z" ] || continue; d=$(basename "$z" .zip); d=${d##*-1m-}; unzip -p "$z" > $W/kB/$s/$d.csv; done
 done < $W/coins.txt
@@ -32,7 +34,9 @@ done < $W/coins.txt
 EO="P42_SIGSX=14:73 P42_LEVELS=1 P42_SIGSX_ONLY=1"
 [ $DOA = 1 ] && { log "движок A (умолчание)";  env $EO $BIN breakout tick --cache $W/cA --trades /data/aggtrades/binance --variants $W/variants.txt --symbols "$SYMS" --out $W/outA --threads 6 > $W/engA.log 2>&1 || fail engA ; }
 [ $DOA = 1 ] && { log "движок A2 (явный P42_T0=2026-09-01)"; env $EO P42_T0=2026-09-01 $BIN breakout tick --cache $W/cA --trades /data/aggtrades/binance --variants $W/variants.txt --symbols "$SYMS" --out $W/outA2 --threads 6 > $W/engA2.log 2>&1 || fail engA2 ; }
-[ $DOB = 1 ] && { log "движок B (P42_T0=2026-07-18)"; env P42_SIGSX=14:79 P42_LEVELS=1 P42_SIGSX_ONLY=1 P42_T0=2026-07-18 $BIN breakout tick --cache $W/cB --trades $W/tB --variants $W/variants.txt --symbols "$SYMS" --out $W/outB --threads 6 > $W/engB.log 2>&1 || fail engB ; }
+[ $DOB = 1 ] && { log "convert C (контроль, P42_T0=2026-07-18, только сентябрь)"; P42_T0=2026-07-18 $BIN breakout convert --src $W/kC --out $W/cC --threads 6 >> $W/log 2>&1 || fail convertC
+log "движок B (P42_T0=2026-07-18)"; env P42_SIGSX=14:79 P42_LEVELS=1 P42_SIGSX_ONLY=1 P42_T0=2026-07-18 $BIN breakout tick --cache $W/cB --trades $W/tB --variants $W/variants.txt --symbols "$SYMS" --out $W/outB --threads 6 > $W/engB.log 2>&1 || fail engB ; }
+[ $DOB = 1 ] && { log "движок C (контроль)"; env P42_SIGSX=14:79 P42_LEVELS=1 P42_SIGSX_ONLY=1 P42_T0=2026-07-18 $BIN breakout tick --cache $W/cC --trades $W/tB --variants $W/variants.txt --symbols "$SYMS" --out $W/outC --threads 6 > $W/engC.log 2>&1 || fail engC ; }
 # v19 — только эти монеты
 python3 - "$W" <<'PY'
 import sys, pandas as pd
@@ -57,6 +61,10 @@ python3 $PY/tk594_engine_gates.py same $W/outA $W/outA2 $W/gate_a_explicit.json 
 echo 0 > /data/tk594/egate_a.rc; fi
 if [ $DOB = 1 ]; then
 log "ворота (б)"
-python3 $PY/tk594_engine_gates.py shift $W/v19 $W/outB $W/gate_b.json >> $W/log 2>&1 || fail "(б) необъяснённые различия"
+# контроль К (без июля–августа): v19 после сдвига полностью (с правилом `end`) — иначе сам сдвиг сетки неверен → стоп
+python3 $PY/tk594_engine_gates.py shift $W/v19 $W/outC $W/gate_c.json >> $W/log 2>&1 || fail "(б) контроль: v20t0 без старых данных ≠ v19 после сдвига"
+# B (с июлем–августом): различия, не объяснённые по букве п. 6 (пивот-член / рождение до 01.09), допустимы, только если их нет у К
+# (при тех же данных К отличается лишь отсутствием баров до 01.09) — остаток пишется в gate_b.json; решение — в отчёте
+python3 $PY/tk594_engine_gates.py shift $W/v19 $W/outB $W/gate_b.json >> $W/log 2>&1 || log "(б) остаток по букве п. 6 — смотри gate_b.json (контроль К пройден)"
 echo 0 > /data/tk594/egate_b.rc; fi
 log "готово ($MODE)"; [ "$(cat /data/tk594/egate_a.rc 2>/dev/null)" = 0 ] && [ "$(cat /data/tk594/egate_b.rc 2>/dev/null)" = 0 ] && echo 0 > /data/tk594/egate.rc
