@@ -1,0 +1,17 @@
+{
+ "got": {
+  "bin_sha": "f4a0d5a348757e23ec231f09796e9d2ca414eaaa08a9731ca6f356a3084cebca",
+  "syms_sha": "25c9ad8caab30af583b18f0678189f381282cce23b5d42c043471481bf0eaae0",
+  "manifests_sha": "e377de791796bcc93bee2ad5ad70c5ee69cf1e45499369637cdf293e07c9bd59",
+  "bin_md5": "a03c91df5a70c8eb32cbb7122943b8f9",
+  "w0_manifest": [
+   "manifest-trades 8866 файлов, sha256 77725332e95c31e13600ac81acba2f1276c69f3ea3194473a00e7459df990fc7",
+   "manifest-klines 9432 файлов, sha256 340fc4804b49bc5143ccef811800af4ee44c8fc9c79bb048e453c801b5907241",
+   "manifest-cache 530 файлов, sha256 a0cf79d1b3e1f799fde43a5c3a892a15460ec9a8d8abf5a00f568481432d258f",
+   "manifest-cache-sha256 530 файлов, sha256 eca2fc80279cd49287399f3b2131d52568b33a6606ec4ea6a0fb784bf8601462",
+   "binary f4a0d5a348757e23ec231f09796e9d2ca414eaaa08a9731ca6f356a3084cebca md5 a03c91df5a70c8eb32cbb7122943b8f9",
+   "T0 2026-06-03 D0 2026-06-17 D1 2026-07-03"
+  ]
+ },
+ "bad": []
+}

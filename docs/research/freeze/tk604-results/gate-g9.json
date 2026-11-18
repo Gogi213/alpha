@@ -1,0 +1,30 @@
+{
+ "res": {
+  "b0p0/long": {
+   "w0": 5448,
+   "wa": 5448,
+   "only_w0": 0,
+   "only_wa": 0
+  },
+  "b0p0/short": {
+   "w0": 3722,
+   "wa": 3722,
+   "only_w0": 0,
+   "only_wa": 0
+  },
+  "b0/long": {
+   "w0": 52,
+   "wa": 52,
+   "only_w0": 0,
+   "only_wa": 0
+  },
+  "b0/short": {
+   "w0": 74,
+   "wa": 74,
+   "only_w0": 0,
+   "only_wa": 0
+  },
+  "early_before_17_06": 0
+ },
+ "bad": []
+}

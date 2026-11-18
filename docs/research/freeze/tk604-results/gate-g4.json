@@ -1,0 +1,10 @@
+{
+ "ref": 46012,
+ "mine": 46009,
+ "common": 45984,
+ "share_common": 0.9993914630965836,
+ "y_differs": 0,
+ "only_ref": 28,
+ "only_mine": 25,
+ "diff_sample": []
+}
