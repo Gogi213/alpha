@@ -16,6 +16,23 @@ fs.mkdirSync(out, {recursive: true});
   page.on('requestfailed', r => errs.push('requestfailed: ' + r.url()));
   await page.goto(url, {waitUntil: 'load'});
   const report = {url, width: W, errors: errs, sides: {}};
+  // TK-601: блок «Ход работ» — снимок верха страницы и блока целиком, выгрузка текстов в dom_progress.json для сверки с progress.json
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await page.waitForTimeout(300);
+  await page.screenshot({path: `${out}/progress-top.png`});
+  await page.locator('#progress').screenshot({path: `${out}/progress-block.png`});
+  const pdom = await page.evaluate(() => {
+    const t = (r, s) => { const n = r.querySelector(s); return n ? n.textContent : null; };
+    const stages = [...document.querySelectorAll('#progress .stage')].map(c => ({
+      id: c.dataset.stage, status: c.dataset.status, badge: t(c, '.badge'), answers: t(c, '.stage-q'), next: t(c, '.stage-next'),
+      steps: [...c.querySelectorAll('.steps li')].map(li => li.dataset.status), numbers: [...c.querySelectorAll('.nums li')].map(li => li.textContent)
+    }));
+    const targets = [...document.querySelectorAll('#progress .tg tbody tr')].map(r => ({id: r.dataset.target, long: r.dataset.long, short: r.dataset.short, what: r.querySelector('td.what').textContent}));
+    return {stages, targets, total_long: t(document, '#progress [data-f="total_long"]'), total_short: t(document, '#progress [data-f="total_short"]'), headline: t(document, '#progress .prog-head'),
+      overflowX: document.documentElement.scrollWidth - innerWidth, tableOverflow: (() => { const w = document.querySelector('#progress .tg-wrap'); return w.scrollWidth - w.clientWidth; })()};
+  });
+  fs.writeFileSync(`${out}/dom_progress.json`, JSON.stringify(pdom));
+  report.progress = {stages: pdom.stages.length, targets: pdom.targets.length, overflowX: pdom.overflowX, tableOverflow: pdom.tableOverflow};
   for (const side of ['long', 'short']) {
     await page.click(`#tabs button[data-side="${side}"]`);
     await page.waitForSelector('#sec-sum');

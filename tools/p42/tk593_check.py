@@ -2,6 +2,7 @@
 
 Использование: <venv>/bin/python tk593_check.py <tree TK-592> <pairs TK-592> <index.html> <каталог с dom_*.json> [ep_u0.parquet <каталог кода TK-592>]
 Если даны таблица и каталог кода — дополнительно пересчитываются AUC «в выборке» и на проверке из .cbm независимым проходом.
+TK-601: ещё проверяет блок «Ход работ» (data/progress.json рядом с index.html → вшито → dom_progress.json).
 Выход: число проверок и расхождений; код 1 при любом расхождении.
 """
 from __future__ import annotations
@@ -244,6 +245,41 @@ for side in ("long", "short"):
     ver = dom["verdict"]
     eq(f"DOM {side} verdict a", "(а) выполнено" in ver[0], S["verdict"]["a"]["ok"])
     eq(f"DOM {side} verdict b", "(б) выполнено" in ver[1], S["verdict"]["b"]["ok"])
+
+# ── 3. ход работ (TK-601): progress.json → вшитый блок → DOM (dom_progress.json из tk593_shots.js)
+import os
+
+prog_src = json.load(open(os.path.join(os.path.dirname(os.path.abspath(html_path)), "data", "progress.json"), encoding="utf-8"))
+prog_emb = json.loads(re.search(r'<script id="progress-data" type="application/json">(.*?)</script>', html, re.S).group(1).replace("<\\/", "</"))
+eq("progress вшитый == файл", json.dumps(prog_emb, sort_keys=True), json.dumps(prog_src, sort_keys=True))
+pdom_path = os.path.join(dom_dir, "dom_progress.json")
+if os.path.exists(pdom_path):
+    pd_ = json.load(open(pdom_path, encoding="utf-8"))
+    STAT = {"done": "готово", "running": "идёт", "waiting": "ждёт"}
+    eq("DOM этапов", len(pd_["stages"]), len(prog_src["stages"]))
+    for s, d in zip(prog_src["stages"], pd_["stages"]):
+        w = f"DOM этап {s['id']}"
+        eq(w + " id", d["id"], s["id"])
+        eq(w + " статус", d["status"], s["status"])
+        eq(w + " подпись статуса", d["badge"], STAT[s["status"]])
+        eq(w + " шаги", ",".join(d["steps"]), ",".join(t["s"] for t in s.get("steps", [])))
+        eq(w + " цифры", "|".join(d["numbers"]), "|".join(s["numbers"]))
+        eq(w + " дальше", d["next"], s["next"])
+        eq(w + " вопрос", d["answers"], s["answers"])
+    T = prog_src["targets"]
+    eq("DOM целей", len(pd_["targets"]), len(T["rows"]))
+    for r, d in zip(T["rows"], pd_["targets"]):
+        w = f"DOM цель {r['id']}"
+        eq(w + " id", d["id"], r["id"])
+        eq(w + " лонг", d["long"], r["long"])
+        eq(w + " шорт", d["short"], r["short"])
+        eq(w + " текст", d["what"], r["what"])
+    cnt = lambda k: f"{sum(r[k] == 'pass' for r in T['rows'] if r[k] != 'na')} из {sum(r[k] != 'na' for r in T['rows'])}"
+    eq("DOM итог лонг", pd_["total_long"], cnt("long"))
+    eq("DOM итог шорт", pd_["total_short"], cnt("short"))
+    eq("DOM шапка", pd_["headline"], prog_src["headline"])
+else:
+    bad.append(("нет dom_progress.json", None, None))
 
 print(f"проверок {n_ok + len(bad)}, совпало {n_ok}, расхождений {len(bad)}")
 for b in bad[:30]:

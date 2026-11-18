@@ -44,6 +44,8 @@
 
 **Ожидание долгой работы на сервере (п. 33 preferences, 17.11):** `bash tools/srv-wait.sh unit:<юнит> [минут]` или `file:<путь> [минут]` (по умолчанию 240 мин, `CHECK_HOST=srv|vps`) — запускать фоном (Bash `run_in_background` с `timeout: 7200000` — иначе фон снимается через 30 мин; работа дольше 2 ч — новый сторож после уведомления `WAIT-TIMEOUT`); цикл крутится на сервере, тред получает одну строку `DONE <юнит> <Result> <код> <состояние>` + 5 строк журнала или `WAIT-TIMEOUT`. Опрос сервера из треда в цикле запрещён (съедает контекст).
 
+**Страница CatBoost П-42, блок «Ход работ» (TK-601, 18.11; http://5.231.25.224:8090/, юнит `ml-page-8090`):** правим `tools/p42/ml_progress.json` (схема — `tools/p42/ml_progress.schema.json`: этапы со статусом done/running/waiting, цифры, цели T1…T6 с pass/fail/na), затем одна команда `bash tools/p42/ml_page_update.sh` — заливает JSON и исходники на srv, проверяет JSON по схеме и пересобирает `/data/pages/ml/index.html` (страница статическая, JSON вшит при сборке; без изменения JSON результат тот же). На srv вручную: `/opt/venv/bin/python /data/pages/_src/tk593_page.py /data/tk592/tree /data/tk592/pairs /data/pages/ml/data/curves.json /data/pages/_src/tk593_template.html /data/pages/ml` (JSON — `/data/pages/ml/data/progress.json`). Проверка: `tk593_check.py` (сверка вшитого блока и DOM с JSON, 2 406 проверок) и клик-тест `tk593_shots.js` на Софии (`PW=/root/arb-settings-test/node_modules/playwright-core CHROME=/usr/bin/google-chrome node tk593_shots.js <url> <каталог> [ширина]`, снимки `progress-top.png` / `progress-block.png`; не на ПК владельца).
+
 ## Грабли
 
 - Срезано в TK-168 (КТ-11): `lob pilot/profiles/shortlist/react/watch/markout/levels/power` — тег `archive/research-layer-0925`.

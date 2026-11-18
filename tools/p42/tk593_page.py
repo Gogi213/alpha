@@ -1,7 +1,9 @@
 """П-42 TK-593: сборка страницы CatBoost (один HTML, данные внутри) из результатов TK-592 и кривых tk593_compute.py.
 
-Использование: <venv>/bin/python tk593_page.py <tree TK-592> <pairs TK-592> <curves.json> <template.html> <выход: каталог страницы>
+Использование: <venv>/bin/python tk593_page.py <tree TK-592> <pairs TK-592> <curves.json> <template.html> <выход: каталог страницы> [progress.json]
 Пишет <каталог>/index.html и <каталог>/data/page_data.json. Критерии (а)/(б) считаются здесь по правилам §13.11 протокола П-42.
+TK-601: блок «Ход работ» берётся из progress.json (по умолчанию <каталог>/data/progress.json), проверяется по ml_progress.schema.json рядом со скриптом
+и вшивается в index.html (страница статическая: после правки JSON — запустить сборку ещё раз).
 """
 from __future__ import annotations
 
@@ -9,9 +11,11 @@ import json
 import os
 import sys
 
+import jsonschema
 import pandas as pd
 
 tree_dir, pairs_dir, curves_path, tpl_path, out_dir = sys.argv[1:6]
+progress_path = sys.argv[6] if len(sys.argv) > 6 else f"{out_dir}/data/progress.json"
 BAR = 0.02
 DIRS = ("A->B", "B->A")
 SET = "f12"
@@ -51,13 +55,17 @@ def main():
         if min(conf) >= 1:
             raise NotImplementedError("подтверждённые клетки есть: (б) требует E1 ≥ +2 п.п. в обеих половинах и знак на U1r — не считается здесь")
         data["sides"][side] = {"dirs": dirs, "verdict": {"a": {"ok": a_ok, "d": d}, "b": {"ok": False, "confirmed": conf}}}
+    progress = json.load(open(progress_path, encoding="utf-8"))
+    schema = json.load(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "ml_progress.schema.json"), encoding="utf-8"))
+    jsonschema.validate(progress, schema)
     tpl = open(tpl_path, encoding="utf-8").read()
     blob = json.dumps(data, ensure_ascii=False, allow_nan=False, separators=(",", ":")).replace("</", "<\\/")
-    assert "/*__DATA__*/" in tpl
+    pblob = json.dumps(progress, ensure_ascii=False, allow_nan=False, separators=(",", ":")).replace("</", "<\\/")
+    assert "/*__DATA__*/" in tpl and "/*__PROGRESS__*/" in tpl
     os.makedirs(f"{out_dir}/data", exist_ok=True)
-    open(f"{out_dir}/index.html", "w", encoding="utf-8").write(tpl.replace("/*__DATA__*/", blob))
+    open(f"{out_dir}/index.html", "w", encoding="utf-8").write(tpl.replace("/*__DATA__*/", blob).replace("/*__PROGRESS__*/", pblob))
     json.dump(data, open(f"{out_dir}/data/page_data.json", "w", encoding="utf-8"), ensure_ascii=False)
-    print("index.html", len(tpl) + len(blob), "байт; (а)", {s: data["sides"][s]["verdict"]["a"]["ok"] for s in data["sides"]}, flush=True)
+    print("index.html", len(tpl) + len(blob) + len(pblob), "байт; ход работ", progress["updated"], f"({len(progress['stages'])} этапов); (а)", {s: data["sides"][s]["verdict"]["a"]["ok"] for s in data["sides"]}, flush=True)
 
 
 if __name__ == "__main__":

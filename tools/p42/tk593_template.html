@@ -57,10 +57,64 @@ svg text.k{fill:var(--fg)}
 #tip .t{font-weight:600;margin-bottom:2px}
 #tip .r{display:flex;justify-content:space-between;gap:14px}
 .grey{opacity:.4}
+.prog{padding:28px 0 8px}
+.prog-h{display:flex;align-items:baseline;justify-content:space-between;gap:10px}
+.prog-h h2{font-size:20px;font-weight:650;letter-spacing:-.02em}
+.prog-head{margin:6px 0 16px;color:var(--z700);font-size:14px;max-width:90ch}
+.stages{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:24px}
+@media(max-width:1100px){.stages{grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}}
+@media(max-width:640px){.stages{grid-template-columns:1fr}}
+.stage{position:relative;background:#fff;border:1px solid var(--border);border-top:4px solid var(--z300);border-radius:var(--r);box-shadow:0 1px 2px rgba(0,0,0,.04);padding:14px 16px 16px;min-width:0;display:flex;flex-direction:column;gap:8px}
+.stage.st-done{border-top-color:var(--accent)}
+.stage.st-running{border-top-color:var(--accent);border-top-style:dashed}
+@media(min-width:1101px){.stage+.stage::before{content:"\203A";position:absolute;left:-17px;top:14px;color:var(--z400);font-size:20px;line-height:1}}
+.stage-top{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.stage-id{font-weight:650;font-size:13px;color:var(--z700)}
+.stage-title{font-weight:600;font-size:14.5px;line-height:1.35}
+.stage-q{color:var(--z600);font-size:13px}
+.lbl{margin-top:4px;color:var(--mfg);font-size:11.5px;text-transform:uppercase;letter-spacing:.04em}
+.steps,.nums{margin:0;padding:0;list-style:none;font-size:13px}
+.steps li{display:flex;gap:8px;padding:1.5px 0}
+.steps li i{font-style:normal;flex:none;width:14px;text-align:center;color:var(--z400)}
+.steps li.s-done i{color:var(--accent);font-weight:700}
+.steps li.s-running i{color:var(--accent)}
+.steps li.s-waiting{color:var(--mfg)}
+.nums li{padding:3px 0}
+.nums li+li{border-top:1px solid var(--muted)}
+.badge.run{background:#fff;border-color:var(--accent);color:var(--accent)}
+.stage-next{font-size:13px}
+.tg-card{margin-top:24px}
+.tg-card .card-b{padding:12px 20px 18px}
+.tg-note{margin:0 0 10px;color:var(--mfg);font-size:12.5px;max-width:100ch}
+.tg-wrap{overflow-x:auto}
+.tg td:first-child{min-width:0;white-space:nowrap;font-weight:600}
+.tg td.what{min-width:200px}
+.tg td,.tg th{padding:9px 12px}
+.tg .cellnote{display:block;margin-top:3px;color:var(--mfg);font-size:11.5px;max-width:230px}
+.tg tfoot td{border-top:1px solid var(--border);border-bottom:0;color:var(--mfg);font-size:12.5px}
+@media(max-width:640px){#sec-over .card-b{overflow-x:auto}}
+.tg-card .card-h{flex-wrap:wrap}
+@media(max-width:640px){
+.tg,.tg tbody,.tg tfoot{display:block}
+.tg thead{display:none}
+.tg tr{display:grid;grid-template-columns:1fr 1fr;gap:4px 12px;padding:10px 0}
+.tg tbody tr{border-bottom:1px solid var(--border)}
+.tg tbody tr:last-child{border-bottom:0}
+.tg td,.tg td:first-child{padding:0;border:0;min-width:0}
+.tg td:first-child,.tg td.what{grid-column:1/-1}
+.tg td[data-lab]::before{content:attr(data-lab);display:block;margin-bottom:2px;color:var(--mfg);font-size:11.5px;font-weight:400}
+.tg .cellnote{max-width:none}
+.tg tfoot tr{border-top:1px solid var(--border)}
+.tg tfoot td{border-top:0}
+.tg tfoot td:first-child{display:none}
+.tg tfoot td:nth-child(2){grid-column:1/-1}
+}
+.prog-foot{margin:22px 0 0;padding-bottom:6px;border-bottom:1px solid var(--border);color:var(--mfg);font-size:13px}
 </style>
 </head>
 <body>
 <div class="wrap">
+  <div class="prog" id="progress"></div>
   <div class="top">
     <h1>П-42 · CatBoost на признаках уровня</h1>
     <p class="sub" id="sub"></p>
@@ -70,6 +124,7 @@ svg text.k{fill:var(--fg)}
 </div>
 <div id="tip"></div>
 <script id="data" type="application/json">/*__DATA__*/</script>
+<script id="progress-data" type="application/json">/*__PROGRESS__*/</script>
 <script>
 const D = JSON.parse(document.getElementById('data').textContent);
 const NS = 'http://www.w3.org/2000/svg';
@@ -434,6 +489,49 @@ function u1rCard(side) {
   return card;
 }
 
+// ── ход работ (TK-601): данные — progress.json, вшиты при сборке
+const P = JSON.parse(document.getElementById('progress-data').textContent);
+const STAT = {done: 'готово', running: 'идёт', waiting: 'ждёт'};
+const MARK = {done: '✓', running: '●', waiting: '○'};
+function stageCard(s) {
+  const c = h('div', {class: 'stage st-' + s.status, 'data-stage': s.id, 'data-status': s.status});
+  c.append(h('div', {class: 'stage-top'}, [h('span', {class: 'stage-id'}, s.id), h('span', {class: 'badge' + (s.status === 'done' ? ' ok' : s.status === 'running' ? ' run' : ''), 'data-f': 'status'}, STAT[s.status])]));
+  c.append(h('div', {class: 'stage-title'}, s.title));
+  c.append(h('div', {class: 'stage-q'}, s.answers));
+  if (s.steps && s.steps.length) {
+    c.append(h('div', {class: 'lbl'}, 'Шаги'));
+    c.append(h('ul', {class: 'steps'}, s.steps.map(t => h('li', {class: 's-' + t.s, 'data-status': t.s}, [h('i', {}, MARK[t.s]), h('span', {}, t.t)]))));
+  }
+  c.append(h('div', {class: 'lbl'}, 'Цифры'));
+  c.append(s.numbers.length ? h('ul', {class: 'nums'}, s.numbers.map(n => h('li', {}, n))) : h('div', {class: 'muted small'}, 'Цифр пока нет.'));
+  c.append(h('div', {class: 'lbl'}, 'Дальше'));
+  c.append(h('div', {class: 'stage-next'}, s.next));
+  return c;
+}
+function targetsCard(T) {
+  const card = h('div', {class: 'card tg-card', id: 'targets'});
+  card.append(h('div', {class: 'card-h'}, [h('b', {}, T.title), h('span', {}, 'первый фильтр: прошла / не прошла')]));
+  const body = h('div', {class: 'card-b'});
+  body.append(h('p', {class: 'tg-note'}, T.note));
+  const cell = (v, note, lab) => h('td', {'data-f': 'cell', 'data-lab': lab}, [h('span', {class: 'badge' + (v === 'pass' ? ' ok' : '')}, v === 'pass' ? 'прошла' : v === 'fail' ? 'не прошла' : '—'), note ? h('span', {class: 'cellnote'}, note) : null]);
+  const tb = h('table', {class: 'tg'});
+  tb.append(h('thead', {}, h('tr', {}, [h('th', {}, 'Цель'), h('th', {}, 'Что предсказывает'), h('th', {}, 'Лонг'), h('th', {}, 'Шорт')])));
+  tb.append(h('tbody', {}, T.rows.map(r => h('tr', {'data-target': r.id, 'data-long': r.long, 'data-short': r.short}, [h('td', {}, r.id), h('td', {class: 'what'}, r.what), cell(r.long, r.long_note, 'Лонг'), cell(r.short, r.short_note, 'Шорт')]))));
+  const cnt = k => { const used = T.rows.filter(r => r[k] !== 'na'); return `${used.filter(r => r[k] === 'pass').length} из ${used.length}`; };
+  tb.append(h('tfoot', {}, h('tr', {}, [h('td', {}), h('td', {}, 'Прошли первый фильтр'), h('td', {'data-f': 'total_long', 'data-lab': 'Лонг'}, cnt('long')), h('td', {'data-f': 'total_short', 'data-lab': 'Шорт'}, cnt('short'))])));
+  body.append(h('div', {class: 'tg-wrap'}, tb));
+  card.append(body);
+  return card;
+}
+function renderProgress() {
+  const root = document.getElementById('progress');
+  root.append(h('div', {class: 'prog-h'}, [h('h2', {}, 'Ход работ'), h('span', {class: 'muted small'}, 'обновлено ' + P.updated)]));
+  root.append(h('p', {class: 'prog-head'}, P.headline));
+  root.append(h('div', {class: 'stages'}, P.stages.map(stageCard)));
+  root.append(targetsCard(P.targets));
+  root.append(h('p', {class: 'prog-foot'}, 'Ниже — подробный разбор первой модели (TK-592): ROC, децили, калибровка, важность признаков, переобучение, устойчивость по суткам.'));
+}
+
 // ── сборка страницы
 const SECTIONS = [
   ['roc', 'ROC-кривые', 'Как хорошо оценка отделяет эпизоды с пробоем от остальных на проверочной половине: чем выше кривая над диагональю, тем лучше.', (c) => rocChart(c)],
@@ -476,6 +574,7 @@ function render(side) {
   view.append(u);
 }
 function init() {
+  renderProgress();
   const m = D.meta;
   document.getElementById('sub').textContent = `Пул U0, метка «пробой» (O3, 60 мин). Половины: A — сутки ${m.halfA[0]}…${m.halfA[1]}, B — сутки ${m.halfB[0]}…${m.halfB[1]}; сутки ${m.embargo_day} исключены. Признаков ${m.core_n}. Каждое направление — обучение на одной половине, проверка на другой.`;
   const tabs = document.getElementById('tabs');
