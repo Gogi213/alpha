@@ -17,10 +17,16 @@ case "$W" in
   *) echo "окно?"; exit 2;;
 esac
 mkdir -p "$G"; OUT="$G/$W"; rm -rf "$OUT"
+# варианты с фильтром признака (fa=) эталон гнал с `--ftab <union окна и стороны>`: путь берётся из первой строки эталонного журнала пакета (текущий union — надмножество прежнего, значения общих ключей те же)
+FT=()
+if grep -q ' fa=' "$VARS"; then
+  F=$(head -1 "$ROOT/log/$(basename "$VARS" .txt)-$W.log" 2>/dev/null | grep -o -- '--ftab [^ ]*' | cut -d' ' -f2)
+  [ -n "$F" ] && FT=(--ftab "$F")
+fi
 LOG="$G/$W.log"
 S=$(date +%s)
 env P42_T0=$T0 "${XENV[@]}" "$BIN" breakout tick --cache "$CACHE" --trades "$TRADES" --variants "$VARS" \
-  --symbols "$(cat /data/p42-t566/symbols.txt)" --out "$OUT" --threads 4 "$@" > "$LOG" 2>&1
+  --symbols "$(cat /data/p42-t566/symbols.txt)" --out "$OUT" --threads 4 "${FT[@]}" "$@" > "$LOG" 2>&1
 RC=$?
 echo "движок rc=$RC за $(( $(date +%s) - S )) с"
 [ $RC -eq 0 ] || { tail -5 "$LOG"; echo "GATE FAIL $LABEL $W rc=$RC"; exit 1; }
