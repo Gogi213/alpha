@@ -22,6 +22,7 @@ import retitr_ftab as rfx  # noqa: E402
 import retitr_full as rf  # noqa: E402
 import retitr_full_report as rep  # noqa: E402
 import retitr_full_run as rr  # noqa: E402
+import tk599_replay as trp  # noqa: E402
 from test_retitr_full import World, raises  # noqa: E402
 
 NB = 800
@@ -639,6 +640,73 @@ def test_run_gates_reuse_and_stop_exit_code():
         os.makedirs(ctx.paths.root, exist_ok=True)
         open(ctx.paths.stop, "w").close()
         assert ctx.stop() is True
+
+
+def test_replay_trace_equal_frontier_and_patches_restored():
+    """Сухой повтор по кэшу (критик, условие 3): след равен при повторе; без движка; на недостающей серии — граница; подмены `rf` возвращаются; различие следов находится."""
+    def eff(k, s, d):
+        return 1.5 if (k.get("rr") == "3" and k.get("rs") != "2") else 0.0
+    c595 = {"L_C": rf.cfg_keys(SPEC, "L", {}), "S_C": rf.cfg_keys(SPEC, "S", {})}
+    orig = (rf.eval_axis, rf.run_joint)
+    with rf.min_trades_override(10):
+        with tempfile.TemporaryDirectory() as t:
+            ctx1, srv1 = make(t, thin_world(eff))
+            g5 = rr.gate5(ctx1.store, ctx1.spec)
+            rr.run_all(ctx1, g5, None, c595)
+            ctx2, srv2 = make(t, thin_world(eff))
+            a = trp.replay_trace(rf, rr, ctx2, g5, c595)
+            assert a["done"] and a["frontier"] is None and len(a["steps"]) >= 50 and srv2.engine_variants == 0
+            assert any(s["kind"] == "axis" and s["accepted"] for s in a["steps"]) and (rf.eval_axis, rf.run_joint) == orig
+            ctx3, srv3 = make(t, thin_world(eff))
+            b = trp.replay_trace(rf, rr, ctx3, g5, c595)
+            assert trp.compare_traces(a, b) == [] and a["digest"] == b["digest"]
+            files = sorted(os.listdir(ctx3.paths.npz))
+            os.remove(os.path.join(ctx3.paths.npz, files[len(files) // 2]))
+            ctx4, srv4 = make(t, thin_world(eff))
+            c = trp.replay_trace(rf, rr, ctx4, g5, c595)
+            assert not c["done"] and c["frontier"] and c["frontier"]["missing"] >= 1 and srv4.engine_variants == 0 and (rf.eval_axis, rf.run_joint) == orig
+            assert len(c["steps"]) < len(a["steps"]) and trp.compare_traces(a, c)
+            a2 = json.loads(json.dumps(a))
+            a2["steps"][0]["digest"] = "0" * 64
+            assert any(d.startswith("steps[0]") for d in trp.compare_traces(a, a2))
+
+
+def test_shadow_rebuild_command_python_only_and_bytewise_compare():
+    """Теневая пересборка (критик, условие 4): команда — Python-сборщик в каталог shadow/ без P42_FEAT_BIN; результат — побайтное сравнение с боевой таблицей."""
+    code_root = os.path.abspath(os.path.join(HERE, "..", "..", ".."))
+    with tempfile.TemporaryDirectory() as t:
+        ctx, _ = make(t, None)
+        root = ctx.paths.root
+        vid = "s1234567890ab"
+        d = os.path.join(root, "ftab", "wa", vid)
+        os.makedirs(d)
+        open(os.path.join(d, "eps-S.parquet"), "wb").close()
+        open(os.path.join(d, "ftab.csv"), "w").write("sym,sig_ms,oi_c24\nAAAUSDT,1,0.5\n")
+        json.dump({"feat_bin": "/x/alpha-feat", "feat_bin_md5": "abc"}, open(os.path.join(d, "built-by.json"), "w"))
+        seen = {}
+
+        def fake_run(cmd, env=None, check=False):
+            seen["cmd"], seen["env"] = cmd, env
+            out = cmd[cmd.index("--out") + 1]
+            open(out, "w").write(seen.get("body", "sym,sig_ms,oi_c24\nAAAUSDT,1,0.5\n"))
+            return types.SimpleNamespace(returncode=0)
+        real = trp.subprocess.run
+        trp.subprocess.run = fake_run
+        try:
+            with env_var("P42_FEAT_BIN", "/x/alpha-feat"):
+                assert trp.main(["shadow", code_root, "wa", vid, "--root", root, "--procs", "2"]) == 0
+                cmd, env = seen["cmd"], seen["env"]
+                assert cmd[2:4] == ["build", "S"] and "P42_FEAT_BIN" not in env and "--bin" not in cmd
+                sh = os.path.join(root, "shadow", "wa", vid)
+                assert cmd[cmd.index("--work") + 1] == os.path.join(sh, "work") and cmd[cmd.index("--out") + 1] == os.path.join(sh, "ftab.csv")
+                assert cmd[cmd.index("--sigsx") + 1].endswith(os.path.join("sx", "wa", vid, "short-sigsx.csv")) and cmd[cmd.index("--procs") + 1] == "2"
+                r = json.load(open(os.path.join(sh, "result.json"), encoding="utf-8"))
+                assert r["equal"] is True and r["md5_ref"] == r["md5_shadow"] and r["reference_built_by"]["feat_bin_md5"] == "abc"
+                seen["body"] = "sym,sig_ms,oi_c24\nAAAUSDT,1,0.5000000001\n"
+                assert trp.main(["shadow", code_root, "wa", vid, "--root", root]) == 1
+                assert json.load(open(os.path.join(sh, "result.json"), encoding="utf-8"))["equal"] is False
+        finally:
+            trp.subprocess.run = real
 
 
 def test_level_rows_and_sigma():
