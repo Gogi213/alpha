@@ -69,6 +69,12 @@ section{scroll-margin-top:130px}
 .eq-h h2{font-size:20px;font-weight:650;letter-spacing:-.02em}
 .eq-ctls{display:flex;flex-wrap:wrap;gap:0 16px}
 .eq-ctl{margin:12px 0 4px}
+.eq-cmp[hidden]{display:none}
+.eq-cmp{display:flex;flex-wrap:wrap;align-items:center;gap:0 16px}
+.eq-dep{font-size:13px;color:var(--mfg);display:inline-flex;align-items:center;gap:8px}
+.eq-dep input{width:96px;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font:500 13px inherit;color:var(--fg);background:#fff}
+.eq-dep input[aria-invalid=true]{border-color:#eb6834}
+.cmpt{margin-top:14px}
 .eq-card{margin-top:20px}
 .eq-card .card-b{padding:12px 20px 18px}
 .eq-note{margin:10px 0 0;color:var(--mfg);font-size:12px;max-width:110ch}
@@ -155,7 +161,8 @@ section{scroll-margin-top:130px}
   <div class="pane" id="pane-equity" hidden>
     <div class="prog" id="equity">
       <div class="eq-h"><h2>Эквити</h2><span class="muted small">прибыль сделок без фандинга, $ · по времени закрытия, UTC</span></div>
-      <div class="eq-ctls"><div class="tabs eq-ctl" id="eq-tabs" role="tablist"></div><div class="tabs eq-ctl" id="eq-views" role="tablist"></div></div>
+      <div class="eq-ctls"><div class="tabs eq-ctl" id="eq-tabs" role="tablist"></div><div class="tabs eq-ctl" id="eq-views" role="tablist"></div>
+        <div class="eq-cmp" id="eq-cmp"><div class="tabs eq-ctl" id="eq-modes" role="tablist"></div><label class="eq-dep eq-ctl">Стартовый депозит, $ <input id="eq-dep" type="number" min="100" step="500" inputmode="decimal"></label></div></div>
       <p class="prog-head" id="eq-desc"></p>
       <div id="eq-view"></div>
     </div>
@@ -202,7 +209,7 @@ const sc = (d0, d1, r0, r1) => v => r0 + (v - d0) / (d1 - d0) * (r1 - r0);
 function num(v, d = 3, sign = false) {
   if (v == null || v !== v) return '—';
   const s = Math.abs(v).toFixed(d).replace('.', ',');
-  const z = +s === 0;
+  const z = +s.replace(',', '.') === 0;
   return (v < 0 && !z ? MINUS : (sign && !z ? '+' : '')) + s;
 }
 const pct = (v, d = 1) => num(v * 100, d) + ' %';
@@ -613,21 +620,54 @@ function eqData(chartId, side) {
   rows.forEach((r, i) => out.sel[r.k].push(i));
   return out;
 }
-function eqLines(S, side) {
+// компаундинг (TK-605) — только вид кривой; тесты и вердикты — всегда фикс 500 $ (NOTIONAL_U в движке не тронут).
+// Объём сделки = 500 $ × E(вход) / депозит, E(вход) = депозит + реализованная прибыль сделок линии, закрытых строго до входа этой сделки; прибыль = прибыль при 500 $ × тот же коэффициент.
+// Сделки S отсортированы по закрытию; сделка, закрытая до входа i, вошла раньше i, поэтому её прибыль уже посчитана при обходе по времени входа. Коэффициент не уходит ниже 0 (счёт не уходит в минус).
+const EQ_DEP0 = 5000, NOTIONAL_VIEW = 500;
+function eqCompound(S, mask, dep) {
+  const n = S.t.length, pnl = new Array(n).fill(0), mult = new Array(n).fill(0), ix = [];
+  for (let i = 0; i < n; i++) if (!mask || mask[i]) ix.push(i);
+  const byEn = ix.slice().sort((a, b) => S.en[a] - S.en[b] || a - b);
+  let k = 0, real = 0;
+  for (const i of byEn) {
+    while (k < ix.length && S.t[ix[k]] < S.en[i]) { real += pnl[ix[k]]; k++; }
+    mult[i] = Math.max(0, (dep + real) / dep); pnl[i] = S.net[i] * mult[i];
+  }
+  return {pnl, mult};
+}
+function eqLines(S, side, cmp = false, dep = EQ_DEP0) {
   const n = S.t.length, out = [];
-  const mk = (k, mask) => { let c = 0; const y = new Array(n); for (let i = 0; i < n; i++) { if (!mask || mask[i]) c += S.net[i]; y[i] = c; } return {k, mask, y, name: k === 'base' ? EQ_BASE[side] : EQ_NAME[k]}; };
+  const mk = (k, mask) => {
+    const cp = cmp ? eqCompound(S, mask, dep) : null, net = cp ? cp.pnl : S.net;
+    let c = 0; const y = new Array(n); for (let i = 0; i < n; i++) { if (!mask || mask[i]) c += net[i]; y[i] = c; }
+    return {k, mask, y, net, mult: cp && cp.mult, name: k === 'base' ? EQ_BASE[side] : EQ_NAME[k]};
+  };
   out.push(mk('base', null));
   Object.keys(S.sel).forEach(k => { const m = new Array(n).fill(false); S.sel[k].forEach(i => { m[i] = true; }); out.push(mk(k, m)); });
   return out;
 }
-function eqStats(S, mask) {
+function eqStats(S, mask, pn = S.net, dep = EQ_DEP0) {
   const ix = []; for (let i = 0; i < S.t.length; i++) if (!mask || mask[i]) ix.push(i);
-  const net = ix.map(i => S.net[i]), n = net.length, sum = net.reduce((a, b) => a + b, 0);
+  const net = ix.map(i => pn[i]), n = net.length, sum = net.reduce((a, b) => a + b, 0);
   const best = Math.max(...net), srt = [...net].sort((a, b) => b - a);
-  const g = {}; ix.forEach(i => { g[S.day[i]] = (g[S.day[i]] || 0) + S.net[i]; });
+  const g = {}; ix.forEach(i => { g[S.day[i]] = (g[S.day[i]] || 0) + pn[i]; });
   const dv = Object.values(g).sort((a, b) => b - a);
-  let c = 0, pk = 0, dd = 0; net.forEach(v => { c += v; pk = Math.max(pk, c); dd = Math.max(dd, pk - c); });
-  return {n, sum, mean: sum / n, best, share: sum > 0 ? best / sum : null, nodays: sum - (dv[0] || 0) - (dv[1] || 0), notrades: sum - (srt[0] || 0) - (srt[1] || 0), dd};
+  let c = 0, pk = 0, dd = 0, ddp = 0; net.forEach(v => { c += v; pk = Math.max(pk, c); dd = Math.max(dd, pk - c); ddp = Math.max(ddp, (pk - c) / (dep + pk)); });
+  return {n, sum, mean: sum / n, best, share: sum > 0 ? best / sum : null, nodays: sum - (dv[0] || 0) - (dv[1] || 0), notrades: sum - (srt[0] || 0) - (srt[1] || 0), dd, ddp};
+}
+// фикс 500 $ против компаундинга: итог и макс. просадка ($ и % от пика эквити = депозит + накопленная прибыль) для каждой линии — всегда обе
+function cmpTable(chartId, side, S, fx, cp, dep) {
+  const cols = [['sf', 'Сумма · фикс 500 $, $'], ['sc', 'Сумма · компаундинг, $'], ['df', 'Макс. просадка · фикс, $'], ['dfp', 'Макс. просадка · фикс, %'], ['dc', 'Макс. просадка · компаундинг, $'], ['dcp', 'Макс. просадка · компаундинг, %']];
+  const tb = h('table', {class: 'eqt cmpt', 'data-cmpchart': chartId, 'data-cmpside': side, 'data-dep': dep});
+  tb.append(h('thead', {}, h('tr', {}, [h('th', {}, 'Линия'), ...cols.map(([, t]) => h('th', {class: 'num'}, t))])));
+  const body = h('tbody');
+  fx.forEach((l, j) => {
+    const a = eqStats(S, l.mask, l.net, dep), b = eqStats(S, cp[j].mask, cp[j].net, dep);
+    const f = {sf: money(a.sum), sc: money(b.sum), df: num(a.dd, 2), dfp: pct(a.ddp, 2), dc: num(b.dd, 2), dcp: pct(b.ddp, 2)};
+    body.append(h('tr', {'data-line': l.k, class: l.k === 'base' ? 'base' : ''}, [h('td', {}, [h('span', {class: 'sw', style: `border-color:${EQ_COL[l.k]};border-top-width:${l.k === 'base' ? 4 : 3}px`}), l.name]), ...cols.map(([k, lab]) => h('td', {class: 'num', 'data-f': k, 'data-lab': lab}, f[k]))]));
+  });
+  tb.append(body);
+  return h('div', {style: 'overflow-x:auto'}, tb);
 }
 function eqTable(chartId, side, S, lines) {
   const cols = [['n', 'Сделок'], ['sum', 'Сумма, $'], ['mean', 'В среднем на сделку, $'], ['best', 'Лучшая сделка, $'], ['share', 'Доля лучшей в сумме'], ['nodays', 'Сумма без 2 лучших суток, $'], ['notrades', 'Сумма без 2 лучших сделок, $'], ['dd', 'Макс. просадка, $']];
@@ -635,14 +675,14 @@ function eqTable(chartId, side, S, lines) {
   tb.append(h('thead', {}, h('tr', {}, [h('th', {}, 'Линия'), ...cols.map(([, t]) => h('th', {class: 'num'}, t))])));
   const body = h('tbody');
   lines.forEach(l => {
-    const st = eqStats(S, l.mask), f = {n: ints(st.n), sum: money(st.sum), mean: money(st.mean), best: money(st.best), share: st.share == null ? '—' : pct(st.share, 1), nodays: money(st.nodays), notrades: money(st.notrades), dd: num(st.dd, 2)};
+    const st = eqStats(S, l.mask, l.net, ST.dep), f = {n: ints(st.n), sum: money(st.sum), mean: money(st.mean), best: money(st.best), share: st.share == null ? '—' : pct(st.share, 1), nodays: money(st.nodays), notrades: money(st.notrades), dd: num(st.dd, 2)};
     body.append(h('tr', {'data-line': l.k, class: l.k === 'base' ? 'base' : ''}, [h('td', {}, [h('span', {class: 'sw', style: `border-color:${EQ_COL[l.k]};border-top-width:${l.k === 'base' ? 4 : 3}px`}), l.name]), ...cols.map(([k]) => h('td', {class: 'num', 'data-f': k, 'data-lab': cols.find(c => c[0] === k)[1]}, f[k]))]));
   });
   tb.append(body);
   return h('div', {style: 'overflow-x:auto'}, tb);
 }
 function eqChart(chartId, side, width) {
-  const C = E.charts[chartId], S = eqData(chartId, side), lines = eqLines(S, side), n = S.t.length;
+  const C = E.charts[chartId], S = eqData(chartId, side), dep = ST.dep, cmp = ST.cmp, linesFx = eqLines(S, side, false, dep), linesCp = eqLines(S, side, true, dep), lines = cmp ? linesCp : linesFx, n = S.t.length;
   const w = width, hh = w < 520 ? 300 : 360, x0 = C.start_ms, x1 = C.end_ms + 3600e3, DAYMS = 86400e3;
   const [ylo, yhi] = rng(lines.flatMap(l => l.y).concat([0]), .08);
   const stepD = w < 560 ? 14 : 7, xt = []; for (let t = x0; t <= x1; t += stepD * DAYMS) xt.push(t);
@@ -671,6 +711,7 @@ function eqChart(chartId, side, width) {
     vl.setAttribute('x1', xx); vl.setAttribute('x2', xx); vl.setAttribute('visibility', 'visible');
     dots.forEach((d, k) => { d.setAttribute('cx', xx); d.setAttribute('cy', Y(lines[k].y[i])); d.setAttribute('visibility', 'visible'); });
     tip.innerHTML = `<div class="t">${S.sym[i]}</div>` + trow('Вход', fdt(S.en[i]) + ' UTC') + trow('Закрытие', fdt(S.t[i]) + ' UTC') + trow('Прибыль сделки', '<b>' + money(S.net[i]) + ' $</b>') +
+      (cmp ? trow('Объём · база, компаундинг', money(NOTIONAL_VIEW * linesCp[0].mult[i], 0) + ' $') + trow('Прибыль при этом объёме', '<b>' + money(linesCp[0].net[i]) + ' $</b>') : '') +
       '<div class="muted" style="margin:6px 0 2px">Накоплено на этот момент</div>' +
       lines.map(l => `<div class="r"><span><span style="display:inline-block;width:12px;border-top:${l.k === 'base' ? 4 : 3}px solid ${EQ_COL[l.k]};vertical-align:middle;margin-right:6px"></span>${l.name}${l.mask && l.mask[i] ? ' ✓' : ''}</span><span>${money(l.y[i])}</span></div>`).join('') +
       '<div class="muted" style="margin-top:4px">✓ — эта сделка входит в линию</div>';
@@ -678,10 +719,11 @@ function eqChart(chartId, side, width) {
   };
   r.addEventListener('mouseenter', show); r.addEventListener('mousemove', show);
   r.addEventListener('mouseleave', () => { vl.setAttribute('visibility', 'hidden'); dots.forEach(d => d.setAttribute('visibility', 'hidden')); tip.style.display = 'none'; });
-  const card = h('div', {class: 'card eq-card', 'data-eqchart': chartId});
-  card.append(h('div', {class: 'card-h'}, [h('b', {}, C.title), h('span', {}, `${fday(x0)} — ${fday(C.end_ms)} · сделок в базе ${ints(n)}`)]));
+  const card = h('div', {class: 'card eq-card', 'data-eqchart': chartId, 'data-eqmode': cmp ? 'cmp' : 'fix'});
+  card.append(h('div', {class: 'card-h'}, [h('b', {}, C.title), h('span', {}, `${fday(x0)} — ${fday(C.end_ms)} · сделок в базе ${ints(n)} · ${cmp ? 'компаундинг, депозит ' + ints(Math.round(dep)) + ' $' : 'фикс 500 $ на сделку'}`)]));
   const b = h('div', {class: 'card-b'});
-  b.append(legend(lines.map(l => [swLine(EQ_COL[l.k], l.k === 'base' ? 4 : 2.25), l.name])), p.svg, eqTable(chartId, side, S, lines));
+  b.append(legend(lines.map(l => [swLine(EQ_COL[l.k], l.k === 'base' ? 4 : 2.25), l.name])), p.svg, eqTable(chartId, side, S, lines),
+    h('p', {class: 'eq-note cmp-h'}, `Фикс 500 $ и компаундинг, депозит ${ints(Math.round(dep))} $ — итог и макс. просадка каждой линии (обе кривые, независимо от переключателя):`), cmpTable(chartId, side, S, linesFx, linesCp, dep));
   b.append(h('p', {class: 'eq-note'}, chartId === 'ja'
     ? 'Окна чтения: замороженные модели, выбор — по сохранённым оценкам при чтении, граница «трети» — замороженная. Июль и август — одна непрерывная серия. «Сутки» — по дню сигнала, как в проверке TK-598.'
     : 'Окно подбора: выбор по внефолдовым оценкам (модель каждой сделки не видела). Модели подбирались на этих сутках — это отбор, не доказательство.'));
@@ -694,16 +736,24 @@ function renderEquity() {
   const side = ST.eq, view = document.getElementById('eq-view');
   document.querySelectorAll('#eq-tabs button').forEach(b => { b.setAttribute('aria-selected', b.dataset.side === side); b.hidden = shape && b.dataset.side === 'both'; });
   document.querySelectorAll('#eq-views button').forEach(b => b.setAttribute('aria-selected', b.dataset.view === ST.view));
+  document.querySelectorAll('#eq-modes button').forEach(b => b.setAttribute('aria-selected', (b.dataset.mode === 'cmp') === ST.cmp));
+  document.getElementById('eq-cmp').hidden = shape;
+  document.getElementById('eq-dep').value = ST.dep;
   document.getElementById('eq-desc').textContent = shape ? SH_DESC[side] : EQ_DESC[side];
   view.replaceChildren();
   const width = Math.max(300, Math.floor(view.clientWidth - (view.clientWidth < 520 ? 22 : 42)));
   ['ja', 'fit'].forEach(id => view.append(shape ? shapeCard(id, side, width) : eqChart(id, side, width)));
+  if (!shape) view.append(h('p', {class: 'eq-note', id: 'eq-cmp-note'}, 'Компаундинг — только вид кривой: тесты, вердикты и все числа протоколов считаются при фиксированных 500 $ на сделку. Объём сделки = 500 $ × E / депозит, где E — депозит плюс реализованная прибыль сделок линии, закрытых до входа этой сделки (пересекающиеся сделки берут эквити на своём входе); прибыль сделки = прибыль при 500 $ × тот же коэффициент. Каждая линия — отдельный счёт с тем же депозитом («шорт + лонг: все сделки» — один счёт на обе стороны). Макс. просадка в % — от пика эквити (депозит + накопленная прибыль). Депозит влияет и на % просадки при фиксе.'));
 }
 function initEquity() {
   const tabs = document.getElementById('eq-tabs');
   EQ_SIDES.forEach(([k, t]) => { const b = h('button', {role: 'tab', 'data-side': k, 'aria-selected': 'false'}, t); b.onclick = () => { ST.eq = k; setHash(); renderEquity(); }; tabs.append(b); });
   const vs = document.getElementById('eq-views');
   [['curve', 'Кривая'], ['shape', 'Форма']].forEach(([k, t]) => { const b = h('button', {role: 'tab', 'data-view': k, 'aria-selected': 'false'}, t); b.onclick = () => { ST.view = k; setHash(); renderEquity(); }; vs.append(b); });
+  const ms = document.getElementById('eq-modes');
+  [['fix', 'Фикс 500 $'], ['cmp', 'Компаундинг']].forEach(([k, t]) => { const b = h('button', {role: 'tab', 'data-mode': k, 'aria-selected': 'false'}, t); b.onclick = () => { ST.cmp = k === 'cmp'; setHash(); renderEquity(); }; ms.append(b); });
+  const inp = document.getElementById('eq-dep');
+  inp.addEventListener('change', () => { const v = Number(inp.value); if (inp.value.trim() !== '' && Number.isFinite(v) && v >= 100 && v <= 1e9) { ST.dep = v; inp.removeAttribute('aria-invalid'); setHash(); renderEquity(); } else { inp.setAttribute('aria-invalid', 'true'); } });
 }
 
 // ── форма эквити (TK-602): сутки, рывки и спады; данные — shape.json (tk602_shape.py)
@@ -775,17 +825,24 @@ function shapeCard(wid, side, width) {
   return card;
 }
 
-// ── вкладки верхнего уровня: хеш #progress | #targets | #equity[/short|long|both] | #model[/long|short]
+// ── вкладки верхнего уровня: хеш #progress | #targets | #equity[/short|long|both][/shape | /comp][/dep=N] | #model[/long|short]
 const TABS = [['progress', 'Ход работ'], ['targets', 'Цели TK-598'], ['equity', 'Эквити'], ['model', 'Модель TK-592']];
-const ST = {tab: 'progress', eq: 'short', view: 'curve', model: 'long'};
+const ST = {tab: 'progress', eq: 'short', view: 'curve', model: 'long', cmp: false, dep: EQ_DEP0};
 function parseHash() {
-  const [a, b, c] = location.hash.replace(/^#/, '').split('/');
+  const [a, b, c, d] = location.hash.replace(/^#/, '').split('/');
   if (a === 'long' || a === 'short') { ST.tab = 'model'; ST.model = a; return; }
   if (TABS.some(t => t[0] === a)) ST.tab = a;
-  if (a === 'equity') { if (EQ_SIDES.some(s => s[0] === b)) ST.eq = b; ST.view = b === 'shape' || c === 'shape' ? 'shape' : 'curve'; }
+  if (a === 'equity') {
+    if (EQ_SIDES.some(s => s[0] === b)) ST.eq = b;
+    const rest = [b, c, d];
+    ST.view = rest.includes('shape') ? 'shape' : 'curve';
+    ST.cmp = rest.includes('comp');
+    const dm = rest.map(x => /^dep=(\d+(?:\.\d+)?)$/.exec(x || '')).find(Boolean);
+    ST.dep = dm && +dm[1] >= 100 && +dm[1] <= 1e9 ? +dm[1] : EQ_DEP0;
+  }
   if (a === 'model' && (b === 'long' || b === 'short')) ST.model = b;
 }
-function setHash() { history.replaceState(null, '', '#' + ST.tab + (ST.tab === 'equity' ? '/' + ST.eq + (ST.view === 'shape' ? '/shape' : '') : ST.tab === 'model' ? '/' + ST.model : '')); }
+function setHash() { history.replaceState(null, '', '#' + ST.tab + (ST.tab === 'equity' ? '/' + ST.eq + (ST.view === 'shape' ? '/shape' : (ST.cmp ? '/comp' : '') + (ST.dep !== EQ_DEP0 ? '/dep=' + ST.dep : '')) : ST.tab === 'model' ? '/' + ST.model : '')); }
 function route() {
   TABS.forEach(([k]) => { document.getElementById('pane-' + k).hidden = k !== ST.tab; });
   document.querySelectorAll('#toptabs button').forEach(b => b.setAttribute('aria-selected', b.dataset.tab === ST.tab));

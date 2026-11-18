@@ -86,7 +86,7 @@ const base = url.split('#')[0];
     }
     eqdom[side] = await page.evaluate(() => {
       const r = {};
-      document.querySelectorAll('table.eqt').forEach(tb => {
+      document.querySelectorAll('table.eqt[data-eqchart]').forEach(tb => {
         const k = tb.dataset.eqchart + '|' + tb.dataset.eqside;
         r[k] = {};
         tb.querySelectorAll('tbody tr[data-line]').forEach(tr => { r[k][tr.dataset.line] = Object.fromEntries([...tr.querySelectorAll('td[data-f]')].map(td => [td.dataset.f, td.innerText.trim()])); });
@@ -100,6 +100,65 @@ const base = url.split('#')[0];
     report.equity[side] = info;
   }
   fs.writeFileSync(`${out}/dom_equity.json`, JSON.stringify(eqdom));
+  // ── «Эквити» → компаундинг (TK-605): переключатель фикс/компаундинг, депозит, таблица «обе кривые»; dom_cmp.json
+  const grab = () => page.evaluate(() => {
+    const tables = {}, cmpt = {}, fin = {};
+    document.querySelectorAll('table.eqt[data-eqchart]').forEach(tb => {
+      const k = tb.dataset.eqchart + '|' + tb.dataset.eqside; tables[k] = {};
+      tb.querySelectorAll('tbody tr[data-line]').forEach(tr => { tables[k][tr.dataset.line] = Object.fromEntries([...tr.querySelectorAll('td[data-f]')].map(td => [td.dataset.f, td.innerText.trim()])); });
+    });
+    document.querySelectorAll('table.cmpt').forEach(tb => {
+      const k = tb.dataset.cmpchart + '|' + tb.dataset.cmpside; cmpt[k] = {dep: tb.dataset.dep};
+      tb.querySelectorAll('tbody tr[data-line]').forEach(tr => { cmpt[k][tr.dataset.line] = Object.fromEntries([...tr.querySelectorAll('td[data-f]')].map(td => [td.dataset.f, td.innerText.trim()])); });
+    });
+    document.querySelectorAll('path[data-final]').forEach(p => { fin[p.dataset.chart] = +p.dataset.final; });
+    const sel = document.querySelector('#eq-modes button[aria-selected="true"]'), inp = document.getElementById('eq-dep');
+    return {tables, cmpt, finals: fin, modes: [...document.querySelectorAll('.eq-card[data-eqchart]')].map(c => c.dataset.eqchart + ':' + c.dataset.eqmode), mode: sel ? sel.dataset.mode : null, dep: inp.value, invalid: inp.getAttribute('aria-invalid'), hash: location.hash,
+      heads: [...document.querySelectorAll('.eq-card[data-eqchart] .card-h span')].map(x => x.textContent), cmpHidden: document.getElementById('eq-cmp').hidden, note: !!document.getElementById('eq-cmp-note')};
+  });
+  const hov = async (ch) => {
+    const loc = page.locator(`rect[data-chart="eq.${ch}.hover"]`); await loc.scrollIntoViewIfNeeded(); const b = await loc.boundingBox(); const r = [];
+    for (const f of [0.2, 0.55, 0.9]) { await page.mouse.move(b.x + b.width * f, b.y + b.height / 2); await page.waitForTimeout(150); r.push(await page.evaluate(() => document.getElementById('tip').innerText.replace(/\n/g, ' | '))); }
+    await page.mouse.move(2, 2); return r;
+  };
+  const setDep = async v => { await page.fill('#eq-dep', String(v)); await page.press('#eq-dep', 'Enter'); await page.waitForTimeout(250); };
+  const cdom = {report: {}};
+  await page.click('#eq-views button[data-view="curve"]');
+  for (const side of ['short', 'long', 'both']) {
+    await page.click(`#eq-tabs button[data-side="${side}"]`);
+    await page.click('#eq-modes button[data-mode="fix"]');
+    const fx = await grab();
+    await page.click('#eq-modes button[data-mode="cmp"]');
+    await page.waitForSelector('.eq-card[data-eqmode="cmp"]');
+    const cp = await grab();
+    await top(`equity-${side}-cmp-top`);
+    await page.locator('#equity').screenshot({path: `${out}/equity-${side}-cmp.png`});
+    const hv = {ja: await hov('ja'), fit: await hov('fit')};
+    await page.screenshot({path: `${out}/equity-${side}-cmp-hover.png`});
+    cdom[side] = {fix: fx, cmp: cp, hover: hv, overflowX: await overflow()};
+  }
+  await page.click('#eq-tabs button[data-side="short"]');
+  await setDep(10000);
+  cdom.short.cmp10k = await grab();
+  await page.locator('.eq-card[data-eqchart="ja"]').screenshot({path: `${out}/equity-short-cmp-10k-ja.png`});
+  await setDep(0);
+  cdom.short.invalid = await grab();
+  await setDep(5000);
+  cdom.short.back5k = await grab();
+  await page.click('#eq-modes button[data-mode="fix"]');
+  cdom.short.fixAgain = await grab();
+  await page.click('#eq-views button[data-view="shape"]');
+  cdom.short.shapeView = await grab();
+  await page.click('#eq-views button[data-view="curve"]');
+  await page.goto(base + '#equity/long/comp/dep=7000', {waitUntil: 'load'});
+  await page.waitForSelector('#eq-view table.cmpt');
+  cdom.reload = await grab();
+  await page.goto(base + '#equity/short', {waitUntil: 'load'});
+  await page.waitForSelector('#eq-view table.cmpt');
+  cdom.defaults = await grab();
+  fs.writeFileSync(`${out}/dom_cmp.json`, JSON.stringify(cdom));
+  report.cmp = {mobileOverflow: Object.fromEntries(['short', 'long', 'both'].map(k => [k, cdom[k].overflowX])), reloadHash: cdom.reload.hash, reloadMode: cdom.reload.mode, reloadDep: cdom.reload.dep, defaultsMode: cdom.defaults.mode, defaultsDep: cdom.defaults.dep, invalid: cdom.short.invalid.invalid};
+  await page.click('#toptabs button[data-tab="equity"]').catch(() => {});
   // ── «Эквити» → «Форма» (TK-602): сутки, рывки и спады; наведение на сутки, таблицы, столбцы
   report.shape = {};
   const shdom = {};

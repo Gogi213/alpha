@@ -2,6 +2,7 @@
 
 Использование: <venv>/bin/python tk593_check.py <tree TK-592> <pairs TK-592> <index.html> <каталог с dom_*.json> [ep_u0.parquet <каталог кода TK-592>]
 Если даны таблица и каталог кода — дополнительно пересчитываются AUC «в выборке» и на проверке из .cbm независимым проходом.
+TK-605: компаундинг вкладки «Эквити» (режим «фикс» == прежняя кривая без допуска; независимая куча-реализация против DOM, dom_cmp.json).
 TK-601: ещё проверяет блок «Ход работ» (data/progress.json рядом с index.html → вшито → dom_progress.json).
 Выход: число проверок и расхождений; код 1 при любом расхождении.
 """
@@ -406,6 +407,125 @@ if os.path.exists(edom_path):
                     eq(f"наведение {chart}|{side} {sym} {close_s}: накоплено базы", any(num(cum[i], 2, True) == base_s for i in hits), True)
 else:
     bad.append(("нет dom_equity.json", None, None))
+
+# ── 4b. компаундинг (TK-605): только вид кривой. Независимая реализация (куча незакрытых сделок) против DOM (dom_cmp.json из tk593_shots.js);
+#    главная проверка — режим «фикс» точь-в-точь равен прежней кривой (финалы линий, tol 0, и таблицы == dom_equity.json).
+import heapq
+
+
+def comp_ref(S, mask, dep, notional=500.0):
+    """Компаундинг по определению: объём = 500 × E(вход)/депозит, E = депозит + реализованная прибыль сделок линии, закрытых строго до входа."""
+    idx = sorted((i for i in range(len(S["t"])) if mask is None or mask[i]), key=lambda i: (S["en"][i], i))
+    heap, real, pnl, vol = [], 0.0, [0.0] * len(S["t"]), [0.0] * len(S["t"])
+    for i in idx:
+        while heap and heap[0][0] < S["en"][i]:
+            real += heapq.heappop(heap)[1]
+        m = max(0.0, (dep + real) / dep)
+        pnl[i], vol[i] = S["net"][i] * m, notional * m
+        heapq.heappush(heap, (S["t"][i], pnl[i]))
+    return pnl, vol
+
+
+def dd_ref(pnl, mask, dep):
+    c = pk = dd = ddp = 0.0
+    for i, v in enumerate(pnl):
+        if mask is None or mask[i]:
+            c += v
+            pk = max(pk, c)
+            dd = max(dd, pk - c)
+            ddp = max(ddp, (pk - c) / (dep + pk))
+    return dd, ddp
+
+
+# опорный пример руками: A(вх 0, закр 10, +50), B(вх 5, закр 20, +20; пересекается с A — эквити на своём входе = депозит), C(вх 15 — A закрыта: E = 5050, ×1,01), D(вх 25 — A, B закрыты)
+_T = {"t": [10, 20, 30, 40], "en": [0, 5, 15, 25], "net": [50.0, 20.0, 30.0, -10.0]}
+_p, _v = comp_ref(_T, None, 5000.0)
+_m_c, _m_d = 5050 / 5000, (5000 + 50 + 20) / 5000
+eq("компаундинг, опорный пример: объёмы", ",".join(f"{x:.6f}" for x in _v), ",".join(f"{x:.6f}" for x in (500.0, 500.0, 500.0 * _m_c, 500.0 * _m_d)))
+eq("компаундинг, опорный пример: прибыль", ",".join(f"{x:.6f}" for x in _p), ",".join(f"{x:.6f}" for x in (50.0, 20.0, 30.0 * _m_c, -10.0 * _m_d)))
+_p2, _ = comp_ref(_T, None, 1e12)
+eq("компаундинг: при огромном депозите кривая равна фиксу", max(abs(a - b) for a, b in zip(_p2, _T["net"])) < 1e-6, True)
+
+cdp = os.path.join(dom_dir, "dom_cmp.json")
+if os.path.exists(cdp):
+    cd = json.load(open(cdp, encoding="utf-8"))
+    ed0 = json.load(open(edom_path, encoding="utf-8"))
+
+    def check_mode(tag, side, dom, dep, cmp_on):
+        for chart in ("ja", "fit"):
+            S = eq_series(chart, side)
+            lines = eq_lines(S, side)
+            want_mode = "cmp" if cmp_on else "fix"
+            eq(f"{tag} {side} карточки в нужном режиме", ",".join(dom["modes"]), f"ja:{want_mode},fit:{want_mode}")
+            ct = dom["cmpt"].get(f"{chart}|{side}")
+            eq(f"{tag} {chart}|{side} таблица «обе кривые» есть", ct is not None, True)
+            eq(f"{tag} {chart}|{side} депозит в таблице", ct["dep"], str(dep))
+            tbl = dom["tables"][f"{chart}|{side}"]
+            for k, m in lines:
+                pf = S["net"]
+                pc, _ = comp_ref(S, m, dep)
+                sf = sum(pf[i] for i in range(len(pf)) if m is None or m[i])
+                sc = sum(pc[i] for i in range(len(pc)) if m is None or m[i])
+                dfx, dfxp = dd_ref(pf, m, dep)
+                dcp, dcpp = dd_ref(pc, m, dep)
+                row = ct[k]
+                eq(f"{tag} {chart}|{side}|{k} сумма фикс", row["sf"], num(sf, 2, True))
+                eq(f"{tag} {chart}|{side}|{k} сумма компаундинг", row["sc"], num(sc, 2, True))
+                eq(f"{tag} {chart}|{side}|{k} просадка фикс $", row["df"], num(dfx, 2))
+                eq(f"{tag} {chart}|{side}|{k} просадка фикс %", row["dfp"], num(dfxp * 100, 2) + " %")
+                eq(f"{tag} {chart}|{side}|{k} просадка компаундинг $", row["dc"], num(dcp, 2))
+                eq(f"{tag} {chart}|{side}|{k} просадка компаундинг %", row["dcp"], num(dcpp * 100, 2) + " %")
+                want_main = eq_fmt(eq_stats(pc if cmp_on else pf, S["day"], m))
+                for f, wv in want_main.items():
+                    eq(f"{tag} {chart}|{side}|{k} главная таблица {f}", tbl[k][f], wv)
+                eq(f"{tag} {chart}|{side}|{k} финал линии на графике", dom["finals"][f"eq.{chart}.{k}"], sc if cmp_on else sf, 1e-9)
+
+    for side in ("short", "long", "both"):
+        d = cd[side]
+        # главное: режим «фикс» — это прежняя кривая. Финалы линий на графике == последовательная сумма из equity.json, без допуска; таблицы == dom_equity.json
+        for chart in ("ja", "fit"):
+            S = eq_series(chart, side)
+            for k, m in eq_lines(S, side):
+                c = 0.0
+                for i, v in enumerate(S["net"]):
+                    if m is None or m[i]:
+                        c += v
+                eq(f"ФИКС == прежняя кривая {chart}|{side}|{k}: финал линии (tol 0)", d["fix"]["finals"][f"eq.{chart}.{k}"] == c, True)
+                eq(f"ФИКС == прежняя кривая {chart}|{side}|{k}: финал == финал до TK-605 (dom_equity.json)", d["fix"]["finals"][f"eq.{chart}.{k}"] == ed0[side]["finals"][f"eq.{chart}.{k}"], True)
+            eq(f"ФИКС == прежняя кривая {chart}|{side}: таблица == dom_equity.json", json.dumps(d["fix"]["tables"][f"{chart}|{side}"], sort_keys=True), json.dumps(ed0[side]["tables"][f"{chart}|{side}"], sort_keys=True))
+        check_mode("фикс", side, d["fix"], 5000, False)
+        check_mode("компаундинг 5000", side, d["cmp"], 5000, True)
+        eq(f"{side}: переключатель в режиме компаундинга", d["cmp"]["mode"], "cmp")
+        eq(f"{side}: переключатель по умолчанию — фикс", d["fix"]["mode"], "fix")
+        eq(f"{side}: депозит по умолчанию", d["fix"]["dep"], "5000")
+        eq(f"{side}: нет горизонтальной прокрутки при компаундинге", d["overflowX"] <= 0, True)
+        # наведение в режиме компаундинга: объём и прибыль при этом объёме — линия базы
+        fd = lambda ms: dt.datetime.fromtimestamp(ms / 1000, dt.timezone.utc).strftime("%d.%m %H:%M")
+        for chart in ("ja", "fit"):
+            S = eq_series(chart, side)
+            pc, vl = comp_ref(S, None, 5000.0)
+            for text in d["hover"][chart]:
+                parts = [p.strip() for p in text.split("|")]
+                sym, close_s, net_s = parts[0], parts[parts.index("Закрытие") + 1].replace(" UTC", ""), parts[parts.index("Прибыль сделки") + 1].replace(" $", "")
+                vol_s, pc_s = parts[parts.index("Объём · база, компаундинг") + 1].replace(" $", ""), parts[parts.index("Прибыль при этом объёме") + 1].replace(" $", "")
+                hits = [i for i in range(len(S["t"])) if S["sym"][i] == sym and fd(S["t"][i]) == close_s and num(S["net"][i], 2, True) == net_s]
+                eq(f"наведение компаундинг {chart}|{side} {sym} {close_s}: объём и прибыль базы", any(num(vl[i], 0, True) == vol_s and num(pc[i], 2, True) == pc_s for i in hits), True)
+    # депозит 10 000: другие кривые; 0 — отклонён, состояние прежнее; возврат к 5 000 и к фиксу — то же, что было
+    check_mode("компаундинг 10000", "short", cd["short"]["cmp10k"], 10000, True)
+    eq("депозит 10000: шапка карточки", all("депозит 10 000 $" in x.replace(" ", " ") for x in cd["short"]["cmp10k"]["heads"]), True)
+    eq("депозит 0 отклонён (aria-invalid)", cd["short"]["invalid"]["invalid"], "true")
+    eq("депозит 0: кривые прежние (10 000)", json.dumps(cd["short"]["invalid"]["finals"], sort_keys=True), json.dumps(cd["short"]["cmp10k"]["finals"], sort_keys=True))
+    eq("депозит вернули 5000: кривые как в первый раз", json.dumps(cd["short"]["back5k"]["finals"], sort_keys=True), json.dumps(cd["short"]["cmp"]["finals"], sort_keys=True))
+    eq("назад в «фикс»: финалы как до переключения (tol 0)", json.dumps(cd["short"]["fixAgain"]["finals"], sort_keys=True), json.dumps(cd["short"]["fix"]["finals"], sort_keys=True))
+    eq("назад в «фикс»: таблицы как до переключения", json.dumps(cd["short"]["fixAgain"]["tables"], sort_keys=True), json.dumps(cd["short"]["fix"]["tables"], sort_keys=True))
+    eq("«Форма»: переключатель и депозит скрыты, подсказки о компаундинге нет", f'{cd["short"]["shapeView"]["cmpHidden"]}|{cd["short"]["shapeView"]["note"]}', "True|False")
+    # хеш: открытие по ссылке #equity/long/comp/dep=7000 и ссылка без параметров
+    eq("хеш #equity/long/comp/dep=7000: режим компаундинг, депозит 7000", f'{cd["reload"]["mode"]}|{cd["reload"]["dep"]}', "cmp|7000")
+    check_mode("хеш comp/dep=7000", "long", cd["reload"], 7000, True)
+    eq("хеш #equity/short: фикс, депозит 5000", f'{cd["defaults"]["mode"]}|{cd["defaults"]["dep"]}', "fix|5000")
+    eq("хеш после правки депозита содержит comp и dep", cd["short"]["cmp10k"]["hash"], "#equity/short/comp/dep=10000")
+else:
+    bad.append(("нет dom_cmp.json", None, None))
 
 # ── 5. форма эквити (TK-602): shape.json → вшитые данные → независимый пересчёт из массивов equity.json → DOM (dom_shape.json, report.json из tk593_shots.js)
 SH = json.loads(re.search(r'<script id="shape-data" type="application/json">(.*?)</script>', html, re.S).group(1).replace("<\\/", "</"))
