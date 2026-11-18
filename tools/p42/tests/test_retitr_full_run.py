@@ -660,12 +660,28 @@ def test_replay_trace_equal_frontier_and_patches_restored():
             ctx3, srv3 = make(t, thin_world(eff))
             b = trp.replay_trace(rf, rr, ctx3, g5, c595)
             assert trp.compare_traces(a, b) == [] and a["digest"] == b["digest"]
+            assert a["depth"]["ok"] and a["depth"]["steps"] == len(a["steps"]) and a["depth"]["last"]["kind"] in ("axis", "joint") and a["ingested"] == 0
             files = sorted(os.listdir(ctx3.paths.npz))
-            os.remove(os.path.join(ctx3.paths.npz, files[len(files) // 2]))
+            victim = os.path.join(ctx3.paths.npz, files[len(files) // 2])
+            os.remove(victim)                                                                    # серия без npz, но с DONE: возобновление возьмёт её из выходов движка — повтор тоже, только чтением
+            ctxI, srvI = make(t, thin_world(eff))
+            ing = trp.replay_trace(rf, rr, ctxI, g5, c595)
+            assert ing["done"] and ing["ingested"] == 1 and srvI.engine_variants == 0 and not os.path.exists(victim)
+            assert sorted(s["digest"] for s in ing["steps"]) == sorted(s["digest"] for s in a["steps"])                   # порядок завершения шагов зависит от того, кто ждал данных
+            assert "ingested: 0 ≠ 1" in trp.compare_traces(a, ing)
+            for dp, _, fs in os.walk(os.path.join(t, "root", "out")):                            # теперь и меток DONE нет: прогона нет в кэше — настоящая граница
+                for f in fs:
+                    if f == rr.DONE_MARK:
+                        os.remove(os.path.join(dp, f))
             ctx4, srv4 = make(t, thin_world(eff))
             c = trp.replay_trace(rf, rr, ctx4, g5, c595)
-            assert not c["done"] and c["frontier"] and c["frontier"]["missing"] >= 1 and srv4.engine_variants == 0 and (rf.eval_axis, rf.run_joint) == orig
-            assert len(c["steps"]) < len(a["steps"]) and trp.compare_traces(a, c)
+            assert not c["done"] and c["frontier"] and c["frontier"]["missing"] >= 1 and c["frontier"]["genuine"] and srv4.engine_variants == 0 and (rf.eval_axis, rf.run_joint) == orig
+            assert len(c["steps"]) < len(a["steps"]) and trp.compare_traces(a, c) and c["depth"]["ok"] and c["depth"]["frontier_genuine"] is True
+            assert not os.path.exists(victim)                                                    # повтор ничего не записал
+            z = trp.depth_of({"steps": [], "frontier": {"genuine": True, "round": 0, "missing": 1}, "done": False})
+            assert not z["ok"] and z["steps"] == 0                                               # ноль шагов — не зачёт
+            early = trp.depth_of({"steps": a["steps"][:3], "frontier": {"genuine": False, "round": 1, "missing": 1}, "done": False})
+            assert not early["ok"] and early["frontier_genuine"] is False                        # ложная граница (прогон в кэше есть) — ранняя остановка, не зачёт
             a2 = json.loads(json.dumps(a))
             a2["steps"][0]["digest"] = "0" * 64
             assert any(d.startswith("steps[0]") for d in trp.compare_traces(a, a2))

@@ -8,7 +8,8 @@
 
 `trace` не запускает движок и сборщик признаков: на первом раунде с недостающей серией/таблицей — граница (`frontier`), повтор кончается. След: на раунд — число уникальных прогонов, sha256 списка
 хэшей и sha256 содержимого серий; на каждый шаг оси / совместную сетку — сторона, ось, победитель, принят ли, sha256 всех строк (кандидат, Δ, условия, причины). Без `--live` отказывается работать при
-активном юните `tk599-run`; с `--live` читает кэш, не удаляя оборванных файлов (только для проверки инструмента — след на движущемся состоянии сравнивать нельзя).
+активном юните `tk599-run`; с `--live` — только проверка инструмента (след на движущемся состоянии сравнивать нельзя). Повтор ТОЛЬКО ЧИТАЕТ: оборванный npz не удаляется (подгрузка заменена безопасной), серии без npz, но с DONE на всех окнах, читаются из выходов движка в память.
+Глубина (`depth`): число шагов, последний шаг и признак «граница настоящая» (недостающего прогона нет в кэше: ни npz, ни DONE/ready); 0 шагов или ложная граница — код возврата 3, не зачёт.
 Код процедуры и ворот берётся из <каталога кода> (`sys.path`), байткод туда не пишется."""
 from __future__ import annotations
 
@@ -50,11 +51,35 @@ def _dump(rr, o):
     return json.dumps(rr.jsonable(o), sort_keys=True, default=str, ensure_ascii=True)
 
 
+def _absent(ctx, ev, rf, r):
+    """Недостающий прогон действительно отсутствует в кэше: у таблицы признаков — нет метки ready хотя бы на одном окне; у серии — нет npz и нет метки DONE хотя бы на одном окне.
+    Иначе граница ложная (серия на диске есть, а повтор остановился) — не зачёт."""
+    if isinstance(r, rf.FtabNeed):
+        return not ctx.store.ready(r)
+    p = ev._npz(r)
+    return not (p and os.path.exists(p)) and not ctx.engine.done(r)
+
+
+def depth_of(tr):
+    """Глубина повтора (критик): число воспроизведённых шагов и то, что последний шаг — последний, на который есть данные в кэше. Ноль шагов или ложная граница — не зачёт."""
+    steps, fr = tr["steps"], tr["frontier"]
+    last = None if not steps else {k: steps[-1].get(k) for k in ("kind", "side", "axis", "winner", "accepted", "n_cells", "chosen") if k in steps[-1]}
+    if not steps:
+        ok, why = False, "0 шагов"
+    elif tr["done"]:
+        ok, why = True, "повтор дошёл до конца процедуры: данных на все шаги есть"
+    elif fr and fr.get("genuine"):
+        ok, why = True, "граница: раунд %d, не хватает %d прогонов — npz нет и меток DONE/ready нет, дальше данных в кэше нет" % (fr["round"], fr["missing"])
+    else:
+        ok, why = False, "ранняя остановка: недостающий прогон есть в кэше (%s)" % fr
+    return {"steps": len(steps), "last": last, "frontier_genuine": None if fr is None else bool(fr.get("genuine")), "ok": ok, "why": why}
+
+
 def replay_trace(rf, rr, ctx, g5, c595=None):
     """След готовых раундов и шагов на кэше `ctx` (серии, ready). `ev.fulfil` и `rf.eval_axis` / `rf.run_joint` подменяются на время вызова и возвращаются в `finally`."""
     import numpy as np
     ev = ctx.ev
-    tr = {"rounds": [], "steps": [], "frontier": None, "done": False}
+    tr = {"rounds": [], "steps": [], "frontier": None, "done": False, "ingested": 0}
     sd = {}
 
     def fulfil(reqs):
@@ -62,8 +87,15 @@ def replay_trace(rf, rr, ctx, g5, c595=None):
         for r in reqs:
             uniq.setdefault(r.hash, r)
         miss = ev.missing(list(uniq.values()))                         # подгружает готовые серии из кэша в ev.cache
-        if miss:
-            tr["frontier"] = {"round": len(tr["rounds"]), "requests": len(uniq), "missing": len(miss)}
+        rest = []
+        for r in miss:                                                 # серия без npz, но с метками DONE на всех окнах: рабочий процесс при возобновлении возьмёт её из выходов движка без запуска
+            if not isinstance(r, rf.FtabNeed) and ctx.engine.done(r):
+                ev.cache[r.hash] = ev.ingest(r)                        # только чтение: npz не пишется
+                tr["ingested"] += 1
+            else:
+                rest.append(r)
+        if rest:
+            tr["frontier"] = {"round": len(tr["rounds"]), "requests": len(uniq), "missing": len(rest), "genuine": all(_absent(ctx, ev, rf, r) for r in rest)}
             raise Frontier()
         hs = sorted(uniq)
         for h in hs:
@@ -109,7 +141,8 @@ def replay_trace(rf, rr, ctx, g5, c595=None):
             del ev.fulfil
         else:
             ev.fulfil = old_fulfil
-    tr["digest"] = _sha(json.dumps(tr["rounds"], sort_keys=True), json.dumps(tr["steps"], sort_keys=True), json.dumps(tr["frontier"]), tr["done"], json.dumps(tr.get("final"), sort_keys=True))
+    tr["depth"] = depth_of(tr)
+    tr["digest"] = _sha(json.dumps(tr["rounds"], sort_keys=True), tr["ingested"], json.dumps(tr["steps"], sort_keys=True), json.dumps(tr["frontier"]), tr["done"], json.dumps(tr.get("final"), sort_keys=True))
     return tr
 
 
@@ -124,7 +157,7 @@ def compare_traces(a, b):
                 break
         if len(la) != len(lb):
             out.append("%s: %d ≠ %d" % (key, len(la), len(lb)))
-    for key in ("frontier", "done", "final", "m"):
+    for key in ("frontier", "done", "final", "m", "ingested"):
         if a.get(key) != b.get(key):
             out.append("%s: %s ≠ %s" % (key, a.get(key), b.get(key)))
     return out
@@ -145,8 +178,8 @@ def cmd_trace(a):
     sys.path.insert(0, os.path.join(a.code, "tools", "p42"))
     import retitr_full as rf
     import retitr_full_run as rr
-    if a.live and hasattr(rf.OutDirEvaluator, "_load_npz"):
-        rf.OutDirEvaluator._load_npz = staticmethod(lambda p: _safe_load(rf, p))      # не удалять файл, который пишет живой процесс
+    if hasattr(rf.OutDirEvaluator, "_load_npz"):
+        rf.OutDirEvaluator._load_npz = staticmethod(lambda p: _safe_load(rf, p))      # повтор только читает: оборванный npz не удаляется (у нового кода `_load_npz` удаляет)
     ctx = rr.make_ctx(a.root, nboot=rf.NBOOT, chunk=0, procs=1, threads=rr.THREADS, bin_path="", prod=rr.PROD)
     with open(os.path.join(a.root, "gate", "gates.json"), encoding="utf-8") as f:
         g5 = json.load(f)["G5"]
@@ -154,8 +187,10 @@ def cmd_trace(a):
     tr["code"], tr["live"] = os.path.abspath(a.code), bool(a.live)
     with open(a.out, "w", encoding="utf-8") as f:
         json.dump(tr, f, ensure_ascii=False, indent=1, sort_keys=True)
-    print("раундов %d, шагов %d, готово целиком: %s, граница: %s, sha256 следа %s" % (len(tr["rounds"]), len(tr["steps"]), tr["done"], tr["frontier"], tr["digest"][:16]))
-    return 0
+    print("раундов %d, шагов %d, готово целиком: %s, граница: %s, из выходов движка без npz: %d, sha256 следа %s" % (len(tr["rounds"]), len(tr["steps"]), tr["done"], tr["frontier"], tr["ingested"], tr["digest"][:16]))
+    d = tr["depth"]
+    print("глубина: шагов %d, последний %s; %s; %s" % (d["steps"], json.dumps(d["last"], ensure_ascii=False), d["why"], "ЗАЧЁТ" if d["ok"] else "НЕ ЗАЧЁТ"))
+    return 0 if d["ok"] else 3
 
 
 def _safe_load(rf, p):
@@ -225,7 +260,7 @@ def cmd_compare(a):
     if diff:
         print("СЛЕДЫ РАЗНЫЕ (%d):\n  %s" % (len(diff), "\n  ".join(diff)))
         return 1
-    print("следы равны: раундов %d, шагов %d, готово целиком: %s, граница: %s, sha256 %s" % (len(ta["rounds"]), len(ta["steps"]), ta["done"], ta["frontier"], ta["digest"][:16]))
+    print("следы равны: раундов %d, шагов %d (глубина: %s), готово целиком: %s, граница: %s, sha256 %s" % (len(ta["rounds"]), len(ta["steps"]), ta["depth"]["why"], ta["done"], ta["frontier"], ta["digest"][:16]))
     return 0
 
 

@@ -12,9 +12,9 @@
 # ВАЖНО: новый код — в НОВЫЙ каталог (например /data/p42-tk599/code2): работающий процесс запускает `retitr_ftab.py` из текущего каталога кода при каждой сборке — его перезапись меняет прогон на ходу.
 # Для процесса на новом коде есть второй путь: `touch /data/p42-tk599/STOP` — остановится сам перед следующим раундом (код 75, `run.rc` не пишется); текущий (старый) процесс его не читает.
 set -euo pipefail
-ROOT=/data/p42-tk599
+ROOT=${TK599_ROOT:-/data/p42-tk599}            # переопределение — только для теста tests/test_tk599_switch.sh
 SW=$ROOT/switch
-U=tk599-run
+U=${TK599_UNIT:-tk599-run}
 die() { echo "tk599_switch: $*" >&2; exit 2; }
 
 children() {                                    # "вид pid" на каждый дочерний процесс юнита, который держит не-сохранённую работу
@@ -40,6 +40,12 @@ status() {
   echo "npz: $(ls $ROOT/npz 2>/dev/null | wc -l) файлов, последний: $(ls -t $ROOT/npz 2>/dev/null | head -1) $(date -r "$ROOT/npz/$(ls -t $ROOT/npz 2>/dev/null | head -1)" +%H:%M:%S 2>/dev/null || true); сейчас $(date +%H:%M:%S)"
   echo "свободно /data: $(df -h /data | awk 'NR==2{print $4}')"
 }
+
+fp_npz() { (cd $ROOT/npz && ls | xargs -r md5sum | sort -k2); }                  # md5 каждого файла каталога npz (и оборванных .tmp.npz)
+fp_ready() { for w in wa wb wc; do echo "[$w]"; ls $ROOT/ftab/$w/ready 2>/dev/null | sort; done; }
+h() { md5sum | cut -d' ' -f1; }
+codehash() { (cd "$1" && { find tools/p42 -type f ! -path '*/__pycache__/*' ! -path 'tools/p42/tests/*' | sort | xargs md5sum; find docs/research/freeze -type f | sort | xargs md5sum; } | h); }
+mget() { sed -n "s/^$1=//p" $SW/replay-ok; }
 
 provenance() {
   python3 - "$ROOT" <<'PY'
@@ -87,8 +93,7 @@ case "$cmd" in
     snap=$SW/stop-$(date +%Y%m%d-%H%M%S); mkdir -p "$snap"            # состояние до смены кода: журнал, md5 серий, метки (старый процесс раунды не журналирует — след снимает `verify`)
     { status; provenance; } > "$snap/status.txt" 2>&1
     cp -p $ROOT/log/run.out "$snap/run.out" 2>/dev/null || true
-    (cd $ROOT/npz && ls | grep -v '\.tmp\.npz$' | xargs -r md5sum) > "$snap/npz.md5" 2>/dev/null || true
-    for w in wa wb wc; do ls $ROOT/ftab/$w/ready 2>/dev/null | sort > "$snap/ready-$w.txt"; done
+    fp_npz > "$snap/npz.md5" 2>/dev/null || true; fp_ready > "$snap/ready.txt"
     echo "$snap" > $SW/last-stop; rm -f $SW/replay-ok
     echo "остановлено на границе; снимок $snap; дальше — verify <старый код> <новый код>, затем start --go <каталог кода>"
     status ;;
@@ -98,13 +103,21 @@ case "$cmd" in
     systemctl is-active -q "$U" && die "юнит активен — verify только на остановленном состоянии"
     snap=$(cat $SW/last-stop); rm -f $SW/replay-ok
     tool=$new/tools/p42/tk599_replay.py; [ -f "$tool" ] || die "нет $tool"
+    fp_npz > "$snap/verify-npz-before.txt"; fp_ready > "$snap/verify-ready-before.txt"        # повтор только читает: отпечатки кэша до и после (условие критика 1)
+    cmp -s "$snap/npz.md5" "$snap/verify-npz-before.txt" && cmp -s "$snap/ready.txt" "$snap/verify-ready-before.txt" || die "кэш изменился между stop и verify — снимок $snap не годится"
     (cd $ROOT && PYTHONUTF8=1 nice -n 19 python3 "$tool" trace "$old" "$snap/replay-old.json" --root $ROOT > "$snap/replay-old.out" 2>&1; echo $? > "$snap/replay-old.rc") &
     (cd $ROOT && PYTHONUTF8=1 nice -n 19 python3 "$tool" trace "$new" "$snap/replay-new.json" --root $ROOT > "$snap/replay-new.out" 2>&1; echo $? > "$snap/replay-new.rc") &
     wait
-    echo "старый код: rc=$(cat $snap/replay-old.rc): $(tail -1 $snap/replay-old.out)"; echo "новый код:  rc=$(cat $snap/replay-new.rc): $(tail -1 $snap/replay-new.out)"
-    [ "$(cat $snap/replay-old.rc)" = 0 ] && [ "$(cat $snap/replay-new.rc)" = 0 ] || die "повтор не отработал (см. $snap/replay-*.out) — смену кода НЕ делать"
+    fp_npz > "$snap/verify-npz-after.txt"; fp_ready > "$snap/verify-ready-after.txt"
+    cmp -s "$snap/verify-npz-before.txt" "$snap/verify-npz-after.txt" && cmp -s "$snap/verify-ready-before.txt" "$snap/verify-ready-after.txt" || die "ПОВТОР ИЗМЕНИЛ кэш (npz/ready до и после различаются) — смену кода НЕ делать"
+    echo "кэш до/после повторов: npz $(h < $snap/verify-npz-before.txt) = $(h < $snap/verify-npz-after.txt), ready $(h < $snap/verify-ready-before.txt) = $(h < $snap/verify-ready-after.txt) (равны)"
+    for k in old new; do echo "$k: rc=$(cat $snap/replay-$k.rc)"; tail -2 "$snap/replay-$k.out"; done
+    [ "$(cat $snap/replay-old.rc)" = 0 ] && [ "$(cat $snap/replay-new.rc)" = 0 ] || die "повтор не зачтён (ошибка, 0 шагов или ранняя остановка; см. $snap/replay-*.out) — смену кода НЕ делать"
     if ! python3 "$tool" compare "$snap/replay-old.json" "$snap/replay-new.json" | tee "$snap/replay-compare.txt"; then die "следы РАЗНЫЕ — смену кода НЕ делать"; fi
-    echo "$snap" > $SW/replay-ok; echo "метка switch/replay-ok записана; можно start --go" ;;
+    { echo "snap=$snap"; echo "old_code_dir=$(realpath $old)"; echo "old_code_md5=$(codehash $old)"; echo "new_code_dir=$(realpath $new)"; echo "new_code_md5=$(codehash $new)"
+      echo "npz_hash=$(h < $snap/verify-npz-after.txt)"; echo "ready_hash=$(h < $snap/verify-ready-after.txt)"
+      python3 -c 'import json,sys; t=json.load(open(sys.argv[1])); print("steps=%d" % t["depth"]["steps"]); print("trace_digest=%s" % t["digest"])' "$snap/replay-new.json"; } > $SW/replay-ok
+    cp $SW/replay-ok "$snap/replay-ok.txt"; echo "метка switch/replay-ok записана ($(tr '\n' ' ' < $SW/replay-ok | cut -c1-400)); можно start --go" ;;
   provenance) provenance ;;
   shadow)
     w=${2:?окно wa|wb|wc}; vid=${3:?vid потока (каталог ftab/<окно>/<vid>)}; procs=${4:-2}; code=${5:-$ROOT/code2}
@@ -119,8 +132,12 @@ case "$cmd" in
     systemctl is-active -q "$U" && die "юнит активен — сначала stop"
     [ ! -e $ROOT/run.rc ] || die "run.rc есть ($(cat $ROOT/run.rc)): основной прогон закончен или упал — перезапуск не нужен"
     [ -e $ROOT/gate/gates.json ] || die "нет gate/gates.json — --reuse-gates невозможен"
-    [ -e $SW/replay-ok ] && [ "$(cat $SW/replay-ok)" = "$(cat $SW/last-stop 2>/dev/null)" ] || die "нет метки switch/replay-ok для последней остановки — сначала verify <старый код> <новый код> (следы равны)"
-    rm -f $SW/replay-ok
+    [ -e $SW/replay-ok ] || die "нет метки switch/replay-ok — сначала verify <старый код> <новый код> (следы равны)"
+    [ "$(mget snap)" = "$(cat $SW/last-stop 2>/dev/null)" ] || die "метка replay-ok относится не к последней остановке — повторите verify"
+    [ "$(mget new_code_dir)" = "$(realpath $code)" ] || die "start из $code, а verify проверял $(mget new_code_dir)"
+    [ "$(mget new_code_md5)" = "$(codehash $code)" ] || die "код в $code изменился после verify — повторите verify"
+    [ "$(mget npz_hash)" = "$(fp_npz | h)" ] && [ "$(mget ready_hash)" = "$(fp_ready | h)" ] || die "набор npz / меток ready изменился после verify — повторите verify (stop → verify → start)"
+    cp $SW/replay-ok "$(mget snap)/replay-ok.start.txt"; rm -f $SW/replay-ok
     systemctl reset-failed "$U" 2>/dev/null || true
     [ -e $ROOT/log/run.out ] && mv $ROOT/log/run.out $ROOT/log/run.out.$(date +%Y%m%d-%H%M%S)
     envs=(--setenv=TK599_GO=1 --setenv=PYTHONUTF8=1)
