@@ -573,22 +573,32 @@ def filter_counters(meta_side):
 
 
 def cmd_g8(a):
+    """G8: `no_key = 0` и `dropped` = независимому пересчёту по таблице (кандидаты таблицы с n ≥ K и bk < τ). Считаем по уникальным ключам таблицы и по строкам дампа (кратность);
+    совпадение только с кратностью — отметка в отчёт (счётчик движка считает события), расхождение с обоими — стоп."""
     bad, res = [], {}
     for w in st.TRADE_WINDOWS:
         for side in st.SIDES:
             sym, rel, n, k = tf.read_ftab(p("ftab", "%s-%s.csv" % (w.name, side)))
+            tab = {(s_, int(r_)): (int(n_), int(k_)) for s_, r_, n_, k_ in zip(sym, rel, n, k)}
+            dsym, drel = tf.read_sigsx_keys(p("base", w.name, VID[side], ENG[side] + "-sigsx.csv"))
+            dn = np.array([tab.get((s_, int(r_)), (-1, 0))[0] for s_, r_ in zip(dsym, drel)], dtype=np.int64)
+            dk = np.array([tab.get((s_, int(r_)), (-1, 0))[1] for s_, r_ in zip(dsym, drel)], dtype=np.int64)
+            if (dn < 0).any():
+                bad.append("%s/%s: %d строк дампа без строки таблицы" % (w.name, side, int((dn < 0).sum())))
             for K, t in st.GRID:
                 cidn = st.cell_id(K, t)
                 if dups_of(side)[cidn]:
                     continue
                 m = json.load(open(p("cells", "%s-%s" % (w.name, side), cidn, "meta.json"), encoding="utf-8"))[ENG[side]]
                 fc = filter_counters(m)
-                exp = int(tf.excluded(n, k, K, t).sum())
-                res["%s/%s/%s" % (w.name, side, cidn)] = dict(counters=fc, expected_dropped=exp)
-                if fc is None or fc["no_key"] != 0 or fc["dropped"] != exp:
-                    bad.append("%s/%s/%s: %s, ожидалось dropped %d" % (w.name, side, cidn, fc, exp))
-    write_json(p("gates", "g8.json"), dict(res=res, bad=bad))
-    say("G8", "FAIL " + "; ".join(bad[:8]) if bad else "ok: no_key = 0 и dropped = независимому пересчёту во всех %d прогонах" % len(res))
+                exp_u = int(tf.excluded(n, k, K, t).sum())
+                exp_m = int(tf.excluded(dn, dk, K, t).sum())
+                res["%s/%s/%s" % (w.name, side, cidn)] = dict(counters=fc, expected_unique=exp_u, expected_rows=exp_m, dump_rows=int(len(dsym)), table_rows=int(len(sym)))
+                if fc is None or fc["no_key"] != 0 or fc["dropped"] not in (exp_u, exp_m):
+                    bad.append("%s/%s/%s: %s, ожидалось dropped %d (уникальных) / %d (строк дампа)" % (w.name, side, cidn, fc, exp_u, exp_m))
+    only_rows = [k_ for k_, v in res.items() if v["counters"] and v["counters"]["dropped"] != v["expected_unique"]]
+    write_json(p("gates", "g8.json"), dict(res=res, bad=bad, only_rows_convention=only_rows))
+    say("G8", "FAIL " + "; ".join(bad[:8]) if bad else "ok: no_key = 0 и dropped = пересчёту во всех %d прогонах (только по строкам дампа: %d)" % (len(res), len(only_rows)))
     if bad:
         sys.exit(1)
 
