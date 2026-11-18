@@ -82,6 +82,32 @@ pub enum BreakoutCommand {
         #[arg(long)]
         sig_cache: Option<PathBuf>,
     },
+    /// TK-607: однократное заполнение склада суточных сделок по каталогам zip со сверкой на лету (разбор движка = склад = независимый
+    /// разбор CSV). `P42_T0` — не позже самой ранней даты. Лежащие файлы пропускаются.
+    StoreFill {
+        /// Каталог `<МОНЕТА>/<МОНЕТА>-aggTrades-<день>.zip`; ключ повторяется.
+        #[arg(long = "trades", required = true)]
+        trades: Vec<PathBuf>,
+        #[arg(long)]
+        store: PathBuf,
+        #[arg(long, default_value_t = 2)]
+        threads: usize,
+        /// Запись прекращается (прогон останавливается), когда свободного места на диске склада меньше, ГБ.
+        #[arg(long, default_value_t = 40)]
+        min_free_gb: u64,
+        /// Потолок объёма склада, ГБ.
+        #[arg(long, default_value_t = 1000)]
+        cap_gb: u64,
+        /// Проверять и уже лежащие файлы склада (разбор zip и сверка).
+        #[arg(long)]
+        verify_hits: bool,
+        /// Каталог отчёта (`report.txt`, `errors.txt`).
+        #[arg(long)]
+        report: PathBuf,
+        /// Только первые N заданий (проверка на малом).
+        #[arg(long)]
+        limit: Option<usize>,
+    },
     /// Одна сделка базы по монете со всеми шагами и арифметикой P&L.
     Hand {
         #[arg(long)]
@@ -155,6 +181,27 @@ pub fn dispatch(cmd: BreakoutCommand) -> Result<()> {
                 min_free_gb: tick_store_min_free_gb,
             }),
         ),
+        BreakoutCommand::StoreFill {
+            trades,
+            store,
+            threads,
+            min_free_gb,
+            cap_gb,
+            verify_hits,
+            report,
+            limit,
+        } => super::store_fill::run(&super::store_fill::FillOpts {
+            roots: trades,
+            store: StoreOpts {
+                dir: store,
+                cap_gb,
+                min_free_gb,
+            },
+            threads,
+            verify_hits,
+            report,
+            limit,
+        }),
         BreakoutCommand::Hand {
             cache,
             sym,

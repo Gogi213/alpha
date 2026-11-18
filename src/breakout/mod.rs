@@ -25,6 +25,7 @@ pub mod portfolio;
 pub mod sigcache;
 pub mod signals;
 pub mod store;
+pub mod store_fill;
 pub mod tick;
 pub mod tick_cli;
 pub mod trade;

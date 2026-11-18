@@ -594,6 +594,11 @@ impl TickStore {
         }
     }
 
+    /// Потолок достигнут, `df` ниже порога или запись не удалась: склад только читается.
+    pub fn is_read_only(&self) -> bool {
+        self.read_only.load(Ordering::Relaxed)
+    }
+
     pub fn counters(&self) -> StoreCounters {
         StoreCounters {
             hit: self.hit.load(Ordering::Relaxed),
