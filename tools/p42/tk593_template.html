@@ -57,6 +57,27 @@ svg text.k{fill:var(--fg)}
 #tip .t{font-weight:600;margin-bottom:2px}
 #tip .r{display:flex;justify-content:space-between;gap:14px}
 .grey{opacity:.4}
+.toptabs{position:sticky;top:0;z-index:8;height:54px;background:rgba(250,250,250,.96);backdrop-filter:blur(8px);border-bottom:1px solid var(--border)}
+.toptabs-in{max-width:1180px;margin:0 auto;padding:0 24px;height:100%;display:flex;align-items:center;gap:16px}
+.brand{font-weight:650;font-size:14px;white-space:nowrap;color:var(--z700)}
+#toptabs{overflow-x:auto;max-width:100%}
+#toptabs button{white-space:nowrap}
+@media(max-width:640px){.brand{display:none}.toptabs-in{padding:0 12px}#toptabs button{padding:6px 12px}}
+.bar{top:54px}
+section{scroll-margin-top:130px}
+.eq-h{display:flex;align-items:baseline;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.eq-h h2{font-size:20px;font-weight:650;letter-spacing:-.02em}
+.eq-ctl{margin:12px 0 4px}
+.eq-card{margin-top:20px}
+.eq-card .card-b{padding:12px 20px 18px}
+.eq-note{margin:10px 0 0;color:var(--mfg);font-size:12px;max-width:110ch}
+.eqt{margin-top:12px}
+.eqt th,.eqt td{padding:8px 10px;white-space:nowrap}
+.eqt td:first-child{min-width:0}
+.eqt th{white-space:normal;vertical-align:bottom;max-width:120px}
+.eqt .sw{display:inline-block;width:18px;height:0;border-top:3px solid;vertical-align:middle;margin-right:8px}
+.eqt tr.base td:first-child{font-weight:600}
+@media(max-width:640px){.eq-card .card-b{padding:10px 10px 14px}}
 .prog{padding:28px 0 8px}
 .prog-h{display:flex;align-items:baseline;justify-content:space-between;gap:10px}
 .prog-h h2{font-size:20px;font-weight:650;letter-spacing:-.02em}
@@ -118,18 +139,31 @@ svg text.k{fill:var(--fg)}
 </style>
 </head>
 <body>
+<div class="toptabs"><div class="toptabs-in"><span class="brand">П-42 · CatBoost</span><div class="tabs" id="toptabs" role="tablist"></div></div></div>
 <div class="wrap">
-  <div class="prog" id="progress"></div>
-  <div class="top">
-    <h1>П-42 · CatBoost на признаках уровня</h1>
-    <p class="sub" id="sub"></p>
+  <div class="pane" id="pane-progress"><div class="prog" id="progress"></div></div>
+  <div class="pane" id="pane-targets" hidden><div class="prog" id="targets-box"></div></div>
+  <div class="pane" id="pane-equity" hidden>
+    <div class="prog" id="equity">
+      <div class="eq-h"><h2>Эквити</h2><span class="muted small">прибыль сделок без фандинга, $ · по времени закрытия, UTC</span></div>
+      <div class="tabs eq-ctl" id="eq-tabs" role="tablist"></div>
+      <p class="prog-head" id="eq-desc"></p>
+      <div id="eq-view"></div>
+    </div>
   </div>
-  <div class="bar"><div class="tabs" id="tabs" role="tablist"></div><div class="nav" id="nav"></div></div>
-  <div id="view"></div>
+  <div class="pane" id="pane-model" hidden>
+    <div class="top">
+      <h1>П-42 · CatBoost на признаках уровня</h1>
+      <p class="sub" id="sub"></p>
+    </div>
+    <div class="bar"><div class="tabs" id="tabs" role="tablist"></div><div class="nav" id="nav"></div></div>
+    <div id="view"></div>
+  </div>
 </div>
 <div id="tip"></div>
 <script id="data" type="application/json">/*__DATA__*/</script>
 <script id="progress-data" type="application/json">/*__PROGRESS__*/</script>
+<script id="equity-data" type="application/json">/*__EQUITY__*/</script>
 <script>
 const D = JSON.parse(document.getElementById('data').textContent);
 const NS = 'http://www.w3.org/2000/svg';
@@ -538,8 +572,150 @@ function renderProgress() {
   root.append(h('div', {class: 'prog-h'}, [h('h2', {}, 'Ход работ'), h('span', {class: 'muted small'}, 'обновлено ' + P.updated)]));
   root.append(h('p', {class: 'prog-head'}, P.headline));
   root.append(h('div', {class: 'stages', style: '--n:' + Math.min(P.stages.length, 5)}, P.stages.map(stageCard)));
-  root.append(targetsCard(P.targets));
-  root.append(h('p', {class: 'prog-foot'}, 'Ниже — подробный разбор первой модели (TK-592): ROC, децили, калибровка, важность признаков, переобучение, устойчивость по суткам.'));
+  document.getElementById('targets-box').append(targetsCard(P.targets));
+  root.append(h('p', {class: 'prog-foot'}, 'Подробности — на вкладках: цели TK-598 (что предсказывает каждая и итог чтения), эквити (кривые накопленной прибыли), модель TK-592 (ROC, децили, калибровка, важность признаков, переобучение, устойчивость по суткам).'));
+}
+
+// ── эквити (TK-601): сделки баз U1 и «трети» целей TK-598; данные — equity.json (tk601_equity.py), вшиты при сборке
+const E = JSON.parse(document.getElementById('equity-data').textContent);
+const EQ_COL = {base: '#71717a', T1: '#2a78d6', T2: '#eb6834', T4: '#1baf7a', T5: '#6250d6', T6: '#008300', short: '#2a78d6', long: '#eb6834'};
+const EQ_NAME = {T1: 'T1 · прибыль, $', T2: 'T2 · прибыль, бп', T4: 'T4 · без жёсткого стопа', T5: 'T5 · MFE − MAE', T6: 'T6 · ранжирование', short: 'Шорт', long: 'Лонг'};
+const EQ_BASE = {short: 'Шорт: все сделки базы', long: 'Лонг: все сделки базы', both: 'Шорт + лонг: все сделки'};
+const EQ_SIDES = [['short', 'Шорт'], ['long', 'Лонг'], ['both', 'Шорт + лонг']];
+const EQ_DESC = {
+  short: 'Накопленная прибыль шорта. Серая толстая линия — все сделки базы (пул U1). Цветные — только сделки, которые замороженная модель отнесла в лучшую треть по своей цели. Цветная линия вровень с серой — модель ничего не добавила; выше — добавила; ниже — выбрала хуже, чем в среднем.',
+  long: 'Накопленная прибыль лонга. Серая толстая линия — все сделки базы (пул U1); цветная — сделки лучшей трети по цели T6.',
+  both: 'Базы шорта и лонга на одних осях и их сумма: видно, откуда рост и что забирает другая сторона. Здесь только базы — без выбора моделью.'
+};
+const pad2 = n => String(n).padStart(2, '0');
+const fdt = ms => { const d = new Date(ms); return `${pad2(d.getUTCDate())}.${pad2(d.getUTCMonth() + 1)} ${pad2(d.getUTCHours())}:${pad2(d.getUTCMinutes())}`; };
+const fday = ms => { const d = new Date(ms); return `${pad2(d.getUTCDate())}.${pad2(d.getUTCMonth() + 1)}`; };
+const money = (v, d = 2) => num(v, d, true);
+
+function eqData(chartId, side) {
+  const C = E.charts[chartId];
+  if (side !== 'both') return C.sides[side];
+  const a = C.sides.short, b = C.sides.long, rows = [];
+  [[a, 'short'], [b, 'long']].forEach(([S, k]) => S.t.forEach((t, i) => rows.push({t, en: S.en[i], net: S.net[i], sym: S.sym[i], day: S.day[i], w: S.w[i], k})));
+  rows.sort((x, y) => x.t - y.t || x.en - y.en || (x.sym < y.sym ? -1 : x.sym > y.sym ? 1 : 0));
+  const out = {t: rows.map(r => r.t), en: rows.map(r => r.en), net: rows.map(r => r.net), sym: rows.map(r => r.sym), day: rows.map(r => r.day), w: rows.map(r => r.w), sel: {short: [], long: []}};
+  rows.forEach((r, i) => out.sel[r.k].push(i));
+  return out;
+}
+function eqLines(S, side) {
+  const n = S.t.length, out = [];
+  const mk = (k, mask) => { let c = 0; const y = new Array(n); for (let i = 0; i < n; i++) { if (!mask || mask[i]) c += S.net[i]; y[i] = c; } return {k, mask, y, name: k === 'base' ? EQ_BASE[side] : EQ_NAME[k]}; };
+  out.push(mk('base', null));
+  Object.keys(S.sel).forEach(k => { const m = new Array(n).fill(false); S.sel[k].forEach(i => { m[i] = true; }); out.push(mk(k, m)); });
+  return out;
+}
+function eqStats(S, mask) {
+  const ix = []; for (let i = 0; i < S.t.length; i++) if (!mask || mask[i]) ix.push(i);
+  const net = ix.map(i => S.net[i]), n = net.length, sum = net.reduce((a, b) => a + b, 0);
+  const best = Math.max(...net), srt = [...net].sort((a, b) => b - a);
+  const g = {}; ix.forEach(i => { g[S.day[i]] = (g[S.day[i]] || 0) + S.net[i]; });
+  const dv = Object.values(g).sort((a, b) => b - a);
+  let c = 0, pk = 0, dd = 0; net.forEach(v => { c += v; pk = Math.max(pk, c); dd = Math.max(dd, pk - c); });
+  return {n, sum, mean: sum / n, best, share: sum > 0 ? best / sum : null, nodays: sum - (dv[0] || 0) - (dv[1] || 0), notrades: sum - (srt[0] || 0) - (srt[1] || 0), dd};
+}
+function eqTable(chartId, side, S, lines) {
+  const cols = [['n', 'Сделок'], ['sum', 'Сумма, $'], ['mean', 'В среднем на сделку, $'], ['best', 'Лучшая сделка, $'], ['share', 'Доля лучшей в сумме'], ['nodays', 'Сумма без 2 лучших суток, $'], ['notrades', 'Сумма без 2 лучших сделок, $'], ['dd', 'Макс. просадка, $']];
+  const tb = h('table', {class: 'eqt', 'data-eqchart': chartId, 'data-eqside': side});
+  tb.append(h('thead', {}, h('tr', {}, [h('th', {}, 'Линия'), ...cols.map(([, t]) => h('th', {class: 'num'}, t))])));
+  const body = h('tbody');
+  lines.forEach(l => {
+    const st = eqStats(S, l.mask), f = {n: ints(st.n), sum: money(st.sum), mean: money(st.mean), best: money(st.best), share: st.share == null ? '—' : pct(st.share, 1), nodays: money(st.nodays), notrades: money(st.notrades), dd: num(st.dd, 2)};
+    body.append(h('tr', {'data-line': l.k, class: l.k === 'base' ? 'base' : ''}, [h('td', {}, [h('span', {class: 'sw', style: `border-color:${EQ_COL[l.k]};border-top-width:${l.k === 'base' ? 4 : 3}px`}), l.name]), ...cols.map(([k]) => h('td', {class: 'num', 'data-f': k}, f[k]))]));
+  });
+  tb.append(body);
+  return h('div', {style: 'overflow-x:auto'}, tb);
+}
+function eqChart(chartId, side, width) {
+  const C = E.charts[chartId], S = eqData(chartId, side), lines = eqLines(S, side), n = S.t.length;
+  const w = width, hh = w < 520 ? 300 : 360, x0 = C.start_ms, x1 = C.end_ms + 3600e3, DAYMS = 86400e3;
+  const [ylo, yhi] = rng(lines.flatMap(l => l.y).concat([0]), .08);
+  const stepD = w < 560 ? 14 : 7, xt = []; for (let t = x0; t <= x1; t += stepD * DAYMS) xt.push(t);
+  const p = plot({id: 'eq.' + chartId, w, h: hh, xd: [x0, x1], yd: [ylo, yhi], xt, xf: fday, yf: v => num(v, 0), ylab: 'накопленная прибыль, $', m: {l: 50, r: 14, t: 22, b: 30}});
+  const {X, Y} = p;
+  p.svg.append(el('line', {x1: X(x0), x2: X(x1), y1: Y(0), y2: Y(0), stroke: '#a1a1aa', 'stroke-dasharray': '3 3'}));
+  if (C.split_ms) {
+    p.svg.append(el('line', {x1: X(C.split_ms), x2: X(C.split_ms), y1: p.m.t, y2: hh - p.m.b, stroke: '#d4d4d8', 'stroke-dasharray': '2 3'}));
+    p.svg.append(el('text', {x: (X(x0) + X(C.split_ms)) / 2, y: p.m.t - 6, 'text-anchor': 'middle'}, 'июль'));
+    p.svg.append(el('text', {x: (X(C.split_ms) + X(x1)) / 2, y: p.m.t - 6, 'text-anchor': 'middle'}, 'август'));
+  }
+  const path = y => { let d = `M${X(x0).toFixed(1)} ${Y(0).toFixed(1)}`, prev = 0; for (let i = 0; i < n; i++) { const xx = X(S.t[i]).toFixed(1); d += `L${xx} ${Y(prev).toFixed(1)}L${xx} ${Y(y[i]).toFixed(1)}`; prev = y[i]; } return d + `L${X(x1).toFixed(1)} ${Y(prev).toFixed(1)}`; };
+  lines.forEach(l => p.svg.append(el('path', {d: path(l.y), fill: 'none', stroke: EQ_COL[l.k], 'stroke-width': l.k === 'base' ? 3.6 : 2, 'stroke-linejoin': 'round', 'stroke-opacity': l.k === 'base' ? .85 : 1, 'data-chart': `eq.${chartId}.${l.k}`, 'data-final': l.y[n - 1]})));
+  // наведение: ближайшая по времени сделка
+  const vl = el('line', {y1: p.m.t, y2: hh - p.m.b, stroke: '#a1a1aa', 'stroke-dasharray': '3 3', visibility: 'hidden'});
+  const dots = lines.map(l => el('circle', {r: 4, fill: EQ_COL[l.k], stroke: '#fff', 'stroke-width': 1.5, visibility: 'hidden'}));
+  const r = el('rect', {x: p.m.l, y: p.m.t, width: w - p.m.l - p.m.r, height: hh - p.m.t - p.m.b, fill: 'transparent', 'data-chart': `eq.${chartId}.hover`});
+  p.svg.append(vl, ...dots, r);
+  const near = ev => {
+    const b = p.svg.getBoundingClientRect(), x = (ev.clientX - b.left) / b.width * w, tx = x0 + (x - p.m.l) / (w - p.m.l - p.m.r) * (x1 - x0);
+    let lo = 0, hi = n - 1; while (lo < hi) { const mid = (lo + hi) >> 1; if (S.t[mid] < tx) lo = mid + 1; else hi = mid; }
+    return lo > 0 && Math.abs(S.t[lo - 1] - tx) < Math.abs(S.t[lo] - tx) ? lo - 1 : lo;
+  };
+  const show = (ev) => {
+    const i = near(ev), xx = X(S.t[i]);
+    vl.setAttribute('x1', xx); vl.setAttribute('x2', xx); vl.setAttribute('visibility', 'visible');
+    dots.forEach((d, k) => { d.setAttribute('cx', xx); d.setAttribute('cy', Y(lines[k].y[i])); d.setAttribute('visibility', 'visible'); });
+    tip.innerHTML = `<div class="t">${S.sym[i]}</div>` + trow('Вход', fdt(S.en[i]) + ' UTC') + trow('Закрытие', fdt(S.t[i]) + ' UTC') + trow('Прибыль сделки', '<b>' + money(S.net[i]) + ' $</b>') +
+      '<div class="muted" style="margin:6px 0 2px">Накоплено на этот момент</div>' +
+      lines.map(l => `<div class="r"><span><span style="display:inline-block;width:12px;border-top:${l.k === 'base' ? 4 : 3}px solid ${EQ_COL[l.k]};vertical-align:middle;margin-right:6px"></span>${l.name}${l.mask && l.mask[i] ? ' ✓' : ''}</span><span>${money(l.y[i])}</span></div>`).join('') +
+      '<div class="muted" style="margin-top:4px">✓ — эта сделка входит в линию</div>';
+    tip.style.display = 'block'; moveTip(ev);
+  };
+  r.addEventListener('mouseenter', show); r.addEventListener('mousemove', show);
+  r.addEventListener('mouseleave', () => { vl.setAttribute('visibility', 'hidden'); dots.forEach(d => d.setAttribute('visibility', 'hidden')); tip.style.display = 'none'; });
+  const card = h('div', {class: 'card eq-card', 'data-eqchart': chartId});
+  card.append(h('div', {class: 'card-h'}, [h('b', {}, C.title), h('span', {}, `${fday(x0)} — ${fday(C.end_ms)} · сделок в базе ${ints(n)}`)]));
+  const b = h('div', {class: 'card-b'});
+  b.append(legend(lines.map(l => [swLine(EQ_COL[l.k], l.k === 'base' ? 4 : 2.25), l.name])), p.svg, eqTable(chartId, side, S, lines));
+  b.append(h('p', {class: 'eq-note'}, chartId === 'ja'
+    ? 'Окна чтения: замороженные модели, выбор — по сохранённым оценкам при чтении, граница «трети» — замороженная. Июль и август — одна непрерывная серия. «Сутки» — по дню сигнала, как в проверке TK-598.'
+    : 'Окно подбора: выбор по внефолдовым оценкам (модель каждой сделки не видела). Модели подбирались на этих сутках — это отбор, не доказательство.'));
+  card.append(b);
+  return card;
+}
+function renderEquity() {
+  const side = ST.eq, view = document.getElementById('eq-view');
+  document.querySelectorAll('#eq-tabs button').forEach(b => b.setAttribute('aria-selected', b.dataset.side === side));
+  document.getElementById('eq-desc').textContent = EQ_DESC[side];
+  view.replaceChildren();
+  const width = Math.max(300, Math.floor(view.clientWidth - (view.clientWidth < 520 ? 22 : 42)));
+  ['ja', 'fit'].forEach(id => view.append(eqChart(id, side, width)));
+}
+function initEquity() {
+  const tabs = document.getElementById('eq-tabs');
+  EQ_SIDES.forEach(([k, t]) => { const b = h('button', {role: 'tab', 'data-side': k, 'aria-selected': 'false'}, t); b.onclick = () => { ST.eq = k; setHash(); renderEquity(); }; tabs.append(b); });
+}
+
+// ── вкладки верхнего уровня: хеш #progress | #targets | #equity[/short|long|both] | #model[/long|short]
+const TABS = [['progress', 'Ход работ'], ['targets', 'Цели TK-598'], ['equity', 'Эквити'], ['model', 'Модель TK-592']];
+const ST = {tab: 'progress', eq: 'short', model: 'long'};
+function parseHash() {
+  const [a, b] = location.hash.replace(/^#/, '').split('/');
+  if (a === 'long' || a === 'short') { ST.tab = 'model'; ST.model = a; return; }
+  if (TABS.some(t => t[0] === a)) ST.tab = a;
+  if (a === 'equity' && EQ_SIDES.some(s => s[0] === b)) ST.eq = b;
+  if (a === 'model' && (b === 'long' || b === 'short')) ST.model = b;
+}
+function setHash() { history.replaceState(null, '', '#' + ST.tab + (ST.tab === 'equity' ? '/' + ST.eq : ST.tab === 'model' ? '/' + ST.model : '')); }
+function route() {
+  TABS.forEach(([k]) => { document.getElementById('pane-' + k).hidden = k !== ST.tab; });
+  document.querySelectorAll('#toptabs button').forEach(b => b.setAttribute('aria-selected', b.dataset.tab === ST.tab));
+  if (ST.tab === 'equity') renderEquity();
+  if (ST.tab === 'model') select(ST.model);
+  setHash();
+}
+function goTab(k) { ST.tab = k; window.scrollTo(0, 0); route(); }
+function initTabs() {
+  const box = document.getElementById('toptabs');
+  TABS.forEach(([k, t]) => { const b = h('button', {role: 'tab', 'data-tab': k, 'aria-selected': 'false'}, t); b.onclick = () => goTab(k); box.append(b); });
+  parseHash();
+  route();
+  window.addEventListener('hashchange', () => { parseHash(); route(); });
+  let rt; window.addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(() => { if (ST.tab === 'equity') renderEquity(); }, 150); });
 }
 
 // ── сборка страницы
@@ -595,12 +771,14 @@ function init() {
   });
   const nav = document.getElementById('nav');
   NAV.forEach(([id, t]) => { const b = h('button', {}, t); b.onclick = () => document.getElementById('sec-' + id).scrollIntoView(); nav.append(b); });
-  select(location.hash === '#short' ? 'short' : 'long');
+  initEquity();
+  initTabs();
 }
 function select(side) {
   document.querySelectorAll('#tabs button').forEach(b => b.setAttribute('aria-selected', b.dataset.side === side));
-  history.replaceState(null, '', '#' + side);
+  ST.model = side;
   render(side);
+  setHash();
 }
 init();
 </script>
