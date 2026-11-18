@@ -1,0 +1,424 @@
+diff -ru code2/tools/p42/retitr_full.py code3/tools/p42/retitr_full.py
+--- code2/tools/p42/retitr_full.py	2026-11-18 19:14:16.000000000 +0000
++++ code3/tools/p42/retitr_full.py	2026-11-18 21:29:00.409945809 +0000
+@@ -750,8 +750,10 @@
+ class OutDirEvaluator(Evaluator):
+     """Серии из выходов движка: `<outroot>/<окно>/<vid>/{long,short}-trades.csv` (+ `-daily.csv`); склейка с охраной G6, кэш .npz на диске. `launch(reqs)` — запуск движка на srv (задаёт драйвер)."""
+ 
+-    def __init__(self, outroot, coins, rates, launch=None, cache_dir=None, windows=WINDOWS, run_t0=None, ftab_builder=None, ftab_ready=None):
++    def __init__(self, outroot, coins, rates, launch=None, cache_dir=None, windows=WINDOWS, run_t0=None, ftab_builder=None, ftab_ready=None,
++                 bin_md5=None, allowed_md5=None, legacy_md5=None):
+         super().__init__(None)
++        self.bin_md5, self.allowed_md5, self.legacy_md5 = bin_md5, allowed_md5, legacy_md5   # §13.24.6: серия несёт md5 бинаря; на загрузке — только допустимые (без поля — старый бинарь)
+         self.outroot, self.coins, self.rates, self.launch, self.cache_dir = outroot, coins, rates, launch, cache_dir
+         self.ftab_builder, self.ftab_ready = ftab_builder, ftab_ready
+         self.windows, self.run_t0 = windows, run_t0
+@@ -798,12 +800,21 @@
+                 continue
+             p = self._npz(r)
+             ser = self._load_npz(p) if p and os.path.exists(p) else None
++            if ser is not None and self.allowed_md5 is not None:
++                self._check_bin(p)
+             if ser is None:
+                 miss.append(r)
+             else:
+                 self.cache[r.hash] = ser
+         return miss
+ 
++    def _check_bin(self, p):
++        """§13.24.6: серия несёт md5 бинаря (нет поля — посчитана записанным в протоколе); не из допустимых — GuardError."""
++        with np.load(p) as z:
++            got = str(z["bin_md5"]) if "bin_md5" in z.files else self.legacy_md5
++        if got not in self.allowed_md5:
++            raise GuardError("%s: серия посчитана бинарём md5 %s — не из допустимых %s" % (p, got, sorted(self.allowed_md5)))
++
+     @staticmethod
+     def _load_npz(p):
+         """Серия из кэша; оборванный файл (остановка во время записи) — не ошибка: удаляется, серия пересоберётся из выходов движка (метки DONE на месте — движок не запускается)."""
+@@ -841,7 +852,8 @@
+             p = self._npz(r)
+             if p:
+                 tmp = p[:-len(".npz")] + ".tmp.npz"                                       # запись целиком или никак: остановка посреди np.savez не оставляет обрывок под настоящим именем
+-                np.savez(tmp, day=s.day, sym=s.sym, val=s.val, fund=s.fund, fb=s.fb, t_in=s.t_in, t_out=s.t_out)
++                extra = {"bin_md5": np.array(self.bin_md5)} if self.bin_md5 else {}
++                np.savez(tmp, day=s.day, sym=s.sym, val=s.val, fund=s.fund, fb=s.fb, t_in=s.t_in, t_out=s.t_out, **extra)
+                 os.replace(tmp, p)
+ 
+ 
+diff -ru code2/tools/p42/retitr_full_report.py code3/tools/p42/retitr_full_report.py
+--- code2/tools/p42/retitr_full_report.py	2026-11-18 12:56:22.000000000 +0000
++++ code3/tools/p42/retitr_full_report.py	2026-11-18 21:38:22.399386333 +0000
+@@ -1,7 +1,7 @@
+ #!/usr/bin/env python3
+ """П-42 §13.24 (TK-599): отчёт по-русски и файл заморозки из результатов автомата (`results.pkl` драйвера `retitr_full_run.py`).
+ 
+-  python3 retitr_full_report.py <results.pkl> --md docs/findings/p42-retitration-full-2026-11-18.md --frozen docs/research/freeze/tk599-frozen.json [--commit <SHA кода>]
++  python3 retitr_full_report.py <results.pkl> --md docs/findings/p42-retitration-full-2026-11-18.md --frozen docs/research/freeze/tk599-frozen.json [--commit <SHA кода>] [--npz /data/p42-tk599/npz]
+ 
+ Отчёт: область и отступления, ворота (G1–G3b, G5), шаг 0 (уровень баз и сборок C TK-595 по месяцам, измеренный σ сделки), по стороне — проход 1, проход 2, совместная сетка,
+ заморозка, m; проверка вперёд (четыре свёртки, склейка 105 сут., охрана суммы, расхождение выборов, собственное среднее, «сторона выключена» — часть 1); исход заморозки.
+@@ -23,6 +23,8 @@
+ sys.path.insert(0, HERE)
+ import retitr_full as rf  # noqa: E402
+ 
++LEGACY_BIN_MD5 = "a03c91df5a70c8eb32cbb7122943b8f9"      # серия без поля `bin_md5` посчитана бинарём §13.24 (поле пишется со сменой бинаря, §13.24.6)
++NPZ_DEFAULT = "/data/p42-tk599/npz"
+ MONTH_RU = ("июль", "август", "сентябрь", "октябрь", "01–13.11")
+ SIDE_RU = {"L": "лонг", "S": "шорт"}
+ FROZEN_VERSION = "tk599-frozen-1"
+@@ -187,7 +189,7 @@
+     out = ["# П-42 §13.24: перетитровка всего сетапа на 01.07–13.11 (136 сут.) — отчёт TK-599", "",
+            "Статус: счёт по §13.24 + §13.24.1 + §13.24.2 выполнен автоматом `tools/p42/retitr_full.py` (драйвер `retitr_full_run.py`), ручных решений после просмотра нет. "
+            "Метрика везде — средний $ на сделку (gross − fees, без фандинга), Δ к эталону, блочный бутстреп по суткам (блок 4, %d повторов)." % res.get("nboot", rf.NBOOT),
+-           "Код: коммит `%s`; сетки sha256 `%s`; бинарь md5 `%s`." % (meta.get("commit", "?"), meta.get("grids_sha256", "?")[:16], meta.get("bin_md5", "?")),
++           "Код: коммит `%s`; сетки sha256 `%s`; бинари движка md5 (по сериям кэша) %s." % (meta.get("commit", "?"), meta.get("grids_sha256", "?")[:16], bin_text(meta)),
+            "**Чтение вперёд 17–30.11 здесь не сделано** — только после заморозки (отдельный коммит `docs/research/freeze/tk599-frozen.json`).", "",
+            "## Область и отступления", "", "Отступления от плана (записаны в §13.24 / §13.24.2 до счёта):", ""]
+     out += ["%d. %s" % (i, d) for i, d in enumerate(DEVIATIONS, 1)]
+@@ -235,6 +237,26 @@
+     return "\n".join(out) + "\n"
+ 
+ 
++def engine_md5s(npz_dir):
++    """{md5 бинаря движка: число серий} по кэшу `npz` прогона: у серии поле `bin_md5` (TK-607, §13.24.6); серия без поля — `LEGACY_BIN_MD5`. Оборванные `.tmp.npz` не считаются."""
++    out = {}
++    for name in sorted(os.listdir(npz_dir)):
++        if not name.endswith(".npz") or name.endswith(".tmp.npz"):
++            continue
++        with np.load(os.path.join(npz_dir, name)) as z:
++            md5 = str(z["bin_md5"]) if "bin_md5" in z.files else LEGACY_BIN_MD5
++        out[md5] = out.get(md5, 0) + 1
++    return out
++
++
++def bin_text(meta):
++    """Бинари движка для строки отчёта: «md5 (N серий), …»."""
++    ser = meta.get("bin_md5_series")
++    if not ser:
++        return "?"
++    return ", ".join("%s (%d сер.)" % (m, ser[m]) for m in sorted(ser))
++
++
+ def frozen_json(res, spec, meta=None):
+     """Файл заморозки: что читается на 17–30.11 по каждой стороне (ключи движка), с исходом и пометкой."""
+     sides = {}
+@@ -259,13 +281,19 @@
+     ap.add_argument("--frozen", required=True)
+     ap.add_argument("--commit", default="?")
+     ap.add_argument("--sens", default="", help="results/sens.json (§13.24.5): добавляет раздел «Чувствительность порога минимума сделок»; в файл заморозки не попадает")
++    ap.add_argument("--npz", default=NPZ_DEFAULT, help="каталог кэша серий прогона: md5 бинарей движка в мете заморозки читаются из серий (`bin_md5`), не зашиты")
+     ap.add_argument("--grids", default=os.path.join(HERE, "..", "..", "docs", "research", "freeze", "tk599-grids.json"))
+     a = ap.parse_args(argv)
+     res = pickle.load(open(a.results, "rb"))
+     spec = rf.Spec.load(a.grids)
+     import hashlib
+-    meta = {"commit": a.commit, "grids_sha256": hashlib.sha256(open(a.grids, "rb").read()).hexdigest(), "bin_md5": "a03c91df5a70c8eb32cbb7122943b8f9",
+-            "date": datetime.date.today().isoformat(), "nboot": res.get("nboot", rf.NBOOT)}
++    if not os.path.isdir(a.npz):
++        raise SystemExit("нет каталога кэша серий %s: укажите --npz — в мете заморозки обязаны быть md5 всех бинарей движка, использованных в прогоне" % a.npz)
++    ser = engine_md5s(a.npz)
++    if not ser:
++        raise SystemExit("в %s нет серий .npz — md5 бинаря движка не определить" % a.npz)
++    meta = {"commit": a.commit, "grids_sha256": hashlib.sha256(open(a.grids, "rb").read()).hexdigest(), "bin_md5": sorted(ser), "bin_md5_series": ser,
++            "npz_dir": os.path.abspath(a.npz), "date": datetime.date.today().isoformat(), "nboot": res.get("nboot", rf.NBOOT)}
+     with open(a.md, "w", encoding="utf-8", newline="\n") as f:
+         f.write(render_report(res, spec, dict(meta, sens=json.load(open(a.sens, encoding="utf-8")) if a.sens else None)))
+     with open(a.frozen, "w", encoding="utf-8", newline="\n") as f:
+diff -ru code2/tools/p42/retitr_full_run.py code3/tools/p42/retitr_full_run.py
+--- code2/tools/p42/retitr_full_run.py	2026-11-18 19:15:32.000000000 +0000
++++ code3/tools/p42/retitr_full_run.py	2026-11-18 21:28:58.945962901 +0000
+@@ -23,6 +23,7 @@
+ import json
+ import os
+ import pickle
++import re
+ import subprocess
+ import sys
+ 
+@@ -56,6 +57,8 @@
+     "grids_sha256": "e1d6bded92ddd44c68c130b98187756f9f3eaa36759291a619435e0e9a369e5d",
+     "manifests_sha256": "e377de791796bcc93bee2ad5ad70c5ee69cf1e45499369637cdf293e07c9bd59",   # §13.24.4 п. 8 (глубина предыстории H = 32, 18.11); до этого 06e0993e… (§13.24.3 п. 7), 9f52379e…
+ }
++# §13.24.6 (TK-607): допустимые бинари движка {md5: sha256}: a03c91df (§13.24) и бинарь «только скорость» (склад суток сделок, кэш сигналов; ворота и PASS критика — docs/findings/p42-speed-2026-11-18.md §9–§10).
++ACCEPTED_BIN = {RECORDED["bin_md5"]: RECORDED["bin_sha256"], "a112684a495e61cf5219610e4eecff22": "ee28fd7b85eada7dd30ef96e3a91bba14df0489fb929c7a7e7163c8b72a49b53"}
+ GuardError = rf.GuardError
+ 
+ 
+@@ -69,6 +72,10 @@
+ @dataclasses.dataclass
+ class Paths:
+     root: str = ROOT
++    tick_store: str = ""                                # TK-607: каталог склада суток сделок (`--tick-store`); пусто — прежний путь без склада
++    sig_cache: str = ""                                 # TK-607: каталог кэша сигналов (`--sig-cache`)
++    store_cap_gb: int = 3
++    store_min_free_gb: int = 5
+ 
+     def j(self, *a):
+         return os.path.join(self.root, *a)
+@@ -205,13 +212,32 @@
+         self.paths, self.runner, self.symbols, self.bin, self.threads, self.chunk = paths, runner, symbols_text, bin_path, threads, chunk
+         self.ensure_tables, self.windows = ensure_tables, windows
+         self.prefix = prefix                                            # пакеты `<prefix>NNNN`: у `sens` — «s» (журналы основного прогона `b0001…` не перезаписываются)
+-        self.n = 0
++        self.n = self.last_batch()                                      # после перезапуска нумерация продолжается: файлы `var/bNNNN.txt` и журналы не перезаписываются
++
++    def last_batch(self):
++        """Наибольший номер пакета `<prefix>NNNN` среди журналов `log/<prefix>NNNN-<окно>.log` и `var/<prefix>NNNN.txt` (0 — нет ни одного)."""
++        best = 0
++        for d in (self.paths.log, self.paths.var):
++            try:
++                names = os.listdir(d)
++            except OSError:
++                continue
++            for fn in names:
++                m = re.fullmatch(r"%s(\d{4})(?:-[a-z]+\.log|\.txt)" % re.escape(self.prefix), fn)
++                if m:
++                    best = max(best, int(m.group(1)))
++        return best
+ 
+     def command(self, w, vfile, out, ftab=None, sigsx_only=False):
+         cmd = [self.bin, "breakout", "tick", "--cache", self.paths.cache(w.name), "--trades", self.paths.trades(w.name), "--variants", vfile,
+                "--symbols", self.symbols, "--out", out, "--threads", str(self.threads)]
+         if ftab:
+             cmd += ["--ftab", ftab]
++        if self.paths.tick_store:
++            cmd += ["--tick-store", self.paths.tick_store, "--tick-store-cap-gb", str(self.paths.store_cap_gb),
++                    "--tick-store-min-free-gb", str(self.paths.store_min_free_gb)]
++        if self.paths.sig_cache:
++            cmd += ["--sig-cache", self.paths.sig_cache]
+         env = {"P42_T0": w.t0}
+         if sigsx_only:
+             env.update({"P42_SIGSX_ONLY": "1", "P42_SIGSX": SIGSX_DAYS})
+@@ -461,7 +487,8 @@
+     """G1 (бинарь md5/sha256), G2 (sha256 монет, сеток, файла манифестов; MANIFEST каждого окна на srv = записанному разделу). Возвращает {проверка: ок}; список невыполненных — в 'fail'."""
+     res = {}
+     sha, md5 = file_hashes(bin_path)
+-    res["G1_bin_sha256"], res["G1_bin_md5"] = sha == recorded["bin_sha256"], md5 == recorded["bin_md5"]
++    accepted = dict(ACCEPTED_BIN) if recorded is RECORDED else {recorded["bin_md5"]: recorded["bin_sha256"]}      # §13.24.6: a03c91df и бинарь, записанный в протоколе до смены
++    res["G1_bin_sha256"], res["G1_bin_md5"] = accepted.get(md5) == sha, md5 in accepted
+     res["G2_symbols_sha256"] = file_hashes(symbols)[0] == recorded["symbols_sha256"]
+     res["G2_grids_sha256"] = file_hashes(grids)[0] == recorded["grids_sha256"]
+     res["G2_manifests_sha256"] = file_hashes(manifests)[0] == recorded["manifests_sha256"]
+@@ -547,8 +574,16 @@
+ 
+ 
+ def make_ctx(root=ROOT, runner=None, nboot=rf.NBOOT, chunk=None, procs=6, threads=THREADS, bin_path=None, symbols=SYMBOLS, grids=GRIDS, funding=FUNDING,
+-             prod=PROD, rates=None, python=None, metrics=True, prefix="b"):
+-    paths = Paths(root)
++             prod=PROD, rates=None, python=None, metrics=True, prefix="b", tick_store="", sig_cache=""):
++    bin_file = bin_path or os.path.join(root, "bin", "alpha-master")
++    bin_md5 = file_hashes(bin_file)[1] if os.path.exists(bin_file) else None
++    if bin_md5 in ACCEPTED_BIN and bin_md5 != RECORDED["bin_md5"]:                                  # бинарь «только скорость» (§13.24.6): склад суток сделок и кэш сигналов по умолчанию; "off" — выключить
++        tick_store, sig_cache = tick_store or os.path.join(root, "tick-store"), sig_cache or os.path.join(root, "sig-cache")
++    tick_store, sig_cache = ("" if tick_store == "off" else tick_store), ("" if sig_cache == "off" else sig_cache)
++    for d in (tick_store, sig_cache):
++        if d:
++            os.makedirs(d, exist_ok=True)
++    paths = Paths(root, tick_store=tick_store, sig_cache=sig_cache)
+     runner = runner or SubprocessRunner()
+     spec = rf.Spec.load(grids)
+     text, coins = read_symbols(symbols)
+@@ -558,7 +593,8 @@
+     engine.ensure_tables = store.build
+     os.makedirs(paths.npz, exist_ok=True)
+     ev = rf.OutDirEvaluator(paths.j("out"), coins, rates if rates is not None else rf.load_funding_rates(funding, coins), launch=engine.launch, cache_dir=paths.npz,
+-                            run_t0={w.name: w.t0 for w in rf.WINDOWS}, ftab_builder=store.build, ftab_ready=store.ready)
++                            run_t0={w.name: w.t0 for w in rf.WINDOWS}, ftab_builder=store.build, ftab_ready=store.ready,
++                            bin_md5=bin_md5, allowed_md5=set(ACCEPTED_BIN), legacy_md5=RECORDED["bin_md5"])
+     return Ctx(paths, runner, spec, coins, text, engine, store, ev, nboot, engine_conv, stop=lambda: os.path.exists(paths.stop))
+ 
+ 
+@@ -780,7 +816,7 @@
+ 
+ def cmd_gates(a):
+     require_go()
+-    ctx = make_ctx(a.root, nboot=a.nboot, chunk=a.chunk, procs=a.procs, threads=a.threads, bin_path=a.bin, prod=a.prod)
++    ctx = make_ctx(a.root, nboot=a.nboot, chunk=a.chunk, procs=a.procs, threads=a.threads, bin_path=a.bin, prod=a.prod, tick_store=getattr(a, "tick_store", ""), sig_cache=getattr(a, "sig_cache", ""))
+     g = run_gates(ctx, with_g5=False)                                   # G1/G2/G3/G3b; G5 — отдельной командой после докачки метрик
+     os.makedirs(ctx.paths.gate, exist_ok=True)
+     json.dump(jsonable(g), open(os.path.join(ctx.paths.gate, "gates-g123.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
+@@ -813,7 +849,7 @@
+ 
+ def cmd_gate5(a):
+     require_go()
+-    ctx = make_ctx(a.root, nboot=a.nboot, chunk=a.chunk, procs=a.procs, threads=a.threads, bin_path=a.bin, prod=a.prod)
++    ctx = make_ctx(a.root, nboot=a.nboot, chunk=a.chunk, procs=a.procs, threads=a.threads, bin_path=a.bin, prod=a.prod, tick_store=getattr(a, "tick_store", ""), sig_cache=getattr(a, "sig_cache", ""))
+     g5 = gate5(ctx.store, ctx.spec)
+     os.makedirs(ctx.paths.gate, exist_ok=True)
+     json.dump(g5, open(os.path.join(ctx.paths.gate, "g5.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
+@@ -825,7 +861,7 @@
+ 
+ def cmd_run(a):
+     require_go()
+-    ctx = make_ctx(a.root, nboot=a.nboot, chunk=a.chunk, procs=a.procs, threads=a.threads, bin_path=a.bin, prod=a.prod)
++    ctx = make_ctx(a.root, nboot=a.nboot, chunk=a.chunk, procs=a.procs, threads=a.threads, bin_path=a.bin, prod=a.prod, tick_store=getattr(a, "tick_store", ""), sig_cache=getattr(a, "sig_cache", ""))
+     gp = os.path.join(ctx.paths.gate, "gates.json")
+     if a.reuse_gates:                                                    # перезапуск: ворота первого запуска остаются в силе, файл не переписывается
+         with open(gp, encoding="utf-8") as f:
+@@ -849,7 +885,7 @@
+     require_go()
+     ns = parse_ns(a.ns)
+     rf.check_sens_windows(rf.WINDOWS)
+-    ctx = make_ctx(a.root, nboot=a.nboot, chunk=a.chunk, procs=a.procs, threads=a.threads, bin_path=a.bin, prod=a.prod, prefix="s")
++    ctx = make_ctx(a.root, nboot=a.nboot, chunk=a.chunk, procs=a.procs, threads=a.threads, bin_path=a.bin, prod=a.prod, prefix="s", tick_store=getattr(a, "tick_store", ""), sig_cache=getattr(a, "sig_cache", ""))
+     pkl, frozen_sha = require_main_done(ctx.paths)
+     with open(os.path.join(ctx.paths.gate, "gates.json"), encoding="utf-8") as f:
+         gates = json.load(f)
+@@ -868,6 +904,8 @@
+     ap.add_argument("--prod", default=PROD)
+     ap.add_argument("--threads", type=int, default=THREADS)
+     ap.add_argument("--procs", type=int, default=6)
++    ap.add_argument("--tick-store", default=os.environ.get("P42_TICK_STORE", ""), help="TK-607: каталог склада суток сделок движка (пусто — без склада); по умолчанию из окружения P42_TICK_STORE")
++    ap.add_argument("--sig-cache", default=os.environ.get("P42_SIG_CACHE", ""), help="TK-607: каталог кэша сигналов движка (пусто — без кэша); по умолчанию из окружения P42_SIG_CACHE")
+     ap.add_argument("--chunk", type=int, default=0, help="вариантов в одном вызове движка (0 — все недостающие одним пакетом)")
+     ap.add_argument("--nboot", type=int, default=rf.NBOOT)
+     ap.add_argument("--ns", default="20,10,15,25", help="`sens`: пороги N (контрольный 20 — первым)")
+diff -ru code2/tools/p42/tests/test_retitr_full_run.py code3/tools/p42/tests/test_retitr_full_run.py
+--- code2/tools/p42/tests/test_retitr_full_run.py	2026-11-18 19:29:26.000000000 +0000
++++ code3/tools/p42/tests/test_retitr_full_run.py	2026-11-18 21:38:24.427362704 +0000
+@@ -166,6 +166,81 @@
+         assert "--ftab" not in cmd and env == {"P42_T0": "2026-07-25", "P42_SIGSX_ONLY": "1", "P42_SIGSX": "14:73"}
+ 
+ 
++def test_engine_store_keys_and_batch_numbering():
++    with tempfile.TemporaryDirectory() as tmp:
++        ctx, _ = make(tmp)
++        w = rf.WINDOWS[1]
++        cmd, _ = ctx.engine.command(w, "/v/b1.txt", "/o/wb", None)
++        assert "--tick-store" not in cmd and "--sig-cache" not in cmd                              # без ключей — прежняя команда
++        ctx.paths.tick_store, ctx.paths.sig_cache = "/s/tk", "/s/sc"
++        cmd, _ = ctx.engine.command(w, "/v/b1.txt", "/o/wb", None)
++        assert cmd[cmd.index("--tick-store"):] == ["--tick-store", "/s/tk", "--tick-store-cap-gb", "3", "--tick-store-min-free-gb", "5", "--sig-cache", "/s/sc"]
++        assert ctx.engine.last_batch() == 0
++        for d, names in ((ctx.paths.log, ["b0007-wa.log", "b0007-wc.log", "sx-wa-abcdef.log", "ftab-wb-1234.log", "s0003-wa.log"]), (ctx.paths.var, ["b0012.txt", "sx-wa-ab.txt"])):
++            os.makedirs(d, exist_ok=True)
++            for n in names:
++                open(os.path.join(d, n), "w").close()
++        assert rr.Engine(ctx.paths, ctx.runner, "X").n == 12 and rr.Engine(ctx.paths, ctx.runner, "X", prefix="s").n == 3
++
++
++def test_series_bin_md5_saved_and_guarded():
++    with tempfile.TemporaryDirectory() as tmp:
++        ctx, _ = make(tmp, World(lambda k, s, d: 0.0))
++        new = "ab" * 16
++        ctx.ev.bin_md5 = new
++        req = rf.Req("L", rf.cfg_keys(SPEC, "L", {}), False)
++        ctx.ev.fulfil([req])
++        assert str(np.load(ctx.ev._npz(req))["bin_md5"]) == new
++        ctx2, _ = make(tmp, World(lambda k, s, d: 0.0))                                            # тот же корень: серия берётся из npz
++        assert new in raises(rr.GuardError, ctx2.ev.missing, [req])
++        ctx2.ev.allowed_md5 = {new, rr.RECORDED["bin_md5"]}
++        assert ctx2.ev.missing([req]) == []
++
++
++def test_make_ctx_store_and_cache_default_only_for_new_binary():
++    with tempfile.TemporaryDirectory() as tmp:
++        sym = os.path.join(tmp, "symbols.txt")
++        with open(sym, "w", encoding="utf-8") as f:
++            f.write(",".join(COINS) + "\n")
++        binp = os.path.join(tmp, "alpha-new")
++        with open(binp, "wb") as f:
++            f.write(b"new engine")
++        md5, root = rr.file_hashes(binp)[1], os.path.join(tmp, "root")
++
++        def ctx(**kw):
++            return rr.make_ctx(root, runner=FakeSrv(None), nboot=NB, symbols=sym, rates={}, bin_path=binp, prod="/x/py", metrics=False, **kw)
++        c = ctx()
++        assert c.paths.tick_store == "" and c.paths.sig_cache == ""                                # бинарь не из допустимых новых — без склада и кэша
++        rr.ACCEPTED_BIN[md5] = "0" * 64
++        try:
++            c = ctx()
++            assert c.paths.tick_store == os.path.join(root, "tick-store") and c.paths.sig_cache == os.path.join(root, "sig-cache") and os.path.isdir(c.paths.sig_cache)
++            c = ctx(tick_store="off", sig_cache=os.path.join(tmp, "sc"))
++            assert c.paths.tick_store == "" and c.paths.sig_cache == os.path.join(tmp, "sc")
++        finally:
++            rr.ACCEPTED_BIN.pop(md5, None)
++
++
++def test_gate12_accepts_only_recorded_binaries():
++    with tempfile.TemporaryDirectory() as tmp:
++        paths = rr.Paths(os.path.join(tmp, "root"))
++        b, s, g, m = (os.path.join(tmp, n) for n in ("bin", "sym", "grids", "man"))
++        for p, txt in ((b, "NEW"), (s, "S"), (g, "G"), (m, "== wa\n")):
++            open(p, "w").write(txt)
++        sha, md5 = rr.file_hashes(b)
++        r = rr.gate12(paths, b, s, g, m)
++        assert not r["G1_bin_md5"] and not r["G1_bin_sha256"]                                      # бинарь, не записанный в протоколе
++        rr.ACCEPTED_BIN[md5] = sha
++        try:
++            r = rr.gate12(paths, b, s, g, m)
++            assert r["G1_bin_md5"] and r["G1_bin_sha256"]
++            rr.ACCEPTED_BIN[md5] = "0" * 64
++            r = rr.gate12(paths, b, s, g, m)
++            assert r["G1_bin_md5"] and not r["G1_bin_sha256"]
++        finally:
++            rr.ACCEPTED_BIN.pop(md5, None)
++
++
+ def test_groups_split_and_chunks():
+     with tempfile.TemporaryDirectory() as tmp:
+         ctx, _ = make(tmp, chunk=2)
+@@ -425,13 +500,21 @@
+         assert '"freeze"' in js
+         pkl, md, fz = (os.path.join(tmp, n) for n in ("results.pkl", "r.md", "frozen.json"))
+         pickle.dump(res, open(pkl, "wb"))
+-        assert rep.main([pkl, "--md", md, "--frozen", fz, "--commit", "abc123"]) == 0
++        nz = os.path.join(tmp, "npz-for-report")                                                   # md5 бинарей — из серий кэша (TK-607: поле bin_md5; без поля — a03c91df)
++        os.makedirs(nz)
++        for i, new in enumerate([None, None, "a112684a" + "0" * 24, "a112684a" + "0" * 24, "a112684a" + "0" * 24]):
++            np.savez(os.path.join(nz, "s%d.npz" % i), **({"bin_md5": np.array(new)} if new else {"val": np.zeros(1)}))
++        open(os.path.join(nz, "x.tmp.npz"), "wb").write(b"oborvan")                              # оборванный — не считается
++        assert rep.engine_md5s(nz) == {rep.LEGACY_BIN_MD5: 2, "a112684a" + "0" * 24: 3}
++        raises(SystemExit, rep.main, [pkl, "--md", md, "--frozen", fz, "--npz", os.path.join(tmp, "net")])
++        assert rep.main([pkl, "--md", md, "--frozen", fz, "--commit", "abc123", "--npz", nz]) == 0
+         text = open(md, encoding="utf-8").read()
+         for s in ("# П-42 §13.24", "Ограничение области: сочетания двух и более признаков не проверялись", "## Шаг 0", "F_maxmv1_lo_", "Проход 1", "Совместная сетка",
+                   "Проверка процедуры вперёд", "Исход заморозки", "abc123", "Чтение вперёд 17–30.11 здесь не сделано", "§13.24.2", "G5", "**снят**"):
+             assert s in text, s
+         j = json.load(open(fz, encoding="utf-8"))
+         assert j["scope"] == rep.SCOPE_LIMIT and j["version"] == rep.FROZEN_VERSION
++        assert j["meta"]["bin_md5"] == sorted([rep.LEGACY_BIN_MD5, "a112684a" + "0" * 24]) and j["meta"]["bin_md5_series"][rep.LEGACY_BIN_MD5] == 2 and "a112684a" in text
+         L, S = j["sides"]["L"], j["sides"]["S"]
+         assert L["decision"] == "C*" and "rr=3" in L["keys"] and L["axes"]["rr"] == "rr_3" and L["axes"]["F"].startswith("F_maxmv1_lo_") and L["keys"].count("fa=") == 1
+         assert S["decision"] == "база" and S["keys"] == S["base_keys"] and S["axes"] == {}
+@@ -523,7 +606,7 @@
+         pkl, md, fz, sj = (os.path.join(tmp, n) for n in ("results.pkl", "r.md", "frozen.json", "sens.json"))
+         pickle.dump(main, open(pkl, "wb"))
+         json.dump(sens, open(sj, "w", encoding="utf-8"))
+-        assert rep.main([pkl, "--md", md, "--frozen", fz, "--sens", sj]) == 0
++        assert rep.main([pkl, "--md", md, "--frozen", fz, "--sens", sj, "--npz", ctx.paths.npz]) == 0
+         text = open(md, encoding="utf-8").read()
+         for s in ("## Чувствительность порога минимума сделок", "«также нужно протитровать минимальное количество сделок от 10-15-20-25»", "N = 10 — 10/10/10/10/4", "(контроль, вердикт)",
+                   "`rr`: база → rr_3", "m_сем", "совпал с `results.pkl`", "abababababababab"):
+@@ -660,12 +743,28 @@
+             ctx3, srv3 = make(t, thin_world(eff))
+             b = trp.replay_trace(rf, rr, ctx3, g5, c595)
+             assert trp.compare_traces(a, b) == [] and a["digest"] == b["digest"]
++            assert a["depth"]["ok"] and a["depth"]["steps"] == len(a["steps"]) and a["depth"]["last"]["kind"] in ("axis", "joint") and a["ingested"] == 0
+             files = sorted(os.listdir(ctx3.paths.npz))
+-            os.remove(os.path.join(ctx3.paths.npz, files[len(files) // 2]))
++            victim = os.path.join(ctx3.paths.npz, files[len(files) // 2])
++            os.remove(victim)                                                                    # серия без npz, но с DONE: возобновление возьмёт её из выходов движка — повтор тоже, только чтением
++            ctxI, srvI = make(t, thin_world(eff))
++            ing = trp.replay_trace(rf, rr, ctxI, g5, c595)
++            assert ing["done"] and ing["ingested"] == 1 and srvI.engine_variants == 0 and not os.path.exists(victim)
++            assert sorted(s["digest"] for s in ing["steps"]) == sorted(s["digest"] for s in a["steps"])                   # порядок завершения шагов зависит от того, кто ждал данных
++            assert "ingested: 0 ≠ 1" in trp.compare_traces(a, ing)
++            for dp, _, fs in os.walk(os.path.join(t, "root", "out")):                            # теперь и меток DONE нет: прогона нет в кэше — настоящая граница
++                for f in fs:
++                    if f == rr.DONE_MARK:
++                        os.remove(os.path.join(dp, f))
+             ctx4, srv4 = make(t, thin_world(eff))
+             c = trp.replay_trace(rf, rr, ctx4, g5, c595)
+-            assert not c["done"] and c["frontier"] and c["frontier"]["missing"] >= 1 and srv4.engine_variants == 0 and (rf.eval_axis, rf.run_joint) == orig
+-            assert len(c["steps"]) < len(a["steps"]) and trp.compare_traces(a, c)
++            assert not c["done"] and c["frontier"] and c["frontier"]["missing"] >= 1 and c["frontier"]["genuine"] and srv4.engine_variants == 0 and (rf.eval_axis, rf.run_joint) == orig
++            assert len(c["steps"]) < len(a["steps"]) and trp.compare_traces(a, c) and c["depth"]["ok"] and c["depth"]["frontier_genuine"] is True
++            assert not os.path.exists(victim)                                                    # повтор ничего не записал
++            z = trp.depth_of({"steps": [], "frontier": {"genuine": True, "round": 0, "missing": 1}, "done": False})
++            assert not z["ok"] and z["steps"] == 0                                               # ноль шагов — не зачёт
++            early = trp.depth_of({"steps": a["steps"][:3], "frontier": {"genuine": False, "round": 1, "missing": 1}, "done": False})
++            assert not early["ok"] and early["frontier_genuine"] is False                        # ложная граница (прогон в кэше есть) — ранняя остановка, не зачёт
+             a2 = json.loads(json.dumps(a))
+             a2["steps"][0]["digest"] = "0" * 64
+             assert any(d.startswith("steps[0]") for d in trp.compare_traces(a, a2))

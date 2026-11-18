@@ -57,8 +57,8 @@ RECORDED = {
     "grids_sha256": "e1d6bded92ddd44c68c130b98187756f9f3eaa36759291a619435e0e9a369e5d",
     "manifests_sha256": "e377de791796bcc93bee2ad5ad70c5ee69cf1e45499369637cdf293e07c9bd59",   # §13.24.4 п. 8 (глубина предыстории H = 32, 18.11); до этого 06e0993e… (§13.24.3 п. 7), 9f52379e…
 }
-# §13.24.6 (TK-607): допустимые бинари движка {md5: sha256}. Новый бинарь вносится сюда коммитом ПОСЛЕ ворот (запись в протоколе — до смены); пока записи нет, допустим только a03c91df.
-ACCEPTED_BIN = {RECORDED["bin_md5"]: RECORDED["bin_sha256"]}
+# §13.24.6 (TK-607): допустимые бинари движка {md5: sha256}: a03c91df (§13.24) и бинарь «только скорость» (склад суток сделок, кэш сигналов; ворота и PASS критика — docs/findings/p42-speed-2026-11-18.md §9–§10).
+ACCEPTED_BIN = {RECORDED["bin_md5"]: RECORDED["bin_sha256"], "a112684a495e61cf5219610e4eecff22": "ee28fd7b85eada7dd30ef96e3a91bba14df0489fb929c7a7e7163c8b72a49b53"}
 GuardError = rf.GuardError
 
 
@@ -547,6 +547,14 @@ class Ctx:
 
 def make_ctx(root=ROOT, runner=None, nboot=rf.NBOOT, chunk=None, procs=6, threads=THREADS, bin_path=None, symbols=SYMBOLS, grids=GRIDS, funding=FUNDING,
              prod=PROD, rates=None, python=None, metrics=True, prefix="b", tick_store="", sig_cache=""):
+    bin_file = bin_path or os.path.join(root, "bin", "alpha-master")
+    bin_md5 = file_hashes(bin_file)[1] if os.path.exists(bin_file) else None
+    if bin_md5 in ACCEPTED_BIN and bin_md5 != RECORDED["bin_md5"]:                                  # бинарь «только скорость» (§13.24.6): склад суток сделок и кэш сигналов по умолчанию; "off" — выключить
+        tick_store, sig_cache = tick_store or os.path.join(root, "tick-store"), sig_cache or os.path.join(root, "sig-cache")
+    tick_store, sig_cache = ("" if tick_store == "off" else tick_store), ("" if sig_cache == "off" else sig_cache)
+    for d in (tick_store, sig_cache):
+        if d:
+            os.makedirs(d, exist_ok=True)
     paths = Paths(root, tick_store=tick_store, sig_cache=sig_cache)
     runner = runner or SubprocessRunner()
     spec = rf.Spec.load(grids)
@@ -556,10 +564,9 @@ def make_ctx(root=ROOT, runner=None, nboot=rf.NBOOT, chunk=None, procs=6, thread
     store = FtabStore(paths, runner, engine, prod, procs, python=python, prepare=(lambda: metrics_tree(paths)) if metrics else None)
     engine.ensure_tables = store.build
     os.makedirs(paths.npz, exist_ok=True)
-    bin_file = bin_path or paths.j("bin", "alpha-master")
     ev = rf.OutDirEvaluator(paths.j("out"), coins, rates if rates is not None else rf.load_funding_rates(funding, coins), launch=engine.launch, cache_dir=paths.npz,
                             run_t0={w.name: w.t0 for w in rf.WINDOWS}, ftab_builder=store.build, ftab_ready=store.ready,
-                            bin_md5=file_hashes(bin_file)[1] if os.path.exists(bin_file) else None, allowed_md5=set(ACCEPTED_BIN), legacy_md5=RECORDED["bin_md5"])
+                            bin_md5=bin_md5, allowed_md5=set(ACCEPTED_BIN), legacy_md5=RECORDED["bin_md5"])
     return Ctx(paths, runner, spec, coins, text, engine, store, ev, nboot, engine_conv)
 
 
@@ -781,7 +788,7 @@ def cmd_plan(a):
 
 def cmd_gates(a):
     require_go()
-    ctx = make_ctx(a.root, nboot=a.nboot, chunk=a.chunk, procs=a.procs, threads=a.threads, bin_path=a.bin, prod=a.prod)
+    ctx = make_ctx(a.root, nboot=a.nboot, chunk=a.chunk, procs=a.procs, threads=a.threads, bin_path=a.bin, prod=a.prod, tick_store=getattr(a, "tick_store", ""), sig_cache=getattr(a, "sig_cache", ""))
     g = run_gates(ctx, with_g5=False)                                   # G1/G2/G3/G3b; G5 — отдельной командой после докачки метрик
     os.makedirs(ctx.paths.gate, exist_ok=True)
     json.dump(jsonable(g), open(os.path.join(ctx.paths.gate, "gates-g123.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
@@ -804,7 +811,7 @@ def run_gates(ctx, with_g5=True):
 
 def cmd_gate5(a):
     require_go()
-    ctx = make_ctx(a.root, nboot=a.nboot, chunk=a.chunk, procs=a.procs, threads=a.threads, bin_path=a.bin, prod=a.prod)
+    ctx = make_ctx(a.root, nboot=a.nboot, chunk=a.chunk, procs=a.procs, threads=a.threads, bin_path=a.bin, prod=a.prod, tick_store=getattr(a, "tick_store", ""), sig_cache=getattr(a, "sig_cache", ""))
     g5 = gate5(ctx.store, ctx.spec)
     os.makedirs(ctx.paths.gate, exist_ok=True)
     json.dump(g5, open(os.path.join(ctx.paths.gate, "g5.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
@@ -816,7 +823,7 @@ def cmd_gate5(a):
 
 def cmd_run(a):
     require_go()
-    ctx = make_ctx(a.root, nboot=a.nboot, chunk=a.chunk, procs=a.procs, threads=a.threads, bin_path=a.bin, prod=a.prod)
+    ctx = make_ctx(a.root, nboot=a.nboot, chunk=a.chunk, procs=a.procs, threads=a.threads, bin_path=a.bin, prod=a.prod, tick_store=getattr(a, "tick_store", ""), sig_cache=getattr(a, "sig_cache", ""))
     gates = run_gates(ctx)
     os.makedirs(ctx.paths.gate, exist_ok=True)
     json.dump(jsonable(gates), open(os.path.join(ctx.paths.gate, "gates.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
@@ -834,7 +841,7 @@ def cmd_sens(a):
     require_go()
     ns = parse_ns(a.ns)
     rf.check_sens_windows(rf.WINDOWS)
-    ctx = make_ctx(a.root, nboot=a.nboot, chunk=a.chunk, procs=a.procs, threads=a.threads, bin_path=a.bin, prod=a.prod, prefix="s")
+    ctx = make_ctx(a.root, nboot=a.nboot, chunk=a.chunk, procs=a.procs, threads=a.threads, bin_path=a.bin, prod=a.prod, prefix="s", tick_store=getattr(a, "tick_store", ""), sig_cache=getattr(a, "sig_cache", ""))
     pkl, frozen_sha = require_main_done(ctx.paths)
     with open(os.path.join(ctx.paths.gate, "gates.json"), encoding="utf-8") as f:
         gates = json.load(f)
@@ -853,8 +860,8 @@ def main(argv=None):
     ap.add_argument("--prod", default=PROD)
     ap.add_argument("--threads", type=int, default=THREADS)
     ap.add_argument("--procs", type=int, default=6)
-    ap.add_argument("--tick-store", default="", help="TK-607: каталог склада суток сделок движка (пусто — без склада)")
-    ap.add_argument("--sig-cache", default="", help="TK-607: каталог кэша сигналов движка (пусто — без кэша)")
+    ap.add_argument("--tick-store", default=os.environ.get("P42_TICK_STORE", ""), help="TK-607: каталог склада суток сделок движка (пусто — без склада); по умолчанию из окружения P42_TICK_STORE")
+    ap.add_argument("--sig-cache", default=os.environ.get("P42_SIG_CACHE", ""), help="TK-607: каталог кэша сигналов движка (пусто — без кэша); по умолчанию из окружения P42_SIG_CACHE")
     ap.add_argument("--chunk", type=int, default=0, help="вариантов в одном вызове движка (0 — все недостающие одним пакетом)")
     ap.add_argument("--nboot", type=int, default=rf.NBOOT)
     ap.add_argument("--ns", default="20,10,15,25", help="`sens`: пороги N (контрольный 20 — первым)")

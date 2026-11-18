@@ -196,6 +196,30 @@ def test_series_bin_md5_saved_and_guarded():
         assert ctx2.ev.missing([req]) == []
 
 
+def test_make_ctx_store_and_cache_default_only_for_new_binary():
+    with tempfile.TemporaryDirectory() as tmp:
+        sym = os.path.join(tmp, "symbols.txt")
+        with open(sym, "w", encoding="utf-8") as f:
+            f.write(",".join(COINS) + "\n")
+        binp = os.path.join(tmp, "alpha-new")
+        with open(binp, "wb") as f:
+            f.write(b"new engine")
+        md5, root = rr.file_hashes(binp)[1], os.path.join(tmp, "root")
+
+        def ctx(**kw):
+            return rr.make_ctx(root, runner=FakeSrv(None), nboot=NB, symbols=sym, rates={}, bin_path=binp, prod="/x/py", metrics=False, **kw)
+        c = ctx()
+        assert c.paths.tick_store == "" and c.paths.sig_cache == ""                                # бинарь не из допустимых новых — без склада и кэша
+        rr.ACCEPTED_BIN[md5] = "0" * 64
+        try:
+            c = ctx()
+            assert c.paths.tick_store == os.path.join(root, "tick-store") and c.paths.sig_cache == os.path.join(root, "sig-cache") and os.path.isdir(c.paths.sig_cache)
+            c = ctx(tick_store="off", sig_cache=os.path.join(tmp, "sc"))
+            assert c.paths.tick_store == "" and c.paths.sig_cache == os.path.join(tmp, "sc")
+        finally:
+            rr.ACCEPTED_BIN.pop(md5, None)
+
+
 def test_gate12_accepts_only_recorded_binaries():
     with tempfile.TemporaryDirectory() as tmp:
         paths = rr.Paths(os.path.join(tmp, "root"))
