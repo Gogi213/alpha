@@ -274,6 +274,9 @@ if os.path.exists(pdom_path):
         eq(w + " лонг", d["long"], r["long"])
         eq(w + " шорт", d["short"], r["short"])
         eq(w + " текст", d["what"], r["what"])
+        res = [f"{k}|{r['result'][k]}" for k in ("long", "short") if r.get("result", {}).get(k)] if T.get("result_title") else []
+        eq(w + " итог", " / ".join(d["res"]), " / ".join(res))
+        eq(w + " итог пусто", d["none"], bool(T.get("result_title")) and not res)
     cnt = lambda k: f"{sum(r[k] == 'pass' for r in T['rows'] if r[k] != 'na')} из {sum(r[k] != 'na' for r in T['rows'])}"
     eq("DOM итог лонг", pd_["total_long"], cnt("long"))
     eq("DOM итог шорт", pd_["total_short"], cnt("short"))

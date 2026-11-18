@@ -27,7 +27,7 @@ fs.mkdirSync(out, {recursive: true});
       id: c.dataset.stage, status: c.dataset.status, badge: t(c, '.badge'), answers: t(c, '.stage-q'), next: t(c, '.stage-next'),
       steps: [...c.querySelectorAll('.steps li')].map(li => li.dataset.status), numbers: [...c.querySelectorAll('.nums li')].map(li => li.textContent)
     }));
-    const targets = [...document.querySelectorAll('#progress .tg tbody tr')].map(r => ({id: r.dataset.target, long: r.dataset.long, short: r.dataset.short, what: r.querySelector('td.what').textContent}));
+    const targets = [...document.querySelectorAll('#progress .tg tbody tr')].map(r => ({id: r.dataset.target, long: r.dataset.long, short: r.dataset.short, what: r.querySelector('td.what').textContent, res: [...r.querySelectorAll('td.res .res-line')].map(d => d.dataset.side + '|' + d.querySelector('.res-t').textContent), none: !!r.querySelector('td.res .res-none')}));
     return {stages, targets, total_long: t(document, '#progress [data-f="total_long"]'), total_short: t(document, '#progress [data-f="total_short"]'), headline: t(document, '#progress .prog-head'),
       overflowX: document.documentElement.scrollWidth - innerWidth, tableOverflow: (() => { const w = document.querySelector('#progress .tg-wrap'); return w.scrollWidth - w.clientWidth; })()};
   });
