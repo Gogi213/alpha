@@ -10,6 +10,7 @@ import argparse
 import json
 import os
 import resource
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -34,7 +35,8 @@ def timed(cmd, env, wrap):
     wall, cpu = time.time() - t0, cpu_children() - c0
     if r.returncode:
         sys.exit(f"rc={r.returncode}: {' '.join(cmd)}\n{r.stderr[-800:]}")
-    return {"wall": round(wall, 1), "cpu": round(cpu, 1), "load0": l0, "load1": os.getloadavg()[0]}
+    return {"wall": round(wall, 1), "cpu": round(cpu, 1), "load0": l0, "load1": os.getloadavg()[0],
+            "tail": (r.stdout.strip().splitlines() or [""])[-1][:600]}
 
 
 def main():
@@ -43,6 +45,8 @@ def main():
     ap.add_argument("--base-date", required=True)
     ap.add_argument("--trades", required=True)
     ap.add_argument("--bin", required=True, help="alpha-feat (можно несколько через запятую; подпись — имя файла)")
+    ap.add_argument("--bin-args", action="append", default=[],
+                    help="доп. аргументы бинаря (shlex); повторяется по числу --bin по порядку, пусто — без аргументов")
     ap.add_argument("--ncoins", type=int, default=20)
     ap.add_argument("--procs", type=int, default=2)
     ap.add_argument("--reps", type=int, default=2)
@@ -62,6 +66,7 @@ def main():
     env = dict(os.environ, TK594_TRADES=a.trades)
     wrap = ["nice", "-n", str(a.nice)] if a.nice else []
     bins = a.bin.split(",")
+    bargs = [shlex.split(x) for x in a.bin_args] + [[]] * len(bins)
     runs = []
     for rep in range(a.reps):
         if not a.no_python:
@@ -69,10 +74,10 @@ def main():
                        "--procs", str(a.procs), "--coins", coins], env, wrap)
             runs.append({"rep": rep, "engine": "python", **r})
             print(json.dumps(runs[-1]), flush=True)
-        for b in bins:
+        for bi, b in enumerate(bins):
             r = timed([b, "flow", "--eps", eps_csv, "--out", os.path.join(tmp, "rs.csv"), "--base-date", a.base_date, "--threads", str(a.procs),
-                       "--coins", coins], env, wrap)
-            runs.append({"rep": rep, "engine": "rust:" + os.path.basename(b), **r})
+                       "--coins", coins, *bargs[bi]], env, wrap)
+            runs.append({"rep": rep, "engine": "rust:" + os.path.basename(b) + ("+args" if bargs[bi] else ""), **r})
             print(json.dumps(runs[-1]), flush=True)
     summ = {"coins": len(pick), "episodes": int(len(e)), "days_read": days_read, "procs": a.procs, "nice": a.nice, "runs": runs}
     if a.out:
