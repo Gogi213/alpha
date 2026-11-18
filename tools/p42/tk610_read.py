@@ -97,6 +97,9 @@ def build_freeze(tk599_frozen, tk599_commit, fit_dir, score_dir, gates_dir, r2_r
                           "cv_loss_mean_chosen": min(r["loss_mean"] for r in fit["cv"]), "folds": [{"file": f["file"], "sha256": f["sha256"]} for f in fit["folds"]],
                           "q": qj["q"], "n_oof": qj["n_oof"], "by_win": qj["by_win"], "g8_candidates": {"aug_cands": qj["aug_cands"], "aug_ge_q": qj["aug_ge_q"], "aug_ge_q_passF": qj["aug_ge_q_passF"]},
                           "g8_r2_trades_aug": cnt, "sigma_cstar_search": sig}
+    g1 = next((v for k, v in gates.items() if k.upper().startswith("G1")), {})
+    fr["engine"] = {"md5": g1.get("engine_md5"), "bin": "/data/p42-tk607/bin/alpha-l1 (turbo TK-607, §13.24.6)", "tick_store": True, "sig_cache": True,
+                    "allowed": g1.get("engine_allowed"), "deviation": "§13.27 п. 11.10: движок a112684a (TK-607) вместо a03c91df"}
     fr["r2_outputs_sha256"] = r2_outputs_sha(r2_root)
     fr["gates"] = gates
     fr["code_sha256"] = T.code_sha256()
