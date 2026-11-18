@@ -27,6 +27,7 @@ const MAGIC: [u8; 4] = *b"B42\x01";
 
 /// Начало сетки минуток: дата и мс UTC. По умолчанию 2026-09-01 (`T0_MS`); `P42_T0=<YYYY-MM-DD>` (TK-594, §13.20) сдвигает сетку — для прошлых суток
 /// (`2026-07-18`: сутки сетки 14 = 01.08). Читается один раз; неверная дата — остановка, а не тихий возврат к умолчанию.
+#[allow(clippy::panic)]
 fn grid_start() -> (chrono::NaiveDate, i64) {
     static G: std::sync::OnceLock<(chrono::NaiveDate, i64)> = std::sync::OnceLock::new();
     *G.get_or_init(|| {
