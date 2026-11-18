@@ -3,7 +3,7 @@
 # (ожидание — bash tools/srv-wait.sh file:/data/p42-tk598/out/<NAME>/DONE <минут>, фоном; п. 33 приказов).
 #   bash tools/p42/tk598_run.sh <NAME> <окно: F|jul|aug|hold> <файл вариантов (id ключи…)>
 # Окна (протокол §13.23 п. 3): F — сутки 14…73 от 01.09, кэш cache80; jul — P42_T0=2026-06-17, строки 14…44 = 01–31.07 (вход TK-596, только чтение);
-# aug — P42_T0=2026-07-18, 14…44 = 01–31.08 (вход TK-594/595); hold — P42_T0=2026-10-31, 14…16 = 14–16.11 (cache-hold, ленты TK-592).
+# aug — P42_T0=2026-07-18, 14…44 = 01–31.08 (вход TK-596, 566 монет); hold — P42_T0=2026-10-31, 14…16 = 14–16.11 (cache-hold, ленты TK-592).
 # Включает дампы `P42_DETAIL=1 P42_SIGSX=<дни> P42_LEVELS=1` и sha256-манифесты входов (до запуска движка: пишутся в out/<NAME>/manifest-*.txt).
 # Результат: /data/p42-tk598/out/<NAME>/<id варианта>/{long,short}-{trades.csv,detail.jsonl,sigsx.csv,levels.csv,daily.csv}; DONE — код возврата.
 set -euo pipefail
@@ -12,7 +12,7 @@ BIN=/data/p42-t566/bin/breakout-v21; SYMS=/data/p42-t566/symbols.txt; ROOT=/data
 case "$WIN" in
   F)    T0=2026-09-01; CACHE=/data/p42-t566/cache80;            TR=/data/aggtrades/binance;          DAYS=14:73 ;;
   jul)  T0=2026-06-17; CACHE=/data/p42-tk596/jul/cache;         TR=/data/p42-tk596/jul/aggtrades;    DAYS=14:44 ;;
-  aug)  T0=2026-07-18; CACHE=/data/tk594/aug/cache;             TR=/data/p42-past/aggtrades;         DAYS=14:44 ;;
+  aug)  T0=2026-07-18; CACHE=/data/p42-tk596/aug/cache;         TR=/data/p42-tk596/aug/aggtrades;    DAYS=14:44 ;;   # вход TK-596 (566 монет), решение координатора 18.11
   hold) T0=2026-10-31; CACHE=/data/p42-retitr/cache-hold;       TR=/data/tk592/aggtrades;            DAYS=14:16 ;;
   *) echo "окно: F|jul|aug|hold" >&2; exit 2 ;;
 esac
