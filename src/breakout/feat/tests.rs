@@ -3,7 +3,8 @@
 
 use super::deriv::{deriv_features, Metrics, DERIV};
 use super::flow::{
-    edges, flow_coin, flow_features, q99_edge, vpin_value, Ep, Win, DAY_MS, HOUR_MS, MIN_MS, NB,
+    edges, flow_coin, flow_features, hist_bin, q99_edge, vpin_value, Ep, Win, DAY_MS, HOUR_MS,
+    MIN_MS, NB,
 };
 use super::io::{read_eps, run, Cfg, Mode};
 use super::npcompat::{
@@ -188,6 +189,47 @@ fn golden_edges_search() {
         .map(|&x| (ss_right_f64(ed, x) as i64 - 1).clamp(0, NB as i64 - 1) as u64)
         .collect();
     assert_eq!(fnv(ix), s(&g["hist_index"]));
+}
+
+/// Быстрая корзина гистограммы (`hist_bin`, таблица ячеек) равна `searchsorted` numpy на всём диапазоне: границы корзин и их соседи по ULP,
+/// случайные значения по десятичной шкале 1e-9…1e13, границы таблицы (2^-10, 2^31 и соседи), ноль, отрицательные, субнормальные, inf, максимум.
+#[test]
+fn hist_bin_equals_searchsorted() {
+    let ed = edges();
+    let lut = super::flow::bin_lut_for_test();
+    let old = |x: f64| (ss_right_f64(ed, x) as i64 - 1).clamp(0, NB as i64 - 1) as usize;
+    let mut v: Vec<f64> = gen_pos(777, 400_000);
+    let mut st = 0x9E37_79B9_7F4A_7C15u64;
+    for _ in 0..2_000_000 {
+        st ^= st << 13;
+        st ^= st >> 7;
+        st ^= st << 17;
+        let u = (st >> 11) as f64 / (1u64 << 53) as f64;
+        v.push(10f64.powf(-9.0 + 22.0 * u));
+    }
+    for &e in ed {
+        for k in -3i64..=3 {
+            v.push(f64::from_bits((e.to_bits() as i64 + k) as u64));
+        }
+    }
+    for b in [2f64.powi(-10), 2f64.powi(31)] {
+        for k in -3i64..=3 {
+            v.push(f64::from_bits((b.to_bits() as i64 + k) as u64));
+        }
+    }
+    v.extend([
+        0.0,
+        -0.0,
+        -1.0,
+        1e-320,
+        f64::MIN_POSITIVE,
+        f64::MAX,
+        f64::INFINITY,
+        f64::NEG_INFINITY,
+    ]);
+    for &x in &v {
+        assert_eq!(hist_bin(lut, ed, x), old(x), "x = {x:e}");
+    }
 }
 
 #[test]

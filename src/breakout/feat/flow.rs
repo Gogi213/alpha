@@ -31,6 +31,46 @@ pub fn edges() -> &'static [f64] {
     })
 }
 
+/// Таблица для `hist_bin`: ячейка — порядок double и 6 старших бит мантиссы (ширина ячейки 0,8…1,6 % против шага корзины 2,3 %),
+/// значение — `searchsorted(edges, нижняя граница ячейки, "right")`; до начала ответа остаётся не более двух сравнений.
+const LUT_SHIFT: u32 = 46;
+/// Первая ячейка — 2^-10 ≈ 9,8e-4 (< `edges[0]` = 1e-3).
+const LUT_E0: u64 = (1023 - 10) << 6;
+/// 41 порядок: до 2^31 ≈ 2,1e9 (> `edges[NB]` = 1e9).
+const LUT_N: usize = 41 * 64;
+
+fn bin_lut() -> &'static [u16] {
+    static L: OnceLock<Vec<u16>> = OnceLock::new();
+    L.get_or_init(|| {
+        let ed = edges();
+        (0..LUT_N as u64)
+            .map(|k| ss_right_f64(ed, f64::from_bits((LUT_E0 + k) << LUT_SHIFT)) as u16)
+            .collect()
+    })
+}
+
+#[cfg(test)]
+pub(super) fn bin_lut_for_test() -> &'static [u16] {
+    bin_lut()
+}
+
+/// Корзина гистограммы для `v` (не NaN): `(searchsorted(edges, v, "right") − 1)` в `0…NB−1`, как у numpy; быстрый путь — таблица ячеек, вне её
+/// (ноль, отрицательные, < 2^-10, ≥ 2^31, inf) — двоичный поиск.
+#[inline]
+pub(super) fn hist_bin(lut: &[u16], ed: &[f64], v: f64) -> usize {
+    let k = (v.to_bits() >> LUT_SHIFT).wrapping_sub(LUT_E0);
+    let r = if k < LUT_N as u64 {
+        let mut i = usize::from(lut[k as usize]);
+        while i < ed.len() && ed[i] <= v {
+            i += 1;
+        }
+        i
+    } else {
+        ss_right_f64(ed, v)
+    };
+    (r as i64 - 1).clamp(0, NB as i64 - 1) as usize
+}
+
 /// Эпизод монеты: номер строки входа, время сигнала (мс от 1970), сторона (+1 лонг / −1 шорт), оборот за 24 ч.
 #[derive(Debug, Clone, Copy)]
 pub struct Ep {
@@ -219,7 +259,7 @@ pub fn flow_coin(src: &dyn DaySrc, sym: &str, eps: &[Ep]) -> Result<CoinFlow> {
     for (i, &d) in days.iter().enumerate() {
         by_day.entry(d).or_default().push(i);
     }
-    let ed = edges();
+    let (ed, lut) = (edges(), bin_lut());
     let mut out = CoinFlow {
         rows: Vec::with_capacity(eps.len()),
         missing_trade_days: 0,
@@ -244,7 +284,7 @@ pub fn flow_coin(src: &dyn DaySrc, sym: &str, eps: &[Ep]) -> Result<CoinFlow> {
                     let ix = if v.is_nan() {
                         NB - 1
                     } else {
-                        (ss_right_f64(ed, v) as i64 - 1).clamp(0, NB as i64 - 1) as usize
+                        hist_bin(lut, ed, v)
                     };
                     hist[base + hr * NB + ix] += 1;
                 }
