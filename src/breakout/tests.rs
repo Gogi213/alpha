@@ -502,11 +502,11 @@ fn pk_rechecks_history_when_pivot_joins() {
         (98.0, 97.6),
         (98.0, 97.6),
     ];
-    // окно L = 60 сут.: до конца данных никто не выпадает
+    // окно L = 90 сут. > сетки (80 сут., v20): до конца данных никто не выпадает
     let mut p0 = lv_params();
-    p0.sig.lv.l_days = 60;
+    p0.sig.lv.l_days = 90;
     let mut p1 = pk_params();
-    p1.sig.lv.l_days = 60;
+    p1.sig.lv.l_days = 90;
     let off = build_levels(&sym(bars_world(&spec)), &p0.sig.lv, Side::Long);
     assert_eq!(off.len(), 1);
     assert_eq!(
@@ -559,4 +559,15 @@ fn pk_rechecks_history_when_member_expires() {
         (HB + 26) * 60,
         "выпадение пивота 1 сдвинуло цену вниз: прокол 100,24 теперь нарушение"
     );
+}
+
+/// TK-594 (§13.20): без `P42_T0` сетка начинается 2026-09-01 — поведение v20 не меняется.
+#[test]
+fn grid_start_default_is_sep_01() {
+    if std::env::var_os("P42_T0").is_some() {
+        return;
+    }
+    assert_eq!(super::data::t0_ms(), super::data::T0_MS);
+    assert_eq!(super::data::day_string(0), "2026-09-01");
+    assert_eq!(super::data::day_string(14), "2026-09-15");
 }

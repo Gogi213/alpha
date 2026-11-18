@@ -3,6 +3,7 @@
 //! `trades.csv` в конце добавлены `sig_ms,entry_ms,exit_ms` (мс от 01.09 00:00 UTC).
 
 use super::data::{self, Sym, HALF_DAYS, MIN_MS, START_DAY};
+use super::ftab::{filter_sigs, FeatTab};
 use super::levels::build_levels_tracked;
 use super::params::ExitCfg;
 use super::params::{parse_variant, Params, SigCfg};
@@ -132,6 +133,95 @@ fn write_sigs(
     Ok(())
 }
 
+/// `P42_SIGSX=<сутки от>:<сутки до>` (§13.17): по каждому сигналу задания — `<side>-sigsx.csv`: монета, уровень, время сигнала, расстояние,
+/// цена уровня на сигнале, рождение/конец уровня (минуты), бар первого пивота, NATR минуты `t−1` (×1e8), члены версии уровня на сигнале (`бар:цена|…`).
+fn write_sigsx(
+    dir: &Path,
+    syms: &[Sym],
+    side: Side,
+    p: &Params,
+    sigs: &[TSig],
+    days: (usize, usize),
+) -> Result<()> {
+    let mut cache: HashMap<u16, Vec<super::levels::Level>> = HashMap::new();
+    let mut t =
+        String::from("sym,level,sig_ms,dist_e8,level_px_e8,born,end,first_bar,natr_e8,members\n");
+    for sg in sigs {
+        let d = usize::from(sg.day);
+        if d < days.0 || d > days.1 {
+            continue;
+        }
+        let sym = &syms[sg.sym as usize];
+        let levels = cache
+            .entry(sg.sym)
+            .or_insert_with(|| build_levels_tracked(sym, &p.sig.lv, side, true));
+        let lv = &levels[sg.level as usize];
+        let si = lv.segs.iter().rposition(|(m, _)| *m <= sg.t).unwrap_or(0);
+        let mem: Vec<String> = lv.mem[si]
+            .iter()
+            .map(|(b, px)| format!("{b}:{px}"))
+            .collect();
+        let natr = sym
+            .natr_for(p.sig.natr_p)
+            .map_or(-1, |n| n[sg.t as usize - 1]);
+        let _ = writeln!(
+            t,
+            "{},{},{},{},{},{},{},{},{},{}",
+            sym.name,
+            sg.level,
+            sg.ms,
+            sg.dist,
+            side.s() * sg.lp,
+            lv.born,
+            lv.end,
+            lv.first_bar,
+            natr,
+            mem.join("|"),
+        );
+    }
+    fs::write(dir.join(format!("{}-sigsx.csv", side.name())), t)?;
+    Ok(())
+}
+
+/// `P42_LEVELS=1` (§13.17): все уровни всех монет задания — `<side>-levels.csv`: монета, номер, рождение, конец (минуты; `u32::MAX` — до
+/// конца данных), бар первого пивота, версии цены (`минута:цена|…`) и члены каждой версии (`бар:цена,…` через `|`, по версиям).
+fn write_levels(dir: &Path, syms: &[Sym], side: Side, p: &Params) -> Result<()> {
+    let mut t = String::from(
+        "sym,level,born,end,first_bar,segs,members
+",
+    );
+    for sym in syms {
+        for (i, lv) in build_levels_tracked(sym, &p.sig.lv, side, true)
+            .iter()
+            .enumerate()
+        {
+            let segs: Vec<String> = lv.segs.iter().map(|(m, px)| format!("{m}:{px}")).collect();
+            let mem: Vec<String> = lv
+                .mem
+                .iter()
+                .map(|v| {
+                    v.iter()
+                        .map(|(b, px)| format!("{b}:{px}"))
+                        .collect::<Vec<_>>()
+                        .join(",")
+                })
+                .collect();
+            let _ = writeln!(
+                t,
+                "{},{i},{},{},{},{},{}",
+                sym.name,
+                lv.born,
+                lv.end,
+                lv.first_bar,
+                segs.join("|"),
+                mem.join("|"),
+            );
+        }
+    }
+    fs::write(dir.join(format!("{}-levels.csv", side.name())), t)?;
+    Ok(())
+}
+
 /// `P42_DETAIL=1`: построчно (JSONL) всё, что нужно для графика сделки — уровень на сигнале с членами, ноги, NATR.
 fn write_detail(dir: &Path, syms: &[Sym], side: Side, p: &Params, r: &TickResult) -> Result<()> {
     let mut cache: HashMap<u16, Vec<super::levels::Level>> = HashMap::new();
@@ -179,6 +269,7 @@ fn write_detail(dir: &Path, syms: &[Sym], side: Side, p: &Params, r: &TickResult
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn run(
     cache: &Path,
     trades: &Path,
@@ -187,6 +278,7 @@ pub fn run(
     threads: usize,
     symbols: Option<String>,
     cap_gb: usize,
+    ftab: Option<&Path>,
 ) -> Result<()> {
     let t0 = Instant::now();
     let only: Option<Vec<String>> = symbols.map(|s| s.split(',').map(str::to_string).collect());
@@ -208,6 +300,35 @@ pub fn run(
     if vs.is_empty() {
         bail!("нет вариантов");
     }
+    // §13.21: таблица признаков кандидатов — один раз, только столбцы, названные в `fa`; ошибка таблицы — до тяжёлой фазы 1
+    let mut want: Vec<&str> = vs
+        .iter()
+        .filter(|(_, p)| p.filt.on())
+        .map(|(_, p)| p.filt.name.as_str())
+        .collect();
+    want.sort_unstable();
+    want.dedup();
+    let tab: Option<FeatTab> = if want.is_empty() {
+        None
+    } else {
+        let Some(path) = ftab else {
+            bail!("варианты с фильтром признаков (fa/fo/fv) требуют --ftab <csv>");
+        };
+        let idx: HashMap<&str, u16> = syms
+            .iter()
+            .enumerate()
+            .map(|(i, s)| (s.name.as_str(), i as u16))
+            .collect();
+        let text = fs::read_to_string(path).with_context(|| path.display().to_string())?;
+        let t = FeatTab::parse(&text, &idx, &want).with_context(|| path.display().to_string())?;
+        eprintln!(
+            "таблица признаков: строк {} (монеты задания), столбцов {} за {:.1} с",
+            t.rows(),
+            want.len(),
+            t0.elapsed().as_secs_f64()
+        );
+        Some(t)
+    };
     fs::create_dir_all(out)?;
     // задания фазы 1: различные (SigCfg, сторона)
     let mut job_idx: HashMap<(SigCfg, Side), usize> = HashMap::new();
@@ -293,7 +414,31 @@ pub fn run(
             let Some(&j) = job_idx.get(&(p.sig.clone(), side)) else {
                 bail!("{id}: нет задания сигналов");
             };
-            let r = run_tick(&syms, &sigs[j], side, &p.exit, &p.port, &src);
+            // §13.21: фильтр признаков — кандидат отбрасывается до портфеля; дампы ниже остаются по полному потоку кандидатов
+            let mut fstat = None;
+            let filtered;
+            let port_sigs: &[TSig] = match (&tab, p.filt.on()) {
+                (Some(t), true) => {
+                    let c = t.col(&p.filt.name).context("нет столбца признака")?;
+                    let (v, st) = filter_sigs(
+                        &sigs[j],
+                        t,
+                        c,
+                        p.filt.hi == Some(true),
+                        p.filt.v.unwrap_or(0.0),
+                    );
+                    fstat = Some(st);
+                    filtered = v;
+                    &filtered
+                }
+                _ => &sigs[j],
+            };
+            // `P42_SIGSX_ONLY` (§13.18, v20): сетка суток длиннее окна сделок (COUNT_DAYS), портфель не считается — только сигналы и дампы.
+            let r = if std::env::var_os("P42_SIGSX_ONLY").is_some() {
+                TickResult::empty()
+            } else {
+                run_tick(&syms, port_sigs, side, &p.exit, &p.port, &src)
+            };
             write_outputs(&dir, &syms, side, &r)?;
             if p.exit.tape_entry() {
                 write_entry_rej(&dir, &syms, side, &r)?;
@@ -303,6 +448,15 @@ pub fn run(
                 let (a, b) = v.split_once(':').context("P42_SIGS=<от>:<до>")?;
                 let days = (a.parse::<usize>()?, b.parse::<usize>()?);
                 write_sigs(&dir, &syms, side, &sigs[j], &p.exit, &src, days)?;
+            }
+            if let Some(v) = std::env::var_os("P42_SIGSX") {
+                let v = v.to_string_lossy().into_owned();
+                let (a, b) = v.split_once(':').context("P42_SIGSX=<от>:<до>")?;
+                let days = (a.parse::<usize>()?, b.parse::<usize>()?);
+                write_sigsx(&dir, &syms, side, p, &sigs[j], days)?;
+            }
+            if std::env::var_os("P42_LEVELS").is_some() {
+                write_levels(&dir, &syms, side, p)?;
             }
             if std::env::var_os("P42_DETAIL").is_some() {
                 write_detail(&dir, &syms, side, p, &r)?;
@@ -332,6 +486,10 @@ pub fn run(
             });
             if p.sig.ap != 0 {
                 meta["ap_wrong_signals"] = ctr[j].ap_wrong.into();
+            }
+            if let Some(st) = fstat {
+                meta["filter_[cands,dropped,no_key,no_value]"] =
+                    serde_json::json!([st.cands, st.dropped, st.no_key, st.no_value]);
             }
             if p.exit.e2_pm > 0 {
                 meta["lot2_[now,later,cancelled,rejected]"] = serde_json::json!(r.lot2);
