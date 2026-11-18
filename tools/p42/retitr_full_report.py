@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """П-42 §13.24 (TK-599): отчёт по-русски и файл заморозки из результатов автомата (`results.pkl` драйвера `retitr_full_run.py`).
 
-  python3 retitr_full_report.py <results.pkl> --md docs/findings/p42-retitration-full-2026-11-18.md --frozen docs/research/freeze/tk599-frozen.json [--commit <SHA кода>]
+  python3 retitr_full_report.py <results.pkl> --md docs/findings/p42-retitration-full-2026-11-18.md --frozen docs/research/freeze/tk599-frozen.json [--commit <SHA кода>] [--npz /data/p42-tk599/npz]
 
 Отчёт: область и отступления, ворота (G1–G3b, G5), шаг 0 (уровень баз и сборок C TK-595 по месяцам, измеренный σ сделки), по стороне — проход 1, проход 2, совместная сетка,
 заморозка, m; проверка вперёд (четыре свёртки, склейка 105 сут., охрана суммы, расхождение выборов, собственное среднее, «сторона выключена» — часть 1); исход заморозки.
@@ -23,6 +23,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import retitr_full as rf  # noqa: E402
 
+LEGACY_BIN_MD5 = "a03c91df5a70c8eb32cbb7122943b8f9"      # серия без поля `bin_md5` посчитана бинарём §13.24 (поле пишется со сменой бинаря, §13.24.6)
+NPZ_DEFAULT = "/data/p42-tk599/npz"
 MONTH_RU = ("июль", "август", "сентябрь", "октябрь", "01–13.11")
 SIDE_RU = {"L": "лонг", "S": "шорт"}
 FROZEN_VERSION = "tk599-frozen-1"
@@ -187,7 +189,7 @@ def render_report(res, spec, meta=None):
     out = ["# П-42 §13.24: перетитровка всего сетапа на 01.07–13.11 (136 сут.) — отчёт TK-599", "",
            "Статус: счёт по §13.24 + §13.24.1 + §13.24.2 выполнен автоматом `tools/p42/retitr_full.py` (драйвер `retitr_full_run.py`), ручных решений после просмотра нет. "
            "Метрика везде — средний $ на сделку (gross − fees, без фандинга), Δ к эталону, блочный бутстреп по суткам (блок 4, %d повторов)." % res.get("nboot", rf.NBOOT),
-           "Код: коммит `%s`; сетки sha256 `%s`; бинарь md5 `%s`." % (meta.get("commit", "?"), meta.get("grids_sha256", "?")[:16], meta.get("bin_md5", "?")),
+           "Код: коммит `%s`; сетки sha256 `%s`; бинари движка md5 (по сериям кэша) %s." % (meta.get("commit", "?"), meta.get("grids_sha256", "?")[:16], bin_text(meta)),
            "**Чтение вперёд 17–30.11 здесь не сделано** — только после заморозки (отдельный коммит `docs/research/freeze/tk599-frozen.json`).", "",
            "## Область и отступления", "", "Отступления от плана (записаны в §13.24 / §13.24.2 до счёта):", ""]
     out += ["%d. %s" % (i, d) for i, d in enumerate(DEVIATIONS, 1)]
@@ -235,6 +237,26 @@ def render_report(res, spec, meta=None):
     return "\n".join(out) + "\n"
 
 
+def engine_md5s(npz_dir):
+    """{md5 бинаря движка: число серий} по кэшу `npz` прогона: у серии поле `bin_md5` (TK-607, §13.24.6); серия без поля — `LEGACY_BIN_MD5`. Оборванные `.tmp.npz` не считаются."""
+    out = {}
+    for name in sorted(os.listdir(npz_dir)):
+        if not name.endswith(".npz") or name.endswith(".tmp.npz"):
+            continue
+        with np.load(os.path.join(npz_dir, name)) as z:
+            md5 = str(z["bin_md5"]) if "bin_md5" in z.files else LEGACY_BIN_MD5
+        out[md5] = out.get(md5, 0) + 1
+    return out
+
+
+def bin_text(meta):
+    """Бинари движка для строки отчёта: «md5 (N серий), …»."""
+    ser = meta.get("bin_md5_series")
+    if not ser:
+        return "?"
+    return ", ".join("%s (%d сер.)" % (m, ser[m]) for m in sorted(ser))
+
+
 def frozen_json(res, spec, meta=None):
     """Файл заморозки: что читается на 17–30.11 по каждой стороне (ключи движка), с исходом и пометкой."""
     sides = {}
@@ -259,13 +281,19 @@ def main(argv=None):
     ap.add_argument("--frozen", required=True)
     ap.add_argument("--commit", default="?")
     ap.add_argument("--sens", default="", help="results/sens.json (§13.24.5): добавляет раздел «Чувствительность порога минимума сделок»; в файл заморозки не попадает")
+    ap.add_argument("--npz", default=NPZ_DEFAULT, help="каталог кэша серий прогона: md5 бинарей движка в мете заморозки читаются из серий (`bin_md5`), не зашиты")
     ap.add_argument("--grids", default=os.path.join(HERE, "..", "..", "docs", "research", "freeze", "tk599-grids.json"))
     a = ap.parse_args(argv)
     res = pickle.load(open(a.results, "rb"))
     spec = rf.Spec.load(a.grids)
     import hashlib
-    meta = {"commit": a.commit, "grids_sha256": hashlib.sha256(open(a.grids, "rb").read()).hexdigest(), "bin_md5": "a03c91df5a70c8eb32cbb7122943b8f9",
-            "date": datetime.date.today().isoformat(), "nboot": res.get("nboot", rf.NBOOT)}
+    if not os.path.isdir(a.npz):
+        raise SystemExit("нет каталога кэша серий %s: укажите --npz — в мете заморозки обязаны быть md5 всех бинарей движка, использованных в прогоне" % a.npz)
+    ser = engine_md5s(a.npz)
+    if not ser:
+        raise SystemExit("в %s нет серий .npz — md5 бинаря движка не определить" % a.npz)
+    meta = {"commit": a.commit, "grids_sha256": hashlib.sha256(open(a.grids, "rb").read()).hexdigest(), "bin_md5": sorted(ser), "bin_md5_series": ser,
+            "npz_dir": os.path.abspath(a.npz), "date": datetime.date.today().isoformat(), "nboot": res.get("nboot", rf.NBOOT)}
     with open(a.md, "w", encoding="utf-8", newline="\n") as f:
         f.write(render_report(res, spec, dict(meta, sens=json.load(open(a.sens, encoding="utf-8")) if a.sens else None)))
     with open(a.frozen, "w", encoding="utf-8", newline="\n") as f:
