@@ -1,6 +1,6 @@
 // П-42 TK-593/TK-601: клик-тест страницы CatBoost на VPS София (node18, playwright-core 1.48.2), НЕ на ПК владельца.
 // Запуск: PW=/root/arb-settings-test/node_modules/playwright-core CHROME=/usr/bin/google-chrome node tk593_shots.js <url> <каталог выхода> [ширина]
-// Делает: ошибки консоли, верхние вкладки и хеш-маршруты, снимки «Ход работ» / «Цели TK-598» / «Эквити» (шорт, лонг, шорт+лонг; наведение на оба графика),
+// Делает: ошибки консоли, верхние вкладки и хеш-маршруты, снимки «Ход работ» / «Цели TK-598» / «Эквити» (шорт, лонг, шорт+лонг; наведение на оба графика) и подвида «Форма» (шорт, лонг; наведение на сутки; dom_shape.json),
 // затем прежний поток вкладки «Модель TK-592»; выгружает DOM-метки (dom_progress.json, dom_equity.json, dom_<side>.json) для tk593_check.py.
 const {chromium} = require(process.env.PW || 'playwright-core');
 const fs = require('fs');
@@ -100,12 +100,63 @@ const base = url.split('#')[0];
     report.equity[side] = info;
   }
   fs.writeFileSync(`${out}/dom_equity.json`, JSON.stringify(eqdom));
+  // ── «Эквити» → «Форма» (TK-602): сутки, рывки и спады; наведение на сутки, таблицы, столбцы
+  report.shape = {};
+  const shdom = {};
+  await page.click('#eq-views button[data-view="shape"]');
+  await page.waitForSelector('#eq-view table.eqt[data-shchart]');
+  for (const side of ['short', 'long']) {
+    await page.click(`#eq-tabs button[data-side="${side}"]`);
+    await page.waitForSelector('#eq-view table.eqt[data-shchart]');
+    const info = {hash: (await state()).hash, bothHidden: await page.getAttribute('#eq-tabs button[data-side="both"]', 'hidden') !== null, overflowX: await overflow(), desc: await page.innerText('#eq-desc'),
+      view: await page.getAttribute('#eq-views button[data-view="shape"]', 'aria-selected')};
+    await top(`shape-${side}-top`);
+    await page.locator('#equity').screenshot({path: `${out}/shape-${side}.png`});
+    for (const ch of ['ja', 'fit']) await page.locator(`.eq-card[data-shchart="${ch}"]`).screenshot({path: `${out}/shape-${side}-${ch}.png`});
+    info.hover = {};
+    for (const ch of ['ja', 'fit']) {
+      const days = await page.evaluate(c => [...document.querySelectorAll(`rect[data-chart="sh.${c}.bar"]`)].map(r => ({i: +r.dataset.i, kind: r.dataset.kind, y: +r.dataset.y})), ch);
+      const pickUp = days.filter(d => d.kind === 'up')[0], pickDn = days.filter(d => d.kind === 'dn')[0], pickO = days.filter(d => d.kind === 'other' && d.y !== 0)[0];
+      info.hover[ch] = [];
+      for (const [id, pk] of [[`sh.${ch}.bars.hover`, pickUp], [`sh.${ch}.bars.hover`, pickDn], [`sh.${ch}.bars.hover`, pickO], [`sh.${ch}.eq.hover`, pickUp]]) {
+        const loc = page.locator(`rect[data-chart="${id}"]`);
+        await loc.scrollIntoViewIfNeeded();
+        const b = await loc.boundingBox();
+        await page.mouse.move(b.x + b.width * (pk.i + 0.5) / days.length, b.y + b.height / 2);
+        await page.waitForTimeout(150);
+        const r = await page.evaluate(() => { const t = document.getElementById('tip'); return {shown: t.style.display === 'block', text: t.innerText.replace(/\n/g, ' | ')}; });
+        info.hover[ch].push({...r, want_i: pk.i, kind: pk.kind});
+        if (id.endsWith('bars.hover') && pk === pickUp) await page.screenshot({path: `${out}/shape-${side}-${ch}-hover.png`});
+      }
+      await page.mouse.move(2, 2);
+      await page.waitForTimeout(100);
+      info.hover[ch].push({after_leave_shown: await page.evaluate(() => document.getElementById('tip').style.display === 'block')});
+    }
+    shdom[side] = await page.evaluate(() => {
+      const tables = {};
+      document.querySelectorAll('table.eqt[data-shchart]').forEach(tb => {
+        const k = tb.dataset.shchart + '|' + tb.dataset.shside;
+        tables[k] = {};
+        tb.querySelectorAll('tbody tr[data-line]').forEach(tr => { tables[k][tr.dataset.line] = Object.fromEntries([...tr.querySelectorAll('td[data-f]')].map(td => [td.dataset.f, td.innerText.trim()])); });
+      });
+      const bars = {}, bands = {}, fin = {};
+      document.querySelectorAll('rect[data-chart$=".bar"]').forEach(r => { const c = r.dataset.chart.split('.')[1]; (bars[c] = bars[c] || []).push({i: +r.dataset.i, y: +r.dataset.y, kind: r.dataset.kind}); });
+      document.querySelectorAll('rect[data-chart$=".band"]').forEach(r => { const c = r.dataset.chart.split('.')[1]; (bands[c] = bands[c] || []).push({i: +r.dataset.i, kind: r.dataset.kind}); });
+      document.querySelectorAll('path[data-chart$=".eqline"]').forEach(p => { fin[p.dataset.chart.split('.')[1]] = +p.dataset.final; });
+      return {tables, bars, bands, finals: fin, cards: [...document.querySelectorAll('#eq-view .eq-card')].map(c => c.dataset.shchart)};
+    });
+    report.shape[side] = info;
+  }
+  fs.writeFileSync(`${out}/dom_shape.json`, JSON.stringify(shdom));
+  await page.click('#eq-views button[data-view="curve"]');
+  await page.waitForSelector('#eq-view table.eqt[data-eqchart]');
+  report.shape.back_to_curve = await page.getAttribute('#eq-views button[data-view="curve"]', 'aria-selected');
   // хеш-маршруты
-  for (const h of ['#equity/long', '#equity/both', '#targets', '#short', '#model/long', '#progress']) {
+  for (const h of ['#equity/long', '#equity/both', '#equity/long/shape', '#equity/shape', '#targets', '#short', '#model/long', '#progress']) {
     await page.goto(base + h, {waitUntil: 'load'});
     await page.waitForTimeout(200);
     const st = await state();
-    report.hash[h] = {...st, eq: await page.evaluate(() => { const b = document.querySelector('#eq-tabs button[aria-selected="true"]'); return b ? b.dataset.side : null; }), model: await page.evaluate(() => { const b = document.querySelector('#tabs button[aria-selected="true"]'); return b ? b.dataset.side : null; })};
+    report.hash[h] = {...st, eq: await page.evaluate(() => { const b = document.querySelector('#eq-tabs button[aria-selected="true"]'); return b ? b.dataset.side : null; }), view: await page.evaluate(() => { const b = document.querySelector('#eq-views button[aria-selected="true"]'); return b ? b.dataset.view : null; }), model: await page.evaluate(() => { const b = document.querySelector('#tabs button[aria-selected="true"]'); return b ? b.dataset.side : null; })};
   }
   await page.goto(base, {waitUntil: 'load'});
 

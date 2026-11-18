@@ -407,6 +407,108 @@ if os.path.exists(edom_path):
 else:
     bad.append(("нет dom_equity.json", None, None))
 
+# ── 5. форма эквити (TK-602): shape.json → вшитые данные → независимый пересчёт из массивов equity.json → DOM (dom_shape.json, report.json из tk593_shots.js)
+SH = json.loads(re.search(r'<script id="shape-data" type="application/json">(.*?)</script>', html, re.S).group(1).replace("<\\/", "</"))
+SH_src = json.load(open(os.path.join(os.path.dirname(os.path.abspath(html_path)), "data", "shape.json"), encoding="utf-8"))
+eq("shape вшитый == файл", json.dumps(SH, sort_keys=True), json.dumps(SH_src, sort_keys=True))
+eq("shape: сделки совпали с equity.json (сторона × окно)", sum(1 for r in SH["recon"] if r["ok"]), 4)
+DAYMS = 86_400_000
+
+
+def sh_ind(net, dc, n):
+    """Независимый пересчёт мер формы: сутки по закрытию, доли лучших суток и сделок, R² прямой, плато, просадка по концу суток."""
+    d = [0.0] * n
+    for v, k in zip(net, dc):
+        d[k] += v
+    tot = sum(net)
+    ds, ts = sorted(d, reverse=True), sorted(net, reverse=True)
+    e, c = [], 0.0
+    for v in d:
+        c += v
+        e.append(c)
+    r2 = float(np.corrcoef(np.arange(n), e)[0, 1] ** 2)
+    peak, run, longest, pk, dd = 0.0, 0, 0, 0.0, 0.0
+    for v in e:
+        if v > peak:
+            peak, run = v, 0
+        else:
+            run += 1
+            longest = max(longest, run)
+        pk = max(pk, v)
+        dd = max(dd, pk - v)
+    sh = lambda lst, k: sum(lst[:k]) / tot if tot > 0 else None
+    return {"n": len(net), "total": tot, "top1d_share": sh(ds, 1), "top3d_share": sh(ds, 3), "top5d_share": sh(ds, 5), "top10t_share": sh(ts, 10), "top5d_sum": sum(ds[:5]), "r2": r2, "longest_plateau": longest, "maxdd": dd, "daily": d}
+
+
+def sh_fmt(m):
+    p0 = lambda v: "—" if v is None else num(v * 100, 0) + " %"
+    return {"n": ints(m["n"]), "sum": num(m["total"], 2, True), "s5": num(m["top5d_sum"], 2, True), "t1": p0(m["top1d_share"]), "t3": p0(m["top3d_share"]), "t5": p0(m["top5d_share"]), "u10": p0(m["top10t_share"]),
+            "r2": num(m["r2"], 2), "pl": ints(m["longest_plateau"]), "dd": num(m["maxdd"], 1)}
+
+
+shp = os.path.join(dom_dir, "dom_shape.json")
+if os.path.exists(shp):
+    sd = json.load(open(shp, encoding="utf-8"))
+    rep = json.load(open(os.path.join(dom_dir, "report.json"), encoding="utf-8")) if os.path.exists(os.path.join(dom_dir, "report.json")) else None
+    for side in ("short", "long"):
+        d_ = sd[side]
+        eq(f"DOM форма {side} графиков", ",".join(d_["cards"]), "ja,fit")
+        for chart in ("ja", "fit"):
+            S, Z = E["charts"][chart]["sides"][side], SH["sides"][side][chart]
+            start, n = Z["start_ms"], Z["n_days"]
+            eq(f"форма {chart}|{side} start_ms == equity.json", start, E["charts"][chart]["start_ms"])
+            eq(f"форма {chart}|{side} сделок за окном суток", sum(1 for t in S["t"] if (t - start) // DAYMS >= n), 0)
+            dc = [(t - start) // DAYMS for t in S["t"]]
+            lines = [("base", None)] + [(k, set(ix)) for k, ix in S["sel"].items()]
+            eq(f"DOM форма {chart}|{side} строк таблицы", ",".join(d_["tables"][f"{chart}|{side}"].keys()), ",".join(k for k, _ in lines))
+            base_daily = None
+            for k, m in lines:
+                ix = [i for i in range(len(S["t"])) if m is None or i in m]
+                ind = sh_ind([S["net"][i] for i in ix], [dc[i] for i in ix], n)
+                if k == "base":
+                    base_daily = ind["daily"]
+                for f in ("n", "total", "top1d_share", "top3d_share", "top5d_share", "top5d_sum", "top10t_share", "r2", "longest_plateau", "maxdd"):
+                    eq(f"форма {chart}|{side}|{k} {f}: вшитое == пересчёт", Z["measures"][k][f], ind[f], 1e-9)
+                for f, wv in sh_fmt(ind).items():
+                    eq(f"DOM форма {chart}|{side}|{k} {f}", d_["tables"][f"{chart}|{side}"][k][f], wv)
+            eq(f"форма {chart}|{side} сутки: вшитое == пересчёт", max(abs(a - b) for a, b in zip(Z["daily"], base_daily)), 0.0, 1e-9)
+            eq(f"форма {chart}|{side} сутки: число", len(Z["daily"]), n)
+            up = sorted(range(n), key=lambda i: (-base_daily[i], i))[:5]
+            dn = sorted(range(n), key=lambda i: (base_daily[i], i))[:5]
+            eq(f"форма {chart}|{side} рывки", ",".join(map(str, Z["jump"])), ",".join(map(str, up)))
+            eq(f"форма {chart}|{side} спады", ",".join(map(str, Z["drop"])), ",".join(map(str, dn)))
+            bars = sorted(d_["bars"][chart], key=lambda b: b["i"])
+            eq(f"DOM форма {chart}|{side} столбцов", len(bars), n)
+            eq(f"DOM форма {chart}|{side} столбцы == сутки", max(abs(b["y"] - base_daily[b["i"]]) / max(1.0, abs(base_daily[b["i"]])) for b in bars), 0.0, 1e-6)
+            eq(f"DOM форма {chart}|{side} рывков среди столбцов", ",".join(str(b["i"]) for b in bars if b["kind"] == "up"), ",".join(map(str, sorted(up))))
+            eq(f"DOM форма {chart}|{side} спадов среди столбцов", ",".join(str(b["i"]) for b in bars if b["kind"] == "dn"), ",".join(map(str, sorted(dn))))
+            eq(f"DOM форма {chart}|{side} полос (2 графика × 10)", len(d_["bands"][chart]), 20)
+            eq(f"DOM форма {chart}|{side} финал эквити базы", d_["finals"][chart], sum(S["net"]), 1e-9)
+            eq(f"форма {chart}|{side} сумма суток == сумма сделок", sum(base_daily), sum(S["net"]), 1e-9)
+            if rep:
+                cnt = [0] * n
+                for k_ in dc:
+                    cnt[k_] += 1
+                for h_ in rep["shape"][side]["hover"][chart][:4]:
+                    parts = [p.strip() for p in h_["text"].split("|")]
+                    i = h_["want_i"]
+                    fd = dt.datetime.fromtimestamp((start + i * DAYMS) / 1000, dt.timezone.utc).strftime("%d.%m")
+                    tag = " · рывок" if i in up else " · спад" if i in dn else ""
+                    eq(f"наведение форма {chart}|{side} сутки {i}: заголовок", parts[0], fd + tag)
+                    eq(f"наведение форма {chart}|{side} сутки {i}: прибыль", parts[parts.index("Прибыль суток") + 1], num(base_daily[i], 2, True) + " $")
+                    eq(f"наведение форма {chart}|{side} сутки {i}: сделок", parts[parts.index("Сделок") + 1], ints(cnt[i]))
+                eq(f"наведение форма {chart}|{side}: после ухода скрыта", rep["shape"][side]["hover"][chart][4]["after_leave_shown"], False)
+        if rep:
+            eq(f"форма {side}: кнопка «Шорт + лонг» скрыта", rep["shape"][side]["bothHidden"], True)
+            eq(f"форма {side}: нет горизонтальной прокрутки страницы", rep["shape"][side]["overflowX"] <= 0, True)
+    if rep:
+        eq("форма: возврат к кривой", rep["shape"]["back_to_curve"], "true")
+        eq("форма: хеш #equity/long/shape", f'{rep["hash"]["#equity/long/shape"]["eq"]}|{rep["hash"]["#equity/long/shape"]["view"]}', "long|shape")
+        eq("форма: хеш #equity/shape — подвид (сторона остаётся прежней при переходе по хешу)", rep["hash"]["#equity/shape"]["view"], "shape")
+        eq("форма: хеш #equity/long — кривая", rep["hash"]["#equity/long"]["view"], "curve")
+else:
+    bad.append(("нет dom_shape.json", None, None))
+
 print(f"проверок {n_ok + len(bad)}, совпало {n_ok}, расхождений {len(bad)}")
 for b in bad[:30]:
     print("РАСХОЖДЕНИЕ", b)

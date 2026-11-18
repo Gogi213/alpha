@@ -67,6 +67,7 @@ svg text.k{fill:var(--fg)}
 section{scroll-margin-top:130px}
 .eq-h{display:flex;align-items:baseline;justify-content:space-between;gap:10px;flex-wrap:wrap}
 .eq-h h2{font-size:20px;font-weight:650;letter-spacing:-.02em}
+.eq-ctls{display:flex;flex-wrap:wrap;gap:0 16px}
 .eq-ctl{margin:12px 0 4px}
 .eq-card{margin-top:20px}
 .eq-card .card-b{padding:12px 20px 18px}
@@ -75,6 +76,7 @@ section{scroll-margin-top:130px}
 .eqt th,.eqt td{padding:8px 10px;white-space:nowrap}
 .eqt td:first-child{min-width:0}
 .eqt th{white-space:normal;vertical-align:bottom;max-width:120px}
+.shp th,.shp td{padding:8px 7px}
 .eqt .sw{display:inline-block;width:18px;height:0;border-top:3px solid;vertical-align:middle;margin-right:8px}
 .eqt tr.base td:first-child{font-weight:600}
 @media(max-width:640px){.eq-card .card-b{padding:10px 10px 14px}
@@ -153,7 +155,7 @@ section{scroll-margin-top:130px}
   <div class="pane" id="pane-equity" hidden>
     <div class="prog" id="equity">
       <div class="eq-h"><h2>Эквити</h2><span class="muted small">прибыль сделок без фандинга, $ · по времени закрытия, UTC</span></div>
-      <div class="tabs eq-ctl" id="eq-tabs" role="tablist"></div>
+      <div class="eq-ctls"><div class="tabs eq-ctl" id="eq-tabs" role="tablist"></div><div class="tabs eq-ctl" id="eq-views" role="tablist"></div></div>
       <p class="prog-head" id="eq-desc"></p>
       <div id="eq-view"></div>
     </div>
@@ -171,6 +173,7 @@ section{scroll-margin-top:130px}
 <script id="data" type="application/json">/*__DATA__*/</script>
 <script id="progress-data" type="application/json">/*__PROGRESS__*/</script>
 <script id="equity-data" type="application/json">/*__EQUITY__*/</script>
+<script id="shape-data" type="application/json">/*__SHAPE__*/</script>
 <script>
 const D = JSON.parse(document.getElementById('data').textContent);
 const NS = 'http://www.w3.org/2000/svg';
@@ -686,29 +689,103 @@ function eqChart(chartId, side, width) {
   return card;
 }
 function renderEquity() {
+  const shape = ST.view === 'shape';
+  if (shape && ST.eq === 'both') ST.eq = 'short';
   const side = ST.eq, view = document.getElementById('eq-view');
-  document.querySelectorAll('#eq-tabs button').forEach(b => b.setAttribute('aria-selected', b.dataset.side === side));
-  document.getElementById('eq-desc').textContent = EQ_DESC[side];
+  document.querySelectorAll('#eq-tabs button').forEach(b => { b.setAttribute('aria-selected', b.dataset.side === side); b.hidden = shape && b.dataset.side === 'both'; });
+  document.querySelectorAll('#eq-views button').forEach(b => b.setAttribute('aria-selected', b.dataset.view === ST.view));
+  document.getElementById('eq-desc').textContent = shape ? SH_DESC[side] : EQ_DESC[side];
   view.replaceChildren();
   const width = Math.max(300, Math.floor(view.clientWidth - (view.clientWidth < 520 ? 22 : 42)));
-  ['ja', 'fit'].forEach(id => view.append(eqChart(id, side, width)));
+  ['ja', 'fit'].forEach(id => view.append(shape ? shapeCard(id, side, width) : eqChart(id, side, width)));
 }
 function initEquity() {
   const tabs = document.getElementById('eq-tabs');
   EQ_SIDES.forEach(([k, t]) => { const b = h('button', {role: 'tab', 'data-side': k, 'aria-selected': 'false'}, t); b.onclick = () => { ST.eq = k; setHash(); renderEquity(); }; tabs.append(b); });
+  const vs = document.getElementById('eq-views');
+  [['curve', 'Кривая'], ['shape', 'Форма']].forEach(([k, t]) => { const b = h('button', {role: 'tab', 'data-view': k, 'aria-selected': 'false'}, t); b.onclick = () => { ST.view = k; setHash(); renderEquity(); }; vs.append(b); });
+}
+
+// ── форма эквити (TK-602): сутки, рывки и спады; данные — shape.json (tk602_shape.py)
+const SH = JSON.parse(document.getElementById('shape-data').textContent);
+const SH_COL = {up: '#2a78d6', dn: '#eb6834', other: '#c4c4cc'};
+const SH_DESC = {
+  short: 'Те же сделки базы U1 шорта, сложенные по суткам (UTC, по закрытию). Синие полосы — 5 лучших суток окна, оранжевые — 5 худших; столбцы — прибыль суток.',
+  long: 'Те же сделки базы U1 лонга, сложенные по суткам (UTC, по закрытию). Синие полосы — 5 лучших суток окна, оранжевые — 5 худших; столбцы — прибыль суток.'
+};
+const shShare = v => v == null ? '—' : pct(v, 0);
+function shapeTable(wid, side, s) {
+  const cols = [['n', 'Сделок', m => ints(m.n)], ['sum', 'Сумма, $', m => money(m.total)], ['s5', 'Сумма 5 лучших суток, $', m => money(m.top5d_sum)],
+    ['t1', 'Доля суммы · 1 лучшие сутки', m => shShare(m.top1d_share)], ['t3', 'Доля суммы · 3 лучшие', m => shShare(m.top3d_share)], ['t5', 'Доля суммы · 5 лучших', m => shShare(m.top5d_share)],
+    ['u10', 'Доля суммы · 10 лучших сделок', m => shShare(m.top10t_share)], ['r2', 'R² к прямой', m => num(m.r2, 2)],
+    ['pl', 'Самое длинное плато, сут.', m => ints(m.longest_plateau)], ['dd', 'Макс. просадка по концу суток, $', m => num(m.maxdd, 1)]];
+  const tb = h('table', {class: 'eqt shp', 'data-shchart': wid, 'data-shside': side});
+  tb.append(h('thead', {}, h('tr', {}, [h('th', {}, 'Линия'), ...cols.map(([, t]) => h('th', {class: 'num'}, t))])));
+  const body = h('tbody');
+  Object.keys(s.measures).forEach(k => {
+    const m = s.measures[k];
+    body.append(h('tr', {'data-line': k, class: k === 'base' ? 'base' : ''}, [h('td', {}, [h('span', {class: 'sw', style: `border-color:${EQ_COL[k]};border-top-width:${k === 'base' ? 4 : 3}px`}), k === 'base' ? EQ_BASE[side] : EQ_NAME[k]]),
+      ...cols.map(([f, lab, fn_]) => h('td', {class: 'num', 'data-f': f, 'data-lab': lab}, fn_(m)))]));
+  });
+  tb.append(body);
+  return h('div', {style: 'overflow-x:auto'}, tb);
+}
+function shapeCard(wid, side, width) {
+  const s = SH.sides[side][wid], C = E.charts[wid], S = eqData(wid, side), n = s.n_days, st = s.start_ms, DAYMS = 86400e3, x1 = st + n * DAYMS;
+  const up = new Set(s.jump), dn = new Set(s.drop), w = width, mob = w < 520;
+  const cum = []; { let c = 0; for (let i = 0; i < S.t.length; i++) { c += S.net[i]; cum.push(c); } }
+  const colOf = i => up.has(i) ? SH_COL.up : dn.has(i) ? SH_COL.dn : SH_COL.other;
+  const tipDay = i => {
+    const x = s.marked[String(i)], tag = up.has(i) ? 'рывок' : dn.has(i) ? 'спад' : '';
+    let t = `<div class="t">${fday(st + i * DAYMS)}${tag ? ' · ' + tag : ''}</div>` + trow('Прибыль суток', '<b>' + money(s.daily[i]) + ' $</b>') + trow('Сделок', ints(s.trades_day[i])) + trow('Монет', ints(s.coins_day[i])) +
+      trow('BTC за сутки', num(s.btc_day[i], 2, true) + ' %');
+    if (x && x.n) t += trow('Главная монета', `${x.top_coin} ${money(x.top_coin_pnl, 1)} $`) + trow('Выходы', Object.entries(x.kinds).map(([k, v]) => k + ' ' + v).join(', ')) + trow('Удержание, мин (медиана)', num(x.hold_med, 1));
+    return t;
+  };
+  const dayAt = (p, ev) => { const b = p.svg.getBoundingClientRect(), xx = (ev.clientX - b.left) / b.width * p.w; return Math.max(0, Math.min(n - 1, Math.floor((st + (xx - p.m.l) / (p.w - p.m.l - p.m.r) * (x1 - st) - st) / DAYMS))); };
+  const xt = []; for (let t = st; t <= x1; t += (mob ? 14 : 7) * DAYMS) xt.push(t);
+  // эквити
+  const [ylo, yhi] = rng(cum.concat([0]), .08);
+  const p1 = plot({id: `sh.${wid}.eq`, w, h: mob ? 240 : 290, xd: [st, x1], yd: [ylo, yhi], xt, xf: fday, yf: v => num(v, 0), ylab: 'накопленная прибыль, $', m: {l: 50, r: 14, t: 22, b: 30}});
+  const bands = p => { for (let i = 0; i < n; i++) if (up.has(i) || dn.has(i)) p.svg.append(el('rect', {x: p.X(st + i * DAYMS), y: p.m.t, width: p.X(st + (i + 1) * DAYMS) - p.X(st + i * DAYMS), height: p.h - p.m.b - p.m.t, fill: colOf(i), 'fill-opacity': .17, 'data-chart': `sh.${wid}.band`, 'data-i': i, 'data-kind': up.has(i) ? 'up' : 'dn'})); };
+  bands(p1);
+  p1.svg.append(el('line', {x1: p1.X(st), x2: p1.X(x1), y1: p1.Y(0), y2: p1.Y(0), stroke: '#a1a1aa', 'stroke-dasharray': '3 3'}));
+  { let d = `M${p1.X(st).toFixed(1)} ${p1.Y(0).toFixed(1)}`, prev = 0; for (let i = 0; i < S.t.length; i++) { const xx = p1.X(S.t[i]).toFixed(1); d += `L${xx} ${p1.Y(prev).toFixed(1)}L${xx} ${p1.Y(cum[i]).toFixed(1)}`; prev = cum[i]; } d += `L${p1.X(x1).toFixed(1)} ${p1.Y(prev).toFixed(1)}`;
+    p1.svg.append(el('path', {d, fill: 'none', stroke: '#27272a', 'stroke-width': 2, 'stroke-linejoin': 'round', 'data-chart': `sh.${wid}.eqline`, 'data-final': cum[cum.length - 1]})); }
+  // столбцы суток
+  const [blo, bhi] = rng(s.daily.concat([0]), .1);
+  const p2 = plot({id: `sh.${wid}.bars`, w, h: mob ? 170 : 200, xd: [st, x1], yd: [blo, bhi], xt, xf: fday, yf: v => num(v, 0), ylab: 'прибыль суток, $', m: {l: 50, r: 14, t: 22, b: 30}});
+  bands(p2);
+  p2.svg.append(el('line', {x1: p2.X(st), x2: p2.X(x1), y1: p2.Y(0), y2: p2.Y(0), stroke: '#a1a1aa'}));
+  s.daily.forEach((v, i) => { const xa = p2.X(st + i * DAYMS), xb = p2.X(st + (i + 1) * DAYMS), y0 = p2.Y(0), y1 = p2.Y(v); p2.svg.append(el('rect', {x: xa + 1, y: Math.min(y0, y1), width: Math.max(1, xb - xa - 2), height: Math.max(v === 0 ? 0 : 1, Math.abs(y1 - y0)), rx: 1.5, fill: colOf(i), 'data-chart': `sh.${wid}.bar`, 'data-i': i, 'data-y': +v.toPrecision(7), 'data-kind': up.has(i) ? 'up' : dn.has(i) ? 'dn' : 'other'})); });
+  // наведение: сутки
+  [p1, p2].forEach((p, k) => {
+    const hl = el('rect', {y: p.m.t, height: p.h - p.m.b - p.m.t, fill: '#71717a', 'fill-opacity': .12, visibility: 'hidden'});
+    const r = el('rect', {x: p.m.l, y: p.m.t, width: p.w - p.m.l - p.m.r, height: p.h - p.m.t - p.m.b, fill: 'transparent', 'data-chart': `sh.${wid}.${k ? 'bars' : 'eq'}.hover`});
+    p.svg.append(hl, r);
+    const show = ev => { const i = dayAt(p, ev); hl.setAttribute('x', p.X(st + i * DAYMS)); hl.setAttribute('width', p.X(st + (i + 1) * DAYMS) - p.X(st + i * DAYMS)); hl.setAttribute('visibility', 'visible'); tip.innerHTML = tipDay(i); tip.style.display = 'block'; moveTip(ev); };
+    r.addEventListener('mouseenter', show); r.addEventListener('mousemove', show);
+    r.addEventListener('mouseleave', () => { hl.setAttribute('visibility', 'hidden'); tip.style.display = 'none'; });
+  });
+  const card = h('div', {class: 'card eq-card', 'data-shchart': wid});
+  card.append(h('div', {class: 'card-h'}, [h('b', {}, C.title), h('span', {}, `${fday(st)} — ${fday(st + (n - 1) * DAYMS)} · ${n} суток · сделок ${ints(S.t.length)}`)]));
+  const b = h('div', {class: 'card-b'});
+  b.append(legend([[swLine('#27272a', 2.25), 'эквити базы'], [swBox(SH_COL.up), '5 лучших суток'], [swBox(SH_COL.dn), '5 худших суток'], [swBox(SH_COL.other), 'остальные сутки']]), p1.svg, p2.svg, shapeTable(wid, side, s));
+  card.append(b);
+  return card;
 }
 
 // ── вкладки верхнего уровня: хеш #progress | #targets | #equity[/short|long|both] | #model[/long|short]
 const TABS = [['progress', 'Ход работ'], ['targets', 'Цели TK-598'], ['equity', 'Эквити'], ['model', 'Модель TK-592']];
-const ST = {tab: 'progress', eq: 'short', model: 'long'};
+const ST = {tab: 'progress', eq: 'short', view: 'curve', model: 'long'};
 function parseHash() {
-  const [a, b] = location.hash.replace(/^#/, '').split('/');
+  const [a, b, c] = location.hash.replace(/^#/, '').split('/');
   if (a === 'long' || a === 'short') { ST.tab = 'model'; ST.model = a; return; }
   if (TABS.some(t => t[0] === a)) ST.tab = a;
-  if (a === 'equity' && EQ_SIDES.some(s => s[0] === b)) ST.eq = b;
+  if (a === 'equity') { if (EQ_SIDES.some(s => s[0] === b)) ST.eq = b; ST.view = b === 'shape' || c === 'shape' ? 'shape' : 'curve'; }
   if (a === 'model' && (b === 'long' || b === 'short')) ST.model = b;
 }
-function setHash() { history.replaceState(null, '', '#' + ST.tab + (ST.tab === 'equity' ? '/' + ST.eq : ST.tab === 'model' ? '/' + ST.model : '')); }
+function setHash() { history.replaceState(null, '', '#' + ST.tab + (ST.tab === 'equity' ? '/' + ST.eq + (ST.view === 'shape' ? '/shape' : '') : ST.tab === 'model' ? '/' + ST.model : '')); }
 function route() {
   TABS.forEach(([k]) => { document.getElementById('pane-' + k).hidden = k !== ST.tab; });
   document.querySelectorAll('#toptabs button').forEach(b => b.setAttribute('aria-selected', b.dataset.tab === ST.tab));
