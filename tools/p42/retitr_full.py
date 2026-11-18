@@ -743,8 +743,10 @@ def drive(gens, ev):
 class OutDirEvaluator(Evaluator):
     """Серии из выходов движка: `<outroot>/<окно>/<vid>/{long,short}-trades.csv` (+ `-daily.csv`); склейка с охраной G6, кэш .npz на диске. `launch(reqs)` — запуск движка на srv (задаёт драйвер)."""
 
-    def __init__(self, outroot, coins, rates, launch=None, cache_dir=None, windows=WINDOWS, run_t0=None, ftab_builder=None, ftab_ready=None):
+    def __init__(self, outroot, coins, rates, launch=None, cache_dir=None, windows=WINDOWS, run_t0=None, ftab_builder=None, ftab_ready=None,
+                 bin_md5=None, allowed_md5=None, legacy_md5=None):
         super().__init__(None)
+        self.bin_md5, self.allowed_md5, self.legacy_md5 = bin_md5, allowed_md5, legacy_md5   # §13.24.6: серия несёт md5 бинаря; на загрузке — только допустимые (без поля — старый бинарь)
         self.outroot, self.coins, self.rates, self.launch, self.cache_dir = outroot, coins, rates, launch, cache_dir
         self.ftab_builder, self.ftab_ready = ftab_builder, ftab_ready
         self.windows, self.run_t0 = windows, run_t0
@@ -792,6 +794,10 @@ class OutDirEvaluator(Evaluator):
             p = self._npz(r)
             if p and os.path.exists(p):
                 z = np.load(p)
+                if self.allowed_md5 is not None:
+                    got = str(z["bin_md5"]) if "bin_md5" in z.files else self.legacy_md5
+                    if got not in self.allowed_md5:
+                        raise GuardError("%s: серия посчитана бинарём md5 %s — не из допустимых %s" % (p, got, sorted(self.allowed_md5)))
                 self.cache[r.hash] = Series(z["day"], z["sym"], z["val"], z["fund"], z["fb"], z["t_in"], z["t_out"])
             else:
                 miss.append(r)
@@ -820,7 +826,8 @@ class OutDirEvaluator(Evaluator):
             self.cache[r.hash] = s
             p = self._npz(r)
             if p:
-                np.savez(p, day=s.day, sym=s.sym, val=s.val, fund=s.fund, fb=s.fb, t_in=s.t_in, t_out=s.t_out)
+                extra = {"bin_md5": np.array(self.bin_md5)} if self.bin_md5 else {}
+                np.savez(p, day=s.day, sym=s.sym, val=s.val, fund=s.fund, fb=s.fb, t_in=s.t_in, t_out=s.t_out, **extra)
 
 
 # ---- шаг по оси ---------------------------------------------------------------------------------------------------------------

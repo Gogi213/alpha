@@ -22,11 +22,17 @@ pub mod ftab;
 pub mod levels;
 pub mod params;
 pub mod portfolio;
+pub mod sigcache;
 pub mod signals;
+pub mod store;
 pub mod tick;
 pub mod tick_cli;
 pub mod trade;
 
+#[cfg(test)]
+mod sigcache_tests;
+#[cfg(test)]
+mod store_tests;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]

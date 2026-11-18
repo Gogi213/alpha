@@ -16,11 +16,13 @@ use super::data::{
 use super::levels::{build_levels_far, Level};
 use super::params::{ExitCfg, LevelCfg, PortCfg, SigCfg};
 use super::portfolio::Settled;
+use super::store::{SrcMeta, TickStore};
 use super::trade::{frac, ExitKind, NOTIONAL_U};
 use super::Side;
 use crate::lob::costs::leg_fee_bps;
 use anyhow::{bail, Context, Result};
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
+use std::fs;
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
@@ -40,6 +42,15 @@ pub static PB_KILLED: AtomicU64 = AtomicU64::new(0);
 pub const AP_LOOKBACK_DAYS: usize = 3;
 
 pub const DAY_MS: i64 = 86_400_000;
+
+/// `a·b/d` с усечением к нулю — как прежнее `i128`-выражение; быстрый путь в `i64`, при переполнении (и делителе 0, `MIN/−1`) — `i128`.
+#[inline]
+pub fn mul_div(a: i64, b: i64, d: i64) -> i128 {
+    if let Some(q) = a.checked_mul(b).and_then(|x| x.checked_div(d)) {
+        return i128::from(q);
+    }
+    i128::from(a) * i128::from(b) / i128::from(d)
+}
 
 /// Одна агрегированная сделка: цена ×1e8, время — мс от начала суток файла, `bm` = `is_buyer_maker`
 /// (агрессор — продавец).
@@ -202,6 +213,8 @@ pub struct ZipSrc {
     cap_bytes: usize,
     lru: Mutex<Lru>,
     pub stat: Mutex<LoadStat>,
+    /// TK-607 (L1): склад разобранных суток; без него — прежний путь (`unzip` + CSV).
+    store: Option<Arc<TickStore>>,
 }
 
 impl ZipSrc {
@@ -215,16 +228,32 @@ impl ZipSrc {
                 bytes: 0,
             }),
             stat: Mutex::new(LoadStat::default()),
+            store: None,
         }
     }
 
+    pub fn with_store(mut self, store: Arc<TickStore>) -> ZipSrc {
+        self.store = Some(store);
+        self
+    }
+
     fn load(&self, name: &str, day: usize) -> Result<Option<Vec<Tick>>> {
+        let date = day_string(day);
         let p = self
             .dir
             .join(name)
-            .join(format!("{name}-aggTrades-{}.zip", day_string(day)));
-        if !p.exists() {
+            .join(format!("{name}-aggTrades-{date}.zip"));
+        let Ok(md) = fs::metadata(&p) else {
             return Ok(None);
+        };
+        let meta = SrcMeta::of(&md);
+        if let (Some(store), Some(meta)) = (&self.store, &meta) {
+            if let Some((v, st)) = store.read(name, &date, meta) {
+                if let Ok(mut g) = self.stat.lock() {
+                    g.add(&st);
+                }
+                return Ok(Some(v));
+            }
         }
         let mut child = Command::new("unzip")
             .arg("-p")
@@ -242,6 +271,9 @@ impl ZipSrc {
             bail!("unzip {}: {status}", p.display());
         }
         st.files = 1;
+        if let (Some(store), Some(meta)) = (&self.store, &meta) {
+            store.write(name, &date, meta, &v, &st);
+        }
         if let Ok(mut g) = self.stat.lock() {
             g.add(&st);
         }
@@ -352,7 +384,7 @@ pub fn fresh_ok(sym: &Sym, cfg: &SigCfg, lv: &Level, s: i64, lp: i64, t: usize) 
         return true;
     }
     if cfg.fr_h_min > 0 {
-        let tau = (i128::from(lp.abs()) * i128::from(cfg.lv.tau_pm) / 100_000) as i64;
+        let tau = mul_div(lp.abs(), cfg.lv.tau_pm, 100_000) as i64;
         let band = lp - tau;
         let lo = (lv.first_bar as usize * cfg.lv.tf_min).max(t.saturating_sub(cfg.fr_h_min));
         let touch = |m: usize| sym.o[m] != 0 && (if s > 0 { sym.h[m] } else { -sym.l[m] }) >= band;
@@ -361,7 +393,7 @@ pub fn fresh_ok(sym: &Sym, cfg: &SigCfg, lv: &Level, s: i64, lp: i64, t: usize) 
         }
     }
     if cfg.fr_share > 0 {
-        let lim = (i128::from(lp.abs()) * i128::from(cfg.fr_b_pm) / 100_000) as i64;
+        let lim = mul_div(lp.abs(), cfg.fr_b_pm, 100_000) as i64;
         let need = cfg.fr_k * cfg.fr_share / 100;
         let mut n_in = 0usize;
         let mut beyond = false;
@@ -420,9 +452,7 @@ pub fn candidates(sym: &Sym, levels: &[Level], cfg: &SigCfg, side: Side, out: &m
                 (-sym.l[t], -sym.h[t])
             };
             if t >= START_MIN && !forbidden && lo < lp {
-                let zone_lo = lp
-                    - (i128::from(lp.abs()) * i128::from(dmax + 1) / i128::from(SCALE)) as i64
-                    - 1;
+                let zone_lo = lp - mul_div(lp.abs(), dmax + 1, SCALE) as i64 - 1;
                 let nv = i64::from(natr[t - 1]);
                 if hi >= zone_lo
                     && nv >= 0
@@ -451,16 +481,13 @@ pub fn candidates(sym: &Sym, levels: &[Level], cfg: &SigCfg, side: Side, out: &m
                 pend = Some(t);
             }
             if cfg.ban && pend.is_some() {
-                let back = lp - (i128::from(lp.abs()) * i128::from(cfg.f_pm) / 100_000) as i64;
+                let back = lp - mul_div(lp.abs(), cfg.f_pm, 100_000) as i64;
                 if s * sym.c[t] < back {
                     forbidden = true;
                 }
             }
             // §13.11 (`pk`): прокол цены версии больше чем на τ убивает уровень навсегда, со следующей минуты
-            if cfg.lv.pk
-                && !pk_dead
-                && hi > lp + (i128::from(lp.abs()) * i128::from(cfg.lv.tau_pm) / 100_000) as i64
-            {
+            if cfg.lv.pk && !pk_dead && hi > lp + mul_div(lp.abs(), cfg.lv.tau_pm, 100_000) as i64 {
                 pk_dead = true;
                 if !forbidden {
                     PK_MINUTE_KILLED.fetch_add(1, Ordering::Relaxed);
@@ -501,7 +528,7 @@ pub fn first_signal(
         if hi >= lp {
             return None;
         }
-        let dist = (i128::from(lp - p) * i128::from(SCALE) / i128::from(lp.abs())) as i64;
+        let dist = mul_div(lp - p, SCALE, lp.abs()) as i64;
         if dist > dmax || (color && p <= op) {
             continue;
         }
@@ -602,7 +629,7 @@ pub fn came_from_above(
         if p >= lp {
             return Some(true);
         }
-        let dist = (i128::from(lp - p) * i128::from(SCALE) / i128::from(lp.abs())) as i64;
+        let dist = mul_div(lp - p, SCALE, lp.abs()) as i64;
         (dist > dmax).then_some(false)
     };
     if let Some(r) = ticks[..k].iter().rev().find_map(decide) {
