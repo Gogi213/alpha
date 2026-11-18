@@ -1,0 +1,794 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>П-42 · CatBoost на пулах</title>
+<link rel="icon" href="data:,">
+<style>
+:root{--bg:#fafafa;--fg:#09090b;--muted:#f4f4f5;--mfg:#71717a;--border:#e4e4e7;--accent:#2563eb;--z300:#d4d4d8;--z400:#a1a1aa;--z500:#71717a;--z600:#52525b;--z700:#3f3f46;--r:12px}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.5 Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;-webkit-font-smoothing:antialiased;font-variant-numeric:tabular-nums}
+.wrap{max-width:1180px;margin:0 auto;padding:0 24px 96px}
+.top{padding:36px 0 18px}
+h1{margin:0;font-size:22px;font-weight:650;letter-spacing:-.02em}
+.sub{margin:6px 0 0;color:var(--mfg);font-size:13px}
+.bar{position:sticky;top:0;z-index:5;background:rgba(250,250,250,.92);backdrop-filter:blur(8px);border-bottom:1px solid var(--border);margin:0 -24px;padding:10px 24px;display:flex;gap:18px;align-items:center;flex-wrap:wrap}
+.tabs{display:inline-flex;background:var(--muted);padding:4px;border-radius:9px}
+.tabs button{border:0;background:transparent;padding:6px 18px;border-radius:6px;font:500 13px inherit;color:var(--mfg);cursor:pointer}
+.tabs button[aria-selected=true]{background:#fff;color:var(--fg);box-shadow:0 1px 2px rgba(0,0,0,.1)}
+.nav{display:flex;gap:2px;flex-wrap:wrap}
+.nav button{border:0;background:transparent;padding:5px 10px;border-radius:6px;font:500 12.5px inherit;color:var(--mfg);cursor:pointer}
+.nav button:hover{background:var(--muted);color:var(--fg)}
+section{margin-top:44px;scroll-margin-top:70px}
+section.first{margin-top:28px}
+h2{margin:0;font-size:16px;font-weight:600;letter-spacing:-.01em}
+.desc{margin:3px 0 14px;color:var(--mfg);font-size:13px;max-width:78ch}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media(max-width:940px){.grid2{grid-template-columns:1fr}}
+.card{background:#fff;border:1px solid var(--border);border-radius:var(--r);box-shadow:0 1px 2px rgba(0,0,0,.04);min-width:0}
+.card-h{padding:14px 20px 0;display:flex;align-items:baseline;justify-content:space-between;gap:10px}
+.card-h b{font-size:14px;font-weight:600}
+.card-h span{color:var(--mfg);font-size:12px}
+.card-b{padding:10px 20px 18px}
+.cap{color:var(--mfg);font-size:12px;margin:10px 0 2px}
+.cap:first-child{margin-top:0}
+table{width:100%;border-collapse:collapse}
+th{font-weight:500;color:var(--mfg);text-align:left;padding:8px 12px;border-bottom:1px solid var(--border);font-size:12px;white-space:nowrap}
+td:first-child{min-width:250px}
+td{padding:11px 12px;border-bottom:1px solid var(--border);vertical-align:middle}
+tr:last-child td{border-bottom:0}
+.num{text-align:right}
+th.num{text-align:right}
+.muted{color:var(--mfg)}
+.small{font-size:12px}
+.strong{font-weight:600}
+.badge{display:inline-flex;align-items:center;border-radius:6px;padding:2px 10px;font-size:12px;font-weight:600;border:1px solid var(--border);background:var(--muted);color:var(--z700);white-space:nowrap}
+.badge.ok{background:var(--accent);border-color:var(--accent);color:#fff}
+.verd{display:flex;gap:12px;align-items:baseline;padding:12px 20px;border-top:1px solid var(--border)}
+.verd .small{flex:1}
+.legend{display:flex;flex-wrap:wrap;gap:4px 16px;font-size:12px;color:var(--z600);margin:0 0 4px}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+svg{display:block;overflow:visible}
+svg text{font:11px Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;fill:var(--mfg)}
+svg text.k{fill:var(--fg)}
+#tip{position:fixed;display:none;pointer-events:none;background:#fff;border:1px solid var(--border);border-radius:8px;box-shadow:0 6px 16px rgba(0,0,0,.1);padding:8px 10px;font-size:12px;z-index:50;max-width:280px;line-height:1.45}
+#tip .t{font-weight:600;margin-bottom:2px}
+#tip .r{display:flex;justify-content:space-between;gap:14px}
+.grey{opacity:.4}
+.toptabs{position:sticky;top:0;z-index:8;height:54px;background:rgba(250,250,250,.96);backdrop-filter:blur(8px);border-bottom:1px solid var(--border)}
+.toptabs-in{max-width:1180px;margin:0 auto;padding:0 24px;height:100%;display:flex;align-items:center;gap:16px}
+.brand{font-weight:650;font-size:14px;white-space:nowrap;color:var(--z700)}
+#toptabs{overflow-x:auto;max-width:100%}
+#toptabs button{white-space:nowrap}
+@media(max-width:640px){.brand{display:none}.toptabs-in{padding:0 8px}#toptabs button{padding:6px 8px;font-size:13px}}
+.bar{top:54px}
+section{scroll-margin-top:130px}
+.eq-h{display:flex;align-items:baseline;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.eq-h h2{font-size:20px;font-weight:650;letter-spacing:-.02em}
+.eq-ctl{margin:12px 0 4px}
+.eq-card{margin-top:20px}
+.eq-card .card-b{padding:12px 20px 18px}
+.eq-note{margin:10px 0 0;color:var(--mfg);font-size:12px;max-width:110ch}
+.eqt{margin-top:12px}
+.eqt th,.eqt td{padding:8px 10px;white-space:nowrap}
+.eqt td:first-child{min-width:0}
+.eqt th{white-space:normal;vertical-align:bottom;max-width:120px}
+.eqt .sw{display:inline-block;width:18px;height:0;border-top:3px solid;vertical-align:middle;margin-right:8px}
+.eqt tr.base td:first-child{font-weight:600}
+@media(max-width:640px){.eq-card .card-b{padding:10px 10px 14px}
+.eqt,.eqt tbody{display:block}
+.eqt thead{display:none}
+.eqt tr{display:grid;grid-template-columns:1fr 1fr;gap:4px 12px;padding:10px 0;border-bottom:1px solid var(--border)}
+.eqt tr:last-child{border-bottom:0}
+.eqt td,.eqt td:first-child{padding:0;border:0;min-width:0;text-align:left;white-space:normal}
+.eqt td:first-child{grid-column:1/-1}
+.eqt td[data-lab]::before{content:attr(data-lab);display:block;margin-bottom:1px;color:var(--mfg);font-size:11.5px;font-weight:400}}
+.prog{padding:28px 0 8px}
+.prog-h{display:flex;align-items:baseline;justify-content:space-between;gap:10px}
+.prog-h h2{font-size:20px;font-weight:650;letter-spacing:-.02em}
+.prog-head{margin:6px 0 16px;color:var(--z700);font-size:14px;max-width:90ch}
+.stages{display:grid;grid-template-columns:repeat(var(--n,4),minmax(0,1fr));gap:20px}
+@media(max-width:1100px){.stages{grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}}
+@media(max-width:640px){.stages{grid-template-columns:1fr}}
+.stage{position:relative;background:#fff;border:1px solid var(--border);border-top:4px solid var(--z300);border-radius:var(--r);box-shadow:0 1px 2px rgba(0,0,0,.04);padding:14px 16px 16px;min-width:0;display:flex;flex-direction:column;gap:8px}
+.stage.st-done{border-top-color:var(--accent)}
+.stage.st-running{border-top-color:var(--accent);border-top-style:dashed}
+@media(min-width:1101px){.stage+.stage::before{content:"\203A";position:absolute;left:-17px;top:14px;color:var(--z400);font-size:20px;line-height:1}}
+.stage-top{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.stage-id{font-weight:650;font-size:13px;color:var(--z700)}
+.stage-title{font-weight:600;font-size:14.5px;line-height:1.35}
+.stage-q{color:var(--z600);font-size:13px}
+.lbl{margin-top:4px;color:var(--mfg);font-size:11.5px;text-transform:uppercase;letter-spacing:.04em}
+.steps,.nums{margin:0;padding:0;list-style:none;font-size:13px}
+.steps li{display:flex;gap:8px;padding:1.5px 0}
+.steps li i{font-style:normal;flex:none;width:14px;text-align:center;color:var(--z400)}
+.steps li.s-done i{color:var(--accent);font-weight:700}
+.steps li.s-running i{color:var(--accent)}
+.steps li.s-waiting{color:var(--mfg)}
+.nums li{padding:3px 0}
+.nums li+li{border-top:1px solid var(--muted)}
+.badge.run{background:#fff;border-color:var(--accent);color:var(--accent)}
+.stage-next{font-size:13px}
+.tg-card{margin-top:24px}
+.tg-card .card-b{padding:12px 20px 18px}
+.tg-note{margin:0 0 10px;color:var(--mfg);font-size:12.5px;max-width:100ch}
+.tg-wrap{overflow-x:auto}
+.tg td:first-child{min-width:0;white-space:nowrap;font-weight:600}
+.tg td.what{min-width:200px}
+.tg td.res{min-width:230px;font-size:12.5px}
+.tg .res-line+.res-line{margin-top:6px}
+.tg .res-line b{font-weight:600}
+.tg .res-none{color:var(--mfg)}
+.tg td,.tg th{padding:9px 12px}
+.tg .cellnote{display:block;margin-top:3px;color:var(--mfg);font-size:11.5px;max-width:230px}
+.tg tfoot td{border-top:1px solid var(--border);border-bottom:0;color:var(--mfg);font-size:12.5px}
+@media(max-width:640px){#sec-over .card-b{overflow-x:auto}}
+.tg-card .card-h{flex-wrap:wrap}
+@media(max-width:640px){
+.tg,.tg tbody,.tg tfoot{display:block}
+.tg thead{display:none}
+.tg tr{display:grid;grid-template-columns:1fr 1fr;gap:4px 12px;padding:10px 0}
+.tg tbody tr{border-bottom:1px solid var(--border)}
+.tg tbody tr:last-child{border-bottom:0}
+.tg td,.tg td:first-child{padding:0;border:0;min-width:0}
+.tg td:first-child,.tg td.what,.tg td.res{grid-column:1/-1}
+.tg td[data-lab]::before{content:attr(data-lab);display:block;margin-bottom:2px;color:var(--mfg);font-size:11.5px;font-weight:400}
+.tg .cellnote{max-width:none}
+.tg tfoot tr{border-top:1px solid var(--border)}
+.tg tfoot td{border-top:0}
+.tg tfoot td:first-child{display:none}
+.tg tfoot td:nth-child(2){grid-column:1/-1}
+.tg tfoot td.res{display:none}
+}
+.prog-foot{margin:22px 0 0;padding-bottom:6px;border-bottom:1px solid var(--border);color:var(--mfg);font-size:13px}
+</style>
+</head>
+<body>
+<div class="toptabs"><div class="toptabs-in"><span class="brand">П-42 · CatBoost</span><div class="tabs" id="toptabs" role="tablist"></div></div></div>
+<div class="wrap">
+  <div class="pane" id="pane-progress"><div class="prog" id="progress"></div></div>
+  <div class="pane" id="pane-targets" hidden><div class="prog" id="targets-box"></div></div>
+  <div class="pane" id="pane-equity" hidden>
+    <div class="prog" id="equity">
+      <div class="eq-h"><h2>Эквити</h2><span class="muted small">прибыль сделок без фандинга, $ · по времени закрытия, UTC</span></div>
+      <div class="tabs eq-ctl" id="eq-tabs" role="tablist"></div>
+      <p class="prog-head" id="eq-desc"></p>
+      <div id="eq-view"></div>
+    </div>
+  </div>
+  <div class="pane" id="pane-model" hidden>
+    <div class="top">
+      <h1>П-42 · CatBoost на признаках уровня</h1>
+      <p class="sub" id="sub"></p>
+    </div>
+    <div class="bar"><div class="tabs" id="tabs" role="tablist"></div><div class="nav" id="nav"></div></div>
+    <div id="view"></div>
+  </div>
+</div>
+<div id="tip"></div>
+<script id="data" type="application/json">/*__DATA__*/</script>
+<script id="progress-data" type="application/json">/*__PROGRESS__*/</script>
+<script id="equity-data" type="application/json">/*__EQUITY__*/</script>
+<script>
+const D = JSON.parse(document.getElementById('data').textContent);
+const NS = 'http://www.w3.org/2000/svg';
+const MINUS = '−';
+const ACC = '#2563eb';
+const MODELS = [['CB3', 'CB3 · глубина 3'], ['LOGIT', 'Логистика'], ['CB1', 'CB1 · глубина 1'], ['TURN', 'Только оборот']];
+const STY = {CB3: {c: ACC, w: 2.25, d: null}, LOGIT: {c: '#52525b', w: 1.5, d: null}, CB1: {c: '#a1a1aa', w: 1.5, d: '5 3'}, TURN: {c: '#c4c4cc', w: 1.5, d: '1.5 3'}};
+const SHORT = {CB3: 'CB3', LOGIT: 'логистика', CB1: 'CB1', TURN: 'оборот'};
+const SIDE = {long: 'Лонг', short: 'Шорт'};
+const FNAME = {lturn24: 'turn24h (lg)'};
+const fn = f => FNAME[f] || f;
+
+const el = (t, a = {}, kids = []) => {
+  const e = document.createElementNS(NS, t);
+  for (const k in a) if (a[k] != null) e.setAttribute(k, a[k]);
+  (Array.isArray(kids) ? kids : [kids]).forEach(c => c != null && e.append(c));
+  return e;
+};
+const h = (t, a = {}, kids = []) => {
+  const e = document.createElement(t);
+  for (const k in a) if (a[k] != null) { if (k === 'class') e.className = a[k]; else if (k === 'html') e.innerHTML = a[k]; else e.setAttribute(k, a[k]); }
+  (Array.isArray(kids) ? kids : [kids]).forEach(c => c != null && e.append(c));
+  return e;
+};
+const sc = (d0, d1, r0, r1) => v => r0 + (v - d0) / (d1 - d0) * (r1 - r0);
+function num(v, d = 3, sign = false) {
+  if (v == null || v !== v) return '—';
+  const s = Math.abs(v).toFixed(d).replace('.', ',');
+  const z = +s === 0;
+  return (v < 0 && !z ? MINUS : (sign && !z ? '+' : '')) + s;
+}
+const pct = (v, d = 1) => num(v * 100, d) + ' %';
+const ints = n => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+function ticks(lo, hi, n = 5) {
+  const raw = (hi - lo) / n, mag = Math.pow(10, Math.floor(Math.log10(raw))), nm = raw / mag;
+  const step = (nm < 1.5 ? 1 : nm < 3 ? 2 : nm < 7 ? 5 : 10) * mag, out = [];
+  for (let v = Math.ceil(lo / step - 1e-9) * step; v <= hi + step * 1e-9; v += step) out.push(+v.toPrecision(12));
+  return out;
+}
+const rng = (a, pad = 0.06) => { let lo = Math.min(...a), hi = Math.max(...a); const p = (hi - lo) * pad || 0.01; return [lo - p, hi + p]; };
+
+// ── tooltip
+const tip = document.getElementById('tip');
+function moveTip(ev) {
+  const r = tip.getBoundingClientRect();
+  let x = ev.clientX + 14, y = ev.clientY + 14;
+  if (x + r.width > innerWidth - 8) x = ev.clientX - r.width - 14;
+  if (y + r.height > innerHeight - 8) y = ev.clientY - r.height - 14;
+  x = Math.max(8, x); y = Math.max(8, y);
+  tip.style.left = x + 'px'; tip.style.top = y + 'px';
+}
+function hover(node, fn_) {
+  node.addEventListener('mouseenter', e => { tip.innerHTML = typeof fn_ === 'function' ? fn_(e) : fn_; tip.style.display = 'block'; moveTip(e); });
+  node.addEventListener('mousemove', e => { if (typeof fn_ === 'function') tip.innerHTML = fn_(e); moveTip(e); });
+  node.addEventListener('mouseleave', () => { tip.style.display = 'none'; });
+}
+const trow = (k, v) => `<div class="r"><span class="muted">${k}</span><span>${v}</span></div>`;
+
+// ── plot frame
+function plot(o) {
+  const w = o.w || 540, hh = o.h || 280, m = Object.assign({l: 46, r: 12, t: 18, b: 30}, o.m);
+  const svg = el('svg', {viewBox: `0 0 ${w} ${hh}`, width: '100%', role: 'img', 'data-chart': o.id || null});
+  const X = sc(o.xd[0], o.xd[1], m.l, w - m.r), Y = sc(o.yd[0], o.yd[1], hh - m.b, m.t);
+  (o.yt || ticks(o.yd[0], o.yd[1], 5)).forEach(v => {
+    svg.append(el('line', {x1: m.l, x2: w - m.r, y1: Y(v), y2: Y(v), stroke: '#efeff1'}));
+    svg.append(el('text', {x: m.l - 7, y: Y(v) + 3.5, 'text-anchor': 'end'}, (o.yf || String)(v)));
+  });
+  (o.xt || ticks(o.xd[0], o.xd[1], 5)).forEach(v => svg.append(el('text', {x: X(v), y: hh - m.b + 15, 'text-anchor': 'middle'}, (o.xf || String)(v))));
+  svg.append(el('line', {x1: m.l, x2: w - m.r, y1: hh - m.b, y2: hh - m.b, stroke: '#d4d4d8'}));
+  if (o.ylab) svg.append(el('text', {x: 0, y: 9}, o.ylab));
+  if (o.xlab) svg.append(el('text', {x: w - m.r, y: hh - 2, 'text-anchor': 'end'}, o.xlab));
+  return {svg, X, Y, w, h: hh, m};
+}
+function overlay(p, nIdx, xOf, tipFn) {
+  const {svg, w, h: hh, m} = p;
+  const vl = el('line', {y1: m.t, y2: hh - m.b, stroke: '#a1a1aa', 'stroke-dasharray': '3 3', visibility: 'hidden'});
+  const r = el('rect', {x: m.l, y: m.t, width: w - m.l - m.r, height: hh - m.t - m.b, fill: 'transparent'});
+  svg.append(vl, r);
+  const idxOf = ev => {
+    const b = svg.getBoundingClientRect(), x = (ev.clientX - b.left) / b.width * w;
+    return Math.max(0, Math.min(nIdx - 1, Math.round(((x - m.l) / (w - m.l - m.r)) * (nIdx - 1))));
+  };
+  r.addEventListener('mouseenter', e => { vl.setAttribute('visibility', 'visible'); tip.style.display = 'block'; });
+  r.addEventListener('mousemove', e => { const i = idxOf(e); vl.setAttribute('x1', p.X(xOf(i))); vl.setAttribute('x2', p.X(xOf(i))); tip.innerHTML = tipFn(i); moveTip(e); });
+  r.addEventListener('mouseleave', () => { vl.setAttribute('visibility', 'hidden'); tip.style.display = 'none'; });
+}
+function dot(p, g, id, i, x, y, o = {}) {
+  const c = el('circle', {cx: p.X(x), cy: p.Y(y), r: o.r || 4, fill: o.fill || ACC, stroke: o.stroke || '#fff', 'stroke-width': o.sw == null ? 2 : o.sw, 'data-chart': id, 'data-i': i, 'data-x': +x.toPrecision(7), 'data-y': y == null ? null : +y.toPrecision(7)});
+  g.append(c);
+  if (o.tip) { const t = el('circle', {cx: p.X(x), cy: p.Y(y), r: 11, fill: 'transparent'}); hover(t, o.tip); g.append(t); }
+  return c;
+}
+function legend(items) {
+  return h('div', {class: 'legend'}, items.map(([sw, label]) => h('span', {}, [sw, label])));
+}
+function swLine(c, w = 2, d = null) { return el('svg', {width: 22, height: 10, viewBox: '0 0 22 10'}, [el('line', {x1: 0, x2: 22, y1: 5, y2: 5, stroke: c, 'stroke-width': w, 'stroke-dasharray': d})]); }
+function swBox(c) { return el('svg', {width: 10, height: 10, viewBox: '0 0 10 10'}, [el('rect', {width: 10, height: 10, rx: 2, fill: c})]); }
+function swDot(c, hollow) { return el('svg', {width: 10, height: 10, viewBox: '0 0 10 10'}, [el('circle', {cx: 5, cy: 5, r: 4, fill: hollow ? '#fff' : c, stroke: c, 'stroke-width': 1.5})]); }
+
+// ── ROC
+function rocChart(c) {
+  const id = 'roc';
+  const p = plot({id, w: 540, h: 300, xd: [0, 1], yd: [0, 1], xf: v => num(v, 1), yf: v => num(v, 1), ylab: 'доля пойманных пробоев (TPR)', xlab: 'доля ложных (FPR)', m: {t: 20}});
+  p.svg.append(el('line', {x1: p.X(0), y1: p.Y(0), x2: p.X(1), y2: p.Y(1), stroke: '#d4d4d8', 'stroke-dasharray': '3 3'}));
+  const f = D.roc_fpr;
+  [...MODELS].reverse().forEach(([k]) => {
+    const s = STY[k], t = c.roc[k].tpr;
+    p.svg.append(el('path', {d: t.map((v, i) => (i ? 'L' : 'M') + p.X(f[i]).toFixed(1) + ' ' + p.Y(v).toFixed(1)).join(''), fill: 'none', stroke: s.c, 'stroke-width': s.w, 'stroke-dasharray': s.d, 'stroke-linejoin': 'round', 'data-chart': id + '.' + k, 'data-ys': t.join(',')}));
+  });
+  overlay(p, f.length, i => f[i], i => `<div class="t">FPR ${num(f[i], 2)}</div>` + MODELS.map(([k, n]) => trow(n, 'TPR ' + num(c.roc[k].tpr[i], 3))).join(''));
+  const wrap = h('div', {});
+  wrap.append(legend(MODELS.map(([k, n]) => [swLine(STY[k].c, STY[k].w, STY[k].d), `${n} · AUC ${num(c.roc[k].auc, 3)}`])), p.svg);
+  return wrap;
+}
+
+// ── децили: доля пробоев и контроль
+function decileChart(c) {
+  const id = 'decile', dc = c.deciles;
+  const top = Math.max(...dc.map(d => Math.max(d.y_hi, d.c)), c.base_y) * 1.08;
+  const p = plot({id, w: 540, h: 290, xd: [0, 10], yd: [0, top], xt: [], yf: v => num(v * 100, 0) + ' %', ylab: 'доля пробоев', m: {t: 20, b: 34}});
+  dc.forEach((d, i) => p.svg.append(el('text', {x: p.X(i + .5), y: p.h - p.m.b + 15, 'text-anchor': 'middle'}, i + 1)));
+  p.svg.append(el('text', {x: p.X(5), y: p.h - 3, 'text-anchor': 'middle'}, 'дециль оценки CB3 (1 — низкая, 10 — высокая)'));
+  p.svg.append(el('line', {x1: p.X(0), x2: p.X(10), y1: p.Y(c.base_y), y2: p.Y(c.base_y), stroke: '#a1a1aa', 'stroke-dasharray': '4 3'}));
+  const g = el('g');
+  dc.forEach((d, i) => {
+    const x0 = p.X(i + .15), x1 = p.X(i + .85), y0 = p.Y(0), y1 = p.Y(d.y);
+    const r = el('rect', {x: x0, y: y1, width: x1 - x0, height: y0 - y1, rx: 3, fill: ACC, 'fill-opacity': .88, 'data-chart': id + '.y', 'data-i': i, 'data-y': +d.y.toPrecision(7), 'data-n': d.n, 'data-k': d.k});
+    g.append(r);
+    g.append(el('line', {x1: p.X(i + .5), x2: p.X(i + .5), y1: p.Y(d.y_lo), y2: p.Y(d.y_hi), stroke: '#52525b', 'stroke-width': 1}));
+    g.append(el('line', {x1: x0 - 2, x2: x1 + 2, y1: p.Y(d.c), y2: p.Y(d.c), stroke: '#09090b', 'stroke-width': 2.25, 'data-chart': id + '.c', 'data-i': i, 'data-y': +d.c.toPrecision(7)}));
+    const hit = el('rect', {x: p.X(i), y: p.m.t, width: p.X(1) - p.X(0), height: p.h - p.m.t - p.m.b, fill: 'transparent'});
+    hover(hit, `<div class="t">Дециль ${i + 1} · n ${ints(d.n)}</div>` + trow('пробоев', `${ints(d.k)} (${pct(d.y, 1)})`) + trow('95 % Уилсон', `${pct(d.y_lo, 1)} … ${pct(d.y_hi, 1)}`) + trow('контроль', pct(d.c, 1)) + trow('оценка CB3, среднее', pct(d.pred, 1)));
+    g.append(hit);
+  });
+  p.svg.append(g);
+  c.tertile_cut_q.forEach((q, j) => {
+    p.svg.append(el('line', {x1: p.X(q * 10), x2: p.X(q * 10), y1: p.m.t, y2: p.h - p.m.b, stroke: '#52525b', 'stroke-width': 1, 'stroke-dasharray': '2 3', 'data-chart': id + '.cut', 'data-i': j, 'data-x': +(q * 10).toPrecision(7)}));
+    p.svg.append(el('text', {x: p.X(q * 10) + 4, y: p.m.t + 8, class: 'k'}, j ? '2/3' : '1/3'));
+  });
+  const wrap = h('div', {});
+  wrap.append(legend([[swBox(ACC), 'доля пробоев'], [swLine('#09090b', 2.25), 'доля в контроле у тех же эпизодов'], [swLine('#a1a1aa', 1.5, '4 3'), `все эпизоды · ${pct(c.base_y, 1)}`], [swLine('#52525b', 1, '2 3'), 'границы терцилей обучающей половины']]), p.svg);
+  return wrap;
+}
+
+// ── калибровка
+function calibChart(c) {
+  const id = 'calib', dc = c.deciles;
+  const top = Math.max(...dc.map(d => Math.max(d.y_hi, d.pred))) * 1.08;
+  const p = plot({id, w: 540, h: 300, xd: [0, top], yd: [0, top], xf: v => num(v * 100, 0) + ' %', yf: v => num(v * 100, 0) + ' %', ylab: 'наблюдаемая доля пробоев', xlab: 'предсказанная вероятность (среднее в дециле)', m: {t: 20, b: 34}});
+  p.svg.append(el('line', {x1: p.X(0), y1: p.Y(0), x2: p.X(top), y2: p.Y(top), stroke: '#a1a1aa', 'stroke-dasharray': '4 3'}));
+  const g = el('g');
+  dc.forEach((d, i) => {
+    g.append(el('line', {x1: p.X(d.pred), x2: p.X(d.pred), y1: p.Y(d.y_lo), y2: p.Y(d.y_hi), stroke: '#a1a1aa', 'stroke-width': 1}));
+    dot(p, g, id, i, d.pred, d.y, {tip: `<div class="t">Дециль ${i + 1} · n ${ints(d.n)}</div>` + trow('предсказано', pct(d.pred, 2)) + trow('наблюдено', `${pct(d.y, 2)} (${ints(d.k)} пробоев)`) + trow('95 % Уилсон', `${pct(d.y_lo, 1)} … ${pct(d.y_hi, 1)}`)});
+  });
+  p.svg.append(g);
+  const wrap = h('div', {});
+  wrap.append(legend([[swDot(ACC), 'децили оценки CB3 на проверочной половине'], [swLine('#a1a1aa', 1.5, '4 3'), 'идеальная калибровка']]), p.svg);
+  return wrap;
+}
+
+// ── горизонтальные столбцы (важность, SHAP)
+function hbars(id, rows, o) {
+  const rh = 22, w = 540, lw = o.lw || 150, m = {l: lw, r: 60, t: 4, b: 22}, hh = rows.length * rh + m.t + m.b;
+  const vals = rows.map(r => r.v), lo = Math.min(0, ...vals), hi = Math.max(0, ...vals);
+  const X = sc(lo, hi, m.l, w - m.r), svg = el('svg', {viewBox: `0 0 ${w} ${hh}`, width: '100%', role: 'img', 'data-chart': id});
+  svg.append(el('line', {x1: X(0), x2: X(0), y1: m.t, y2: hh - m.b, stroke: '#d4d4d8'}));
+  rows.forEach((r, i) => {
+    const y = m.t + i * rh, x0 = X(0), x1 = X(r.v);
+    svg.append(el('text', {x: m.l - 8, y: y + rh / 2 + 4, 'text-anchor': 'end', class: 'k'}, r.label));
+    svg.append(el('rect', {x: Math.min(x0, x1), y: y + 4, width: Math.max(1, Math.abs(x1 - x0)), height: rh - 8, rx: 3, fill: o.color || ACC, 'fill-opacity': r.v < 0 ? .35 : .88, 'data-chart': id, 'data-i': i, 'data-label': r.key, 'data-y': +r.v.toPrecision(7)}));
+    svg.append(el('text', {x: (r.v < 0 ? x0 : x1) + 6, y: y + rh / 2 + 4}, o.fmt(r.v)));
+    const hit = el('rect', {x: 0, y, width: w, height: rh, fill: 'transparent'});
+    hover(hit, `<div class="t">${r.label}</div>` + trow(o.metric, o.fmt(r.v)));
+    svg.append(hit);
+  });
+  svg.append(el('text', {x: m.l, y: hh - 5}, o.axis));
+  return svg;
+}
+function importance(c, cell) {
+  const perm = cell.perm.slice().sort((a, b) => b.auc_drop - a.auc_drop);
+  const shap = cell.shap;
+  const wrap = h('div', {});
+  wrap.append(h('div', {class: 'cap'}, 'Падение AUC при перемешивании признака · проверочная половина, среднее 5 перемешиваний; порядок найден на ней же'));
+  wrap.append(hbars('perm', perm.map(r => ({key: r.feature, label: fn(r.feature), v: r.auc_drop})), {fmt: v => num(v, 4, true), metric: 'падение AUC', axis: 'вправо — признак важнее; влево — после перемешивания AUC не упал'}));
+  wrap.append(h('div', {class: 'cap'}, 'Топ-10 пар по взаимодействию SHAP из 66 · проверочная половина, 2·среднее |φ|, ×10⁻³; отобраны на ней же'));
+  wrap.append(hbars('shap', shap.map(r => ({key: r.f1 + '|' + r.f2, label: fn(r.f1) + ' × ' + fn(r.f2), v: r.mean_abs * 1e3})), {fmt: v => num(v, 2), metric: 'взаимодействие, ×10⁻³', axis: '×10⁻³ в логите', lw: 200, color: '#52525b'}));
+  return wrap;
+}
+
+// ── кривая обучения
+function lcChart(c) {
+  const id = 'lc', L = c.lc, n = L.train.length;
+  const tail = [...L.train.slice(19), ...L.val.slice(19)];
+  const p = plot({id, w: 540, h: 290, xd: [0, n], yd: rng(tail, .12), yf: v => num(v, 3), xf: v => String(v), ylab: 'logloss (шкала с 20-й итерации)', xlab: 'итерация', m: {t: 20, l: 50}});
+  const mk = (a, col, w, key) => p.svg.append(el('path', {d: a.map((v, i) => (i ? 'L' : 'M') + p.X(i + 1).toFixed(1) + ' ' + p.Y(v).toFixed(1)).join(''), fill: 'none', stroke: col, 'stroke-width': w, 'stroke-linejoin': 'round', 'data-chart': id + '.' + key, 'data-ys': a.join(',')}));
+  const cid = 'clip' + Math.random().toString(36).slice(2, 8);
+  p.svg.append(el('clipPath', {id: cid}, [el('rect', {x: p.m.l, y: p.m.t, width: p.w - p.m.l - p.m.r, height: p.h - p.m.t - p.m.b})]));
+  mk(L.train, '#a1a1aa', 1.75, 'train'); mk(L.val, ACC, 2.25, 'val');
+  p.svg.querySelectorAll('path[data-chart^="lc."]').forEach(x => x.setAttribute('clip-path', `url(#${cid})`));
+  p.svg.append(el('line', {x1: p.X(L.stop), x2: p.X(L.stop), y1: p.m.t, y2: p.h - p.m.b, stroke: '#09090b', 'stroke-dasharray': '3 3', 'data-chart': id + '.stop', 'data-x': L.stop}));
+  p.svg.append(el('text', {x: p.X(L.stop) + 5, y: p.m.t + 9, class: 'k'}, 'остановка ' + L.stop));
+  overlay(p, n, i => i + 1, i => `<div class="t">Итерация ${i + 1}</div>` + trow('обучение', num(L.train[i], 4)) + trow('проверка', num(L.val[i], 4)));
+  const wrap = h('div', {});
+  wrap.append(legend([[swLine('#a1a1aa', 1.75), 'обучающая половина'], [swLine(ACC, 2.25), 'проверочная половина'], [swLine('#09090b', 1, '3 3'), `число итераций CB3 (${L.stop}) — по 5 блокам обучающей половины`]]), p.svg);
+  return wrap;
+}
+
+// ── переобучение
+function overfitChart(c) {
+  const id = 'overfit', o = c.overfit, f = o.folds;
+  const cats = [{l: 'в выборке', v: o.models.CB3.train, k: 'train'}, ...f.map((x, i) => ({l: 'блок ' + (i + 1), v: x.auc, k: 'fold', f: x})), {l: 'проверка', v: o.models.CB3.val, k: 'val'}];
+  const lo = 0.5, hi = Math.max(...cats.map(x => x.v)) + 0.02;
+  const p = plot({id, w: 540, h: 250, xd: [-.5, cats.length - .5], yd: [lo, hi], xt: [], yf: v => num(v, 2), ylab: 'AUC CB3', m: {t: 20, b: 28}});
+  cats.forEach((x, i) => p.svg.append(el('text', {x: p.X(i), y: p.h - p.m.b + 15, 'text-anchor': 'middle'}, x.l)));
+  p.svg.append(el('line', {x1: p.m.l, x2: p.w - p.m.r, y1: p.Y(.5), y2: p.Y(.5), stroke: '#a1a1aa', 'stroke-dasharray': '4 3'}));
+  const g = el('g');
+  cats.forEach((x, i) => {
+    g.append(el('line', {x1: p.X(i), x2: p.X(i), y1: p.Y(.5), y2: p.Y(x.v), stroke: x.k === 'fold' ? '#a1a1aa' : x.k === 'train' ? '#52525b' : ACC, 'stroke-width': 1.5}));
+    const t = x.k === 'fold' ? `<div class="t">Блок ${cats.indexOf(x)} · сутки ${x.f.days[0]}…${x.f.days[1]}</div>` + trow('AUC', num(x.v, 3)) + trow('эпизодов / пробоев', `${ints(x.f.n)} / ${ints(x.f.k)}`) + trow('итерация остановки', x.f.iters) : `<div class="t">${x.k === 'train' ? 'Обучающая половина (в выборке)' : 'Проверочная половина'}</div>` + trow('AUC', num(x.v, 3));
+    dot(p, g, id, i, i, x.v, {fill: x.k === 'fold' ? '#fff' : x.k === 'train' ? '#52525b' : ACC, stroke: x.k === 'fold' ? '#71717a' : '#fff', sw: x.k === 'fold' ? 1.75 : 2, r: 5, tip: t});
+  });
+  p.svg.append(g);
+  const wrap = h('div', {});
+  wrap.append(legend([[swDot('#52525b'), 'обучающая половина, в выборке'], [swDot('#71717a', true), 'блок ранней остановки: итерация выбрана на самом блоке'], [swDot(ACC), 'проверочная половина']]), p.svg);
+  const tb = h('table', {style: 'margin-top:6px'});
+  tb.append(h('thead', {}, h('tr', {}, [h('th', {}, 'AUC'), h('th', {class: 'num'}, 'в выборке'), h('th', {class: 'num'}, 'проверка'), h('th', {class: 'num'}, 'разрыв')])));
+  const tbody = h('tbody');
+  MODELS.slice(0, 3).forEach(([k, n]) => {
+    const m = o.models[k];
+    tbody.append(h('tr', {'data-model': k}, [h('td', {class: k === 'CB3' ? 'strong' : ''}, n), h('td', {class: 'num', 'data-f': 'train'}, num(m.train, 3)), h('td', {class: 'num', 'data-f': 'val'}, num(m.val, 3)), h('td', {class: 'num', 'data-f': 'gap'}, num(m.train - m.val, 3, true))]));
+  });
+  tb.append(tbody);
+  wrap.append(tb);
+  return wrap;
+}
+
+// ── страты
+function strataChart(items, kind, cell) {
+  const id = 'strata.' + kind, nI = items.length, w = 540;
+  const pw = {l: 46, r: 12};
+  const panels = [{k: 'auc', h: 140, t: 20}, {k: 'delta', h: 140, t: 26}, {k: 'n', h: 58, t: 24}];
+  const gap = 14, axisH = kind === 'day' ? 24 : 46;
+  const H = panels.reduce((s, p) => s + p.h + p.t + gap, 0) + axisH - gap;
+  const svg = el('svg', {viewBox: `0 0 ${w} ${H}`, width: '100%', role: 'img', 'data-chart': id});
+  const X = sc(-.5, nI - .5, pw.l, w - pw.r);
+  const vals = k => items.flatMap(s => k === 'auc' ? [s.auc_cb3, s.auc_cb3_lo, s.auc_cb3_hi, s.auc_logit] : [s.delta, s.delta_lo, s.delta_hi]).filter(v => v != null);
+  let y0 = 0;
+  const ybase = {};
+  panels.forEach(pn => {
+    const top = y0 + pn.t, bot = top + pn.h;
+    ybase[pn.k] = [top, bot];
+    let lo, hi;
+    if (pn.k === 'auc') { const v = vals('auc'); lo = Math.min(.5, ...v); hi = Math.max(.5, ...v); }
+    else if (pn.k === 'delta') { const v = vals('delta'); lo = Math.min(0, ...v); hi = Math.max(0.02, ...v); }
+    else { lo = 0; hi = Math.max(...items.map(s => s.n), 300); }
+    const pad = (hi - lo) * .06; if (pn.k !== 'n') { lo -= pad; hi += pad; } else hi *= 1.08;
+    const Y = sc(lo, hi, bot, top);
+    pn.Y = Y;
+    const fm = pn.k === 'n' ? (v => ints(Math.round(v))) : (v => num(v, pn.k === 'auc' ? 2 : 2, pn.k === 'delta'));
+    (pn.k === 'n' ? ticks(0, hi, 2) : ticks(lo, hi, 4)).forEach(t => {
+      svg.append(el('line', {x1: pw.l, x2: w - pw.r, y1: Y(t), y2: Y(t), stroke: '#efeff1'}));
+      svg.append(el('text', {x: pw.l - 7, y: Y(t) + 3.5, 'text-anchor': 'end'}, fm(t)));
+    });
+    svg.append(el('text', {x: 0, y: top - 12}, pn.k === 'auc' ? 'AUC на проверке · точка — CB3 (95 % по монетам), кольцо — логистика' : pn.k === 'delta' ? 'ΔAUC = CB3 − логистика · 95 % по монетам · пунктир — порог +0,02' : 'эпизодов в страте · пунктир — 300'));
+    svg.append(el('line', {x1: pw.l, x2: w - pw.r, y1: bot, y2: bot, stroke: '#d4d4d8'}));
+    y0 = bot + gap;
+  });
+  const [, nBot] = ybase.n;
+  // опорные линии
+  const pa = panels[0], pd = panels[1], pn_ = panels[2];
+  svg.append(el('line', {x1: pw.l, x2: w - pw.r, y1: pa.Y(.5), y2: pa.Y(.5), stroke: '#a1a1aa', 'stroke-dasharray': '4 3'}));
+  svg.append(el('line', {x1: pw.l, x2: w - pw.r, y1: pd.Y(0), y2: pd.Y(0), stroke: '#a1a1aa', 'stroke-dasharray': '4 3'}));
+  svg.append(el('line', {x1: pw.l, x2: w - pw.r, y1: pd.Y(.02), y2: pd.Y(.02), stroke: ACC, 'stroke-dasharray': '4 3'}));
+  svg.append(el('line', {x1: pw.l, x2: w - pw.r, y1: pn_.Y(300), y2: pn_.Y(300), stroke: '#71717a', 'stroke-dasharray': '4 3'}));
+  const g = el('g');
+  items.forEach((s, i) => {
+    const gc = s.small ? 'grey' : '';
+    const x = X(i), bw = Math.min(26, (w - pw.l - pw.r) / nI * .62);
+    const grp = el('g', {class: gc});
+    if (s.auc_cb3_lo != null) grp.append(el('line', {x1: x, x2: x, y1: pa.Y(s.auc_cb3_lo), y2: pa.Y(s.auc_cb3_hi), stroke: '#71717a', 'stroke-width': 1.25}));
+    if (s.auc_logit != null) grp.append(el('circle', {cx: x, cy: pa.Y(s.auc_logit), r: kind === 'day' ? 3.2 : 4.5, fill: '#fff', stroke: '#52525b', 'stroke-width': 1.5, 'data-chart': id + '.auc_logit', 'data-i': i, 'data-y': +s.auc_logit.toPrecision(7)}));
+    if (s.auc_cb3 != null) grp.append(el('circle', {cx: x, cy: pa.Y(s.auc_cb3), r: kind === 'day' ? 2.6 : 4, fill: s.small ? '#71717a' : ACC, 'data-chart': id + '.auc_cb3', 'data-i': i, 'data-n': s.n, 'data-k': s.k, 'data-y': +s.auc_cb3.toPrecision(7)}));
+    if (s.delta_lo != null) grp.append(el('line', {x1: x, x2: x, y1: pd.Y(s.delta_lo), y2: pd.Y(s.delta_hi), stroke: '#71717a', 'stroke-width': 1.25}));
+    if (s.delta != null) grp.append(el('circle', {cx: x, cy: pd.Y(s.delta), r: kind === 'day' ? 2.6 : 4, fill: s.small ? '#71717a' : ACC, 'data-chart': id + '.delta', 'data-i': i, 'data-y': +s.delta.toPrecision(7), 'data-lo': s.delta_lo == null ? null : +s.delta_lo.toPrecision(7), 'data-hi': s.delta_hi == null ? null : +s.delta_hi.toPrecision(7)}));
+    grp.append(el('rect', {x: x - bw / 2, y: pn_.Y(s.n), width: bw, height: pn_.Y(0) - pn_.Y(s.n), rx: 2, fill: s.small ? '#a1a1aa' : '#d4d4d8', 'data-chart': id + '.n', 'data-i': i, 'data-y': s.n}));
+    g.append(grp);
+    const hit = el('rect', {x: x - (w - pw.l - pw.r) / nI / 2, y: ybase.auc[0], width: (w - pw.l - pw.r) / nI, height: nBot - ybase.auc[0], fill: 'transparent'});
+    const ttl = kind === 'day' ? `сутки ${s.day} · ${s.date.slice(8)}.${s.date.slice(5, 7)}` : `${strataName(kind)} · ${s.label} (${s.rangeLabel})`;
+    hover(hit, `<div class="t">${ttl}</div>` + trow('эпизодов / пробоев', `${ints(s.n)} / ${ints(s.k)}`) + (s.small ? '<div class="muted">меньше 300 эпизодов</div>' : '') + trow('AUC CB3', `${num(s.auc_cb3, 3)}` + (s.auc_cb3_lo == null ? '' : ` [${num(s.auc_cb3_lo, 3)}; ${num(s.auc_cb3_hi, 3)}]`)) + trow('AUC логистика', num(s.auc_logit, 3)) + trow('ΔAUC', num(s.delta, 3, true) + (s.delta_lo == null ? '' : ` [${num(s.delta_lo, 3, true)}; ${num(s.delta_hi, 3, true)}]`)));
+    g.append(hit);
+    // подписи оси
+    if (kind === 'day') { if (i % 5 === 0 || i === nI - 1) svg.append(el('text', {x, y: nBot + 15, 'text-anchor': 'middle'}, s.date.slice(8) + '.' + s.date.slice(5, 7))); }
+    else {
+      svg.append(el('text', {x, y: nBot + 15, 'text-anchor': 'middle', class: 'k'}, {L: 'низкий', M: 'средний', H: 'высокий'}[s.label]));
+      svg.append(el('text', {x, y: nBot + 28, 'text-anchor': 'middle'}, s.rangeLabel));
+      svg.append(el('text', {x, y: nBot + 41, 'text-anchor': 'middle'}, `n ${ints(s.n)} · k ${ints(s.k)}`));
+    }
+  });
+  svg.append(g);
+  return svg;
+}
+const strataName = k => ({lturn24: 'оборот за сутки', natr_bp: 'NATR', age_h: 'возраст уровня'}[k] || k);
+function strataFor(cell, kind) {
+  const items = cell.strata[kind].map(s => Object.assign({}, s));
+  if (kind !== 'day') {
+    const q = v => (Math.abs(v) >= 100 ? v.toFixed(0) : Math.abs(v) >= 10 ? v.toFixed(1) : v.toFixed(2)).replace('.', ',');
+    const money = v => { const x = Math.pow(10, v); return x >= 1e9 ? q(x / 1e9) + ' млрд' : x >= 1e6 ? q(x / 1e6) + ' млн' : q(x / 1e3) + ' тыс'; };
+    const f = {lturn24: money, natr_bp: v => q(v) + ' бп', age_h: v => q(v) + ' ч'}[kind];
+    items.forEach(s => { s.rangeLabel = s.label === 'L' ? '≤ ' + f(s.cut_lo) : s.label === 'M' ? f(s.cut_lo) + '…' + f(s.cut_hi) : '> ' + f(s.cut_hi); });
+  }
+  const wrap = h('div', {});
+  wrap.append(strataChart(items, kind, cell));
+  return wrap;
+}
+
+// ── сводка
+function strip(lo, hi, d) {
+  const w = 170, a = -0.03, b = 0.045, X = sc(a, b, 6, w - 6);
+  const svg = el('svg', {viewBox: `0 0 ${w} 30`, width: w, height: 30, role: 'img'});
+  svg.append(el('line', {x1: X(0), x2: X(0), y1: 3, y2: 19, stroke: '#a1a1aa'}));
+  svg.append(el('line', {x1: X(.02), x2: X(.02), y1: 3, y2: 19, stroke: ACC, 'stroke-dasharray': '3 2', 'stroke-width': 1.5}));
+  svg.append(el('line', {x1: X(Math.max(a, lo)), x2: X(Math.min(b, hi)), y1: 11, y2: 11, stroke: '#3f3f46', 'stroke-width': 1.75}));
+  svg.append(el('circle', {cx: X(d), cy: 11, r: 3.8, fill: '#09090b'}));
+  svg.append(el('text', {x: X(0), y: 29, 'text-anchor': 'middle'}, '0'));
+  svg.append(el('text', {x: X(.02), y: 29, 'text-anchor': 'middle', fill: ACC, style: 'fill:' + ACC}, '+0,02'));
+  return svg;
+}
+function summary(side) {
+  const S = D.sides[side], card = h('div', {class: 'card'});
+  const tb = h('table');
+  tb.append(h('thead', {}, h('tr', {}, [h('th', {}, 'Направление'), ...MODELS.map(([k, n]) => h('th', {class: 'num'}, 'AUC ' + SHORT[k])), h('th', {}, 'ΔAUC CB3 − логистика · 95 % по монетам · порог +0,02')])));
+  const body = h('tbody');
+  ['A->B', 'B->A'].forEach(dk => {
+    const c = S.dirs[dk], dl = c.delta;
+    body.append(h('tr', {'data-dir': dk}, [
+      h('td', {}, [h('div', {class: 'strong'}, dk.replace('->', ' → ')), h('div', {class: 'muted small'}, `обучение ${c.train_half} · проверка ${c.val_half} · ${ints(c.n_T)} эпизодов, ${ints(c.k_T)} пробоев`)]),
+      ...MODELS.map(([k]) => h('td', {class: 'num' + (k === 'CB3' ? ' strong' : ''), 'data-f': 'auc_' + k}, num(c.auc[k], 3))),
+      h('td', {}, h('div', {style: 'display:flex;align-items:center;gap:12px'}, [strip(dl.lo, dl.hi, dl.delta), h('div', {}, [h('div', {class: 'strong', 'data-f': 'delta'}, num(dl.delta, 3, true)), h('div', {class: 'muted small', 'data-f': 'ci'}, `[${num(dl.lo, 3, true)}; ${num(dl.hi, 3, true)}]`)])]))
+    ]));
+  });
+  tb.append(body);
+  card.append(h('div', {style: 'padding:6px 8px 4px;overflow-x:auto'}, tb));
+  const V = S.verdict;
+  const badge = (ok, t) => h('span', {class: 'badge' + (ok ? ' ok' : '')}, t);
+  card.append(h('div', {class: 'verd'}, [badge(V.a.ok, '(а) ' + (V.a.ok ? 'выполнено' : 'не выполнено')), h('div', {class: 'small muted'}, `Модель: дерево глубины 3 лучше логистики на ≥ +0,02 AUC с нижней границей > 0 в обоих направлениях. A → B ${num(V.a.d[0].delta, 3, true)} [${num(V.a.d[0].lo, 3, true)}; ${num(V.a.d[0].hi, 3, true)}], B → A ${num(V.a.d[1].delta, 3, true)} [${num(V.a.d[1].lo, 3, true)}; ${num(V.a.d[1].hi, 3, true)}].`)]));
+  card.append(h('div', {class: 'verd'}, [badge(V.b.ok, '(б) ' + (V.b.ok ? 'выполнено' : 'не выполнено')), h('div', {class: 'small muted'}, `Правило: подтверждённых клеток пар — A → B ${V.b.confirmed[0]}, B → A ${V.b.confirmed[1]}; ядро признаков — ${D.meta.core_n} из ${D.meta.core_n}${D.meta.core_fallback ? ' (пары ядра не дали)' : ''}.`)]));
+  return card;
+}
+
+// ── U1r
+function u1rCard(side) {
+  const S = D.sides[side], card = h('div', {class: 'card'});
+  const tb = h('table');
+  tb.append(h('thead', {}, h('tr', {}, [h('th', {}, 'Направление'), h('th', {class: 'num'}, 'эпизодов'), h('th', {class: 'num'}, 'пробоев'), ...MODELS.map(([k, n]) => h('th', {class: 'num'}, 'AUC ' + SHORT[k]))])));
+  const body = h('tbody');
+  ['A->B', 'B->A'].forEach(dk => {
+    const u = S.dirs[dk].u1r;
+    body.append(h('tr', {'data-dir': dk}, [h('td', {class: 'strong'}, dk.replace('->', ' → ')), h('td', {class: 'num', 'data-f': 'n'}, ints(u.n)), h('td', {class: 'num', 'data-f': 'k'}, ints(u.k)), ...MODELS.map(([k]) => h('td', {class: 'num' + (k === 'CB3' ? ' strong' : ''), 'data-f': 'auc_' + k}, num(u[k], 3)))]));
+  });
+  tb.append(body);
+  card.append(h('div', {style: 'padding:6px 8px 4px;overflow-x:auto'}, tb));
+  return card;
+}
+
+// ── ход работ (TK-601): данные — progress.json, вшиты при сборке
+const P = JSON.parse(document.getElementById('progress-data').textContent);
+const STAT = {done: 'готово', running: 'идёт', waiting: 'ждёт'};
+const MARK = {done: '✓', running: '●', waiting: '○'};
+function stageCard(s) {
+  const c = h('div', {class: 'stage st-' + s.status, 'data-stage': s.id, 'data-status': s.status});
+  c.append(h('div', {class: 'stage-top'}, [h('span', {class: 'stage-id'}, s.id), h('span', {class: 'badge' + (s.status === 'done' ? ' ok' : s.status === 'running' ? ' run' : ''), 'data-f': 'status'}, STAT[s.status])]));
+  c.append(h('div', {class: 'stage-title'}, s.title));
+  c.append(h('div', {class: 'stage-q'}, s.answers));
+  if (s.steps && s.steps.length) {
+    c.append(h('div', {class: 'lbl'}, 'Шаги'));
+    c.append(h('ul', {class: 'steps'}, s.steps.map(t => h('li', {class: 's-' + t.s, 'data-status': t.s}, [h('i', {}, MARK[t.s]), h('span', {}, t.t)]))));
+  }
+  c.append(h('div', {class: 'lbl'}, 'Цифры'));
+  c.append(s.numbers.length ? h('ul', {class: 'nums'}, s.numbers.map(n => h('li', {}, n))) : h('div', {class: 'muted small'}, 'Цифр пока нет.'));
+  c.append(h('div', {class: 'lbl'}, 'Дальше'));
+  c.append(h('div', {class: 'stage-next'}, s.next));
+  return c;
+}
+function targetsCard(T) {
+  const card = h('div', {class: 'card tg-card', id: 'targets'});
+  card.append(h('div', {class: 'card-h'}, [h('b', {}, T.title), h('span', {}, 'первый фильтр: прошла / не прошла')]));
+  const body = h('div', {class: 'card-b'});
+  body.append(h('p', {class: 'tg-note'}, T.note));
+  const cell = (v, note, lab) => h('td', {'data-f': 'cell', 'data-lab': lab}, [h('span', {class: 'badge' + (v === 'pass' ? ' ok' : '')}, v === 'pass' ? 'прошла' : v === 'fail' ? 'не прошла' : '—'), note ? h('span', {class: 'cellnote'}, note) : null]);
+  const tb = h('table', {class: 'tg'});
+  const hasRes = !!T.result_title;
+  const resCell = r => {
+    const sides = [['long', 'Лонг'], ['short', 'Шорт']].filter(([k]) => r.result && r.result[k]);
+    return h('td', {class: 'res', 'data-lab': T.result_title}, sides.length ? sides.map(([k, n]) => h('div', {class: 'res-line', 'data-side': k}, [h('b', {}, n + ': '), h('span', {class: 'res-t'}, r.result[k])])) : h('span', {class: 'res-none', 'data-none': '1'}, T.result_none || '—'));
+  };
+  tb.append(h('thead', {}, h('tr', {}, [h('th', {}, 'Цель'), h('th', {}, 'Что предсказывает'), h('th', {}, 'Лонг'), h('th', {}, 'Шорт'), hasRes ? h('th', {}, T.result_title) : null])));
+  tb.append(h('tbody', {}, T.rows.map(r => h('tr', {'data-target': r.id, 'data-long': r.long, 'data-short': r.short}, [h('td', {}, r.id), h('td', {class: 'what'}, r.what), cell(r.long, r.long_note, 'Лонг'), cell(r.short, r.short_note, 'Шорт'), hasRes ? resCell(r) : null]))));
+  const cnt = k => { const used = T.rows.filter(r => r[k] !== 'na'); return `${used.filter(r => r[k] === 'pass').length} из ${used.length}`; };
+  tb.append(h('tfoot', {}, h('tr', {}, [h('td', {}), h('td', {}, 'Прошли первый фильтр'), h('td', {'data-f': 'total_long', 'data-lab': 'Лонг'}, cnt('long')), h('td', {'data-f': 'total_short', 'data-lab': 'Шорт'}, cnt('short')), hasRes ? h('td', {class: 'res'}) : null])));
+  body.append(h('div', {class: 'tg-wrap'}, tb));
+  card.append(body);
+  return card;
+}
+function renderProgress() {
+  const root = document.getElementById('progress');
+  root.append(h('div', {class: 'prog-h'}, [h('h2', {}, 'Ход работ'), h('span', {class: 'muted small'}, 'обновлено ' + P.updated)]));
+  root.append(h('p', {class: 'prog-head'}, P.headline));
+  root.append(h('div', {class: 'stages', style: '--n:' + Math.min(P.stages.length, 5)}, P.stages.map(stageCard)));
+  document.getElementById('targets-box').append(targetsCard(P.targets));
+  root.append(h('p', {class: 'prog-foot'}, 'Подробности — на вкладках: цели TK-598 (что предсказывает каждая и итог чтения), эквити (кривые накопленной прибыли), модель TK-592 (ROC, децили, калибровка, важность признаков, переобучение, устойчивость по суткам).'));
+}
+
+// ── эквити (TK-601): сделки баз U1 и «трети» целей TK-598; данные — equity.json (tk601_equity.py), вшиты при сборке
+const E = JSON.parse(document.getElementById('equity-data').textContent);
+const EQ_COL = {base: '#71717a', T1: '#2a78d6', T2: '#eb6834', T4: '#1baf7a', T5: '#6250d6', T6: '#008300', short: '#2a78d6', long: '#eb6834'};
+const EQ_NAME = {T1: 'T1 · прибыль, $', T2: 'T2 · прибыль, бп', T4: 'T4 · без жёсткого стопа', T5: 'T5 · MFE − MAE', T6: 'T6 · ранжирование', short: 'Шорт', long: 'Лонг'};
+const EQ_BASE = {short: 'Шорт: все сделки базы', long: 'Лонг: все сделки базы', both: 'Шорт + лонг: все сделки'};
+const EQ_SIDES = [['short', 'Шорт'], ['long', 'Лонг'], ['both', 'Шорт + лонг']];
+const EQ_DESC = {
+  short: 'Накопленная прибыль шорта. Серая толстая линия — все сделки базы (пул U1). Цветные — только сделки, которые замороженная модель отнесла в лучшую треть по своей цели. Цветная линия вровень с серой — модель ничего не добавила; выше — добавила; ниже — выбрала хуже, чем в среднем.',
+  long: 'Накопленная прибыль лонга. Серая толстая линия — все сделки базы (пул U1); цветная — сделки лучшей трети по цели T6.',
+  both: 'Базы шорта и лонга на одних осях и их сумма: видно, откуда рост и что забирает другая сторона. Здесь только базы — без выбора моделью.'
+};
+const pad2 = n => String(n).padStart(2, '0');
+const fdt = ms => { const d = new Date(ms); return `${pad2(d.getUTCDate())}.${pad2(d.getUTCMonth() + 1)} ${pad2(d.getUTCHours())}:${pad2(d.getUTCMinutes())}`; };
+const fday = ms => { const d = new Date(ms); return `${pad2(d.getUTCDate())}.${pad2(d.getUTCMonth() + 1)}`; };
+const money = (v, d = 2) => num(v, d, true);
+
+function eqData(chartId, side) {
+  const C = E.charts[chartId];
+  if (side !== 'both') return C.sides[side];
+  const a = C.sides.short, b = C.sides.long, rows = [];
+  [[a, 'short'], [b, 'long']].forEach(([S, k]) => S.t.forEach((t, i) => rows.push({t, en: S.en[i], net: S.net[i], sym: S.sym[i], day: S.day[i], w: S.w[i], k})));
+  rows.sort((x, y) => x.t - y.t || x.en - y.en || (x.sym < y.sym ? -1 : x.sym > y.sym ? 1 : 0));
+  const out = {t: rows.map(r => r.t), en: rows.map(r => r.en), net: rows.map(r => r.net), sym: rows.map(r => r.sym), day: rows.map(r => r.day), w: rows.map(r => r.w), sel: {short: [], long: []}};
+  rows.forEach((r, i) => out.sel[r.k].push(i));
+  return out;
+}
+function eqLines(S, side) {
+  const n = S.t.length, out = [];
+  const mk = (k, mask) => { let c = 0; const y = new Array(n); for (let i = 0; i < n; i++) { if (!mask || mask[i]) c += S.net[i]; y[i] = c; } return {k, mask, y, name: k === 'base' ? EQ_BASE[side] : EQ_NAME[k]}; };
+  out.push(mk('base', null));
+  Object.keys(S.sel).forEach(k => { const m = new Array(n).fill(false); S.sel[k].forEach(i => { m[i] = true; }); out.push(mk(k, m)); });
+  return out;
+}
+function eqStats(S, mask) {
+  const ix = []; for (let i = 0; i < S.t.length; i++) if (!mask || mask[i]) ix.push(i);
+  const net = ix.map(i => S.net[i]), n = net.length, sum = net.reduce((a, b) => a + b, 0);
+  const best = Math.max(...net), srt = [...net].sort((a, b) => b - a);
+  const g = {}; ix.forEach(i => { g[S.day[i]] = (g[S.day[i]] || 0) + S.net[i]; });
+  const dv = Object.values(g).sort((a, b) => b - a);
+  let c = 0, pk = 0, dd = 0; net.forEach(v => { c += v; pk = Math.max(pk, c); dd = Math.max(dd, pk - c); });
+  return {n, sum, mean: sum / n, best, share: sum > 0 ? best / sum : null, nodays: sum - (dv[0] || 0) - (dv[1] || 0), notrades: sum - (srt[0] || 0) - (srt[1] || 0), dd};
+}
+function eqTable(chartId, side, S, lines) {
+  const cols = [['n', 'Сделок'], ['sum', 'Сумма, $'], ['mean', 'В среднем на сделку, $'], ['best', 'Лучшая сделка, $'], ['share', 'Доля лучшей в сумме'], ['nodays', 'Сумма без 2 лучших суток, $'], ['notrades', 'Сумма без 2 лучших сделок, $'], ['dd', 'Макс. просадка, $']];
+  const tb = h('table', {class: 'eqt', 'data-eqchart': chartId, 'data-eqside': side});
+  tb.append(h('thead', {}, h('tr', {}, [h('th', {}, 'Линия'), ...cols.map(([, t]) => h('th', {class: 'num'}, t))])));
+  const body = h('tbody');
+  lines.forEach(l => {
+    const st = eqStats(S, l.mask), f = {n: ints(st.n), sum: money(st.sum), mean: money(st.mean), best: money(st.best), share: st.share == null ? '—' : pct(st.share, 1), nodays: money(st.nodays), notrades: money(st.notrades), dd: num(st.dd, 2)};
+    body.append(h('tr', {'data-line': l.k, class: l.k === 'base' ? 'base' : ''}, [h('td', {}, [h('span', {class: 'sw', style: `border-color:${EQ_COL[l.k]};border-top-width:${l.k === 'base' ? 4 : 3}px`}), l.name]), ...cols.map(([k]) => h('td', {class: 'num', 'data-f': k, 'data-lab': cols.find(c => c[0] === k)[1]}, f[k]))]));
+  });
+  tb.append(body);
+  return h('div', {style: 'overflow-x:auto'}, tb);
+}
+function eqChart(chartId, side, width) {
+  const C = E.charts[chartId], S = eqData(chartId, side), lines = eqLines(S, side), n = S.t.length;
+  const w = width, hh = w < 520 ? 300 : 360, x0 = C.start_ms, x1 = C.end_ms + 3600e3, DAYMS = 86400e3;
+  const [ylo, yhi] = rng(lines.flatMap(l => l.y).concat([0]), .08);
+  const stepD = w < 560 ? 14 : 7, xt = []; for (let t = x0; t <= x1; t += stepD * DAYMS) xt.push(t);
+  const p = plot({id: 'eq.' + chartId, w, h: hh, xd: [x0, x1], yd: [ylo, yhi], xt, xf: fday, yf: v => num(v, 0), ylab: 'накопленная прибыль, $', m: {l: 50, r: 14, t: C.split_ms ? 36 : 22, b: 30}});
+  const {X, Y} = p;
+  p.svg.append(el('line', {x1: X(x0), x2: X(x1), y1: Y(0), y2: Y(0), stroke: '#a1a1aa', 'stroke-dasharray': '3 3'}));
+  if (C.split_ms) {
+    p.svg.append(el('line', {x1: X(C.split_ms), x2: X(C.split_ms), y1: p.m.t, y2: hh - p.m.b, stroke: '#d4d4d8', 'stroke-dasharray': '2 3'}));
+    p.svg.append(el('text', {x: (X(x0) + X(C.split_ms)) / 2, y: p.m.t - 6, 'text-anchor': 'middle'}, 'июль'));
+    p.svg.append(el('text', {x: (X(C.split_ms) + X(x1)) / 2, y: p.m.t - 6, 'text-anchor': 'middle'}, 'август'));
+  }
+  const path = y => { let d = `M${X(x0).toFixed(1)} ${Y(0).toFixed(1)}`, prev = 0; for (let i = 0; i < n; i++) { const xx = X(S.t[i]).toFixed(1); d += `L${xx} ${Y(prev).toFixed(1)}L${xx} ${Y(y[i]).toFixed(1)}`; prev = y[i]; } return d + `L${X(x1).toFixed(1)} ${Y(prev).toFixed(1)}`; };
+  lines.forEach(l => p.svg.append(el('path', {d: path(l.y), fill: 'none', stroke: EQ_COL[l.k], 'stroke-width': l.k === 'base' ? 3.6 : 2, 'stroke-linejoin': 'round', 'stroke-opacity': l.k === 'base' ? .85 : 1, 'data-chart': `eq.${chartId}.${l.k}`, 'data-final': l.y[n - 1]})));
+  // наведение: ближайшая по времени сделка
+  const vl = el('line', {y1: p.m.t, y2: hh - p.m.b, stroke: '#a1a1aa', 'stroke-dasharray': '3 3', visibility: 'hidden'});
+  const dots = lines.map(l => el('circle', {r: 4, fill: EQ_COL[l.k], stroke: '#fff', 'stroke-width': 1.5, visibility: 'hidden'}));
+  const r = el('rect', {x: p.m.l, y: p.m.t, width: w - p.m.l - p.m.r, height: hh - p.m.t - p.m.b, fill: 'transparent', 'data-chart': `eq.${chartId}.hover`});
+  p.svg.append(vl, ...dots, r);
+  const near = ev => {
+    const b = p.svg.getBoundingClientRect(), x = (ev.clientX - b.left) / b.width * w, tx = x0 + (x - p.m.l) / (w - p.m.l - p.m.r) * (x1 - x0);
+    let lo = 0, hi = n - 1; while (lo < hi) { const mid = (lo + hi) >> 1; if (S.t[mid] < tx) lo = mid + 1; else hi = mid; }
+    return lo > 0 && Math.abs(S.t[lo - 1] - tx) < Math.abs(S.t[lo] - tx) ? lo - 1 : lo;
+  };
+  const show = (ev) => {
+    const i = near(ev), xx = X(S.t[i]);
+    vl.setAttribute('x1', xx); vl.setAttribute('x2', xx); vl.setAttribute('visibility', 'visible');
+    dots.forEach((d, k) => { d.setAttribute('cx', xx); d.setAttribute('cy', Y(lines[k].y[i])); d.setAttribute('visibility', 'visible'); });
+    tip.innerHTML = `<div class="t">${S.sym[i]}</div>` + trow('Вход', fdt(S.en[i]) + ' UTC') + trow('Закрытие', fdt(S.t[i]) + ' UTC') + trow('Прибыль сделки', '<b>' + money(S.net[i]) + ' $</b>') +
+      '<div class="muted" style="margin:6px 0 2px">Накоплено на этот момент</div>' +
+      lines.map(l => `<div class="r"><span><span style="display:inline-block;width:12px;border-top:${l.k === 'base' ? 4 : 3}px solid ${EQ_COL[l.k]};vertical-align:middle;margin-right:6px"></span>${l.name}${l.mask && l.mask[i] ? ' ✓' : ''}</span><span>${money(l.y[i])}</span></div>`).join('') +
+      '<div class="muted" style="margin-top:4px">✓ — эта сделка входит в линию</div>';
+    tip.style.display = 'block'; moveTip(ev);
+  };
+  r.addEventListener('mouseenter', show); r.addEventListener('mousemove', show);
+  r.addEventListener('mouseleave', () => { vl.setAttribute('visibility', 'hidden'); dots.forEach(d => d.setAttribute('visibility', 'hidden')); tip.style.display = 'none'; });
+  const card = h('div', {class: 'card eq-card', 'data-eqchart': chartId});
+  card.append(h('div', {class: 'card-h'}, [h('b', {}, C.title), h('span', {}, `${fday(x0)} — ${fday(C.end_ms)} · сделок в базе ${ints(n)}`)]));
+  const b = h('div', {class: 'card-b'});
+  b.append(legend(lines.map(l => [swLine(EQ_COL[l.k], l.k === 'base' ? 4 : 2.25), l.name])), p.svg, eqTable(chartId, side, S, lines));
+  b.append(h('p', {class: 'eq-note'}, chartId === 'ja'
+    ? 'Окна чтения: замороженные модели, выбор — по сохранённым оценкам при чтении, граница «трети» — замороженная. Июль и август — одна непрерывная серия. «Сутки» — по дню сигнала, как в проверке TK-598.'
+    : 'Окно подбора: выбор по внефолдовым оценкам (модель каждой сделки не видела). Модели подбирались на этих сутках — это отбор, не доказательство.'));
+  card.append(b);
+  return card;
+}
+function renderEquity() {
+  const side = ST.eq, view = document.getElementById('eq-view');
+  document.querySelectorAll('#eq-tabs button').forEach(b => b.setAttribute('aria-selected', b.dataset.side === side));
+  document.getElementById('eq-desc').textContent = EQ_DESC[side];
+  view.replaceChildren();
+  const width = Math.max(300, Math.floor(view.clientWidth - (view.clientWidth < 520 ? 22 : 42)));
+  ['ja', 'fit'].forEach(id => view.append(eqChart(id, side, width)));
+}
+function initEquity() {
+  const tabs = document.getElementById('eq-tabs');
+  EQ_SIDES.forEach(([k, t]) => { const b = h('button', {role: 'tab', 'data-side': k, 'aria-selected': 'false'}, t); b.onclick = () => { ST.eq = k; setHash(); renderEquity(); }; tabs.append(b); });
+}
+
+// ── вкладки верхнего уровня: хеш #progress | #targets | #equity[/short|long|both] | #model[/long|short]
+const TABS = [['progress', 'Ход работ'], ['targets', 'Цели TK-598'], ['equity', 'Эквити'], ['model', 'Модель TK-592']];
+const ST = {tab: 'progress', eq: 'short', model: 'long'};
+function parseHash() {
+  const [a, b] = location.hash.replace(/^#/, '').split('/');
+  if (a === 'long' || a === 'short') { ST.tab = 'model'; ST.model = a; return; }
+  if (TABS.some(t => t[0] === a)) ST.tab = a;
+  if (a === 'equity' && EQ_SIDES.some(s => s[0] === b)) ST.eq = b;
+  if (a === 'model' && (b === 'long' || b === 'short')) ST.model = b;
+}
+function setHash() { history.replaceState(null, '', '#' + ST.tab + (ST.tab === 'equity' ? '/' + ST.eq : ST.tab === 'model' ? '/' + ST.model : '')); }
+function route() {
+  TABS.forEach(([k]) => { document.getElementById('pane-' + k).hidden = k !== ST.tab; });
+  document.querySelectorAll('#toptabs button').forEach(b => b.setAttribute('aria-selected', b.dataset.tab === ST.tab));
+  if (ST.tab === 'equity') renderEquity();
+  if (ST.tab === 'model') select(ST.model);
+  setHash();
+}
+function goTab(k) { ST.tab = k; window.scrollTo(0, 0); route(); }
+function initTabs() {
+  const box = document.getElementById('toptabs');
+  TABS.forEach(([k, t]) => { const b = h('button', {role: 'tab', 'data-tab': k, 'aria-selected': 'false'}, t); b.onclick = () => goTab(k); box.append(b); });
+  parseHash();
+  route();
+  window.addEventListener('hashchange', () => { parseHash(); route(); });
+  let rt, lastW = innerWidth; window.addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(() => { if (innerWidth !== lastW) { lastW = innerWidth; if (ST.tab === 'equity') renderEquity(); } }, 150); });
+}
+
+// ── сборка страницы
+const SECTIONS = [
+  ['roc', 'ROC-кривые', 'Как хорошо оценка отделяет эпизоды с пробоем от остальных на проверочной половине: чем выше кривая над диагональю, тем лучше.', (c) => rocChart(c)],
+  ['lift', 'Доля пробоев по децилям оценки', 'Проверочная половина, поделённая по оценке CB3 на 10 равных групп: столбец — доля пробоев в группе, чёрточка — доля в контроле у тех же эпизодов.', (c) => decileChart(c)],
+  ['calib', 'Калибровка', 'Совпадает ли предсказанная вероятность с наблюдаемой долей пробоев: точки на пунктире — совпадает.', (c) => calibChart(c)],
+  ['imp', 'Важность признаков и взаимодействия', 'Какие из 12 признаков держат оценку CB3 и какие пары признаков дают ей взаимодействие.', (c, cell) => importance(c, cell)],
+  ['lc', 'Кривая обучения', 'Logloss CB3 на обучающей и на проверочной половине по числу деревьев; вертикаль — выбранное число итераций.', (c) => lcChart(c)],
+  ['over', 'Переобучение', 'AUC CB3 на обучающей половине (в выборке), на пяти блоках суток ранней остановки и на проверочной половине; разрыв «в выборке − проверка» по трём моделям.', (c) => overfitChart(c)],
+  ['strata-day', 'Устойчивость по суткам', 'AUC на проверке и ΔAUC (CB3 − логистика) по каждым суткам проверочной половины; серые — меньше 300 эпизодов.', (c) => strataFor(c, 'day')],
+  ['strata-turn', 'Страты по обороту', 'AUC и ΔAUC по трети суточного оборота в USDT (границы терцилей — с обучающей половины); серые — меньше 300 эпизодов.', (c) => strataFor(c, 'lturn24')],
+  ['strata-natr', 'Страты по NATR', 'AUC и ΔAUC по трети NATR (границы терцилей — с обучающей половины); серые — меньше 300 эпизодов.', (c) => strataFor(c, 'natr_bp')],
+  ['strata-age', 'Страты по возрасту уровня', 'AUC и ΔAUC по трети возраста уровня (границы терцилей — с обучающей половины); серые — меньше 300 эпизодов.', (c) => strataFor(c, 'age_h')]
+];
+const NAV = [['sum', 'Сводка'], ['roc', 'ROC'], ['lift', 'Децили'], ['calib', 'Калибровка'], ['imp', 'Важность'], ['lc', 'Кривая обучения'], ['over', 'Переобучение'], ['strata-day', 'Страты'], ['u1r', 'Пул U1r']];
+
+function section(id, title, desc, first) {
+  return h('section', {id: 'sec-' + id, class: first ? 'first' : ''}, [h('h2', {}, title), h('p', {class: 'desc'}, desc)]);
+}
+function render(side) {
+  const view = document.getElementById('view');
+  view.replaceChildren();
+  const sum = section('sum', 'Сводка', 'AUC четырёх моделей на проверочной половине, разница CB3 − логистика с интервалом по монетам против порога +0,02 и итог по критериям (а) и (б).', true);
+  sum.append(summary(side));
+  view.append(sum);
+  SECTIONS.forEach(([id, title, desc, fn_]) => {
+    const s = section(id, title, desc);
+    const grid = h('div', {class: 'grid2'});
+    ['A->B', 'B->A'].forEach(dk => {
+      const cell = D.sides[side].dirs[dk];
+      const card = h('div', {class: 'card', 'data-dir': dk});
+      card.append(h('div', {class: 'card-h'}, [h('b', {}, dk.replace('->', ' → ')), h('span', {}, `обучение ${cell.train_half} · проверка ${cell.val_half}`)]));
+      card.append(h('div', {class: 'card-b'}, fn_(cell, cell)));
+      grid.append(card);
+    });
+    s.append(grid);
+    view.append(s);
+  });
+  const u = section('u1r', 'Пул U1r', 'Тот же ряд AUC на эпизодах проверочной половины, где включён пул (U1r); число эпизодов и пробоев — рядом.');
+  u.append(u1rCard(side));
+  view.append(u);
+}
+function init() {
+  renderProgress();
+  const m = D.meta;
+  document.getElementById('sub').textContent = `Пул U0, метка «пробой» (O3, 60 мин). Половины: A — сутки ${m.halfA[0]}…${m.halfA[1]}, B — сутки ${m.halfB[0]}…${m.halfB[1]}; сутки ${m.embargo_day} исключены. Признаков ${m.core_n}. Каждое направление — обучение на одной половине, проверка на другой.`;
+  const tabs = document.getElementById('tabs');
+  Object.keys(D.sides).forEach(side => {
+    const b = h('button', {role: 'tab', 'data-side': side, 'aria-selected': 'false'}, SIDE[side]);
+    b.onclick = () => select(side);
+    tabs.append(b);
+  });
+  const nav = document.getElementById('nav');
+  NAV.forEach(([id, t]) => { const b = h('button', {}, t); b.onclick = () => document.getElementById('sec-' + id).scrollIntoView(); nav.append(b); });
+  initEquity();
+  initTabs();
+}
+function select(side) {
+  document.querySelectorAll('#tabs button').forEach(b => b.setAttribute('aria-selected', b.dataset.side === side));
+  ST.model = side;
+  render(side);
+  setHash();
+}
+init();
+</script>
+</body>
+</html>
