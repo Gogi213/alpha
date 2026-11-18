@@ -121,6 +121,10 @@ class Paths:
     def gate(self):
         return self.j("gate")
 
+    @property
+    def stop(self):                                     # файл остановки на границе раунда (`touch` → драйвер останавливается перед следующим раундом, код 75)
+        return self.j("STOP")
+
 
 class SubprocessRunner:
     """Запуск подпроцесса: код возврата; вывод — в журнал. Подменяется в тестах."""
@@ -322,7 +326,10 @@ class FtabStore:
 
     def build_env(self, w):
         """Источники производственного кода TK-594 — на окно: сделки окна (`TK594_TRADES`: `<корень>/<SYM>/<SYM>-aggTrades-<день>.zip`) и метрики обоих источников (`TK594_METRICS`)."""
-        return {"TK594_TRADES": self.paths.trades(w.name), "TK594_METRICS": self.paths.metrics_all}
+        env = {"TK594_TRADES": self.paths.trades(w.name), "TK594_METRICS": self.paths.metrics_all}
+        if os.environ.get("P42_FEAT_BIN"):
+            env["P42_FEAT_BIN"] = os.environ["P42_FEAT_BIN"]            # Rust-сборщик признаков (TK-609); без переменной строит Python-эталон
+        return env
 
     def build_cmd(self, w, need):
         d = self.paths.need_dir(w.name, need)
@@ -330,7 +337,18 @@ class FtabStore:
                 "--out", self.paths.need_tab(w.name, need), "--prod", self.prod, "--cache", self.paths.cache(w.name),
                 "--trades", self.paths.trades(w.name), "--procs", str(self.procs), "--base-date", w.t0]
 
+    def feat_bin(self):
+        """Сборщик признаков потока/деривативов: `P42_FEAT_BIN` (Rust `alpha-feat`, TK-609; читает `retitr_ftab.run_tk594` из окружения) или Python-эталон. → (путь или 'python', md5)."""
+        fb = os.environ.get("P42_FEAT_BIN", "")
+        if not fb:
+            return "python", ""
+        if not os.path.isfile(fb):
+            raise GuardError("P42_FEAT_BIN=%s: файла нет — таблицы признаков не собираются (§13.24: сборщик задан, но недоступен)" % fb)
+        return fb, file_hashes(fb)[1]
+
     def build(self, needs):
+        """Сборка таблиц потоков. Возобновляема по (окно, поток): метка `ready` окна — таблица готова, сигнальный дамп и сборка для неё не повторяются (остановка/перезапуск теряет только таблицу в работе);
+        `ready(need)` — метки на всех окнах. Кто собрал таблицу (Python / alpha-feat + md5) — в `built-by.json` каталога потока."""
         seen, todo = set(), []
         for n in needs:
             if n.hash not in seen and not self.ready(n):
@@ -342,26 +360,35 @@ class FtabStore:
             self.prepare()
             self._prepared = True
         os.makedirs(self.paths.var, exist_ok=True)
-        for w in self.windows:                                          # окна последовательно: один вызов движка на окно на все потоки
-            vfile = os.path.join(self.paths.var, "sx-%s-%s.txt" % (w.name, hashlib.sha256("".join(n.hash for n in todo).encode()).hexdigest()[:10]))
+        todo_w = {w.name: [n for n in todo if not os.path.exists(self.paths.ready(w.name, n))] for w in self.windows}
+        for w in self.windows:                                          # окна последовательно: один вызов движка на окно на все ещё не готовые на нём потоки
+            wt = todo_w[w.name]
+            if not wt:
+                continue
+            vfile = os.path.join(self.paths.var, "sx-%s-%s.txt" % (w.name, hashlib.sha256("".join(n.hash for n in wt).encode()).hexdigest()[:10]))
             with open(vfile, "w", encoding="utf-8", newline="\n") as f:
-                f.write("".join("%s %s\n" % (n.vid, n.keys) for n in todo))
+                f.write("".join("%s %s\n" % (n.vid, n.keys) for n in wt))
             cmd, env = self.engine.command(w, vfile, self.paths.sx(w.name), None, sigsx_only=True)
-            log = os.path.join(self.paths.log, "sx-%s-%s.log" % (w.name, todo[0].vid))
+            log = os.path.join(self.paths.log, "sx-%s-%s.log" % (w.name, wt[0].vid))
             rcode = self.runner.run(cmd, env, log)
             if rcode != 0:
                 raise GuardError("движок (сигнальный дамп), окно %s, код возврата %d\n%s" % (w.name, rcode, tail(log)))
-            for n in todo:
+            for n in wt:
                 if not os.path.exists(self.sigsx_file(w, n)):
                     raise GuardError("нет сигнального дампа %s" % self.sigsx_file(w, n))
+        fb, fb_md5 = self.feat_bin()
         for n in todo:
             for w in self.windows:
+                if os.path.exists(self.paths.ready(w.name, n)):
+                    continue
                 os.makedirs(self.paths.need_dir(w.name, n), exist_ok=True)
                 log = os.path.join(self.paths.log, "ftab-%s-%s.log" % (w.name, n.vid))
                 rcode = self.runner.run(self.build_cmd(w, n), self.build_env(w), log)
                 if rcode != 0:
                     raise GuardError("retitr_ftab build: окно %s, поток %s, код возврата %d\n%s" % (w.name, n.vid, rcode, tail(log)))
                 merge_union(self.paths.union(w.name, n.side), self.paths.need_tab(w.name, n))
+                with open(os.path.join(self.paths.need_dir(w.name, n), "built-by.json"), "w", encoding="utf-8") as f:
+                    json.dump({"feat_bin": fb, "feat_bin_md5": fb_md5}, f)
                 os.makedirs(os.path.dirname(self.paths.ready(w.name, n)), exist_ok=True)
                 open(self.paths.ready(w.name, n), "w").close()
 
@@ -516,6 +543,7 @@ class Ctx:
     ev: object
     nboot: int
     engine_conv: object = None                              # движок окон проверки сходимости (wbx, wcx); нужен только воротам G3
+    stop: object = None                                     # `stop()` → истина ⇒ остановка перед следующим раундом (файл STOP); None — без остановки
 
 
 def make_ctx(root=ROOT, runner=None, nboot=rf.NBOOT, chunk=None, procs=6, threads=THREADS, bin_path=None, symbols=SYMBOLS, grids=GRIDS, funding=FUNDING,
@@ -531,7 +559,7 @@ def make_ctx(root=ROOT, runner=None, nboot=rf.NBOOT, chunk=None, procs=6, thread
     os.makedirs(paths.npz, exist_ok=True)
     ev = rf.OutDirEvaluator(paths.j("out"), coins, rates if rates is not None else rf.load_funding_rates(funding, coins), launch=engine.launch, cache_dir=paths.npz,
                             run_t0={w.name: w.t0 for w in rf.WINDOWS}, ftab_builder=store.build, ftab_ready=store.ready)
-    return Ctx(paths, runner, spec, coins, text, engine, store, ev, nboot, engine_conv)
+    return Ctx(paths, runner, spec, coins, text, engine, store, ev, nboot, engine_conv, stop=lambda: os.path.exists(paths.stop))
 
 
 def c595_keys(path=C595):
@@ -559,7 +587,7 @@ def run_all(ctx, g5, gates=None, c595=None):
     ev, spec = ctx.ev, ctx.spec
     s0 = step0(ctx, c595)
     provider = FtabProvider(ev, ctx.store, spec, avail_of(g5))
-    outcomes = rf.drive(rf.procedure_gens(ev, spec, len(ctx.coins), provider=provider, nboot=ctx.nboot), ev)
+    outcomes = rf.drive(rf.procedure_gens(ev, spec, len(ctx.coins), provider=provider, nboot=ctx.nboot), ev, stop=ctx.stop)
     res = {"gates": gates, "g5": g5, "step0": s0, "outcomes": outcomes, "wf": {}, "own_wf": {}, "freeze": {}, "batches": list(ev.batches), "nboot": ctx.nboot}
     for s in rf.SIDES:
         wf = rf.wf_stats(ev, spec, s, outcomes, ctx.nboot)
@@ -760,10 +788,20 @@ def cmd_gates(a):
     return 0
 
 
-def run_gates(ctx, with_g5=True):
+def run_gates(ctx, with_g5=True, reuse=None):
+    """G1/G2 — всегда заново (хэши бинаря/монет/сеток/манифестов). `reuse` — `gate/gates.json` первого запуска (перезапуск `run --reuse-gates`): G3 и G5 берутся оттуда (данные и бинарь движка те же,
+    иначе G1/G2 не пройдут), G3 заново не считается."""
     g = {"G12": gate12(ctx.paths, ctx.engine.bin)}
     if g["G12"]["fail"]:
         raise GuardError("ворота G1/G2 не пройдены: %s" % g["G12"]["fail"])
+    if reuse is not None:
+        if not reuse.get("G3") or not reuse.get("G5"):
+            raise GuardError("gates.json без G3/G5 — `--reuse-gates` невозможен, запустите `run` без флага")
+        g["G3"], g["G5"] = reuse["G3"], reuse["G5"]
+        bad = g3_failures(g["G3"])
+        if bad:
+            raise GuardError("G3 в gates.json не чист: %s" % bad)
+        return g
     g["G3"] = gate3(ctx.paths, ctx.engine, ctx.spec, ctx.engine_conv)
     bad = g3_failures(g["G3"])
     if bad:
@@ -788,9 +826,15 @@ def cmd_gate5(a):
 def cmd_run(a):
     require_go()
     ctx = make_ctx(a.root, nboot=a.nboot, chunk=a.chunk, procs=a.procs, threads=a.threads, bin_path=a.bin, prod=a.prod)
-    gates = run_gates(ctx)
-    os.makedirs(ctx.paths.gate, exist_ok=True)
-    json.dump(jsonable(gates), open(os.path.join(ctx.paths.gate, "gates.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
+    gp = os.path.join(ctx.paths.gate, "gates.json")
+    if a.reuse_gates:                                                    # перезапуск: ворота первого запуска остаются в силе, файл не переписывается
+        with open(gp, encoding="utf-8") as f:
+            gates = run_gates(ctx, reuse=json.load(f))
+        print("перезапуск: G3/G5 из %s; STOP-файл %s" % (gp, ctx.paths.stop))
+    else:
+        gates = run_gates(ctx)
+        os.makedirs(ctx.paths.gate, exist_ok=True)
+        json.dump(jsonable(gates), open(gp, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
     res = run_all(ctx, gates["G5"], gates)
     out = ctx.paths.j("results")
     os.makedirs(out, exist_ok=True)
@@ -827,12 +871,16 @@ def main(argv=None):
     ap.add_argument("--chunk", type=int, default=0, help="вариантов в одном вызове движка (0 — все недостающие одним пакетом)")
     ap.add_argument("--nboot", type=int, default=rf.NBOOT)
     ap.add_argument("--ns", default="20,10,15,25", help="`sens`: пороги N (контрольный 20 — первым)")
+    ap.add_argument("--reuse-gates", action="store_true", help="`run`: перезапуск — G3/G5 из gate/gates.json первого запуска, G1/G2 заново")
     a = ap.parse_args(argv)
     try:
         return {"plan": cmd_plan, "gates": cmd_gates, "gate5": cmd_gate5, "run": cmd_run, "sens": cmd_sens}[a.cmd](a)
     except GuardError as e:
         print("ОСТАНОВКА (охрана): %s" % e, file=sys.stderr)
         return 3
+    except rf.StopRequested as e:
+        print("ОСТАНОВ по файлу STOP на границе раунда: %s; посчитанное лежит в npz/out/ftab, продолжение — `run --reuse-gates`" % e, file=sys.stderr)
+        return 75
 
 
 if __name__ == "__main__":

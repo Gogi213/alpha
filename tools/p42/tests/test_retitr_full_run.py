@@ -536,6 +536,111 @@ def test_sens_run_control_override_and_report():
         assert j["ns"] == [20] and j["control"]["equal"] is False and "L/m" in j["control"]["diff"][0]
 
 
+# ---- безопасный перезапуск: остановка на границе раунда, возобновление, сборщик признаков ----------------------------------------------------
+
+class env_var:
+    """Временная переменная окружения (None — снять)."""
+
+    def __init__(self, name, value):
+        self.name, self.value = name, value
+
+    def __enter__(self):
+        self.old = os.environ.get(self.name)
+        if self.value is None:
+            os.environ.pop(self.name, None)
+        else:
+            os.environ[self.name] = self.value
+
+    def __exit__(self, *exc):
+        if self.old is None:
+            os.environ.pop(self.name, None)
+        else:
+            os.environ[self.name] = self.old
+
+
+def test_ftab_build_resumes_per_window_and_records_builder():
+    with tempfile.TemporaryDirectory() as tmp:
+        ctx, srv = make(tmp, World())
+        need = rf.FtabNeed("L", rf.cfg_keys(SPEC, "L", {}))
+        wc = rf.WINDOWS[-1]
+        fb = os.path.join(tmp, "alpha-feat")
+        open(fb, "wb").write(b"feat")
+        with env_var("P42_FEAT_BIN", "/no/such/alpha-feat"):
+            assert "P42_FEAT_BIN" in raises(rr.GuardError, ctx.store.build, [need])                    # сборщик задан, но файла нет — остановка, не молчаливый Python
+        assert not ctx.store.ready(need)
+        with env_var("P42_FEAT_BIN", fb):
+            ctx.store.build([need])
+        builds = [e for c, e in srv.calls if c[0] == sys.executable]
+        assert len(builds) == 3 and all(e["P42_FEAT_BIN"] == fb for e in builds)                         # переменная явно в окружении вызова (видна в журнале)
+        by = json.load(open(os.path.join(ctx.paths.need_dir("wa", need), "built-by.json"), encoding="utf-8"))
+        assert by == {"feat_bin": fb, "feat_bin_md5": hashlib.md5(b"feat").hexdigest()}
+        os.remove(ctx.paths.ready("wc", need))                                                           # «остановка во время сборки таблицы wc»
+        n = len(srv.calls)
+        with env_var("P42_FEAT_BIN", None):
+            ctx.store.build([need])
+        new = srv.calls[n:]
+        assert [e["P42_T0"] for c, e in new if e.get("P42_SIGSX_ONLY")] == [wc.t0]                      # сигнальный дамп и сборка — только для окна без метки
+        assert [e for c, e in new if c[0] == sys.executable] and len([1 for c, e in new if c[0] == sys.executable]) == 1 and srv.base_dates[-1] == wc.t0
+        assert ctx.store.ready(need)
+        assert json.load(open(os.path.join(ctx.paths.need_dir("wc", need), "built-by.json"), encoding="utf-8")) == {"feat_bin": "python", "feat_bin_md5": ""}
+        assert json.load(open(os.path.join(ctx.paths.need_dir("wa", need), "built-by.json"), encoding="utf-8"))["feat_bin"] == fb       # кто собрал каждую таблицу — различимо
+
+
+def test_stop_at_round_boundary_resume_repeats_no_engine_work():
+    """Остановка по STOP между раундами + оборванный npz: перезапуск не повторяет ни одного запуска движка (сумма запусков = запуск без остановки), результат тот же."""
+    def eff(k, s, d):
+        return 1.5 if (k.get("rr") == "3" and k.get("rs") != "2") else 0.0
+    c595 = {"L_C": rf.cfg_keys(SPEC, "L", {}), "S_C": rf.cfg_keys(SPEC, "S", {})}
+    with rf.min_trades_override(10):                                                                     # порог 10: процедура принимает шаги, раундов много
+        with tempfile.TemporaryDirectory() as t1:
+            ctx1, srv1 = make(t1, thin_world(eff))
+            full = rr.run_all(ctx1, rr.gate5(ctx1.store, ctx1.spec), None, c595)
+            total = srv1.engine_variants
+        with tempfile.TemporaryDirectory() as t2:
+            ctxA, srvA = make(t2, thin_world(eff))
+            gA = rr.gate5(ctxA.store, ctxA.spec)
+            rounds, orig = [], ctxA.ev.fulfil
+            ctxA.ev.fulfil = lambda reqs: (rounds.append(len(reqs)), orig(reqs))[1]
+            ctxA.stop = lambda: len(rounds) >= 4                                                           # STOP после четвёртого раунда (step0 — первый)
+            raises(rf.StopRequested, rr.run_all, ctxA, gA, None, c595)
+            assert len(rounds) == 4 and 0 < srvA.engine_variants < total
+            files = sorted(os.listdir(ctxA.paths.npz))
+            assert files and not [f for f in files if f.endswith(".tmp.npz")]
+            open(os.path.join(ctxA.paths.npz, files[0]), "wb").write(b"PK-oborvan")                       # остановка посреди записи серии
+            ctxB, srvB = make(t2, thin_world(eff))
+            part = rr.run_all(ctxB, rr.gate5(ctxB.store, ctxB.spec), None, c595)
+            assert srvA.engine_variants + srvB.engine_variants == total                                    # ни одного повторного запуска движка
+            assert rr.same_summary(rr.jsonable(rr.summary(full, ctx1.spec)), rr.jsonable(rr.summary(part, ctxB.spec))) == []
+            assert part["freeze"]["L"][0] == "C*"                                                          # процедура принимала шаги — проверка не пустая
+
+
+def test_run_gates_reuse_and_stop_exit_code():
+    with tempfile.TemporaryDirectory() as tmp:
+        ctx, srv = make(tmp, World())
+        old12, old3, oldrun = rr.gate12, rr.gate3, rr.cmd_run
+        calls = []
+        rr.gate12 = lambda *a, **k: {"fail": []}
+        rr.gate3 = lambda *a, **k: calls.append(1) or {}
+        try:
+            saved = {"G3": {"L": {"diff": [], "conv": [], "forced_ok": 0}}, "G5": {"L": {"maxmv1": {"ok": True, "fo": "lo", "shares": [1.0] * 5}}}}
+            g = rr.run_gates(ctx, reuse=saved)
+            assert g["G3"] == saved["G3"] and g["G5"] == saved["G5"] and g["G12"] == {"fail": []} and calls == []        # G3 заново не считается
+            raises(rr.GuardError, rr.run_gates, ctx, reuse={"G3": {}, "G5": {}})
+            raises(rr.GuardError, rr.run_gates, ctx, reuse={"G3": {"L": {"diff": ["wa–wb: x"], "conv": []}}, "G5": {"L": {"a": 1}}})
+            rr.gate12 = lambda *a, **k: {"fail": ["G1_bin_md5"]}
+            raises(rr.GuardError, rr.run_gates, ctx, reuse=saved)                                         # G1/G2 всегда заново
+            def stopped(a):
+                raise rf.StopRequested("x")
+            rr.cmd_run = stopped
+            assert rr.main(["run", "--reuse-gates"]) == 75                                                # код 75: остановка по STOP, не ошибка
+        finally:
+            rr.gate12, rr.gate3, rr.cmd_run = old12, old3, oldrun
+        assert rr.Paths("/r").stop == "/r/STOP" and ctx.stop() is False
+        os.makedirs(ctx.paths.root, exist_ok=True)
+        open(ctx.paths.stop, "w").close()
+        assert ctx.stop() is True
+
+
 def test_level_rows_and_sigma():
     ser = rf.make_series([0, 0, 31, 62, 135], [0, 1, 2, 3, 4], [1.0, 3.0, -2.0, 4.0, 6.0])
     rows = rep.level_rows(ser)
