@@ -12,7 +12,10 @@ use super::npcompat::{
 use super::pdcompat::{
     date_str, days_from_civil, parse_date, parse_datetime_ms, parse_f64, xstrtod,
 };
-use super::trades::{parse_trades_csv, Csv, DaySrc, DayTrades};
+use super::trades::{from_store, parse_trades_csv, Csv, DaySrc, DayTrades};
+use crate::breakout::data::T0_MS;
+use crate::breakout::store::{SrcMeta, StoreOpts, TickStore};
+use crate::breakout::tick::{parse_trades_full, LoadStat};
 use anyhow::Result;
 use serde_json::Value;
 use std::collections::HashMap;
@@ -282,6 +285,110 @@ fn csv_columns_by_name() {
         Csv::from_bytes(b"").columns(&["a"]).is_err(),
         "пустой файл — как EmptyDataError pandas"
     );
+}
+
+// ───────────────────────── склад TK-607 ─────────────────────────
+
+const CSV_HEAD: &str =
+    "agg_trade_id,price,quantity,first_trade_id,last_trade_id,transact_time,is_buyer_maker
+";
+
+/// Строки CSV суток 2026-09-01 (начало сетки движка по умолчанию): `(смещение мс, цена, количество, is_buyer_maker)`.
+fn day_csv(rows: &[(i64, &str, &str, &str)]) -> String {
+    let mut s = CSV_HEAD.to_string();
+    for (i, (off, p, q, b)) in rows.iter().enumerate() {
+        s += &format!(
+            "{},{p},{q},{i},{i},{},{b}
+",
+            i + 1,
+            T0_MS + off
+        );
+    }
+    s
+}
+
+fn via_store(csv: &str) -> (Option<DayTrades>, crate::breakout::store::DayTrades) {
+    let stored = parse_trades_full(Cursor::new(csv), 0, LoadStat::default()).expect("разбор");
+    (from_store(&stored, T0_MS / DAY_MS), stored)
+}
+
+#[test]
+fn store_day_equals_csv_parse_bitwise() {
+    let rows = [
+        (5, "27345.12345678", "0.001", "true"),
+        (5, "0.1", "12", "false"),
+        (9, "1.00000001", "3.141592", "false"),
+        (86_399_999, "1", "7.50", "true"),
+        (3, "0.00012345", "1234567.89", "false"),
+    ];
+    let rows: Vec<(i64, &str, &str, &str)> = rows.iter().map(|r| (r.0, r.1, r.2, r.3)).collect();
+    let csv = day_csv(&rows);
+    let want = parse_trades_csv(Cursor::new(&csv)).expect("pandas-путь");
+    let (got, _) = via_store(&csv);
+    let got = got.expect("чистые сутки");
+    assert!(want.unsorted && got.unsorted);
+    assert_eq!(got.t, want.t);
+    assert_eq!(got.buy, want.buy);
+    assert_eq!(
+        got.v.iter().map(|x| x.to_bits()).collect::<Vec<_>>(),
+        want.v.iter().map(|x| x.to_bits()).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn store_file_round_trip_and_fallbacks() {
+    let dir = tempfile::tempdir().expect("tmp");
+    let st = TickStore::open(&StoreOpts {
+        dir: dir.path().to_path_buf(),
+        cap_gb: 1,
+        min_free_gb: 0,
+    })
+    .expect("склад");
+    let meta = SrcMeta {
+        size: 1,
+        mtime_s: 1,
+        mtime_ns: 0,
+    };
+    let csv = day_csv(&[
+        (1, "100.5", "0.25", "true"),
+        (2, "100.25", "1.5", "false"),
+        (2, "100.75", "0.125", "false"),
+    ]);
+    let (_, stored) = via_store(&csv);
+    st.write("AAA", "2026-09-01", &meta, &stored);
+    let back = st
+        .read_day("AAA", "2026-09-01", &meta)
+        .expect("файл склада");
+    let got = from_store(&back, T0_MS / DAY_MS).expect("чистые сутки");
+    let want = parse_trades_csv(Cursor::new(&csv)).expect("pandas-путь");
+    assert_eq!((got.t, got.buy), (want.t, want.buy));
+    assert_eq!(
+        got.v.iter().map(|x| x.to_bits()).collect::<Vec<_>>(),
+        want.v.iter().map(|x| x.to_bits()).collect::<Vec<_>>()
+    );
+    // устаревший исходник — промах
+    let newer = SrcMeta { size: 2, ..meta };
+    assert!(st.read_day("AAA", "2026-09-01", &newer).is_none());
+    // сутки вне допущений — прежний путь (`None`): строка вне суток, цена с > 8 знаками, плохая строка
+    assert!(via_store(&day_csv(&[
+        (1, "1.5", "2", "true"),
+        (-5, "1.5", "2", "true")
+    ]))
+    .0
+    .is_none());
+    assert!(via_store(&day_csv(&[(1, "1.123456789", "2", "true")]))
+        .0
+        .is_none());
+    let bad = format!(
+        "{}9,x,1,1,1,{},true
+",
+        day_csv(&[(1, "1.5", "2", "true")]),
+        T0_MS + 5
+    );
+    assert!(via_store(&bad).0.is_none());
+    // пустые сутки — чистые и пустые
+    let empty = via_store(CSV_HEAD).0.expect("пусто");
+    assert!(empty.t.is_empty() && !empty.unsorted);
 }
 
 // ───────────────────────── признаки потока ─────────────────────────
@@ -684,6 +791,7 @@ fn run_end_to_end_without_data_files() {
         threads: 2,
         coins: None,
         trades: vec![dir.path().join("trades")],
+        store: None,
         deriv: super::deriv::DerivDirs {
             metrics: dir.path().join("m"),
             premium: dir.path().join("p"),

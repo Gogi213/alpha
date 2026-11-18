@@ -5,14 +5,15 @@
 //! `-0.0` сохраняется); в режиме `flow` столбцы DERIV пустые и наоборот (как у `tk594_feat.py`).
 
 use super::deriv::{deriv_coin, CoinDeriv, DerivDirs, DERIV};
-use super::flow::{flow_coin, CoinFlow, Ep, FLOW};
-use super::trades::{DaySrc, ZipDaySrc};
+use super::flow::{flow_coin, CoinFlow, Ep, DAY_MS, FLOW};
+use super::trades::{DaySrc, StoreDaySrc, ZipDaySrc};
+use crate::breakout::store::{StoreOpts, TickStore};
 use anyhow::{bail, Context, Result};
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Mutex, PoisonError};
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Instant;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -20,6 +21,14 @@ pub enum Mode {
     Flow,
     Deriv,
     All,
+}
+
+/// Склад TK-607 для суток сделок (`StoreDaySrc`); `verify` — сверка каждых суток с разбором zip.
+pub struct StoreCfg {
+    pub dir: PathBuf,
+    pub cap_gb: u64,
+    pub min_free_gb: u64,
+    pub verify: bool,
 }
 
 pub struct Cfg {
@@ -31,6 +40,7 @@ pub struct Cfg {
     pub threads: usize,
     pub coins: Option<Vec<String>>,
     pub trades: Vec<PathBuf>,
+    pub store: Option<StoreCfg>,
     pub deriv: DerivDirs,
 }
 
@@ -42,12 +52,20 @@ pub struct Summary {
     pub seconds: f64,
     pub missing_trade_days: u64,
     pub unsorted_days: u64,
+    /// Счётчики склада (`--store`): `(попаданий, промахов, записано, пропущено, повреждено, прежним путём, расхождений)`.
+    pub store: Option<[u64; 7]>,
 }
 
 impl Summary {
     pub fn json(&self) -> String {
+        let store = self.store.map_or(String::new(), |c| {
+            format!(
+                ",\"store\":{{\"hit\":{},\"miss\":{},\"written\":{},\"skipped\":{},\"bad\":{},\"fallback\":{},\"mismatch\":{}}}",
+                c[0], c[1], c[2], c[3], c[4], c[5], c[6]
+            )
+        });
         format!(
-            "{{\"episodes\":{},\"coins\":{},\"seconds\":{:.1},\"missing_trade_days\":{},\"unsorted_days\":{}}}",
+            "{{\"episodes\":{},\"coins\":{},\"seconds\":{:.1},\"missing_trade_days\":{},\"unsorted_days\":{}{store}}}",
             self.episodes, self.coins, self.seconds, self.missing_trade_days, self.unsorted_days
         )
     }
@@ -156,8 +174,31 @@ pub fn run(cfg: &Cfg) -> Result<Summary> {
     let mut jobs: Vec<(&str, Vec<Ep>)> = by_sym.into_iter().collect();
     jobs.sort_by_key(|(_, e)| std::cmp::Reverse(e.len()));
     eprintln!("эпизодов {}; монет {}", inputs.len(), jobs.len());
-    let src = ZipDaySrc {
+    let zip_src = ZipDaySrc {
         roots: cfg.trades.clone(),
+    };
+    let flow = matches!(cfg.mode, Mode::Flow | Mode::All);
+    let (store, store_src) = match cfg.store.as_ref().filter(|_| flow) {
+        Some(sc) => {
+            let st = Arc::new(TickStore::open(&StoreOpts {
+                dir: sc.dir.clone(),
+                cap_gb: sc.cap_gb,
+                min_free_gb: sc.min_free_gb,
+            })?);
+            // сутки с `dmin − 8` каждой монеты — самые ранние запрошенные (`flow_coin`)
+            let first = jobs
+                .iter()
+                .flat_map(|(_, e)| e.iter().map(|x| x.sig.div_euclid(DAY_MS) - 8))
+                .min()
+                .unwrap_or(0);
+            let ss = StoreDaySrc::new(&cfg.trades, &st, first, sc.verify)?;
+            (Some(st), Some(ss))
+        }
+        None => (None, None),
+    };
+    let src: &dyn DaySrc = match &store_src {
+        Some(s) => s,
+        None => &zip_src,
     };
     let next = AtomicUsize::new(0);
     let finished = AtomicUsize::new(0);
@@ -167,7 +208,7 @@ pub fn run(cfg: &Cfg) -> Result<Summary> {
             s.spawn(|| loop {
                 let j = next.fetch_add(1, Ordering::SeqCst);
                 let Some((sym, eps)) = jobs.get(j) else { break };
-                let r = run_coin(cfg, &src, sym, eps).with_context(|| format!("монета {sym}"));
+                let r = run_coin(cfg, src, sym, eps).with_context(|| format!("монета {sym}"));
                 results
                     .lock()
                     .unwrap_or_else(PoisonError::into_inner)
@@ -214,11 +255,24 @@ pub fn run(cfg: &Cfg) -> Result<Summary> {
         w.write_record(&rec)?;
     }
     w.flush()?;
+    let store = store.zip(store_src.as_ref()).map(|(st, ss)| {
+        let c = st.counters();
+        [
+            c.hit,
+            c.miss,
+            c.written,
+            c.skipped,
+            c.bad,
+            ss.fallback.load(Ordering::Relaxed),
+            ss.mismatch.load(Ordering::Relaxed),
+        ]
+    });
     Ok(Summary {
         episodes: inputs.len(),
         coins: jobs.len(),
         seconds: t0.elapsed().as_secs_f64(),
         missing_trade_days: missing,
         unsorted_days: unsorted,
+        store,
     })
 }

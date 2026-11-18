@@ -1,14 +1,20 @@
 //! Сутки сделок монеты для признаков: `(t мс, v = price·quantity, покупка тейкера)` — как `tk594_feat.read_trades_day`.
 //!
-//! Источник — `trait DaySrc`; сейчас `ZipDaySrc` (внешний `unzip -p`, как `tick::ZipSrc` движка), склад TK-607 подключается
-//! отдельной реализацией без правок признаков. Порядок записей — как в файле; при убывании времени — устойчивая сортировка
+//! Источник — `trait DaySrc`: `ZipDaySrc` (внешний `unzip -p`, как `tick::ZipSrc` движка) и `StoreDaySrc` (склад TK-607, формат v2 с
+//! количеством: декодер вместо `unzip` + разбора CSV; без правок признаков). Порядок записей — как в файле; при убывании времени — устойчивая сортировка
 //! (Python: `np.argsort(kind="stable")`). `price` и `quantity` — `f64` прямо из десятичной записи (pandas-конвертер), а не ×1e8.
 
 use super::pdcompat::{date_str, parse_f64, parse_i64};
+use crate::breakout::store::{DayTrades as StoredDay, TickStore};
+use crate::breakout::tick::ZipSrc;
 use anyhow::{bail, Context, Result};
 use std::io::{BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
+
+const DAY_MS: i64 = 86_400_000;
 
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct DayTrades {
@@ -56,6 +62,112 @@ impl DaySrc for ZipDaySrc {
                 bail!("unzip {}: {status}", path.display());
             }
             return Ok(Some(d));
+        }
+        Ok(None)
+    }
+}
+
+/// Склад TK-607: сутки со склада (`TickStore::read_day`), промах — разбор zip движковым разборщиком с записью в склад
+/// (`ZipSrc::read_day`). Склад хранит цену ×1e8 и количество целым с масштабом; `f64 = целое / 10^k` равно разбору pandas, пока нет
+/// флагов точности. Сутки с флагами, строками вне суток (склад их отсеивает, Python — нет) и плохими строками читаются прежним
+/// `ZipDaySrc`; при `verify` каждые сутки сверяются с ним побитово и при расхождении отдаются его данные.
+pub struct StoreDaySrc {
+    srcs: Vec<ZipSrc>,
+    exact: ZipDaySrc,
+    day0: i64,
+    verify: bool,
+    pub fallback: AtomicU64,
+    pub mismatch: AtomicU64,
+}
+
+impl StoreDaySrc {
+    /// `first_abs_day` — первые сутки, которые будут запрошены: сетка движка (`P42_T0`) ставится на них, номер суток склада — от неё.
+    pub fn new(
+        roots: &[PathBuf],
+        store: &Arc<TickStore>,
+        first_abs_day: i64,
+        verify: bool,
+    ) -> Result<StoreDaySrc> {
+        std::env::set_var("P42_T0", date_str(first_abs_day));
+        let t0 = crate::breakout::data::t0_ms();
+        if t0 != first_abs_day * DAY_MS {
+            bail!(
+                "сетка склада уже зафиксирована на {t0} мс, нужно {}",
+                first_abs_day * DAY_MS
+            );
+        }
+        Ok(StoreDaySrc {
+            srcs: roots
+                .iter()
+                .map(|r| ZipSrc::new(r.clone(), 0).with_store(Arc::clone(store)))
+                .collect(),
+            exact: ZipDaySrc {
+                roots: roots.to_vec(),
+            },
+            day0: first_abs_day,
+            verify,
+            fallback: AtomicU64::new(0),
+            mismatch: AtomicU64::new(0),
+        })
+    }
+}
+
+/// Сутки склада → массивы признаков; `None` — сутки с отступлениями от допущений (см. `StoreDaySrc`).
+pub(super) fn from_store(d: &StoredDay, abs_day: i64) -> Option<DayTrades> {
+    let n = d.ticks.len();
+    if d.flags != 0 || d.stat.out_of_day != 0 || d.stat.bad_rows != 0 || d.qty.len() != n {
+        return None;
+    }
+    let base = abs_day * DAY_MS;
+    let mut out = DayTrades {
+        t: Vec::with_capacity(n),
+        v: Vec::with_capacity(n),
+        buy: Vec::with_capacity(n),
+        unsorted: d.stat.unsorted_files > 0,
+    };
+    for (i, tk) in d.ticks.iter().enumerate() {
+        out.t.push(base + i64::from(tk.off));
+        out.v.push(d.px_f64(i) * d.qty_f64(i));
+        out.buy.push(!tk.bm);
+    }
+    Some(out)
+}
+
+fn same_day(a: &DayTrades, b: &DayTrades) -> bool {
+    a.t == b.t
+        && a.buy == b.buy
+        && a.unsorted == b.unsorted
+        && a.v.len() == b.v.len()
+        && a.v
+            .iter()
+            .zip(&b.v)
+            .all(|(x, y)| x.to_bits() == y.to_bits())
+}
+
+impl DaySrc for StoreDaySrc {
+    fn day(&self, sym: &str, abs_day: i64) -> Result<Option<DayTrades>> {
+        let idx = abs_day - self.day0;
+        if idx < 0 {
+            return self.exact.day(sym, abs_day);
+        }
+        for z in &self.srcs {
+            let Some(stored) = z.read_day(sym, idx as usize)? else {
+                continue;
+            };
+            let Some(got) = from_store(&stored, abs_day) else {
+                self.fallback.fetch_add(1, Ordering::Relaxed);
+                return self.exact.day(sym, abs_day);
+            };
+            if self.verify {
+                let want = self.exact.day(sym, abs_day)?;
+                if !want.as_ref().is_some_and(|w| same_day(w, &got)) {
+                    if self.mismatch.fetch_add(1, Ordering::Relaxed) < 5 {
+                        eprintln!("склад ≠ zip: {sym} {}", date_str(abs_day));
+                    }
+                    return Ok(want);
+                }
+            }
+            return Ok(Some(got));
         }
         Ok(None)
     }
