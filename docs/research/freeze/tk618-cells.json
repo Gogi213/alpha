@@ -1,5 +1,5 @@
 {
- "version": "tk618-cells-1",
+ "version": "tk618-cells-2",
  "protocol": "П-42 §13.30",
  "side": "S",
  "base": "lat=4 latx=4 pk=1 pb=1 fh=4 fk=120 fm=50 fb=0.5 ew=5 ex=0 tt=20 tb=0.1 rf=0.2 rs=2 bm=1 e=0.15 e2=0.05",
@@ -31,6 +31,12 @@
   {"id": "B_tlow_0.5", "family": "B", "axis": "t_low", "order": 1, "patch": {"t_low": "0.5"}},
   {"id": "B_tlow_2", "family": "B", "axis": "t_low", "order": 2, "patch": {"t_low": "2"}},
   {"id": "B_a_1", "family": "B", "axis": "a", "order": 1, "patch": {"a": "1"}},
-  {"id": "B_a_3", "family": "B", "axis": "a", "order": 2, "patch": {"a": "3"}}
+  {"id": "B_a_3", "family": "B", "axis": "a", "order": 2, "patch": {"a": "3"}},
+  {"id": "C_rf_0.4", "family": "C", "axis": "rf", "order": 1, "patch": {"rf": "0.4"}},
+  {"id": "C_rf_0.5", "family": "C", "axis": "rf", "order": 2, "patch": {"rf": "0.5"}},
+  {"id": "C_rs_0", "family": "C", "axis": "rs", "order": 1, "patch": {"rs": "0"}},
+  {"id": "C_rs_5", "family": "C", "axis": "rs", "order": 2, "patch": {"rs": "5"}},
+  {"id": "C_tr_r1.5", "family": "C", "axis": "trail", "order": 1, "patch": {"rr": "1.5"}},
+  {"id": "C_tr_a3_r1.5", "family": "C", "axis": "trail", "order": 2, "patch": {"a": "3", "rr": "1.5"}}
  ]
 }
