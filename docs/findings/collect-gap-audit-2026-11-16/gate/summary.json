@@ -1,0 +1,161 @@
+{
+ "exchange": "gate",
+ "window_utc": [
+  "2026-11-15T05:49",
+  "2026-11-15T20:38"
+ ],
+ "minutes": 889,
+ "symbols_total": 285,
+ "symbols_rest_ok": 285,
+ "symbols_rest_missing": [],
+ "traded_symbol_minutes": 209473,
+ "book_hole_minutes": 1137,
+ "book_hole_pct": 0.5428,
+ "book_hole_soft_minutes": 151,
+ "book_hole_soft_pct": 0.0721,
+ "trade_hole_minutes": 85,
+ "trade_hole_pct": 0.0406,
+ "trade_hole_soft_minutes": 2,
+ "trade_hole_soft_pct": 0.001,
+ "runs": [
+  {
+   "start_utc": "2026-11-15T05:47",
+   "start_epoch": 1794721649
+  },
+  {
+   "start_utc": "2026-11-15T05:49",
+   "start_epoch": 1794721764
+  }
+ ],
+ "stretches_book": {
+  "count": 15,
+  "minutes": 153,
+  "symbols": 7,
+  "by_class": {
+   "absent": {
+    "count": 0,
+    "minutes": 0
+   },
+   "stall": {
+    "count": 15,
+    "minutes": 153
+   },
+   "mixed": {
+    "count": 0,
+    "minutes": 0
+   }
+  },
+  "len_buckets": {
+   "5-14": 13,
+   "15-59": 2,
+   "60-239": 0,
+   "240+": 0
+  },
+  "traded_minutes_inside": 90
+ },
+ "stretches_trade": {
+  "count": 10,
+  "minutes": 93,
+  "symbols": 9,
+  "by_class": {
+   "absent": {
+    "count": 0,
+    "minutes": 0
+   },
+   "stall": {
+    "count": 10,
+    "minutes": 93
+   },
+   "mixed": {
+    "count": 0,
+    "minutes": 0
+   }
+  },
+  "len_buckets": {
+   "5-14": 9,
+   "15-59": 1,
+   "60-239": 0,
+   "240+": 0
+  },
+  "traded_minutes_inside": 10
+ },
+ "book_hole_minutes_in_stretches": 90,
+ "book_hole_minutes_short": 1047,
+ "short_holes_by_hour": {
+  "2026-11-15T05": 11,
+  "2026-11-15T06": 27,
+  "2026-11-15T07": 21,
+  "2026-11-15T08": 15,
+  "2026-11-15T09": 15,
+  "2026-11-15T10": 36,
+  "2026-11-15T11": 40,
+  "2026-11-15T12": 28,
+  "2026-11-15T13": 38,
+  "2026-11-15T14": 18,
+  "2026-11-15T15": 19,
+  "2026-11-15T16": 15,
+  "2026-11-15T17": 21,
+  "2026-11-15T18": 38,
+  "2026-11-15T19": 30,
+  "2026-11-15T20": 16
+ },
+ "short_holes_soft": 84,
+ "pool_size_by_run": {
+  "2026-11-15T05:47": 285,
+  "2026-11-15T05:49": 285
+ },
+ "book_hole_usd": {
+  "hole_quote_usd": 252413,
+  "total_quote_usd": 6732896385,
+  "pct": 0.0037
+ },
+ "absent_by_run": {},
+ "absent_by_qv24_bucket": {
+  "<300k": {
+   "pairs": 0,
+   "traded_min": 0,
+   "quote_usd": 0
+  },
+  "300k-1M": {
+   "pairs": 0,
+   "traded_min": 0,
+   "quote_usd": 0
+  },
+  "1M-10M": {
+   "pairs": 0,
+   "traded_min": 0,
+   "quote_usd": 0
+  },
+  ">=10M": {
+   "pairs": 0,
+   "traded_min": 0,
+   "quote_usd": 0
+  }
+ },
+ "absent_runs": {
+  "pairs": 0,
+  "by_verdict": {
+   "top_excluded": 0,
+   "below_threshold": 0,
+   "above_threshold": 0,
+   "unknown(no 24h history)": 0
+  },
+  "traded_min_by_verdict": {
+   "top_excluded": 0,
+   "below_threshold": 0,
+   "above_threshold": 0,
+   "unknown(no 24h history)": 0
+  },
+  "above_threshold_within_5pct": 0
+ },
+ "shard_outages_ge50pct": {
+  "count": 0,
+  "minutes": 0
+ },
+ "simultaneous_no_book_soft_per_minute": {
+  "p50": 0.0,
+  "p90": 1.0,
+  "p99": 2.0,
+  "max": 3
+ }
+}

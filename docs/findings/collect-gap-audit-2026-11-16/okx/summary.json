@@ -1,0 +1,304 @@
+{
+ "exchange": "okx",
+ "window_utc": [
+  "2026-11-13T03:04",
+  "2026-11-15T20:38"
+ ],
+ "minutes": 3934,
+ "symbols_total": 387,
+ "symbols_rest_ok": 367,
+ "symbols_rest_missing": [
+  "ACH-USDT-SWAP",
+  "ACU-USDT-SWAP",
+  "BSP-USDT-SWAP",
+  "BWET-USDT-SWAP",
+  "EDEN-USDT-SWAP",
+  "ENJ-USDT-SWAP",
+  "GAS-USDT-SWAP",
+  "HYUNDAI-USDT-SWAP",
+  "LUNR-USDT-SWAP",
+  "NOK-USDT-SWAP",
+  "ONDS-USDT-SWAP",
+  "PDD-USDT-SWAP",
+  "PENG-USDT-SWAP",
+  "RUM-USDT-SWAP",
+  "SECZ-USDT-SWAP",
+  "SPCH-USDT-SWAP",
+  "TTWO-USDT-SWAP",
+  "TWST-USDT-SWAP",
+  "ZKP-USDT-SWAP",
+  "ZRX-USDT-SWAP"
+ ],
+ "traded_symbol_minutes": 1304644,
+ "book_hole_minutes": 33320,
+ "book_hole_pct": 2.554,
+ "book_hole_soft_minutes": 33232,
+ "book_hole_soft_pct": 2.5472,
+ "trade_hole_minutes": 33531,
+ "trade_hole_pct": 2.5701,
+ "trade_hole_soft_minutes": 33250,
+ "trade_hole_soft_pct": 2.5486,
+ "runs": [
+  {
+   "start_utc": "2026-11-13T03:02",
+   "start_epoch": 1794538928
+  },
+  {
+   "start_utc": "2026-11-13T06:21",
+   "start_epoch": 1794550889
+  },
+  {
+   "start_utc": "2026-11-13T06:22",
+   "start_epoch": 1794550941
+  },
+  {
+   "start_utc": "2026-11-13T06:29",
+   "start_epoch": 1794551351
+  },
+  {
+   "start_utc": "2026-11-13T11:13",
+   "start_epoch": 1794568383
+  },
+  {
+   "start_utc": "2026-11-13T13:36",
+   "start_epoch": 1794576990
+  },
+  {
+   "start_utc": "2026-11-13T20:32",
+   "start_epoch": 1794601925
+  },
+  {
+   "start_utc": "2026-11-13T22:36",
+   "start_epoch": 1794609364
+  },
+  {
+   "start_utc": "2026-11-13T23:22",
+   "start_epoch": 1794612155
+  },
+  {
+   "start_utc": "2026-11-13T23:32",
+   "start_epoch": 1794612756
+  },
+  {
+   "start_utc": "2026-11-14T00:53",
+   "start_epoch": 1794617638
+  },
+  {
+   "start_utc": "2026-11-14T11:43",
+   "start_epoch": 1794656619
+  }
+ ],
+ "stretches_book": {
+  "count": 52,
+  "minutes": 61329,
+  "symbols": 38,
+  "by_class": {
+   "absent": {
+    "count": 51,
+    "minutes": 61191
+   },
+   "stall": {
+    "count": 0,
+    "minutes": 0
+   },
+   "mixed": {
+    "count": 1,
+    "minutes": 138
+   }
+  },
+  "len_buckets": {
+   "5-14": 0,
+   "15-59": 0,
+   "60-239": 15,
+   "240+": 37
+  },
+  "traded_minutes_inside": 33272
+ },
+ "stretches_trade": {
+  "count": 57,
+  "minutes": 61542,
+  "symbols": 41,
+  "by_class": {
+   "absent": {
+    "count": 32,
+    "minutes": 32479
+   },
+   "stall": {
+    "count": 5,
+    "minutes": 49
+   },
+   "mixed": {
+    "count": 20,
+    "minutes": 29014
+   }
+  },
+  "len_buckets": {
+   "5-14": 4,
+   "15-59": 1,
+   "60-239": 15,
+   "240+": 37
+  },
+  "traded_minutes_inside": 33282
+ },
+ "book_hole_minutes_in_stretches": 33272,
+ "book_hole_minutes_short": 48,
+ "short_holes_by_hour": {
+  "2026-11-13T06": 2,
+  "2026-11-13T07": 1,
+  "2026-11-13T09": 1,
+  "2026-11-13T10": 2,
+  "2026-11-13T16": 1,
+  "2026-11-13T19": 1,
+  "2026-11-13T23": 1,
+  "2026-11-14T00": 1,
+  "2026-11-14T01": 2,
+  "2026-11-14T02": 2,
+  "2026-11-14T06": 1,
+  "2026-11-14T07": 1,
+  "2026-11-14T08": 3,
+  "2026-11-14T09": 4,
+  "2026-11-14T10": 2,
+  "2026-11-14T12": 2,
+  "2026-11-14T18": 1,
+  "2026-11-14T19": 1,
+  "2026-11-14T22": 1,
+  "2026-11-15T01": 2,
+  "2026-11-15T03": 1,
+  "2026-11-15T06": 1,
+  "2026-11-15T09": 2,
+  "2026-11-15T11": 1,
+  "2026-11-15T12": 1,
+  "2026-11-15T15": 1,
+  "2026-11-15T19": 2
+ },
+ "short_holes_soft": 0,
+ "pool_size_by_run": {
+  "2026-11-13T03:02": 358,
+  "2026-11-13T06:21": 369,
+  "2026-11-13T06:22": 369,
+  "2026-11-13T06:29": 370,
+  "2026-11-13T11:13": 374,
+  "2026-11-13T13:36": 371,
+  "2026-11-13T20:32": 361,
+  "2026-11-13T22:36": 360,
+  "2026-11-13T23:22": 361,
+  "2026-11-13T23:32": 362,
+  "2026-11-14T00:53": 361,
+  "2026-11-14T11:43": 346
+ },
+ "book_hole_usd": {
+  "hole_quote_usd": 35829303,
+  "total_quote_usd": 75500289009,
+  "pct": 0.0475
+ },
+ "absent_by_run": {
+  "2026-11-13T03:02": {
+   "absent_symbols_traded": 27,
+   "traded_minutes": 4109,
+   "quote_usd": 2639754
+  },
+  "2026-11-13T06:21": {
+   "absent_symbols_traded": 12,
+   "traded_minutes": 12,
+   "quote_usd": 1496
+  },
+  "2026-11-13T06:22": {
+   "absent_symbols_traded": 15,
+   "traded_minutes": 65,
+   "quote_usd": 22458
+  },
+  "2026-11-13T06:29": {
+   "absent_symbols_traded": 14,
+   "traded_minutes": 2157,
+   "quote_usd": 1138411
+  },
+  "2026-11-13T11:13": {
+   "absent_symbols_traded": 9,
+   "traded_minutes": 600,
+   "quote_usd": 181672
+  },
+  "2026-11-13T13:36": {
+   "absent_symbols_traded": 9,
+   "traded_minutes": 2362,
+   "quote_usd": 23384865
+  },
+  "2026-11-13T20:32": {
+   "absent_symbols_traded": 6,
+   "traded_minutes": 407,
+   "quote_usd": 91178
+  },
+  "2026-11-13T22:36": {
+   "absent_symbols_traded": 7,
+   "traded_minutes": 174,
+   "quote_usd": 33556
+  },
+  "2026-11-13T23:22": {
+   "absent_symbols_traded": 5,
+   "traded_minutes": 29,
+   "quote_usd": 2880
+  },
+  "2026-11-13T23:32": {
+   "absent_symbols_traded": 5,
+   "traded_minutes": 193,
+   "quote_usd": 88740
+  },
+  "2026-11-14T00:53": {
+   "absent_symbols_traded": 6,
+   "traded_minutes": 1850,
+   "quote_usd": 1070763
+  },
+  "2026-11-14T11:43": {
+   "absent_symbols_traded": 21,
+   "traded_minutes": 21320,
+   "quote_usd": 7169193
+  }
+ },
+ "absent_by_qv24_bucket": {
+  "<300k": {
+   "pairs": 126,
+   "traded_min": 30765,
+   "quote_usd": 34724938
+  },
+  "300k-1M": {
+   "pairs": 10,
+   "traded_min": 2513,
+   "quote_usd": 1100028
+  },
+  "1M-10M": {
+   "pairs": 0,
+   "traded_min": 0,
+   "quote_usd": 0
+  },
+  ">=10M": {
+   "pairs": 0,
+   "traded_min": 0,
+   "quote_usd": 0
+  }
+ },
+ "absent_runs": {
+  "pairs": 136,
+  "by_verdict": {
+   "top_excluded": 0,
+   "below_threshold": 126,
+   "above_threshold": 10,
+   "unknown(no 24h history)": 0
+  },
+  "traded_min_by_verdict": {
+   "top_excluded": 0,
+   "below_threshold": 30765,
+   "above_threshold": 2513,
+   "unknown(no 24h history)": 0
+  },
+  "above_threshold_within_5pct": 10
+ },
+ "shard_outages_ge50pct": {
+  "count": 0,
+  "minutes": 0
+ },
+ "simultaneous_no_book_soft_per_minute": {
+  "p50": 8.0,
+  "p90": 15.0,
+  "p99": 23.0,
+  "max": 26
+ }
+}
