@@ -110,7 +110,7 @@ pub struct StoreDaySrc {
     verify: bool,
     pub fallback: AtomicU64,
     pub mismatch: AtomicU64,
-    /// Сутки, свёрнутые в гистограмму (`day_hist`), и сутки, которым свёртка не подошла (ушли на массивы).
+    /// Сутки, свёрнутые в гистограмму (`day_hist`), и сутки, где свёртка не применена (нет файла zip, промах, отступления) — они идут путём массивов.
     pub folded: AtomicU64,
     pub fold_fallback: AtomicU64,
 }

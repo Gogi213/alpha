@@ -233,6 +233,7 @@ def cmd_shadow(a):
         cmd[cmd.index(flag) + 1] = val
     env = {k: v for k, v in os.environ.items() if k != "P42_FEAT_BIN"}
     env.update({k: v for k, v in store.build_env(w).items() if k != "P42_FEAT_BIN"})
+    env["P42_F12_BIN"] = "off"   # TK-609 v7: теневая сборка целиком на Python, эпизоды тоже
     print("теневая сборка (Python): %s" % " ".join(cmd), flush=True)
     rc = subprocess.run(cmd, env=env, check=False).returncode
     res = {"window": a.window, "vid": a.vid, "side": need.side, "reference_built_by": built, "python_rc": rc}

@@ -239,7 +239,8 @@ def f12_bin():
     v = os.environ.get("P42_F12_BIN")
     if v is None:
         v = os.environ.get("P42_FEAT_BIN", "")
-    return "" if v.strip().lower() in ("", "off") else v
+    v = v.strip()
+    return "" if v.lower() in ("", "off") else v
 
 
 def build_episodes(side, sigsx, out, procs):
