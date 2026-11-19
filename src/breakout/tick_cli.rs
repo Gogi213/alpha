@@ -10,7 +10,7 @@ use super::params::{parse_variant, Params, SigCfg};
 use super::sigcache::{SigCache, SigCacheOpts};
 use super::store::{StoreOpts, TickStore};
 use super::tick::{
-    old_entry, run_tick, signals_for_coin, sort_tsigs, tape_last_side, EntryRej, TSig, TickCtr,
+    old_entry, run_tick_mk, signals_for_coin, sort_tsigs, tape_last_side, EntryRej, TSig, TickCtr,
     TickResult, TradeSrc, ZipSrc, DAY_MS,
 };
 use super::{par_map, Side};
@@ -77,10 +77,31 @@ fn write_entry_rej(dir: &Path, syms: &[Sym], side: Side, r: &TickResult) -> Resu
         let w = match why {
             EntryRej::Beyond => "beyond",
             EntryRej::Stale => "stale",
+            EntryRej::Unfilled => "unfilled",
+            EntryRej::Touched => "touched",
+            EntryRej::NoTick => "notick",
         };
         let _ = writeln!(t, "{},{level},{ms},{w}", syms[*si as usize].name);
     }
     fs::write(dir.join(format!("{}-entryrej.csv", side.name())), t)?;
+    Ok(())
+}
+
+/// §13.28 (`mk > 0`): счётчики заявок мейкера — `<side>-maker.json`: лот 1 (заполнено, не заполнено, снято уровнем, заявок = сумма), число отказов
+/// `notick` и лот 2 (`e2`: сразу, позже, отменён, отказ — как `lot2_[…]` в `meta.json`).
+fn write_maker(dir: &Path, side: Side, r: &TickResult) -> Result<()> {
+    let n_of = |w: EntryRej| r.entry_rej.iter().filter(|x| x.3 == w).count();
+    let [filled, unfilled, touched] = r.mk;
+    let rec = serde_json::json!({
+        "orders": filled + unfilled + touched,
+        "filled": filled, "unfilled": unfilled, "touched": touched,
+        "notick": n_of(EntryRej::NoTick),
+        "lot2_[now,later,cancelled,rejected]": r.lot2,
+    });
+    fs::write(
+        dir.join(format!("{}-maker.json", side.name())),
+        serde_json::to_string_pretty(&rec)?,
+    )?;
     Ok(())
 }
 
@@ -487,11 +508,14 @@ pub fn run(
             let r = if std::env::var_os("P42_SIGSX_ONLY").is_some() {
                 TickResult::empty()
             } else {
-                run_tick(&syms, port_sigs, side, &p.exit, &p.port, &src)
+                run_tick_mk(&syms, port_sigs, side, &p.exit, &p.port, &src, p.mk)
             };
             write_outputs(&dir, &syms, side, &r)?;
             if p.exit.tape_entry() {
                 write_entry_rej(&dir, &syms, side, &r)?;
+            }
+            if p.mk > 0 {
+                write_maker(&dir, side, &r)?;
             }
             if let Some(v) = std::env::var_os("P42_SIGS") {
                 let v = v.to_string_lossy().into_owned();

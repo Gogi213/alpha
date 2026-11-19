@@ -148,13 +148,30 @@ pub struct PortCfg {
     pub busy: bool,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub struct Params {
     pub sig: SigCfg,
     pub exit: ExitCfg,
     pub port: PortCfg,
     /// §13.21: фильтр кандидатов по признаку (`fa/fo/fv`); выключен по умолчанию.
     pub filt: FilterCfg,
+    /// §13.28 (`mk`): вход лимиткой — 0 выкл. (путь тейкера), 1 — mk1, 2 — mk2 (ретест у уровня); требует `ew > 0`. Только `breakout tick`.
+    pub mk: u8,
+}
+
+/// Ручной `Debug`: отпечаток параметров в `meta.json` при `mk = 0` — тот же, что у версий до §13.28 (поле `mk` печатается только при `mk ≠ 0`).
+impl std::fmt::Debug for Params {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut d = f.debug_struct("Params");
+        d.field("sig", &self.sig)
+            .field("exit", &self.exit)
+            .field("port", &self.port)
+            .field("filt", &self.filt);
+        if self.mk != 0 {
+            d.field("mk", &self.mk);
+        }
+        d.finish()
+    }
 }
 
 fn pm(x: f64) -> i64 {
@@ -276,6 +293,7 @@ impl Params {
                 busy: true,
             },
             filt: FilterCfg::default(),
+            mk: 0,
         }
     }
 
@@ -365,6 +383,7 @@ impl Params {
             "p" => self.port.p = u,
             "reentry" => self.port.reentry = u.min(255) as u8,
             "busy" => self.port.busy = b,
+            "mk" => self.mk = u.min(255) as u8,
             _ => bail!("неизвестный ключ {key}"),
         }
         Ok(())
@@ -409,6 +428,12 @@ impl Params {
         }
         if self.exit.e2_pm > 0 && !self.exit.tape_entry() {
             bail!("e2 требует ew > 0 (вход по ленте)");
+        }
+        if self.mk > 2 {
+            bail!("mk ∈ {{0, 1, 2}}");
+        }
+        if self.mk > 0 && !self.exit.tape_entry() {
+            bail!("mk требует ew > 0 (вход по ленте)");
         }
         if self.port.reentry > 2 {
             bail!("reentry ∈ {{0, 1, 2}}");
