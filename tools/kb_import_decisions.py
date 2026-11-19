@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 """TK-632: реестры решений владельца → карточки kb/decision/. Повторяемо и идемпотентно (тот же вход → те же байты).
 
-  .claude/decisions.md                      → kb/decision/В-<N>.md   (реестр v2, 14.10 →)
-  docs/plan/SETTLED.md + SETTLED-index.md   → kb/decision/S-<N>.md   (ранний реестр, до 12.10)
+  docs/archive/decisions-2026-11-20.md                                  → kb/decision/В-<N>.md   (реестр v2, 14.10 → 20.11)
+  docs/archive/SETTLED-2026-11-20.md + SETTLED-index-2026-11-20.md      → kb/decision/S-<N>.md   (ранний реестр, до 12.10)
 
-Номера двух реестров пересекаются, поэтому id разные: «В-N» (decisions.md) и «S-N» (SETTLED; в тексте реестра — «SETTLED В-N»).
+С 20.11.2026 источник правды — сами карточки: реестры заморожены в docs/archive/, новые решения пишутся карточкой (kb/README.md).
+Поэтому запись поверх существующих карточек — только с --force (иначе правки карточек пропадут); --dry-run — только счёт.
+
+Номера двух реестров пересекаются, поэтому id разные: «В-N» (реестр v2) и «S-N» (SETTLED; в тексте реестра — «SETTLED В-N»).
 «Заменяет: В-M» (только номер, без оговорок) → `supersedes: [В-M]` и статус superseded на В-M. Оговорка («в части…», текст) —
 только ссылка и пометка «частично заменена» на старой карточке. Слово владельца и тексты записей — дословно.
 Ссылки карточки (`links:`) собираются по упоминаниям В-N / SETTLED В-N / П-NN / TK-NNN / G-NNN — только на существующие карточки,
@@ -21,11 +24,12 @@ from pathlib import Path
 SOURCE_MARK = "kb_import_decisions"
 V = "В"  # кириллическая В — так в реестрах
 HUB = {"В": "decisions-registry", "S": "settled-registry"}
-SRC_FILE = {"В": ".claude/decisions.md", "S": "docs/plan/SETTLED.md"}
+SRC_FILE = {"В": "docs/archive/decisions-2026-11-20.md", "S": "docs/archive/SETTLED-2026-11-20.md"}
+INDEX_FILE = "docs/archive/SETTLED-index-2026-11-20.md"
 ISO = re.compile(r"\d{4}-\d{2}-\d{2}")
 
 
-# ───────────────────────── разбор .claude/decisions.md ─────────────────────────
+# ───────────────────────── разбор реестра v2 (decisions-2026-11-20.md) ─────────────────────────
 
 def parse_decisions(text):
     """→ [dict(num, date, time, head, sut, zam, tail)]; head — [('q', строка цитаты) | ('x', прочая строка)] по порядку."""
@@ -54,7 +58,7 @@ def parse_decisions(text):
     return out
 
 
-# ───────────────────────── разбор SETTLED.md ─────────────────────────
+# ───────────────────────── разбор SETTLED (SETTLED-2026-11-20.md) ─────────────────────────
 
 _TABLE_REC = re.compile(r"^" + V + r"-(\d+)(?: \(([^)]*)\))? \| (.*)$")
 _BOLD_REC = re.compile(r"^\*\*" + V + r"-(\d+)([.,])")
@@ -84,7 +88,7 @@ def parse_settled(text):
 
 
 def parse_index(text):
-    """SETTLED-index.md: `- **В-N** — строка` → {N: строка}."""
+    """SETTLED-index: `- **В-N** — строка` → {N: строка}."""
     return {int(m.group(1)): m.group(2).strip() for m in re.finditer(r"^- \*\*" + V + r"-(\d+)\*\* — (.*)$", text, re.M)}
 
 
@@ -104,7 +108,7 @@ def first_clause(text):
 
 
 def refs_in(text, own_prefix, own_num, ids):
-    """Упоминания → id существующих карточек. own_prefix — реестр источника: «В» (decisions.md) или «S» (SETTLED)."""
+    """Упоминания → id существующих карточек. own_prefix — реестр источника: «В» (реестр v2) или «S» (SETTLED)."""
     out = []
 
     def add(cid):
@@ -230,7 +234,7 @@ def build_s_cards(recs, index, ids):
         r = mains[n]
         cid = "S-%d" % n
         raw = "\n".join(r["lines"] + [l for a in adds.get(n, []) for l in a["lines"]])
-        links = [HUB["S"], SRC_FILE["S"], "docs/plan/SETTLED-index.md"] + [x for x in refs_in(raw, "S", n, ids) if x != HUB["S"]]
+        links = [HUB["S"], SRC_FILE["S"], INDEX_FILE] + [x for x in refs_in(raw, "S", n, ids) if x != HUB["S"]]
         head = r["lines"][0]
         if r["table"]:
             problem = _TABLE_REC.match(head).group(3).split(" | ")[0]
@@ -256,7 +260,7 @@ def build_s_cards(recs, index, ids):
             body.append("\n".join(r["lines"]).strip("\n") + "\n")
         for a in adds.get(n, []):
             body.append("## Дополнение\n\n" + "\n".join(a["lines"]).strip("\n") + "\n")
-        foot = "Реестр — [[%s]], оглавление — [[docs/plan/SETTLED-index.md]]; номер в реестре «%s-%d»" % (SRC_FILE["S"], V, n)
+        foot = "Реестр — [[%s]], оглавление — [[%s]]; номер в реестре «%s-%d»" % (SRC_FILE["S"], INDEX_FILE, V, n)
         if n in inherited:
             foot += "; в записи нет даты — взята по следующей записи реестра"
         body.append(foot + ".")
@@ -280,6 +284,7 @@ def main(argv=None):
     ap.add_argument("--repo", default=str(Path(__file__).resolve().parent.parent))
     ap.add_argument("--kb", default="kb")
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--force", action="store_true", help="писать поверх существующих импортированных карточек (правки карточек пропадут)")
     a = ap.parse_args(argv)
     for s in (sys.stdout, sys.stderr):
         if hasattr(s, "reconfigure"):
@@ -287,10 +292,13 @@ def main(argv=None):
     repo = Path(a.repo)
     kb_dir = repo / a.kb
     out_dir = kb_dir / "decision"
+    if not a.dry_run and not a.force and any(out_dir.glob("*.md")):
+        print("в %s уже есть карточки решений — источник правды они, реестры заморожены в docs/archive/; запись поверх — только с --force" % out_dir, file=sys.stderr)
+        return 2
     out_dir.mkdir(parents=True, exist_ok=True)
-    decs = parse_decisions((repo / ".claude" / "decisions.md").read_text(encoding="utf-8"))
-    recs = parse_settled((repo / "docs" / "plan" / "SETTLED.md").read_text(encoding="utf-8"))
-    idx_path = repo / "docs" / "plan" / "SETTLED-index.md"
+    decs = parse_decisions((repo / SRC_FILE["В"]).read_text(encoding="utf-8"))
+    recs = parse_settled((repo / SRC_FILE["S"]).read_text(encoding="utf-8"))
+    idx_path = repo / INDEX_FILE
     index = parse_index(idx_path.read_text(encoding="utf-8")) if idx_path.exists() else {}
     ids = existing_ids(kb_dir) | {"%s-%d" % (V, d["num"]) for d in decs} | {"S-%d" % r["num"] for r in recs if r["kind"] == "main"}
     cards = {}
@@ -314,7 +322,7 @@ def main(argv=None):
         if not a.dry_run:
             path.write_text(text, encoding="utf-8", newline="\n")
     sup = sum(1 for m, _ in cards.values() if m["status"] == "superseded")
-    print("decisions.md: %d, SETTLED: %d, карточек: %d, superseded: %d, %s" % (
+    print("реестр v2: %d, SETTLED: %d, карточек: %d, superseded: %d, %s" % (
         sum(1 for c in cards if c.startswith(V + "-")), sum(1 for c in cards if c.startswith("S-")), len(cards), sup,
         ", ".join("%s %d" % kv for kv in stat.items())))
     return 0
