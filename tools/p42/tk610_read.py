@@ -3,7 +3,7 @@
   python3 tk610_read.py freeze --tk599-frozen <json> --tk599-commit <sha> --fit-dir <каталог fit> --score-dir <каталог score> --gates-dir <каталог json ворот>
                                --r2-root <каталог out> --out <tk610-frozen.json>
       собирает заморозку: sha256 `tk599-frozen.json` и коммит, md5 движка, C*, клетки и итерации, sha256 моделей, `q`, числа G8 (кандидаты августа и сделки R2 по счётчикам), σ C* (R1, окно поиска),
-      sha256 выходов R2, sha256 кода, версия CatBoost, ворота. Требует G1…G5, G9 зелёными (файлы `<gates-dir>/<имя>.json`, поле `ok`), G8 — только числа. Метки и P&L R2 не открываются.
+      sha256 выходов R2, sha256 кода, версия CatBoost, ворота. Требует G1…G5, G9 зелёными (файлы `<gates-dir>/<имя>.json`, поле `ok`; красный G4 — только с `accepted`, см. `tk610_gates.py accept`; принятое попадает в `gates_accepted`), G8 — только числа. Метки и P&L R2 не открываются.
   python3 tk610_read.py read --frozen <tk610-frozen.json> --frozen-sha256 <hex> --run-root <каталог out> --symbols <symbols.txt> --out <каталог>
       единственное чтение августа: проверяет sha256 заморозки и кода, создаёт `READ-aug.started` (O_EXCL; повтор — отказ), склеивает A (R1) и B (R2) из `wa` 01–25.08 и `wb` 26–31.08,
       Δ, интервал, вердикт по п. 6, описательные меры (S0 / S1 по блокам на сделках R1, Спирмен) → `read-aug.json`.
@@ -51,18 +51,27 @@ def r2_outputs_sha(r2_root, wins=("wa", "wb", "wc")):
     """sha256 выходов R2 (файлы не открываются как данные — только хэш): {окно: {вариант: {файл: sha256}}}."""
     out = {}
     for w in wins:
-        base = os.path.join(r2_root, "%s-R2" % w, "eng")
-        if not os.path.isdir(base):
-            continue
-        for var in sorted(os.listdir(base)):
-            d = os.path.join(base, var)
-            if os.path.isdir(d):
-                out.setdefault(w, {})[var] = {fn: T.sha256_file(os.path.join(d, fn)) for fn in sorted(os.listdir(d)) if fn.endswith((".csv", ".json"))}
+        for s in rf.SIDES:                       # R2 запускается по сторонам: `<окно>-R2-<S>/eng/<S>_<вариант>` (имена вариантов с префиксом стороны не пересекаются)
+            base = os.path.join(r2_root, "%s-R2-%s" % (w, s), "eng")
+            if not os.path.isdir(base):
+                continue
+            for var in sorted(os.listdir(base)):
+                d = os.path.join(base, var)
+                if os.path.isdir(d):
+                    out.setdefault(w, {})[var] = {fn: T.sha256_file(os.path.join(d, fn)) for fn in sorted(os.listdir(d)) if fn.endswith((".csv", ".json"))}
     return out
 
 
+def gate_green(g):
+    """Зелёные: `ok` истинно, либо G4 с принятым отклонением `accepted: {by, why, critic_sha}` (`tk610_gates.py accept`; `ok` в файле остаётся красным)."""
+    if g.get("ok") is True:
+        return True
+    a = g.get("accepted")
+    return bool(str(g.get("gate", "")).upper() in ("G4",) and isinstance(a, dict) and all(a.get(k) for k in ("by", "why", "critic_sha")))
+
+
 def load_gates(gates_dir):
-    """{имя: json}; G1…G5, G9 обязаны быть и быть зелёными; G8 — числа без условия."""
+    """{имя: json}; G1…G5, G9 обязаны быть и быть зелёными (G4 — или принятыми); G8 — числа без условия."""
     g = {}
     for fn in sorted(os.listdir(gates_dir)):
         if fn.endswith(".json"):
@@ -72,7 +81,7 @@ def load_gates(gates_dir):
         if not hits:
             raise T.GuardError("нет файла ворот %s в %s" % (need, gates_dir))
         for k in hits:
-            if g[k].get("ok") is not True:
+            if not gate_green(g[k]):
                 raise T.GuardError("ворота %s красные: %s — заморозка запрещена" % (k, json.dumps(g[k], ensure_ascii=False)[:300]))
     return g
 
@@ -121,6 +130,7 @@ def build_freeze(tk599_frozen, tk599_commit, fit_dir, score_dir, gates_dir, r2_r
     fr["f12"] = f12_record(work_dirs)
     fr["r2_outputs_sha256"] = r2_outputs_sha(r2_root)
     fr["gates"] = gates
+    fr["gates_accepted"] = [dict(gate=k, **v["accepted"]) for k, v in sorted(gates.items()) if v.get("ok") is not True and gate_green(v)]
     fr["code_sha256"] = T.code_sha256()
     if extra:
         fr.update(extra)
@@ -164,7 +174,7 @@ def take_marker(out_dir):
 
 
 def aug_tables(run_root, tag, side):
-    """Сделки и суточный срез `wa`, `wb` прогона `<окно>-<tag>` варианта `<S>_<вариант>`."""
+    """Сделки и суточный срез `wa`, `wb` прогона `<окно>-<tag[0]>` (R1; R2 — `R2-<S>`) варианта `<S>_<tag[1]>`."""
     name = rf.ENGINE_SIDE[side]
     tables, daily = {}, {}
     for w in ("wa", "wb"):
@@ -203,7 +213,7 @@ def cmd_read(a):
     res = {"started_utc": open(marker, encoding="utf-8").read().strip(), "frozen_sha256": a.frozen_sha256, "sides": {}}
     for s in rf.SIDES:
         ta, da = aug_tables(a.run_root, ("R1", "r1"), s)
-        tb, db = aug_tables(a.run_root, ("R2", "r2"), s)
+        tb, db = aug_tables(a.run_root, ("R2-%s" % s, "r2"), s)
         sa, sb = T.splice_aug(ta, coins, da), T.splice_aug(tb, coins, db)
         c = T.aug_compare(sa, sb, len(coins))
         st = c["stat"]

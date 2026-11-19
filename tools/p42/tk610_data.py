@@ -7,7 +7,7 @@
   python3 tk610_data.py cand --win … --run <out/<окно>-R1> --side L|S --prod … --work … [--procs 2]
       признаки f12 на ВСЕХ кандидатах потока R1 (`<S>_r1-sigsx`): `<work>/cand-<окно>-<S>.parquet` — ключ, сутки от 01.07, f12.
   f12: при `TK610_F12_BIN=<alpha-feat-f12d с md5 в имени>` — Rust TK-611 (md5 проверяется, склад `/data/p42-tk599/tick-store` на чтение), иначе производственный Python; реализация пишется в `.info.json`.
-  python3 tk610_data.py count --win … --run <out/<окно>-R2> --variant <id> --side L|S
+  python3 tk610_data.py count --win … --run <out/<окно>-R2-<S>> --variant <id> --side L|S
       счётчики сделок по суткам августа (читается ТОЛЬКО столбец `entry_ms` — метки и P&L не открываются).
 """
 from __future__ import annotations

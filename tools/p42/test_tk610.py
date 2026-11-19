@@ -248,6 +248,35 @@ class SealTests(unittest.TestCase):
             with self.assertRaises(T.GuardError):
                 RD.load_gates(td)
 
+    def test_freeze_accepted_g4_deviation(self):
+        with tempfile.TemporaryDirectory() as td:
+            for n in RD.GATES_REQUIRED:
+                json.dump({"gate": n, "ok": True}, open(os.path.join(td, n + ".json"), "w"))
+            json.dump({"gate": "G4", "ok": False, "common_keys": 174}, open(os.path.join(td, "G4-S-ep_u0.json"), "w"))
+            with self.assertRaises(T.GuardError):
+                RD.load_gates(td)                                                       # красный G4 без `accepted`
+            json.dump({"gate": "G4", "ok": False, "accepted": {"by": "coordinator", "why": "", "critic_sha": "4756b5f29"}}, open(os.path.join(td, "G4-S-ep_u0.json"), "w"))
+            with self.assertRaises(T.GuardError):
+                RD.load_gates(td)                                                       # пустая причина
+            json.dump({"gate": "G4", "ok": False, "accepted": {"by": "coordinator", "why": "174 < 200", "critic_sha": "4756b5f29"}}, open(os.path.join(td, "G4-S-ep_u0.json"), "w"))
+            self.assertIn("G4-S-ep_u0", RD.load_gates(td))
+            json.dump({"gate": "G5", "ok": False, "accepted": {"by": "x", "why": "y", "critic_sha": "4756b5f29"}}, open(os.path.join(td, "G5-wa-L.json"), "w"))
+            with self.assertRaises(T.GuardError):
+                RD.load_gates(td)                                                       # принять можно только G4
+
+    def test_r2_outputs_sha_per_side_dirs(self):
+        with tempfile.TemporaryDirectory() as td:
+            for w in ("wa", "wb", "wc"):
+                for s, vs in (("L", ("L_r2", "L_g5pass", "L_g5cut")), ("S", ("S_r2",))):
+                    for v in vs:
+                        d = os.path.join(td, "%s-R2-%s" % (w, s), "eng", v)
+                        os.makedirs(d)
+                        open(os.path.join(d, "x-trades.csv"), "w").write(w + v)
+            h = RD.r2_outputs_sha(td)
+            self.assertEqual(sorted(h), ["wa", "wb", "wc"])
+            self.assertEqual(sorted(h["wa"]), ["L_g5cut", "L_g5pass", "L_r2", "S_r2"])
+            self.assertEqual(h["wb"]["S_r2"]["x-trades.csv"], T.sha256_file(os.path.join(td, "wb-R2-S", "eng", "S_r2", "x-trades.csv")))
+
 
 def _tab(rows):
     return rf.table_from_rows([dict(sym=s, entry_ms=e, exit_ms=x, gross=g, fees=f, funding=0.0, net=g - f, kind="stop") for s, e, x, g, f in rows])
@@ -432,6 +461,54 @@ class MoreGateTests(unittest.TestCase):
             g2 = GT.gate_g4([mp_, m2], rp, "2026-09-01", "long")
             self.assertTrue(g2["ok"], g2)
             self.assertEqual(g2["common_keys"], n)
+
+    def test_g4_nan_range(self):
+        with tempfile.TemporaryDirectory() as td:
+            rng = np.random.default_rng(5)
+            n = 400
+            feats = {f: rng.uniform(0, 10, n) for f in T.FEATS if f != "lturn24"}
+            ref = pd.DataFrame({"side": "long", "turn24h": rng.uniform(1e6, 1e8, n), **feats})
+            mine = pd.DataFrame({"sym": "AAA", "a_sig": np.arange(n), "dist_e8": np.arange(n), "lp_e8": 7, "tick_ok": True, "lturn24": 7.0, **{f: rng.uniform(1, 9, n) for f in feats}})
+            rp, tp = os.path.join(td, "ref.parquet"), os.path.join(td, "train-wa-L.parquet")
+            ref.to_parquet(rp)
+            mine.to_parquet(tp)
+            g = GT.gate_g4_nan([tp], rp, "long")
+            self.assertTrue(g["ok"], g)
+            ref["lturn24"] = np.log10(ref["turn24h"])
+            mine["lturn24"] = np.log10(ref["turn24h"].to_numpy())
+            mine.loc[7, "zv6h"] = 99.0                                      # вне диапазона эталона
+            mine.to_parquet(tp)
+            g = GT.gate_g4_nan([tp], rp, "long")
+            self.assertFalse(g["ok"])
+            self.assertEqual(g["features"]["zv6h"]["out_of_range_by_table"], {"train-wa-L.parquet": 1})
+            mine.loc[7, "zv6h"] = 5.0
+            mine.loc[:79, "mv5"] = np.nan                                    # NaN 20 % против 0 % эталона (> +5 п.п.)
+            mine.to_parquet(tp)
+            self.assertFalse(GT.gate_g4_nan([tp], rp, "long")["features"]["mv5"]["ok"])
+            mine.loc[:9, "mv5"] = np.nan                                     # 2,5 % ≤ 5 п.п.
+            mine.loc[10:79, "mv5"] = 5.0
+            mine.to_parquet(tp)
+            self.assertTrue(GT.gate_g4_nan([tp], rp, "long")["features"]["mv5"]["ok"])
+
+    def test_accept_gate_only_g4_red_with_critic(self):
+        with tempfile.TemporaryDirectory() as td:
+            p = os.path.join(td, "g4-S-ep_u0.json")
+            json.dump({"gate": "G4", "ok": False, "common_keys": 174}, open(p, "w"))
+            with self.assertRaises(T.GuardError):
+                GT.accept_gate(p, "coordinator", "174 < 200, как TK-598", "")           # без SHA критика
+            with self.assertRaises(T.GuardError):
+                GT.accept_gate(p, "coordinator", "174 < 200", "not-a-sha")
+            g = GT.accept_gate(p, "coordinator", "174 < 200, как TK-598", "4756b5f29")
+            self.assertIs(g["ok"], False)                                              # красное остаётся красным
+            self.assertEqual(g["accepted"]["critic_sha"], "4756b5f29")
+            pg = os.path.join(td, "g2-wa-L.json")
+            json.dump({"gate": "G2", "ok": False}, open(pg, "w"))
+            with self.assertRaises(T.GuardError):
+                GT.accept_gate(pg, "coordinator", "x", "4756b5f29")                      # другие ворота принять нельзя
+            pz = os.path.join(td, "g4-ok.json")
+            json.dump({"gate": "G4", "ok": True}, open(pz, "w"))
+            with self.assertRaises(T.GuardError):
+                GT.accept_gate(pz, "coordinator", "x", "4756b5f29")                      # зелёное — принимать нечего
 
     def test_g3(self):
         with tempfile.TemporaryDirectory() as td:
