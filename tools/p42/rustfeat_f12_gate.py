@@ -48,8 +48,8 @@ def ref_frame(path: str, side: str | None) -> pd.DataFrame:
     return ref
 
 
-def compare(ref: pd.DataFrame, new: pd.DataFrame, key: list[str]) -> dict:
-    rep = {"rows_ref": int(len(ref)), "rows_new": int(len(new)), "key": key, "cols": {}, "total_diffs": 0}
+def compare(ref: pd.DataFrame, new: pd.DataFrame, key: list[str], exclude: tuple[str, ...] = ()) -> dict:
+    rep = {"rows_ref": int(len(ref)), "rows_new": int(len(new)), "key": key, "cols": {}, "total_diffs": 0, "excluded": list(exclude)}
     if ref.duplicated(key).any() or new.duplicated(key).any():
         rep["error"] = "ключ не уникален"
         rep["total_diffs"] = -1
@@ -66,7 +66,7 @@ def compare(ref: pd.DataFrame, new: pd.DataFrame, key: list[str]) -> dict:
     names = [c for c in j.columns if not c.endswith("__rs") and c not in ("_merge",)]
     bad_rows = np.zeros(len(j), dtype=bool)
     for c in NUM + ["tick_ok"] + META_STR:
-        if c in key or c not in ref.columns or c + "__rs" not in j.columns:
+        if c in key or c in exclude or c not in ref.columns or c + "__rs" not in j.columns:
             continue
         a_raw, b_raw = j[c], j[c + "__rs"]
         if c in META_STR:
@@ -104,11 +104,12 @@ def main():
     c.add_argument("--key", default="ep_id")
     c.add_argument("--side", default="")
     c.add_argument("--out", default="")
+    c.add_argument("--exclude", default="", help="столбцы вне сравнения (различаются по построению маршрута; см. воротa ep_u0)")
     a = ap.parse_args()
     key = a.key.split(",")
     ref = ref_frame(a.ref, a.side or None)
     new = read_rust_csv(a.new)
-    rep = compare(ref, new, key)
+    rep = compare(ref, new, key, tuple(x for x in a.exclude.split(",") if x))
     if a.out:
         json.dump(rep, open(a.out, "w"), ensure_ascii=False, indent=1)
     bad = {k: v for k, v in rep["cols"].items() if v["diff"]}

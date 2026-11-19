@@ -10,6 +10,8 @@
 
 use super::npcompat::{np_mean, np_sum};
 use super::pdcompat::{date_str, parse_date, parse_f64, parse_i64};
+use crate::breakout::store::{DayTrades as StoredDay, TickStore, F_PX_INEXACT};
+use crate::breakout::tick::ZipSrc;
 use anyhow::{bail, Context, Result};
 use std::borrow::Cow;
 use std::collections::BTreeMap;
@@ -17,7 +19,7 @@ use std::fmt::Write as _;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Instant;
 
@@ -33,7 +35,7 @@ const B_PM: i64 = 500;
 /// Таймфрейм баров уровня, минут.
 const TF: i64 = 60;
 const START_DAY: i64 = 14;
-/// Сетка суток (`SIGFEAT_DAYS`, у ftab TK-599 — 80); длина `.b42` обязана ей соответствовать.
+/// Сетка суток по умолчанию (`SIGFEAT_DAYS`: у ftab TK-599 — 80, у TK-594/`ep_u0` — 74); длина `.b42` обязана ей соответствовать (`F12Cfg::days`).
 pub const DAYS_TOTAL: i64 = 80;
 const NAN: f64 = f64::NAN;
 const REFS: [&str; 2] = ["BTCUSDT", "ETHUSDT"];
@@ -793,6 +795,100 @@ impl PxSrc for ZipPxSrc {
     }
 }
 
+/// Склад TK-607 для суток цены: `ZipSrc::read_day` (чтение склада; в режиме «только чтение» — `cap_gb = 0` — промах разбирает zip без записи).
+/// Склад хранит `rint(price·1e8)` (разбор десятичной записи) и смещение времени в сутках; для признаков f12 берутся сутки без `F_PX_INEXACT`,
+/// без строк вне суток и без плохих строк — иначе прежний `ZipPxSrc` (Python не отсеивает строки вне суток). Флаги количества цену не касаются.
+/// `verify` — каждые сутки склада сверяются с `ZipPxSrc` побитово и при расхождении отдаётся его результат.
+pub struct StorePxSrc {
+    srcs: Vec<ZipSrc>,
+    exact: ZipPxSrc,
+    day0: i64,
+    verify: bool,
+    pub store_days: AtomicU64,
+    pub fallback: AtomicU64,
+    pub mismatch: AtomicU64,
+}
+
+impl StorePxSrc {
+    /// `first_abs_day` — первые запрошенные сутки: сетка движка (`P42_T0`) ставится на них, номер суток склада — от неё.
+    pub fn new(
+        roots: &[PathBuf],
+        store: &Arc<TickStore>,
+        first_abs_day: i64,
+        verify: bool,
+    ) -> Result<StorePxSrc> {
+        std::env::set_var("P42_T0", date_str(first_abs_day));
+        let t0 = crate::breakout::data::t0_ms();
+        if t0 != first_abs_day * DAY_MS {
+            bail!(
+                "сетка склада уже зафиксирована на {t0} мс, нужно {}",
+                first_abs_day * DAY_MS
+            );
+        }
+        Ok(StorePxSrc {
+            srcs: roots
+                .iter()
+                .map(|r| ZipSrc::new(r.clone(), 0).with_store(Arc::clone(store)))
+                .collect(),
+            exact: ZipPxSrc {
+                roots: roots.to_vec(),
+            },
+            day0: first_abs_day,
+            verify,
+            store_days: AtomicU64::new(0),
+            fallback: AtomicU64::new(0),
+            mismatch: AtomicU64::new(0),
+        })
+    }
+}
+
+/// Сутки склада → время и цена ×1e8; `None` — сутки с отступлениями (см. `StorePxSrc`).
+fn px_from_store(d: &StoredDay, abs_day: i64) -> Option<PxDay> {
+    if d.flags & F_PX_INEXACT != 0 || d.stat.out_of_day != 0 || d.stat.bad_rows != 0 {
+        return None;
+    }
+    let base = abs_day * DAY_MS;
+    Some(PxDay {
+        t: d.ticks.iter().map(|k| base + i64::from(k.off)).collect(),
+        p: d.ticks.iter().map(|k| k.px).collect(),
+        unsorted: d.stat.unsorted_files > 0,
+    })
+}
+
+fn same_px(a: &PxDay, b: &PxDay) -> bool {
+    a.t == b.t && a.p == b.p && a.unsorted == b.unsorted
+}
+
+impl PxSrc for StorePxSrc {
+    fn day(&self, sym: &str, abs_day: i64) -> Result<Option<PxDay>> {
+        let idx = abs_day - self.day0;
+        if idx < 0 {
+            return self.exact.day(sym, abs_day);
+        }
+        for z in &self.srcs {
+            let Some(stored) = z.read_day(sym, idx as usize)? else {
+                continue;
+            };
+            let Some(got) = px_from_store(&stored, abs_day) else {
+                self.fallback.fetch_add(1, Ordering::Relaxed);
+                return self.exact.day(sym, abs_day);
+            };
+            if self.verify {
+                let want = self.exact.day(sym, abs_day)?;
+                if !want.as_ref().is_some_and(|w| same_px(w, &got)) {
+                    if self.mismatch.fetch_add(1, Ordering::Relaxed) < 5 {
+                        eprintln!("склад ≠ zip: {sym} {}", date_str(abs_day));
+                    }
+                    return Ok(want);
+                }
+            }
+            self.store_days.fetch_add(1, Ordering::Relaxed);
+            return Ok(Some(got));
+        }
+        Ok(None)
+    }
+}
+
 fn trim_eol(l: &[u8]) -> &[u8] {
     let mut e = l.len();
     while e > 0 && (l[e - 1] == b'\n' || l[e - 1] == b'\r') {
@@ -1092,6 +1188,8 @@ pub struct F12Cfg {
     pub base_date: String,
     pub threads: usize,
     pub coins: Option<Vec<String>>,
+    /// Суток в сетке минуток (`SIGFEAT_DAYS` Python): `N_MIN = days · 1440` — длина `.b42`, область `emp_coin`.
+    pub days: i64,
 }
 
 #[derive(Debug, Clone)]
@@ -1197,7 +1295,7 @@ pub fn run(cfg: &F12Cfg, src: &dyn PxSrc) -> Result<Summary> {
         o => bail!("--side: long|short, получено {o}"),
     };
     let base_ms = parse_date(&cfg.base_date)? * DAY_MS;
-    let n_min = (DAYS_TOTAL * 1440) as usize;
+    let n_min = (cfg.days * 1440) as usize;
     let by = read_sigsx(&cfg.sigsx, cfg.coins.as_deref())?;
     if by.is_empty() {
         bail!("пустой вход: {}", cfg.sigsx.display());
@@ -1224,7 +1322,7 @@ pub fn run(cfg: &F12Cfg, src: &dyn PxSrc) -> Result<Summary> {
                 let r = (|| {
                     let m = Minutes::load(&cfg.cache.join(format!("{sym}.b42")), n_min)?;
                     let ctx = CoinCtx::new(m);
-                    coin_rows(src, &refs, &ctx, sym, s, base_ms, DAYS_TOTAL, sigs)
+                    coin_rows(src, &refs, &ctx, sym, s, base_ms, cfg.days, sigs)
                 })()
                 .with_context(|| format!("монета {sym}"));
                 results

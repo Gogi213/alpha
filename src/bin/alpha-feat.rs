@@ -6,12 +6,15 @@
 //! признаки эпизода f12 (`sigfeat_run.Worker.episode`, U0) по потоку сигналов; кэш минуток и сделки — флагами или `SIGFEAT_CACHE`, `SIGFEAT_TRADES`.
 
 use alpha::breakout::feat::deriv::DerivDirs;
-use alpha::breakout::feat::f12::{self, F12Cfg, ZipPxSrc};
+use alpha::breakout::feat::f12::{self, F12Cfg, StorePxSrc, ZipPxSrc};
 use alpha::breakout::feat::io::{run, Cfg, Mode, StoreCfg};
 use alpha::breakout::feat::pdcompat::parse_date;
+use alpha::breakout::store::{StoreOpts, TickStore};
 use anyhow::Result;
 use clap::{Args, Parser, Subcommand};
 use std::path::PathBuf;
+use std::sync::atomic::Ordering;
+use std::sync::Arc;
 
 #[derive(Parser)]
 #[command(name = "alpha-feat", about = "TK-609: признаки П-42 flow/deriv")]
@@ -57,6 +60,18 @@ struct F12Opts {
     /// только эти монеты (через запятую)
     #[arg(long)]
     coins: Option<String>,
+    /// суток в сетке минуток (длина `.b42` = days·1440; по умолчанию SIGFEAT_DAYS или 80; у TK-594/`ep_u0` — 74)
+    #[arg(long)]
+    days: Option<i64>,
+    /// склад суток TK-607 (формат v2, `.tk`): чтение без `unzip`; промах и сутки с отступлениями — разбор zip, запись в склад — только при `--store-cap-gb` > 0
+    #[arg(long)]
+    store: Option<PathBuf>,
+    /// потолок объёма склада, ГБ (0 — склад только читается)
+    #[arg(long, default_value_t = 0)]
+    store_cap_gb: u64,
+    /// сверять каждые сутки склада с разбором zip побитово (ворота; вдвое дороже)
+    #[arg(long)]
+    store_verify: bool,
 }
 
 #[derive(Args)]
@@ -122,11 +137,34 @@ fn run_f12(o: F12Opts) -> Result<()> {
             .coins
             .filter(|c| !c.is_empty())
             .map(|c| c.split(',').map(str::to_string).collect()),
+        days: match o.days {
+            Some(d) => d,
+            None => env_or("SIGFEAT_DAYS", "80").parse()?,
+        },
     };
-    let src = ZipPxSrc {
-        roots: cfg.trades.clone(),
+    let Some(dir) = o.store else {
+        let src = ZipPxSrc {
+            roots: cfg.trades.clone(),
+        };
+        println!("{}", f12::run(&cfg, &src)?.json());
+        return Ok(());
     };
-    println!("{}", f12::run(&cfg, &src)?.json());
+    let st = Arc::new(TickStore::open(&StoreOpts {
+        dir,
+        cap_gb: o.store_cap_gb,
+        min_free_gb: 0,
+    })?);
+    let first = parse_date(&cfg.base_date)?;
+    let src = StorePxSrc::new(&cfg.trades, &st, first, o.store_verify)?;
+    let sum = f12::run(&cfg, &src)?;
+    eprintln!(
+        "склад: суток {} из склада, {} из zip по отступлениям, {} расхождений со zip; {}",
+        src.store_days.load(Ordering::Relaxed),
+        src.fallback.load(Ordering::Relaxed),
+        src.mismatch.load(Ordering::Relaxed),
+        st.summary()
+    );
+    println!("{}", sum.json());
     Ok(())
 }
 

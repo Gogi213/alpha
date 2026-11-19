@@ -1,7 +1,7 @@
 """TK-611: скорость f12 на равных — `alpha-feat f12` против `retitr_ftab.build_episodes` (Python): те же монеты (один отфильтрованный sigsx), окно, число
 потоков, nice, чередование A/B/A/B. Меряет стену и ЦП-секунды (user+sys всех дочерних, включая `unzip`) каждого прогона и load среднюю.
 
-  python3 rustfeat_f12_bench.py --sigsx <csv> --side long|short --cache C --trades T --base-date D --bin <alpha-feat>[,<alpha-feat>…] --ncoins 20 --procs 2 --reps 2
+  python3 rustfeat_f12_bench.py --sigsx <csv> --side long|short --cache C --trades T --base-date D --bin <alpha-feat>[,<alpha-feat>…] [--variant NAME=ARGS …] --ncoins 20 --procs 2 --reps 2
 Монеты — равномерная выборка по списку, отсортированному по числу эпизодов; `--bin-args` — доп. аргументы бинаря (одна строка).
 """
 from __future__ import annotations
@@ -44,6 +44,7 @@ def main():
     ap.add_argument("--base-date", required=True)
     ap.add_argument("--bin", required=True)
     ap.add_argument("--bin-args", default="")
+    ap.add_argument("--variant", action="append", default=[], help="NAME=ARGS: ещё один прогон первого бинаря с другими аргументами (например store=--store D --store-cap-gb 0)")
     ap.add_argument("--ncoins", type=int, default=20)
     ap.add_argument("--procs", type=int, default=2)
     ap.add_argument("--reps", type=int, default=2)
@@ -72,6 +73,10 @@ def main():
     n_ep = sum(cnt[c] for c in pick)
     wrap = ["nice", "-n", str(a.nice)] if a.nice else []
     bins = a.bin.split(",")
+    variants = [(os.path.basename(b), b, shlex.split(a.bin_args)) for b in bins]
+    for v in a.variant:
+        name, _, vargs = v.partition("=")
+        variants.append((name, bins[0], shlex.split(vargs)))
     runs = []
     for rep in range(a.reps):
         if not a.no_python:
@@ -79,10 +84,10 @@ def main():
                           "--cache", a.cache, "--trades", a.trades, "--base-date", a.base_date, "--procs", str(a.procs)], wrap)
             runs.append({"rep": rep, "engine": "python", **r})
             print(json.dumps(runs[-1]), flush=True)
-        for b in bins:
-            r, out = timed([b, "f12", "--sigsx", sx, "--side", a.side, "--out", os.path.join(tmp, "rs-%s.csv" % os.path.basename(b)), "--cache", a.cache,
-                            "--trades", a.trades, "--base-date", a.base_date, "--threads", str(a.procs)] + shlex.split(a.bin_args), wrap)
-            runs.append({"rep": rep, "engine": "rust:" + os.path.basename(b), **r, "summary": out.strip().splitlines()[-1] if out.strip() else ""})
+        for name, b, bargs in variants:
+            r, out = timed([b, "f12", "--sigsx", sx, "--side", a.side, "--out", os.path.join(tmp, "rs-%s.csv" % name), "--cache", a.cache,
+                            "--trades", a.trades, "--base-date", a.base_date, "--threads", str(a.procs)] + bargs, wrap)
+            runs.append({"rep": rep, "engine": "rust:" + name, **r, "summary": out.strip().splitlines()[-1] if out.strip() else ""})
             print(json.dumps(runs[-1]), flush=True)
     summ = {"coins": len(pick), "episodes": n_ep, "procs": a.procs, "nice": a.nice, "runs": runs}
     by: dict[str, list] = {}
