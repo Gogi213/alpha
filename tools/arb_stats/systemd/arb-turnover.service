@@ -1,0 +1,19 @@
+[Unit]
+Description=G-022 вкладка «Арбитраж»: оборот за сутки по биржам и монетам, раз в 5 минут (tools/arb_stats/arb_turnover.py); отдельно от arb-live
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/arb-tab/tools/arb_stats
+Environment=PYTHONPATH=/opt/arb-tab/pylib
+ExecStart=/usr/bin/python3 /opt/arb-tab/tools/arb_stats/arb_turnover.py run /data/arb-tab/live 3
+Nice=15
+CPUQuota=100%
+MemoryMax=4G
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+Restart=always
+RestartSec=30
+
+[Install]
+WantedBy=multi-user.target

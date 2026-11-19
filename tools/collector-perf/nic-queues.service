@@ -1,0 +1,13 @@
+[Unit]
+Description=virtio-net eth0: 2 очереди (G-022 collector-perf, 14.11); откат — systemctl disable --now nic-queues && ethtool -L eth0 combined 8
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/sbin/ethtool -L eth0 combined 2
+ExecStop=/usr/sbin/ethtool -L eth0 combined 8
+
+[Install]
+WantedBy=multi-user.target

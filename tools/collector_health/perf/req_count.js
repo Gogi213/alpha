@@ -12,7 +12,7 @@ const url = process.argv[2], sec = +(process.argv[3] || 120);
   await pg.waitForTimeout(sec * 1000);
   console.log('вкладка «Арбитраж»,', sec, 'с в простое:', count());
   // действия: переключатели, сортировки, фильтры, открыть/закрыть график одной и той же строки дважды
-  await pg.click('#ctl button[data-hide]'); await pg.click('#ctl button[data-m="out"]'); await pg.click('#flt button:nth-child(2)'); await pg.click('#tab th[data-k="n0"]'); await pg.click('#flt button:nth-child(1)');
+  await pg.click('#ctl button[data-hide]'); await pg.click('#ctl button[data-m="out"]'); await pg.click('#ex button:nth-child(1)'); await pg.click('#tab th[data-k="n0"]'); await pg.click('#ex button:nth-child(1)');
   await pg.waitForTimeout(500);
   console.log('10 переключений/сортировок/фильтров:', count());
   await pg.click('#tab tr.r:nth-child(3)'); await pg.waitForTimeout(600); await pg.click('#tab tr.r:nth-child(3)'); await pg.click('#tab tr.r:nth-child(3)'); await pg.waitForTimeout(600);

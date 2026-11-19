@@ -1,0 +1,137 @@
+2026-11-16T20:32:11  run-p3425824-i16008077.scope: Consumed 15min 44.876s CPU time, 3.2G memory peak.
+2026-11-16T20:32:45  Started run-p3426548-i16008801.scope - [systemd-run] /usr/bin/nice -n 19 ionice -c 2 -n 7 bash /opt/rbuild/in/cmd-3469.sh.
+2026-11-16T20:34:20  run-p3426548-i16008801.scope: Consumed 6min 621ms CPU time, 1.5G memory peak.
+2026-11-16T20:35:32  Started hold-rawtol.service - [systemd-run] /usr/bin/bash -c "python3 hold_raw.py /data/arb-hold/v2/need-tol.pkl /data/arb-hold/v2/raw-tol.pkl 5 > /data/arb-hold/v2/rawtol.log 2>&1".
+2026-11-16T20:37:01  Started run-p3427284-i16009537.scope - [systemd-run] /usr/bin/nice -n 19 ionice -c 2 -n 7 bash /opt/rbuild/in/cmd-1730.sh.
+2026-11-16T20:42:42  run-p3427284-i16009537.scope: Consumed 19min 19.469s CPU time, 3.2G memory peak.
+2026-11-16T20:43:42  Started run-p3428230-i16010483.scope - [systemd-run] /usr/bin/nice -n 19 ionice -c 2 -n 7 bash /opt/rbuild/in/cmd-1852.sh.
+2026-11-16T20:45:23  Started hold-grid.service - [systemd-run] /usr/bin/bash -c "python3 hold_check.py grid /data/arb-hold/b2 1794550440000 1794849900000 INIT:bybit:okx,IDOL:binance:bybit,SOPH:binance:bybit,KAVA:binance:bybit,BTW:binance:bybit,BIRB:binance:byb
+2026-11-16T20:46:18  hold-grid.service: Consumed 53.604s CPU time, 1.1G memory peak.
+2026-11-16T20:46:26  run-p3428230-i16010483.scope: Consumed 7min 38.855s CPU time, 1.5G memory peak.
+2026-11-16T20:47:36  Started hold-rep-strict.service - [systemd-run] /usr/bin/bash -c "python3 hold_report.py /data/arb-hold/v2/flag-strict.pkl /data/arb-hold/v2/resim-strict.pkl /data/arb-hold/v2/tables-strict.md /data/arb-hold/v2/pairs-strict.csv /data/arb-h
+2026-11-16T20:48:51  hold-rep-strict.service: Consumed 1min 14.582s CPU time, 772.4M memory peak.
+2026-11-16T20:49:16  Started run-p3429019-i16011272.scope - [systemd-run] /usr/bin/nice -n 19 ionice -c 2 -n 7 bash /opt/rbuild/in/cmd-813.sh.
+2026-11-16T20:54:19  Finished systemd-tmpfiles-clean.service - Cleanup of Temporary Directories.
+2026-11-16T20:55:00  run-p3429019-i16011272.scope: Consumed 19min 13.786s CPU time, 2.9G memory peak.
+2026-11-16T20:56:03  Started run-p3429947-i16012200.scope - [systemd-run] /usr/bin/nice -n 19 ionice -c 2 -n 7 bash /opt/rbuild/in/cmd-948.sh.
+2026-11-16T20:58:34  run-p3429947-i16012200.scope: Consumed 7min 32.278s CPU time, 1.5G memory peak.
+2026-11-16T20:59:44  Started tk580-gzb-1.service - [systemd-run] /data/tk580/gzb.sh s1.
+2026-11-16T20:59:53  tk580-gzb-1.service: Consumed 9.407s CPU time, 64.9M memory peak.
+2026-11-16T21:02:17  Started run-p3430869-i16013122.scope - [systemd-run] /usr/bin/nice -n 19 ionice -c 2 -n 7 bash /opt/rbuild/in/cmd-1079.sh.
+2026-11-16T21:02:51  run-p3430869-i16013122.scope: Consumed 58.457s CPU time, 1.6G memory peak.
+2026-11-16T21:03:56  Started run-p3431242-i16013495.scope - [systemd-run] /usr/bin/nice -n 19 ionice -c 2 -n 7 bash /opt/rbuild/in/cmd-1124.sh.
+2026-11-16T21:05:09  hold-rawtol.service: Consumed 2h 1min 10.491s CPU time, 18.9G memory peak.
+2026-11-16T21:05:37  Started hold-tol.service - [systemd-run] /usr/bin/bash -c "bash hold_run_v2.sh tol > /data/arb-hold/v2/tol.log 2>&1".
+2026-11-16T21:06:04  run-p3431242-i16013495.scope: Consumed 7min 6.160s CPU time, 1.3G memory peak.
+2026-11-16T21:07:11  Started tk580-gzb-2.service - [systemd-run] /data/tk580/gzb.sh s2.
+2026-11-16T21:07:16  tk580-gzb-2.service: Consumed 4.799s CPU time, 75.3M memory peak.
+2026-11-16T21:11:42  Started tk580-abrun-w1.service - [systemd-run] /data/tk580/abrun.sh w1 old 330.
+2026-11-16T21:11:43  Started tk580-ab-w1-old.service - [systemd-run] /data/tk580/alpha-old collect run --exchange bingx --root /data/tk580/ab-w1/old/data --health /data/tk580/ab-w1/old/health.json --lanes 1 --reactor --worker-inline --reactor-window-us 10000 -
+2026-11-16T21:12:03  Started tk580-ab-w1-new.service - [systemd-run] /data/tk580/alpha-new collect run --exchange bingx --root /data/tk580/ab-w1/new/data --health /data/tk580/ab-w1/new/health.json --lanes 1 --reactor --worker-inline --reactor-window-us 10000 -
+2026-11-16T21:17:03  Finished collector-day-upload.service - G-022: выгрузка закрытых суток коллекторов (Binance, OKX, BingX, Gate, Bybit, soak-Binance) на Storage Box; ничего не удаляет.
+2026-11-16T21:17:15  tk580-ab-w1-old.service: Consumed 44.165s CPU time, 57.7M memory peak.
+2026-11-16T21:17:36  tk580-ab-w1-new.service: Consumed 42.661s CPU time, 51.6M memory peak.
+2026-11-16T21:19:03  Started tk580-abrun-w2.service - [systemd-run] /data/tk580/abrun.sh w2 new 330.
+2026-11-16T21:19:03  Started tk580-ab-w2-new.service - [systemd-run] /data/tk580/alpha-new collect run --exchange bingx --root /data/tk580/ab-w2/new/data --health /data/tk580/ab-w2/new/health.json --lanes 1 --reactor --worker-inline --reactor-window-us 10000 -
+2026-11-16T21:19:23  Started tk580-ab-w2-old.service - [systemd-run] /data/tk580/alpha-old collect run --exchange bingx --root /data/tk580/ab-w2/old/data --health /data/tk580/ab-w2/old/health.json --lanes 1 --reactor --worker-inline --reactor-window-us 10000 -
+2026-11-16T21:24:41  tk580-ab-w2-new.service: Consumed 43.103s CPU time, 46.7M memory peak.
+2026-11-16T21:24:56  tk580-ab-w2-old.service: Consumed 46.082s CPU time, 50.1M memory peak.
+2026-11-16T21:25:23  tk580-abrun-w2.service: Consumed 1.099s CPU time, 8.7M memory peak.
+2026-11-16T21:25:57  hold-tol.service: Consumed 1h 5min 29.598s CPU time, 9.9G memory peak.
+2026-11-16T21:27:54  Started tk580-abrun-w3.service - [systemd-run] /data/tk580/abrun2.sh w3.
+2026-11-16T21:27:54  Started tk580-ab-w3-A.service - [systemd-run] /data/tk580/alpha-new collect run --exchange bingx --root /data/tk580/ab-w3/A/data --health /data/tk580/ab-w3/A/health.json --lanes 1 --reactor --worker-inline --reactor-window-us 10000 --rx-st
+2026-11-16T21:28:14  Started tk580-ab-w3-B.service - [systemd-run] /data/tk580/alpha-new collect run --exchange bingx --root /data/tk580/ab-w3/B/data --health /data/tk580/ab-w3/B/health.json --lanes 1 --reactor --worker-inline --reactor-window-us 10000 --rx-st
+2026-11-16T21:31:05  Started tk580-loadx-w3-1.service - [systemd-run] /usr/bin/bash -c "timeout 100 sh -c \"xz -9 -c /dev/urandom > /dev/null\"".
+2026-11-16T21:31:05  Started tk580-loadx-w3-2.service - [systemd-run] /usr/bin/bash -c "timeout 100 sh -c \"xz -9 -c /dev/urandom > /dev/null\"".
+2026-11-16T21:31:05  Started tk580-loadx-w3-3.service - [systemd-run] /usr/bin/bash -c "timeout 100 sh -c \"xz -9 -c /dev/urandom > /dev/null\"".
+2026-11-16T21:31:05  Started tk580-loadx-w3-4.service - [systemd-run] /usr/bin/bash -c "timeout 100 sh -c \"xz -9 -c /dev/urandom > /dev/null\"".
+2026-11-16T21:31:05  Started tk580-loadx-w3-5.service - [systemd-run] /usr/bin/bash -c "timeout 100 sh -c \"xz -9 -c /dev/urandom > /dev/null\"".
+2026-11-16T21:31:05  Started tk580-loadx-w3-6.service - [systemd-run] /usr/bin/bash -c "timeout 100 sh -c \"xz -9 -c /dev/urandom > /dev/null\"".
+2026-11-16T21:32:46  tk580-loadx-w3-5.service: Failed with result 'exit-code'.
+2026-11-16T21:32:46  tk580-loadx-w3-5.service: Consumed 1min 53.273s CPU time, 3G memory peak.
+2026-11-16T21:32:46  tk580-loadx-w3-1.service: Failed with result 'exit-code'.
+2026-11-16T21:32:46  tk580-loadx-w3-1.service: Consumed 1min 52.677s CPU time, 3G memory peak.
+2026-11-16T21:32:46  tk580-loadx-w3-2.service: Failed with result 'exit-code'.
+2026-11-16T21:32:46  tk580-loadx-w3-2.service: Consumed 1min 54.563s CPU time, 3.1G memory peak.
+2026-11-16T21:32:46  tk580-loadx-w3-3.service: Failed with result 'exit-code'.
+2026-11-16T21:32:46  tk580-loadx-w3-3.service: Consumed 1min 56.097s CPU time, 3G memory peak.
+2026-11-16T21:32:46  tk580-loadx-w3-4.service: Failed with result 'exit-code'.
+2026-11-16T21:32:46  tk580-loadx-w3-4.service: Consumed 1min 55.346s CPU time, 3.1G memory peak.
+2026-11-16T21:32:46  tk580-loadx-w3-6.service: Failed with result 'exit-code'.
+2026-11-16T21:32:46  tk580-loadx-w3-6.service: Consumed 1min 55.691s CPU time, 3.1G memory peak.
+2026-11-16T21:32:56  tk580-abrun-w3.service: Consumed 1.966s CPU time, 3.4M memory peak.
+2026-11-16T21:33:41  Started srvwait-test.service - [systemd-run] /usr/bin/sleep 30.
+2026-11-16T21:33:53  Started tk580-abrun-w4.service - [systemd-run] /data/tk580/abrun3.sh w4.
+2026-11-16T21:33:53  Started tk580-ab-w4-A.service - [systemd-run] /data/tk580/alpha-old collect run --exchange bingx --root /data/tk580/ab-w4/A/data --health /data/tk580/ab-w4/A/health.json --lanes 1 --reactor --worker-inline --reactor-window-us 10000 --rx-st
+2026-11-16T21:34:08  Started tk580-ab-w4-B.service - [systemd-run] /data/tk580/alpha-new collect run --exchange bingx --root /data/tk580/ab-w4/B/data --health /data/tk580/ab-w4/B/health.json --lanes 1 --reactor --worker-inline --reactor-window-us 10000 --rx-st
+2026-11-16T21:34:23  Started tk580-ab-w4-C.service - [systemd-run] /data/tk580/alpha-new collect run --exchange bingx --root /data/tk580/ab-w4/C/data --health /data/tk580/ab-w4/C/health.json --lanes 1 --reactor --worker-inline --reactor-window-us 10000 --rx-st
+2026-11-16T21:34:56  tk580-ab-w3-A.service: Consumed 40.712s CPU time, 52.2M memory peak.
+2026-11-16T21:35:16  tk580-ab-w3-B.service: Consumed 40.258s CPU time, 48.2M memory peak.
+2026-11-16T21:36:54  Started tk580-sysl-w4-1.service - [systemd-run] /usr/bin/bash -c "timeout 80 sh -c \"while :; do dd if=/dev/zero of=/dev/null bs=1 count=2000000 2>/dev/null; done\"".
+2026-11-16T21:36:55  Started tk580-sysl-w4-2.service - [systemd-run] /usr/bin/bash -c "timeout 80 sh -c \"while :; do dd if=/dev/zero of=/dev/null bs=1 count=2000000 2>/dev/null; done\"".
+2026-11-16T21:36:55  Started tk580-sysl-w4-3.service - [systemd-run] /usr/bin/bash -c "timeout 80 sh -c \"while :; do dd if=/dev/zero of=/dev/null bs=1 count=2000000 2>/dev/null; done\"".
+2026-11-16T21:36:55  Started tk580-sysl-w4-4.service - [systemd-run] /usr/bin/bash -c "timeout 80 sh -c \"while :; do dd if=/dev/zero of=/dev/null bs=1 count=2000000 2>/dev/null; done\"".
+2026-11-16T21:36:55  Started tk580-sysl-w4-5.service - [systemd-run] /usr/bin/bash -c "timeout 80 sh -c \"while :; do dd if=/dev/zero of=/dev/null bs=1 count=2000000 2>/dev/null; done\"".
+2026-11-16T21:36:55  Started tk580-sysl-w4-6.service - [systemd-run] /usr/bin/bash -c "timeout 80 sh -c \"while :; do dd if=/dev/zero of=/dev/null bs=1 count=2000000 2>/dev/null; done\"".
+2026-11-16T21:38:15  tk580-sysl-w4-1.service: Failed with result 'exit-code'.
+2026-11-16T21:38:15  tk580-sysl-w4-1.service: Consumed 1min 18.092s CPU time, 1.7M memory peak.
+2026-11-16T21:38:15  tk580-sysl-w4-2.service: Failed with result 'exit-code'.
+2026-11-16T21:38:15  tk580-sysl-w4-2.service: Consumed 1min 18.273s CPU time, 1.8M memory peak.
+2026-11-16T21:38:15  tk580-sysl-w4-3.service: Failed with result 'exit-code'.
+2026-11-16T21:38:15  tk580-sysl-w4-3.service: Consumed 1min 18.354s CPU time, 1.6M memory peak.
+2026-11-16T21:38:15  tk580-sysl-w4-4.service: Failed with result 'exit-code'.
+2026-11-16T21:38:15  tk580-sysl-w4-4.service: Consumed 1min 18.104s CPU time, 1.7M memory peak.
+2026-11-16T21:38:15  tk580-sysl-w4-5.service: Failed with result 'exit-code'.
+2026-11-16T21:38:15  tk580-sysl-w4-5.service: Consumed 1min 18.220s CPU time, 1.8M memory peak.
+2026-11-16T21:38:15  tk580-sysl-w4-6.service: Failed with result 'exit-code'.
+2026-11-16T21:38:15  tk580-sysl-w4-6.service: Consumed 1min 18.497s CPU time, 1.7M memory peak.
+2026-11-16T21:38:16  Started tk580-pfl-w4-1.service - [systemd-run] /usr/bin/python3 -c "\nimport mmap,time\nend=time.time()+80\nwhile time.time()<end:\n    m=mmap.mmap(-1,256<<20)\n    for o in range(0,256<<20,4096): m[o]=1\n    m.close()\n".
+2026-11-16T21:38:16  Started tk580-pfl-w4-2.service - [systemd-run] /usr/bin/python3 -c "\nimport mmap,time\nend=time.time()+80\nwhile time.time()<end:\n    m=mmap.mmap(-1,256<<20)\n    for o in range(0,256<<20,4096): m[o]=1\n    m.close()\n".
+2026-11-16T21:38:16  Started tk580-pfl-w4-3.service - [systemd-run] /usr/bin/python3 -c "\nimport mmap,time\nend=time.time()+80\nwhile time.time()<end:\n    m=mmap.mmap(-1,256<<20)\n    for o in range(0,256<<20,4096): m[o]=1\n    m.close()\n".
+2026-11-16T21:38:16  Started tk580-pfl-w4-4.service - [systemd-run] /usr/bin/python3 -c "\nimport mmap,time\nend=time.time()+80\nwhile time.time()<end:\n    m=mmap.mmap(-1,256<<20)\n    for o in range(0,256<<20,4096): m[o]=1\n    m.close()\n".
+2026-11-16T21:38:16  Started tk580-pfl-w4-5.service - [systemd-run] /usr/bin/python3 -c "\nimport mmap,time\nend=time.time()+80\nwhile time.time()<end:\n    m=mmap.mmap(-1,256<<20)\n    for o in range(0,256<<20,4096): m[o]=1\n    m.close()\n".
+2026-11-16T21:38:16  Started tk580-pfl-w4-6.service - [systemd-run] /usr/bin/python3 -c "\nimport mmap,time\nend=time.time()+80\nwhile time.time()<end:\n    m=mmap.mmap(-1,256<<20)\n    for o in range(0,256<<20,4096): m[o]=1\n    m.close()\n".
+2026-11-16T21:39:36  tk580-pfl-w4-1.service: Consumed 1min 17.760s CPU time, 260.2M memory peak.
+2026-11-16T21:39:36  tk580-pfl-w4-4.service: Consumed 1min 17.448s CPU time, 260.2M memory peak.
+2026-11-16T21:39:36  tk580-pfl-w4-3.service: Consumed 1min 17.980s CPU time, 260.2M memory peak.
+2026-11-16T21:39:36  tk580-pfl-w4-2.service: Consumed 1min 17.606s CPU time, 260.2M memory peak.
+2026-11-16T21:39:36  tk580-pfl-w4-6.service: Consumed 1min 17.284s CPU time, 260.2M memory peak.
+2026-11-16T21:39:36  tk580-pfl-w4-5.service: Consumed 1min 17.712s CPU time, 260.2M memory peak.
+2026-11-16T21:39:46  tk580-abrun-w4.service: Consumed 3.306s CPU time, 3.9M memory peak.
+2026-11-16T21:41:01  Started run-p3438106-i16020359.scope - [systemd-run] /usr/bin/nice -n 19 ionice -c 2 -n 7 bash /opt/rbuild/in/cmd-1404.sh.
+2026-11-16T21:41:54  run-p3438106-i16020359.scope: Consumed 1min 21.772s CPU time, 1.7G memory peak.
+2026-11-16T21:42:35  tk580-ab-w4-A.service: Consumed 42.480s CPU time, 37.5M memory peak.
+2026-11-16T21:42:53  tk580-ab-w4-B.service: Consumed 39.806s CPU time, 38.6M memory peak.
+2026-11-16T21:43:10  tk580-ab-w4-C.service: Consumed 39.762s CPU time, 37.9M memory peak.
+2026-11-16T21:43:23  Started run-p3439056-i16021309.scope - [systemd-run] /usr/bin/nice -n 19 ionice -c 2 -n 7 bash /opt/rbuild/in/cmd-1663.sh.
+2026-11-16T21:44:47  run-p3439056-i16021309.scope: Consumed 1min 56.627s CPU time, 1.8G memory peak.
+2026-11-16T21:45:37  Started run-p3439705-i16021958.scope - [systemd-run] /usr/bin/nice -n 19 ionice -c 2 -n 7 bash /opt/rbuild/in/cmd-446.sh.
+2026-11-16T21:46:10  run-p3439705-i16021958.scope: Consumed 33.070s CPU time, 959M memory peak.
+2026-11-16T21:46:15  Started rev534-extract.service - [systemd-run] /root/rev534/extract.sh.
+2026-11-16T21:47:12  Started run-p3440466-i16022719.scope - [systemd-run] /usr/bin/nice -n 19 ionice -c 2 -n 7 bash /opt/rbuild/in/cmd-509.sh.
+2026-11-16T21:47:49  run-p3440466-i16022719.scope: Consumed 36.616s CPU time, 950.8M memory peak.
+2026-11-16T21:48:31  Started run-p3441306-i16023559.scope - [systemd-run] /usr/bin/nice -n 19 ionice -c 2 -n 7 bash /opt/rbuild/in/cmd-574.sh.
+2026-11-16T21:49:46  Started rev534-scan.service - [systemd-run] /usr/bin/bash -c "until [ -e /root/rev534/EXTRACT.DONE ]; do sleep 30; done; python3 scan.py > scan.log 2>&1 && python3 cmp.py > cmp.log 2>&1".
+2026-11-16T21:56:58  run-p3441306-i16023559.scope: Consumed 23min 38.944s CPU time, 3.3G memory peak.
+2026-11-16T21:57:44  Started run-p3446932-i16029185.scope - [systemd-run] /usr/bin/nice -n 19 ionice -c 2 -n 7 bash /opt/rbuild/in/cmd-988.sh.
+2026-11-16T22:00:30  run-p3446932-i16029185.scope: Consumed 7min 53.504s CPU time, 1.3G memory peak.
+2026-11-16T22:08:18  Started tk580-abrun-w5.service - [systemd-run] /data/tk580/abrun4.sh w5.
+2026-11-16T22:08:18  Started tk580-ab-w5-A.service - [systemd-run] /data/tk580/alpha-old collect run --exchange bingx --root /data/tk580/ab-w5/A/data --health /data/tk580/ab-w5/A/health.json --lanes 1 --reactor --worker-inline --reactor-window-us 10000 --rx-st
+2026-11-16T22:08:33  Started tk580-ab-w5-B.service - [systemd-run] /data/tk580/alpha-new collect run --exchange bingx --root /data/tk580/ab-w5/B/data --health /data/tk580/ab-w5/B/health.json --lanes 1 --reactor --worker-inline --reactor-window-us 10000 --rx-st
+2026-11-16T22:08:48  Started tk580-ab-w5-C.service - [systemd-run] /data/tk580/alpha-new collect run --exchange bingx --root /data/tk580/ab-w5/C/data --health /data/tk580/ab-w5/C/health.json --lanes 1 --reactor --worker-inline --reactor-window-us 10000 --rx-st
+2026-11-16T22:14:11  tk580-abrun-w5.service: Consumed 2.939s CPU time, 3.2M memory peak.
+2026-11-16T22:16:33  Started run-p3453770-i16036023.scope - [systemd-run] /usr/bin/nice -n 19 ionice -c 2 -n 7 bash /opt/rbuild/in/cmd-1213.sh.
+2026-11-16T22:17:00  tk580-ab-w5-A.service: Consumed 40.349s CPU time, 37.9M memory peak.
+2026-11-16T22:17:00  Finished collector-day-upload.service - G-022: выгрузка закрытых суток коллекторов (Binance, OKX, BingX, Gate, Bybit, soak-Binance) на Storage Box; ничего не удаляет.
+2026-11-16T22:17:15  tk580-ab-w5-B.service: Consumed 35.728s CPU time, 35M memory peak.
+2026-11-16T22:17:31  tk580-ab-w5-C.service: Consumed 34.943s CPU time, 37.4M memory peak.
+2026-11-16T22:22:10  rev534-extract.service: Consumed 2h 45min 31.953s CPU time, 35.4G memory peak.
+2026-11-16T22:22:33  run-p3453770-i16036023.scope: Consumed 19min 36.491s CPU time, 2.5G memory peak.
+2026-11-16T22:23:04  Started run-p3455323-i16037576.scope - [systemd-run] /usr/bin/nice -n 19 ionice -c 2 -n 7 bash /opt/rbuild/in/cmd-1335.sh.
+2026-11-16T22:29:28  run-p3455323-i16037576.scope: Consumed 21min 22.368s CPU time, 2.8G memory peak.
+2026-11-16T22:37:50  Started tk580-review1.service - [systemd-run] /usr/bin/bash -c "python3 tk580_review.py > out.txt 2> err.txt".
+2026-11-16T22:38:38  tk580-review1.service: Consumed 47.660s CPU time, 1.1G memory peak.
+2026-11-16T22:42:19  Started run-p3459152-i16041405.scope - [systemd-run] /usr/bin/nice -n 19 ionice -c 2 -n 7 bash /opt/rbuild/in/cmd-1903.sh.
+2026-11-16T22:48:27  run-p3459152-i16041405.scope: Consumed 20min 49.507s CPU time, 3.7G memory peak.
+2026-11-16T22:49:12  Started run-p3462303-i16044556.scope - [systemd-run] /usr/bin/nice -n 19 ionice -c 2 -n 7 bash /opt/rbuild/in/cmd-2064.sh.
+2026-11-16T22:52:51  run-p3462303-i16044556.scope: Consumed 16min 24.777s CPU time, 3.4G memory peak.

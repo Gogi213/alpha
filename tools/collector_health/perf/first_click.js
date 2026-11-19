@@ -6,7 +6,7 @@ const url = process.argv[2], thr = +(process.argv[3] || 1), runs = +(process.arg
 const ACTIONS = [
   ['счёт: выбросы', '#ctl button[data-m="out"]'],
   ['скрыть пустые', '#ctl button[data-hide]'],
-  ['пара: Binance→BingX', '#flt button:nth-child(2)'],
+  ['биржи: без Binance', '#ex button:nth-child(1)'],
   ['сорт: за 1 ч', '#tab th[data-k="n0"]'],
   ['сорт: монета', '#tab th[data-k="c"]'],
   ['график: открыть строку', '#tab tr.r:nth-child(5)'],

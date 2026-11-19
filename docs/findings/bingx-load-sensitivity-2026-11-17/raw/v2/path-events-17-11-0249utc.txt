@@ -1,0 +1,90 @@
+== весь журнал (13.11–16.11): 11-13 06:13:55 … 11-17 02:49:43
+{'path_ok': 861, 'path_reject_capped': 4, 'path_rejected': 39, 'path_rejected_rtt': 129, 'path_slow_accepted': 5, 'path_switch': 346, 'path_upgrade': 5, 'ping_degraded': 347, 'replace_capped': 6, 'switch_timeout': 19, 'timeout': 347}
+  path_ok book: n 331, p50 медиана 86 p90 119 макс 348 (порог 350, запас 2); p99 макс 925 (порог 1500, запас 575)
+  path_ok mark: n 287, p50 медиана 260 p90 276 макс 339 (порог 350, запас 11); p99 макс 1396 (порог 1500, запас 104)
+  path_ok trade: n 242, p50 медиана 83 p90 117 макс 340 (порог 350, запас 10); p99 макс 1200 (порог 1500, запас 300)
+  path_rejected: 11-16 13:49:33 mark02 p50 367.0 p99 510.0 n 1947
+  path_rejected: 11-16 21:06:27 trade04 p50 440.0 p99 938.0 n 411
+  path_rejected: 11-16 21:06:28 mark04 p50 1025.0 p99 1991.0 n 2080
+  path_rejected: 11-16 21:06:29 mark00 p50 752.0 p99 2209.0 n 2011
+  path_rejected: 11-16 21:06:34 mark01 p50 980.0 p99 2376.0 n 1696
+  path_rejected: 11-16 21:06:37 mark04 p50 536.0 p99 1997.0 n 2030
+  path_rejected: 11-16 21:06:40 mark00 p50 754.0 p99 4153.0 n 2069
+  path_rejected: 11-16 21:06:42 book04 p50 5162.0 p99 9959.0 n 604
+  path_rejected: 11-16 21:06:48 mark04 p50 6009.0 p99 8873.0 n 2017
+  path_rejected: 11-16 21:06:50 book02 p50 454.0 p99 908.0 n 5517
+  path_rejected: 11-16 21:06:59 mark03 p50 283.0 p99 2290.0 n 2340
+  path_rejected: 11-16 21:25:58 trade02 p50 222.0 p99 3004.0 n 439
+  path_rejected: 11-16 23:40:20 mark03 p50 359.0 p99 534.0 n 1954
+  path_rejected: 11-16 23:40:21 mark02 p50 1013.0 p99 2487.0 n 2068
+  path_rejected: 11-16 23:40:45 book03 p50 351.0 p99 587.0 n 939
+  path_rejected: 11-16 23:40:47 book00 p50 7438.0 p99 12388.0 n 1128
+  path_rejected: 11-16 23:40:49 book04 p50 482.0 p99 1191.0 n 5391
+  path_rejected: 11-16 23:40:51 mark02 p50 460.0 p99 1751.0 n 2406
+  path_rejected: 11-16 23:40:52 mark03 p50 6312.0 p99 9319.0 n 782
+  path_rejected: 11-16 23:56:10 mark00 p50 268.0 p99 8098.0 n 2109
+  path_rejected: 11-17 00:18:24 trade00 p50 367.0 p99 1095.0 n 166
+  path_rejected: 11-17 00:18:24 mark01 p50 909.0 p99 1933.0 n 1848
+  path_rejected: 11-17 00:18:26 book01 p50 376.0 p99 883.0 n 5022
+  path_rejected: 11-17 00:18:27 mark02 p50 9948.0 p99 13817.0 n 362
+  path_rejected: 11-17 00:18:29 book03 p50 9463.0 p99 14011.0 n 988
+  path_rejected: 11-17 00:18:36 mark03 p50 1046.0 p99 2753.0 n 1835
+  path_rejected: 11-17 00:18:36 trade01 p50 2253.0 p99 4347.0 n 495
+  path_rejected: 11-17 00:18:37 trade04 p50 933.0 p99 3412.0 n 393
+  path_rejected: 11-17 00:18:46 trade00 p50 836.0 p99 4951.0 n 407
+  path_rejected: 11-17 00:18:47 mark00 p50 492.0 p99 1665.0 n 1543
+  path_rejected: 11-17 00:18:48 book01 p50 8067.0 p99 14796.0 n 668
+  path_rejected: 11-17 00:18:51 mark02 p50 7100.0 p99 7895.0 n 1481
+  path_rejected: 11-17 00:18:53 book03 p50 274.0 p99 2120.0 n 5902
+  path_rejected: 11-17 00:18:53 mark04 p50 299.0 p99 1681.0 n 2167
+  path_rejected: 11-17 00:20:30 trade01 p50 436.0 p99 1665.0 n 435
+  path_rejected: 11-17 00:20:30 mark02 p50 10122.0 p99 13952.0 n 94
+  path_rejected: 11-17 00:20:40 mark04 p50 856.0 p99 1796.0 n 2154
+  path_rejected: 11-17 00:20:53 mark02 p50 787.0 p99 3379.0 n 1295
+  path_rejected: 11-17 00:20:54 trade01 p50 310.0 p99 2581.0 n 427
+  path_switch 346: со ping_degraded на старой сессии 340, без 6 [('11-16 13:48:43', 'trade02'), ('11-16 13:50:02', 'trade00'), ('11-16 13:50:10', 'mark03'), ('11-16 21:16:15', 'book02'), ('11-16 21:48:56', 'book00'), ('11-16 22:04:59', 'trade04')]
+== с начала сборки 29d981c0: 11-16 15:26:12 … 11-17 02:49:43
+{'path_ok': 179, 'path_reject_capped': 4, 'path_rejected': 38, 'path_rejected_rtt': 70, 'path_switch': 139, 'ping_degraded': 140, 'replace_capped': 1, 'switch_timeout': 4, 'timeout': 140}
+  path_ok book: n 65, p50 медиана 89 p90 263 макс 348 (порог 350, запас 2); p99 макс 925 (порог 1500, запас 575)
+  path_ok mark: n 70, p50 медиана 263 p90 279 макс 339 (порог 350, запас 11); p99 макс 1396 (порог 1500, запас 104)
+  path_ok trade: n 43, p50 медиана 85 p90 214 макс 340 (порог 350, запас 10); p99 макс 1200 (порог 1500, запас 300)
+  path_rejected: 11-16 21:06:27 trade04 p50 440.0 p99 938.0 n 411
+  path_rejected: 11-16 21:06:28 mark04 p50 1025.0 p99 1991.0 n 2080
+  path_rejected: 11-16 21:06:29 mark00 p50 752.0 p99 2209.0 n 2011
+  path_rejected: 11-16 21:06:34 mark01 p50 980.0 p99 2376.0 n 1696
+  path_rejected: 11-16 21:06:37 mark04 p50 536.0 p99 1997.0 n 2030
+  path_rejected: 11-16 21:06:40 mark00 p50 754.0 p99 4153.0 n 2069
+  path_rejected: 11-16 21:06:42 book04 p50 5162.0 p99 9959.0 n 604
+  path_rejected: 11-16 21:06:48 mark04 p50 6009.0 p99 8873.0 n 2017
+  path_rejected: 11-16 21:06:50 book02 p50 454.0 p99 908.0 n 5517
+  path_rejected: 11-16 21:06:59 mark03 p50 283.0 p99 2290.0 n 2340
+  path_rejected: 11-16 21:25:58 trade02 p50 222.0 p99 3004.0 n 439
+  path_rejected: 11-16 23:40:20 mark03 p50 359.0 p99 534.0 n 1954
+  path_rejected: 11-16 23:40:21 mark02 p50 1013.0 p99 2487.0 n 2068
+  path_rejected: 11-16 23:40:45 book03 p50 351.0 p99 587.0 n 939
+  path_rejected: 11-16 23:40:47 book00 p50 7438.0 p99 12388.0 n 1128
+  path_rejected: 11-16 23:40:49 book04 p50 482.0 p99 1191.0 n 5391
+  path_rejected: 11-16 23:40:51 mark02 p50 460.0 p99 1751.0 n 2406
+  path_rejected: 11-16 23:40:52 mark03 p50 6312.0 p99 9319.0 n 782
+  path_rejected: 11-16 23:56:10 mark00 p50 268.0 p99 8098.0 n 2109
+  path_rejected: 11-17 00:18:24 trade00 p50 367.0 p99 1095.0 n 166
+  path_rejected: 11-17 00:18:24 mark01 p50 909.0 p99 1933.0 n 1848
+  path_rejected: 11-17 00:18:26 book01 p50 376.0 p99 883.0 n 5022
+  path_rejected: 11-17 00:18:27 mark02 p50 9948.0 p99 13817.0 n 362
+  path_rejected: 11-17 00:18:29 book03 p50 9463.0 p99 14011.0 n 988
+  path_rejected: 11-17 00:18:36 mark03 p50 1046.0 p99 2753.0 n 1835
+  path_rejected: 11-17 00:18:36 trade01 p50 2253.0 p99 4347.0 n 495
+  path_rejected: 11-17 00:18:37 trade04 p50 933.0 p99 3412.0 n 393
+  path_rejected: 11-17 00:18:46 trade00 p50 836.0 p99 4951.0 n 407
+  path_rejected: 11-17 00:18:47 mark00 p50 492.0 p99 1665.0 n 1543
+  path_rejected: 11-17 00:18:48 book01 p50 8067.0 p99 14796.0 n 668
+  path_rejected: 11-17 00:18:51 mark02 p50 7100.0 p99 7895.0 n 1481
+  path_rejected: 11-17 00:18:53 book03 p50 274.0 p99 2120.0 n 5902
+  path_rejected: 11-17 00:18:53 mark04 p50 299.0 p99 1681.0 n 2167
+  path_rejected: 11-17 00:20:30 trade01 p50 436.0 p99 1665.0 n 435
+  path_rejected: 11-17 00:20:30 mark02 p50 10122.0 p99 13952.0 n 94
+  path_rejected: 11-17 00:20:40 mark04 p50 856.0 p99 1796.0 n 2154
+  path_rejected: 11-17 00:20:53 mark02 p50 787.0 p99 3379.0 n 1295
+  path_rejected: 11-17 00:20:54 trade01 p50 310.0 p99 2581.0 n 427
+  path_switch 139: со ping_degraded на старой сессии 136, без 3 [('11-16 21:16:15', 'book02'), ('11-16 21:48:56', 'book00'), ('11-16 22:04:59', 'trade04')]
+path_ok с p50 ≥ 300 мс (запас ≤ 50 мс): [('11-16 13:48:13', 'mark00', 312.0), ('11-16 13:48:14', 'mark03', 322.0), ('11-16 13:48:16', 'mark00', 303.0), ('11-16 13:48:19', 'mark02', 308.0), ('11-16 13:48:19', 'mark03', 311.0), ('11-16 13:48:21', 'mark04', 308.0), ('11-16 13:48:21', 'mark04', 304.0), ('11-16 13:48:21', 'mark01', 307.0), ('11-16 13:48:22', 'mark02', 313.0), ('11-16 13:4

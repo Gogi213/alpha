@@ -1,0 +1,18 @@
+[Unit]
+Description=G-022 turbo-collector Binance (Rust, `alpha collect run`) — замена bnws-prod.service (Python)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+# Тот же корень данных и health, что у Python-юнита: ставится ВМЕСТО него (одновременно оба не запускать — общий лимит подключений биржи на IP).
+# Бинарь — PGO-сборка (В-32) в /opt/alpha-turbo/alpha; пока PGO нет — release-сборка tools/vps-check.sh binrel.
+Restart=always
+RestartSec=10s
+# Остановка: один SIGTERM; сессии закрываются и пишут closed, писатель закрывает кадр zstd и .ok; повторные сигналы процесс игнорирует.
+TimeoutStopSec=40s
+KillMode=mixed
+LimitNOFILE=65536
+ExecStart=/opt/alpha-turbo/alpha collect run --exchange binance --root /data/bnws --health /data/health/binance.json --lanes 2
+
+[Install]
+WantedBy=multi-user.target

@@ -159,6 +159,8 @@ def assert_same(got, want, ctx=None):
     assert got["big"] == want["big"], (ctx, got["big"], want["big"])
     for k in ("n", "pk", "tau", "net"):
         assert got["st"][k] == want["st"][k], (ctx, k, got["st"][k], want["st"][k])
+    for k in ("z", "x"):                                                                  # круги по порогам THETAS: инкрементальный счёт = полный
+        assert got[k] == want[k], (ctx, k, got[k], want[k])
     for k in ("S", "B", "C"):
         assert got[k] == want[k], (ctx, k)
 
@@ -246,10 +248,11 @@ class _Gap:
 
 
 def test_illiquid_pair_chart_has_no_holes():
-    """Владелец 15.11: «дырки в графике» (GE Bybit→BingX): у обеих сторон мало записей — слоты без записей не должны быть пустыми."""
+    """Владелец 15.11: «дырки в графике» (GE Bybit→BingX): у обеих сторон мало записей — слоты без записей не должны быть пустыми.
+    С котировкой на 60 с (core.STALE_MS) пара с записью реже раза в минуту строк не имеет совсем, поэтому «малая» — ≈ 2–3 записи в минуту: минуты и слоты без строк остаются."""
     rng = np.random.default_rng(21)
-    A = make_symbol(rng, 150, 100.0, lambda t: np.zeros(len(t)), dup=0.0, bad=0.0)       # ~50 записей в час
-    B = make_symbol(rng, 150, 100.0, basis_of(shocks(rng, 3, 0.25)), dup=0.0, bad=0.0)
+    A = make_symbol(rng, 420, 100.0, lambda t: np.zeros(len(t)), dup=0.0, bad=0.0)       # ≈ 140 записей в час
+    B = make_symbol(rng, 420, 100.0, basis_of(shocks(rng, 3, 0.25)), dup=0.0, bad=0.0)
     start = T_BEGIN + 70 * MIN
     times = np.array([T_BEGIN + 3 * 3600_000 + 5 * MIN], np.int64)
     got, t_b = final_chart(A, B, start, times)
@@ -258,9 +261,6 @@ def test_illiquid_pair_chart_has_no_holes():
         v = got[k]
         first = next(i for i, x in enumerate(v) if x is not None)
         assert all(x is not None for x in v[first:]), (k, [i for i, x in enumerate(v) if x is None][:10])
-    ca, cb = core.clean(dict(A)), core.clean(dict(B))
-    old = core.chart_slots(core.analyze_pair(ca, cb, start, t_b)[1], start // 60000, len(got["S"]))
-    assert sum(x is None for x in old[0][old[0].index(next(x for x in old[0] if x is not None)):]) > 0    # прежняя выборка давала дыры
     assert_same(got, full_result(A, B, start, t_b), "illiquid")                           # и совпадает с эталоном по определению
 
 
@@ -276,3 +276,27 @@ def test_collector_gap_breaks_the_line_only_there():
             assert v is None and got["B"][j] is None, j             # слот целиком в провале — линия рвётся
         elif tmin0 + 3 * j >= (T_BEGIN + 75 * MIN) // MIN and not any(g0 <= k < g1 for k in ks):
             assert v is not None, j                                  # вне провала дыр нет
+
+
+def test_sym_take_hold_and_refresh_across_passes():
+    s = arb_inc.Sym()
+
+    def ing(e, bid):
+        s.ingest(np.array(e, np.int64), np.array(e, np.int64) + 5, np.array(bid, float), np.array(bid, float) + 0.1, np.full(len(e), 5.0))
+    ing([1000, 2000, 3000], [1.0, 1.0, 1.1])
+    b = s.take(0, 2500)                                       # 1000 принята, 2000 — повтор цены: серия живёт до 2000
+    assert b["e"].tolist() == [1000] and b["hold"].tolist() == [2000] and s.carry[4] == 2000 and b["h0"] is None
+    ing([4000, 5000], [1.1, 1.1])
+    b = s.take(2500, 4500)                                    # 3000 — смена цены, 4000 — повтор; серия carry (1000) закончилась на 2000
+    assert b["e"].tolist() == [3000] and b["hold"].tolist() == [4000] and b["h0"] == 2000
+    b = s.take(4500, 6000)                                    # только повтор: принятых нет, серия продлена до 5000
+    assert len(b["e"]) == 0 and b["h0"] == 5000 and s.carry[4] == 5000
+    ing([5000 + 61_000], [1.1])                               # та же цена после паузы 61 с > 60 с: запись остаётся, серия carry закончилась на 5000
+    b = s.take(6000, 10 ** 6)
+    assert b["e"].tolist() == [66_000] and b["h0"] == 5000 and b["hold"].tolist() == [66_000]
+
+
+def test_scenario_has_real_circles_in_both_methods():
+    A, B, start, times = scenario(1)
+    got, _ = final_chart(A, B, start, times)
+    assert got is not None and any(v is not None for v in got["z"]) and any(v is not None for v in got["x"]), (got["z"], got["x"])

@@ -1,0 +1,132 @@
+binance book00 | replay binance shard book00: 112074 frames, 23 MB, sessions 2
+binance book00 | pass 0: wall 0.31 s, CPU wr 0.25 s + sk 0.02 s = 0.27 s => 2.41 CPU-s per Mframe (wr 2.23, sk 0.18); records 56036 dups 56036 raw 2 rows 56038; allocs wr 0.002/frame sk 0.0001/frame; zst 837491 B; decompressed 3270199 B fnv c68192824c361e84
+binance book00 | pass 1: wall 0.24 s, CPU wr 0.22 s + sk 0.02 s = 0.24 s => 2.14 CPU-s per Mframe (wr 1.96, sk 0.18); records 56036 dups 56036 raw 2 rows 56038; allocs wr 0.002/frame sk 0.0001/frame; zst 837491 B; decompressed 3270199 B fnv c68192824c361e84
+binance book00 | pass 2: wall 0.28 s, CPU wr 0.23 s + sk 0.02 s = 0.25 s => 2.23 CPU-s per Mframe (wr 2.05, sk 0.18); records 56036 dups 56036 raw 2 rows 56038; allocs wr 0.002/frame sk 0.0001/frame; zst 837491 B; decompressed 3270199 B fnv c68192824c361e84
+binance book00 | pass 3: wall 0.21 s, CPU wr 0.17 s + sk 0.01 s = 0.18 s => 1.61 CPU-s per Mframe (wr 1.52, sk 0.09); records 56036 dups 56036 raw 2 rows 56038; allocs wr 0.002/frame sk 0.0001/frame; zst 837491 B; decompressed 3270199 B fnv c68192824c361e84
+binance book00 | pass 4: wall 0.25 s, CPU wr 0.21 s + sk 0.01 s = 0.22 s => 1.96 CPU-s per Mframe (wr 1.87, sk 0.09); records 56036 dups 56036 raw 2 rows 56038; allocs wr 0.002/frame sk 0.0001/frame; zst 837491 B; decompressed 3270199 B fnv c68192824c361e84
+binance book00 | median 2.14 CPU-s per Mframe over 5 passes
+binance book08 | replay binance shard book08: 105414 frames, 21 MB, sessions 2
+binance book08 | pass 0: wall 0.20 s, CPU wr 0.16 s + sk 0.01 s = 0.17 s => 1.61 CPU-s per Mframe (wr 1.52, sk 0.09); records 52713 dups 52699 raw 2 rows 52715; allocs wr 0.002/frame sk 0.0001/frame; zst 783893 B; decompressed 2957704 B fnv 1cd3de77ef322794
+binance book08 | pass 1: wall 0.17 s, CPU wr 0.16 s + sk 0.01 s = 0.17 s => 1.61 CPU-s per Mframe (wr 1.52, sk 0.09); records 52713 dups 52699 raw 2 rows 52715; allocs wr 0.002/frame sk 0.0001/frame; zst 783893 B; decompressed 2957704 B fnv 1cd3de77ef322794
+binance book08 | pass 2: wall 0.16 s, CPU wr 0.15 s + sk 0.01 s = 0.16 s => 1.52 CPU-s per Mframe (wr 1.42, sk 0.09); records 52713 dups 52699 raw 2 rows 52715; allocs wr 0.002/frame sk 0.0001/frame; zst 783893 B; decompressed 2957704 B fnv 1cd3de77ef322794
+binance book08 | pass 3: wall 0.21 s, CPU wr 0.20 s + sk 0.02 s = 0.22 s => 2.09 CPU-s per Mframe (wr 1.90, sk 0.19); records 52713 dups 52699 raw 2 rows 52715; allocs wr 0.002/frame sk 0.0001/frame; zst 783893 B; decompressed 2957704 B fnv 1cd3de77ef322794
+binance book08 | pass 4: wall 0.17 s, CPU wr 0.15 s + sk 0.01 s = 0.16 s => 1.52 CPU-s per Mframe (wr 1.42, sk 0.09); records 52713 dups 52699 raw 2 rows 52715; allocs wr 0.002/frame sk 0.0001/frame; zst 783893 B; decompressed 2957704 B fnv 1cd3de77ef322794
+binance book08 | median 1.61 CPU-s per Mframe over 5 passes
+binance mark00 | replay binance shard mark00: 720 frames, 59 MB, sessions 2
+binance mark00 | pass 0: wall 0.86 s, CPU wr 0.83 s + sk 0.05 s = 0.88 s => 1222.22 CPU-s per Mframe (wr 1152.78, sk 69.44); records 171483 dups 171663 raw 182 rows 171665; allocs wr 6.314/frame sk 0.0111/frame; zst 1834974 B; decompressed 15915754 B fnv 2c0d57d5bca77ced
+binance mark00 | pass 1: wall 0.86 s, CPU wr 0.83 s + sk 0.05 s = 0.88 s => 1222.22 CPU-s per Mframe (wr 1152.78, sk 69.44); records 171483 dups 171663 raw 182 rows 171665; allocs wr 6.314/frame sk 0.0111/frame; zst 1834974 B; decompressed 15915754 B fnv 2c0d57d5bca77ced
+binance mark00 | pass 2: wall 0.89 s, CPU wr 0.86 s + sk 0.04 s = 0.90 s => 1250.00 CPU-s per Mframe (wr 1194.44, sk 55.56); records 171483 dups 171663 raw 182 rows 171665; allocs wr 6.314/frame sk 0.0111/frame; zst 1834974 B; decompressed 15915754 B fnv 2c0d57d5bca77ced
+binance mark00 | pass 3: wall 0.87 s, CPU wr 0.83 s + sk 0.05 s = 0.88 s => 1222.22 CPU-s per Mframe (wr 1152.78, sk 69.44); records 171483 dups 171663 raw 182 rows 171665; allocs wr 6.314/frame sk 0.0111/frame; zst 1834974 B; decompressed 15915754 B fnv 2c0d57d5bca77ced
+binance mark00 | pass 4: wall 0.85 s, CPU wr 0.81 s + sk 0.05 s = 0.86 s => 1194.44 CPU-s per Mframe (wr 1125.00, sk 69.44); records 171483 dups 171663 raw 182 rows 171665; allocs wr 6.314/frame sk 0.0111/frame; zst 1834974 B; decompressed 15915754 B fnv 2c0d57d5bca77ced
+binance mark00 | median 1222.22 CPU-s per Mframe over 5 passes
+binance trade00 | replay binance shard trade00: 26970 frames, 5 MB, sessions 2
+binance trade00 | pass 0: wall 0.05 s, CPU wr 0.03 s + sk 0.00 s = 0.03 s => 1.11 CPU-s per Mframe (wr 1.11, sk 0.00); records 13484 dups 13484 raw 2 rows 13486; allocs wr 0.009/frame sk 0.0003/frame; zst 161644 B; decompressed 658513 B fnv e232c5651090e96f
+binance trade00 | pass 1: wall 0.05 s, CPU wr 0.04 s + sk 0.00 s = 0.04 s => 1.48 CPU-s per Mframe (wr 1.48, sk 0.00); records 13484 dups 13484 raw 2 rows 13486; allocs wr 0.009/frame sk 0.0003/frame; zst 161644 B; decompressed 658513 B fnv e232c5651090e96f
+binance trade00 | pass 2: wall 0.04 s, CPU wr 0.03 s + sk 0.00 s = 0.03 s => 1.11 CPU-s per Mframe (wr 1.11, sk 0.00); records 13484 dups 13484 raw 2 rows 13486; allocs wr 0.009/frame sk 0.0003/frame; zst 161644 B; decompressed 658513 B fnv e232c5651090e96f
+binance trade00 | pass 3: wall 0.04 s, CPU wr 0.03 s + sk 0.00 s = 0.03 s => 1.11 CPU-s per Mframe (wr 1.11, sk 0.00); records 13484 dups 13484 raw 2 rows 13486; allocs wr 0.009/frame sk 0.0003/frame; zst 161644 B; decompressed 658513 B fnv e232c5651090e96f
+binance trade00 | pass 4: wall 0.04 s, CPU wr 0.03 s + sk 0.00 s = 0.03 s => 1.11 CPU-s per Mframe (wr 1.11, sk 0.00); records 13484 dups 13484 raw 2 rows 13486; allocs wr 0.009/frame sk 0.0003/frame; zst 161644 B; decompressed 658513 B fnv e232c5651090e96f
+binance trade00 | median 1.11 CPU-s per Mframe over 5 passes
+bybit book00 | replay bybit shard book00: 80101 frames, 15 MB, sessions 2
+bybit book00 | pass 0: wall 0.29 s, CPU wr 0.25 s + sk 0.01 s = 0.26 s => 3.25 CPU-s per Mframe (wr 3.12, sk 0.12); records 39973 dups 40126 raw 2 rows 39975; allocs wr 0.004/frame sk 0.0001/frame; zst 630265 B; decompressed 2173467 B fnv 5bba24f96091e1a4
+bybit book00 | pass 1: wall 0.18 s, CPU wr 0.16 s + sk 0.01 s = 0.17 s => 2.12 CPU-s per Mframe (wr 2.00, sk 0.12); records 39973 dups 40126 raw 2 rows 39975; allocs wr 0.004/frame sk 0.0001/frame; zst 630265 B; decompressed 2173467 B fnv 5bba24f96091e1a4
+bybit book00 | pass 2: wall 0.24 s, CPU wr 0.22 s + sk 0.01 s = 0.23 s => 2.87 CPU-s per Mframe (wr 2.75, sk 0.12); records 39973 dups 40126 raw 2 rows 39975; allocs wr 0.004/frame sk 0.0001/frame; zst 630265 B; decompressed 2173467 B fnv 5bba24f96091e1a4
+bybit book00 | pass 3: wall 0.21 s, CPU wr 0.19 s + sk 0.01 s = 0.20 s => 2.50 CPU-s per Mframe (wr 2.37, sk 0.12); records 39973 dups 40126 raw 2 rows 39975; allocs wr 0.004/frame sk 0.0001/frame; zst 630265 B; decompressed 2173467 B fnv 5bba24f96091e1a4
+bybit book00 | pass 4: wall 0.22 s, CPU wr 0.20 s + sk 0.01 s = 0.21 s => 2.62 CPU-s per Mframe (wr 2.50, sk 0.12); records 39973 dups 40126 raw 2 rows 39975; allocs wr 0.004/frame sk 0.0001/frame; zst 630265 B; decompressed 2173467 B fnv 5bba24f96091e1a4
+bybit book00 | median 2.62 CPU-s per Mframe over 5 passes
+bybit book04 | replay bybit shard book04: 77810 frames, 14 MB, sessions 2
+bybit book04 | pass 0: wall 0.24 s, CPU wr 0.22 s + sk 0.01 s = 0.23 s => 2.96 CPU-s per Mframe (wr 2.83, sk 0.13); records 38817 dups 38991 raw 2 rows 38819; allocs wr 0.004/frame sk 0.0001/frame; zst 611809 B; decompressed 2091254 B fnv 8aa8125379493dce
+bybit book04 | pass 1: wall 0.26 s, CPU wr 0.24 s + sk 0.01 s = 0.25 s => 3.21 CPU-s per Mframe (wr 3.08, sk 0.13); records 38817 dups 38991 raw 2 rows 38819; allocs wr 0.004/frame sk 0.0001/frame; zst 611809 B; decompressed 2091254 B fnv 8aa8125379493dce
+bybit book04 | pass 2: wall 0.22 s, CPU wr 0.20 s + sk 0.01 s = 0.21 s => 2.70 CPU-s per Mframe (wr 2.57, sk 0.13); records 38817 dups 38991 raw 2 rows 38819; allocs wr 0.004/frame sk 0.0001/frame; zst 611809 B; decompressed 2091254 B fnv 8aa8125379493dce
+bybit book04 | pass 3: wall 0.22 s, CPU wr 0.20 s + sk 0.01 s = 0.21 s => 2.70 CPU-s per Mframe (wr 2.57, sk 0.13); records 38817 dups 38991 raw 2 rows 38819; allocs wr 0.004/frame sk 0.0001/frame; zst 611809 B; decompressed 2091254 B fnv 8aa8125379493dce
+bybit book04 | pass 4: wall 0.29 s, CPU wr 0.27 s + sk 0.01 s = 0.28 s => 3.60 CPU-s per Mframe (wr 3.47, sk 0.13); records 38817 dups 38991 raw 2 rows 38819; allocs wr 0.004/frame sk 0.0001/frame; zst 611809 B; decompressed 2091254 B fnv 8aa8125379493dce
+bybit book04 | median 2.96 CPU-s per Mframe over 5 passes
+bybit mark00 | replay bybit shard mark00: 47066 frames, 8 MB, sessions 2
+bybit mark00 | pass 0: wall 0.08 s, CPU wr 0.06 s + sk 0.00 s = 0.06 s => 1.27 CPU-s per Mframe (wr 1.27, sk 0.00); records 4939 dups 4936 raw 2 rows 4941; allocs wr 0.009/frame sk 0.0002/frame; zst 51212 B; decompressed 307373 B fnv b9a477ba3f1db28b
+bybit mark00 | pass 1: wall 0.08 s, CPU wr 0.07 s + sk 0.00 s = 0.07 s => 1.49 CPU-s per Mframe (wr 1.49, sk 0.00); records 4939 dups 4936 raw 2 rows 4941; allocs wr 0.009/frame sk 0.0002/frame; zst 51212 B; decompressed 307373 B fnv b9a477ba3f1db28b
+bybit mark00 | pass 2: wall 0.06 s, CPU wr 0.04 s + sk 0.00 s = 0.04 s => 0.85 CPU-s per Mframe (wr 0.85, sk 0.00); records 4939 dups 4936 raw 2 rows 4941; allocs wr 0.009/frame sk 0.0002/frame; zst 51212 B; decompressed 307373 B fnv b9a477ba3f1db28b
+bybit mark00 | pass 3: wall 0.06 s, CPU wr 0.04 s + sk 0.00 s = 0.04 s => 0.85 CPU-s per Mframe (wr 0.85, sk 0.00); records 4939 dups 4936 raw 2 rows 4941; allocs wr 0.009/frame sk 0.0002/frame; zst 51212 B; decompressed 307373 B fnv b9a477ba3f1db28b
+bybit mark00 | pass 4: wall 0.06 s, CPU wr 0.04 s + sk 0.00 s = 0.04 s => 0.85 CPU-s per Mframe (wr 0.85, sk 0.00); records 4939 dups 4936 raw 2 rows 4941; allocs wr 0.009/frame sk 0.0002/frame; zst 51212 B; decompressed 307373 B fnv b9a477ba3f1db28b
+bybit mark00 | median 0.85 CPU-s per Mframe over 5 passes
+bybit trade00 | replay bybit shard trade00: 7828 frames, 3 MB, sessions 2
+bybit trade00 | pass 0: wall 0.07 s, CPU wr 0.06 s + sk 0.00 s = 0.06 s => 7.66 CPU-s per Mframe (wr 7.66, sk 0.00); records 9700 dups 9700 raw 2 rows 9702; allocs wr 0.035/frame sk 0.0010/frame; zst 324661 B; decompressed 827640 B fnv 6ecccbb37f95bdb6
+bybit trade00 | pass 1: wall 0.06 s, CPU wr 0.05 s + sk 0.00 s = 0.05 s => 6.39 CPU-s per Mframe (wr 6.39, sk 0.00); records 9700 dups 9700 raw 2 rows 9702; allocs wr 0.035/frame sk 0.0010/frame; zst 324661 B; decompressed 827640 B fnv 6ecccbb37f95bdb6
+bybit trade00 | pass 2: wall 0.06 s, CPU wr 0.05 s + sk 0.00 s = 0.05 s => 6.39 CPU-s per Mframe (wr 6.39, sk 0.00); records 9700 dups 9700 raw 2 rows 9702; allocs wr 0.035/frame sk 0.0010/frame; zst 324661 B; decompressed 827640 B fnv 6ecccbb37f95bdb6
+bybit trade00 | pass 3: wall 0.06 s, CPU wr 0.05 s + sk 0.00 s = 0.05 s => 6.39 CPU-s per Mframe (wr 6.39, sk 0.00); records 9700 dups 9700 raw 2 rows 9702; allocs wr 0.035/frame sk 0.0010/frame; zst 324661 B; decompressed 827640 B fnv 6ecccbb37f95bdb6
+bybit trade00 | pass 4: wall 0.05 s, CPU wr 0.05 s + sk 0.00 s = 0.05 s => 6.39 CPU-s per Mframe (wr 6.39, sk 0.00); records 9700 dups 9700 raw 2 rows 9702; allocs wr 0.035/frame sk 0.0010/frame; zst 324661 B; decompressed 827640 B fnv 6ecccbb37f95bdb6
+bybit trade00 | median 6.39 CPU-s per Mframe over 5 passes
+okx book00 | replay okx shard book00: 164350 frames, 28 MB, sessions 2
+okx book00 | pass 0: wall 0.71 s, CPU wr 0.66 s + sk 0.03 s = 0.69 s => 4.20 CPU-s per Mframe (wr 4.02, sk 0.18); records 82084 dups 82080 raw 186 rows 82270; allocs wr 0.003/frame sk 0.0000/frame; zst 1271898 B; decompressed 4964093 B fnv 951112830e840fc2
+okx book00 | pass 1: wall 0.65 s, CPU wr 0.63 s + sk 0.03 s = 0.66 s => 4.02 CPU-s per Mframe (wr 3.83, sk 0.18); records 82084 dups 82080 raw 186 rows 82270; allocs wr 0.003/frame sk 0.0000/frame; zst 1271898 B; decompressed 4964093 B fnv 951112830e840fc2
+okx book00 | pass 2: wall 0.73 s, CPU wr 0.67 s + sk 0.03 s = 0.70 s => 4.26 CPU-s per Mframe (wr 4.08, sk 0.18); records 82084 dups 82080 raw 186 rows 82270; allocs wr 0.003/frame sk 0.0000/frame; zst 1271898 B; decompressed 4964093 B fnv 951112830e840fc2
+okx book00 | pass 3: wall 0.63 s, CPU wr 0.61 s + sk 0.03 s = 0.64 s => 3.89 CPU-s per Mframe (wr 3.71, sk 0.18); records 82084 dups 82080 raw 186 rows 82270; allocs wr 0.003/frame sk 0.0000/frame; zst 1271898 B; decompressed 4964093 B fnv 951112830e840fc2
+okx book00 | pass 4: wall 0.72 s, CPU wr 0.67 s + sk 0.03 s = 0.70 s => 4.26 CPU-s per Mframe (wr 4.08, sk 0.18); records 82084 dups 82080 raw 186 rows 82270; allocs wr 0.003/frame sk 0.0000/frame; zst 1271898 B; decompressed 4964093 B fnv 951112830e840fc2
+okx book00 | median 4.20 CPU-s per Mframe over 5 passes
+okx book02 | replay okx shard book02: 142134 frames, 25 MB, sessions 2
+okx book02 | pass 0: wall 0.55 s, CPU wr 0.49 s + sk 0.03 s = 0.52 s => 3.66 CPU-s per Mframe (wr 3.45, sk 0.21); records 70975 dups 70973 raw 186 rows 71161; allocs wr 0.003/frame sk 0.0001/frame; zst 1036301 B; decompressed 4329319 B fnv d398c500db74ba37
+okx book02 | pass 1: wall 0.54 s, CPU wr 0.52 s + sk 0.03 s = 0.55 s => 3.87 CPU-s per Mframe (wr 3.66, sk 0.21); records 70975 dups 70973 raw 186 rows 71161; allocs wr 0.003/frame sk 0.0001/frame; zst 1036301 B; decompressed 4329319 B fnv d398c500db74ba37
+okx book02 | pass 2: wall 0.57 s, CPU wr 0.52 s + sk 0.03 s = 0.55 s => 3.87 CPU-s per Mframe (wr 3.66, sk 0.21); records 70975 dups 70973 raw 186 rows 71161; allocs wr 0.003/frame sk 0.0001/frame; zst 1036301 B; decompressed 4329319 B fnv d398c500db74ba37
+okx book02 | pass 3: wall 0.62 s, CPU wr 0.58 s + sk 0.03 s = 0.61 s => 4.29 CPU-s per Mframe (wr 4.08, sk 0.21); records 70975 dups 70973 raw 186 rows 71161; allocs wr 0.003/frame sk 0.0001/frame; zst 1036301 B; decompressed 4329319 B fnv d398c500db74ba37
+okx book02 | pass 4: wall 0.54 s, CPU wr 0.52 s + sk 0.02 s = 0.54 s => 3.80 CPU-s per Mframe (wr 3.66, sk 0.14); records 70975 dups 70973 raw 186 rows 71161; allocs wr 0.003/frame sk 0.0001/frame; zst 1036301 B; decompressed 4329319 B fnv d398c500db74ba37
+okx book02 | median 3.87 CPU-s per Mframe over 5 passes
+okx mark00 | replay okx shard mark00: 230881 frames, 39 MB, sessions 2
+okx mark00 | pass 0: wall 0.76 s, CPU wr 0.72 s + sk 0.02 s = 0.74 s => 3.21 CPU-s per Mframe (wr 3.12, sk 0.09); records 82596 dups 82521 raw 641 rows 83237; allocs wr 0.004/frame sk 0.0000/frame; zst 616570 B; decompressed 6333055 B fnv 35d0223c4559ab05
+okx mark00 | pass 1: wall 0.74 s, CPU wr 0.71 s + sk 0.02 s = 0.73 s => 3.16 CPU-s per Mframe (wr 3.08, sk 0.09); records 82596 dups 82521 raw 641 rows 83237; allocs wr 0.004/frame sk 0.0000/frame; zst 616570 B; decompressed 6333055 B fnv 35d0223c4559ab05
+okx mark00 | pass 2: wall 0.80 s, CPU wr 0.76 s + sk 0.01 s = 0.77 s => 3.34 CPU-s per Mframe (wr 3.29, sk 0.04); records 82596 dups 82521 raw 641 rows 83237; allocs wr 0.004/frame sk 0.0000/frame; zst 616570 B; decompressed 6333055 B fnv 35d0223c4559ab05
+okx mark00 | pass 3: wall 0.82 s, CPU wr 0.79 s + sk 0.02 s = 0.81 s => 3.51 CPU-s per Mframe (wr 3.42, sk 0.09); records 82596 dups 82521 raw 641 rows 83237; allocs wr 0.004/frame sk 0.0000/frame; zst 616570 B; decompressed 6333055 B fnv 35d0223c4559ab05
+okx mark00 | pass 4: wall 0.85 s, CPU wr 0.81 s + sk 0.02 s = 0.83 s => 3.59 CPU-s per Mframe (wr 3.51, sk 0.09); records 82596 dups 82521 raw 641 rows 83237; allocs wr 0.004/frame sk 0.0000/frame; zst 616570 B; decompressed 6333055 B fnv 35d0223c4559ab05
+okx mark00 | median 3.34 CPU-s per Mframe over 5 passes
+okx trade00 | replay okx shard trade00: 52000 frames, 11 MB, sessions 2
+okx trade00 | pass 0: wall 0.18 s, CPU wr 0.16 s + sk 0.01 s = 0.17 s => 3.27 CPU-s per Mframe (wr 3.08, sk 0.19); records 25907 dups 25907 raw 186 rows 26093; allocs wr 0.007/frame sk 0.0002/frame; zst 296221 B; decompressed 1332634 B fnv 6a0a26f7dc50f55e
+okx trade00 | pass 1: wall 0.15 s, CPU wr 0.13 s + sk 0.00 s = 0.13 s => 2.50 CPU-s per Mframe (wr 2.50, sk 0.00); records 25907 dups 25907 raw 186 rows 26093; allocs wr 0.007/frame sk 0.0002/frame; zst 296221 B; decompressed 1332634 B fnv 6a0a26f7dc50f55e
+okx trade00 | pass 2: wall 0.15 s, CPU wr 0.12 s + sk 0.00 s = 0.12 s => 2.31 CPU-s per Mframe (wr 2.31, sk 0.00); records 25907 dups 25907 raw 186 rows 26093; allocs wr 0.007/frame sk 0.0002/frame; zst 296221 B; decompressed 1332634 B fnv 6a0a26f7dc50f55e
+okx trade00 | pass 3: wall 0.17 s, CPU wr 0.14 s + sk 0.00 s = 0.14 s => 2.69 CPU-s per Mframe (wr 2.69, sk 0.00); records 25907 dups 25907 raw 186 rows 26093; allocs wr 0.007/frame sk 0.0002/frame; zst 296221 B; decompressed 1332634 B fnv 6a0a26f7dc50f55e
+okx trade00 | pass 4: wall 0.13 s, CPU wr 0.13 s + sk 0.00 s = 0.13 s => 2.50 CPU-s per Mframe (wr 2.50, sk 0.00); records 25907 dups 25907 raw 186 rows 26093; allocs wr 0.007/frame sk 0.0002/frame; zst 296221 B; decompressed 1332634 B fnv 6a0a26f7dc50f55e
+okx trade00 | median 2.50 CPU-s per Mframe over 5 passes
+bingx book00 | replay bingx shard book00: 160617 frames, 30 MB, sessions 2
+bingx book00 |   gunzip (miniz_oxide via flate2): 6931 ns/frame, 160617/160617 unpacked, plain 30578410 B, gzip 24038554 B (check 30578410)
+bingx book00 |   gunzip (miniz_oxide via flate2): 7776 ns/frame, 160617/160617 unpacked, plain 30578410 B, gzip 24038554 B (check 30578410)
+bingx book00 |   gunzip (miniz_oxide via flate2): 6979 ns/frame, 160617/160617 unpacked, plain 30578410 B, gzip 24038554 B (check 30578410)
+bingx book00 |   gunzip (miniz_oxide via flate2): 6903 ns/frame, 160617/160617 unpacked, plain 30578410 B, gzip 24038554 B (check 30578410)
+bingx book00 |   gunzip (miniz_oxide via flate2): 6667 ns/frame, 160617/160617 unpacked, plain 30578410 B, gzip 24038554 B (check 30578410)
+bingx book00 | pass 0: wall 0.59 s, CPU wr 0.53 s + sk 0.02 s = 0.55 s => 3.42 CPU-s per Mframe (wr 3.30, sk 0.12); records 80132 dups 80127 raw 358 rows 80490; allocs wr 0.005/frame sk 0.0000/frame; zst 760161 B; decompressed 4680501 B fnv c034049fedebef53
+bingx book00 | pass 1: wall 0.43 s, CPU wr 0.41 s + sk 0.02 s = 0.43 s => 2.68 CPU-s per Mframe (wr 2.55, sk 0.12); records 80132 dups 80127 raw 358 rows 80490; allocs wr 0.005/frame sk 0.0000/frame; zst 760161 B; decompressed 4680501 B fnv c034049fedebef53
+bingx book00 | pass 2: wall 0.50 s, CPU wr 0.48 s + sk 0.02 s = 0.50 s => 3.11 CPU-s per Mframe (wr 2.99, sk 0.12); records 80132 dups 80127 raw 358 rows 80490; allocs wr 0.005/frame sk 0.0000/frame; zst 760161 B; decompressed 4680501 B fnv c034049fedebef53
+bingx book00 | pass 3: wall 0.57 s, CPU wr 0.52 s + sk 0.02 s = 0.54 s => 3.36 CPU-s per Mframe (wr 3.24, sk 0.12); records 80132 dups 80127 raw 358 rows 80490; allocs wr 0.005/frame sk 0.0000/frame; zst 760161 B; decompressed 4680501 B fnv c034049fedebef53
+bingx book00 | pass 4: wall 0.58 s, CPU wr 0.54 s + sk 0.02 s = 0.56 s => 3.49 CPU-s per Mframe (wr 3.36, sk 0.12); records 80132 dups 80127 raw 358 rows 80490; allocs wr 0.005/frame sk 0.0000/frame; zst 760161 B; decompressed 4680501 B fnv c034049fedebef53
+bingx book00 | median 3.36 CPU-s per Mframe over 5 passes
+bingx book03 | replay bingx shard book03: 160506 frames, 32 MB, sessions 2
+bingx book03 |   gunzip (miniz_oxide via flate2): 7099 ns/frame, 160506/160506 unpacked, plain 32301819 B, gzip 25057535 B (check 32301819)
+bingx book03 |   gunzip (miniz_oxide via flate2): 7213 ns/frame, 160506/160506 unpacked, plain 32301819 B, gzip 25057535 B (check 32301819)
+bingx book03 |   gunzip (miniz_oxide via flate2): 6977 ns/frame, 160506/160506 unpacked, plain 32301819 B, gzip 25057535 B (check 32301819)
+bingx book03 |   gunzip (miniz_oxide via flate2): 7189 ns/frame, 160506/160506 unpacked, plain 32301819 B, gzip 25057535 B (check 32301819)
+bingx book03 |   gunzip (miniz_oxide via flate2): 7218 ns/frame, 160506/160506 unpacked, plain 32301819 B, gzip 25057535 B (check 32301819)
+bingx book03 | pass 0: wall 0.57 s, CPU wr 0.49 s + sk 0.04 s = 0.53 s => 3.30 CPU-s per Mframe (wr 3.05, sk 0.25); records 122545 dups 37603 raw 358 rows 122903; allocs wr 0.005/frame sk 0.0000/frame; zst 1700285 B; decompressed 8452861 B fnv b89ac4b2d63796ec
+bingx book03 | pass 1: wall 0.51 s, CPU wr 0.47 s + sk 0.04 s = 0.51 s => 3.18 CPU-s per Mframe (wr 2.93, sk 0.25); records 122545 dups 37603 raw 358 rows 122903; allocs wr 0.005/frame sk 0.0000/frame; zst 1700285 B; decompressed 8452861 B fnv b89ac4b2d63796ec
+bingx book03 | pass 2: wall 0.44 s, CPU wr 0.42 s + sk 0.04 s = 0.46 s => 2.87 CPU-s per Mframe (wr 2.62, sk 0.25); records 122545 dups 37603 raw 358 rows 122903; allocs wr 0.005/frame sk 0.0000/frame; zst 1700285 B; decompressed 8452861 B fnv b89ac4b2d63796ec
+bingx book03 | pass 3: wall 0.52 s, CPU wr 0.48 s + sk 0.04 s = 0.52 s => 3.24 CPU-s per Mframe (wr 2.99, sk 0.25); records 122545 dups 37603 raw 358 rows 122903; allocs wr 0.005/frame sk 0.0000/frame; zst 1700285 B; decompressed 8452861 B fnv b89ac4b2d63796ec
+bingx book03 | pass 4: wall 0.41 s, CPU wr 0.40 s + sk 0.03 s = 0.43 s => 2.68 CPU-s per Mframe (wr 2.49, sk 0.19); records 122545 dups 37603 raw 358 rows 122903; allocs wr 0.005/frame sk 0.0000/frame; zst 1700285 B; decompressed 8452861 B fnv b89ac4b2d63796ec
+bingx book03 | median 3.18 CPU-s per Mframe over 5 passes
+bingx mark00 | replay bingx shard mark00: 63708 frames, 7 MB, sessions 2
+bingx mark00 |   gunzip (miniz_oxide via flate2): 7195 ns/frame, 63708/63708 unpacked, plain 7769822 B, gzip 7415046 B (check 7769822)
+bingx mark00 |   gunzip (miniz_oxide via flate2): 6290 ns/frame, 63708/63708 unpacked, plain 7769822 B, gzip 7415046 B (check 7769822)
+bingx mark00 |   gunzip (miniz_oxide via flate2): 6187 ns/frame, 63708/63708 unpacked, plain 7769822 B, gzip 7415046 B (check 7769822)
+bingx mark00 |   gunzip (miniz_oxide via flate2): 6633 ns/frame, 63708/63708 unpacked, plain 7769822 B, gzip 7415046 B (check 7769822)
+bingx mark00 |   gunzip (miniz_oxide via flate2): 6495 ns/frame, 63708/63708 unpacked, plain 7769822 B, gzip 7415046 B (check 7769822)
+bingx mark00 | pass 0: wall 0.12 s, CPU wr 0.10 s + sk 0.00 s = 0.10 s => 1.57 CPU-s per Mframe (wr 1.57, sk 0.00); records 31675 dups 31675 raw 358 rows 32033; allocs wr 0.010/frame sk 0.0001/frame; zst 244979 B; decompressed 1167867 B fnv 6ad56700a99de030
+bingx mark00 | pass 1: wall 0.12 s, CPU wr 0.11 s + sk 0.00 s = 0.11 s => 1.73 CPU-s per Mframe (wr 1.73, sk 0.00); records 31675 dups 31675 raw 358 rows 32033; allocs wr 0.010/frame sk 0.0001/frame; zst 244979 B; decompressed 1167867 B fnv 6ad56700a99de030
+bingx mark00 | pass 2: wall 0.12 s, CPU wr 0.11 s + sk 0.00 s = 0.11 s => 1.73 CPU-s per Mframe (wr 1.73, sk 0.00); records 31675 dups 31675 raw 358 rows 32033; allocs wr 0.010/frame sk 0.0001/frame; zst 244979 B; decompressed 1167867 B fnv 6ad56700a99de030
+bingx mark00 | pass 3: wall 0.11 s, CPU wr 0.09 s + sk 0.00 s = 0.09 s => 1.41 CPU-s per Mframe (wr 1.41, sk 0.00); records 31675 dups 31675 raw 358 rows 32033; allocs wr 0.010/frame sk 0.0001/frame; zst 244979 B; decompressed 1167867 B fnv 6ad56700a99de030
+bingx mark00 | pass 4: wall 0.09 s, CPU wr 0.07 s + sk 0.00 s = 0.07 s => 1.10 CPU-s per Mframe (wr 1.10, sk 0.00); records 31675 dups 31675 raw 358 rows 32033; allocs wr 0.010/frame sk 0.0001/frame; zst 244979 B; decompressed 1167867 B fnv 6ad56700a99de030
+bingx mark00 | median 1.57 CPU-s per Mframe over 5 passes
+bingx trade00 | replay bingx shard trade00: 14132 frames, 2 MB, sessions 2
+bingx trade00 |   gunzip (miniz_oxide via flate2): 6794 ns/frame, 14132/14132 unpacked, plain 2810869 B, gzip 1971127 B (check 2810869)
+bingx trade00 |   gunzip (miniz_oxide via flate2): 6796 ns/frame, 14132/14132 unpacked, plain 2810869 B, gzip 1971127 B (check 2810869)
+bingx trade00 |   gunzip (miniz_oxide via flate2): 6710 ns/frame, 14132/14132 unpacked, plain 2810869 B, gzip 1971127 B (check 2810869)
+bingx trade00 |   gunzip (miniz_oxide via flate2): 6661 ns/frame, 14132/14132 unpacked, plain 2810869 B, gzip 1971127 B (check 2810869)
+bingx trade00 |   gunzip (miniz_oxide via flate2): 7142 ns/frame, 14132/14132 unpacked, plain 2810869 B, gzip 1971127 B (check 2810869)
+bingx trade00 | pass 0: wall 0.04 s, CPU wr 0.03 s + sk 0.00 s = 0.03 s => 2.12 CPU-s per Mframe (wr 2.12, sk 0.00); records 12247 dups 12237 raw 358 rows 12605; allocs wr 0.042/frame sk 0.0006/frame; zst 141528 B; decompressed 597929 B fnv b88cc2b8caaed09b
+bingx trade00 | pass 1: wall 0.04 s, CPU wr 0.03 s + sk 0.00 s = 0.03 s => 2.12 CPU-s per Mframe (wr 2.12, sk 0.00); records 12247 dups 12237 raw 358 rows 12605; allocs wr 0.042/frame sk 0.0006/frame; zst 141528 B; decompressed 597929 B fnv b88cc2b8caaed09b
+bingx trade00 | pass 2: wall 0.04 s, CPU wr 0.03 s + sk 0.00 s = 0.03 s => 2.12 CPU-s per Mframe (wr 2.12, sk 0.00); records 12247 dups 12237 raw 358 rows 12605; allocs wr 0.042/frame sk 0.0006/frame; zst 141528 B; decompressed 597929 B fnv b88cc2b8caaed09b
+bingx trade00 | pass 3: wall 0.04 s, CPU wr 0.03 s + sk 0.00 s = 0.03 s => 2.12 CPU-s per Mframe (wr 2.12, sk 0.00); records 12247 dups 12237 raw 358 rows 12605; allocs wr 0.042/frame sk 0.0006/frame; zst 141528 B; decompressed 597929 B fnv b88cc2b8caaed09b
+bingx trade00 | pass 4: wall 0.04 s, CPU wr 0.03 s + sk 0.00 s = 0.03 s => 2.12 CPU-s per Mframe (wr 2.12, sk 0.00); records 12247 dups 12237 raw 358 rows 12605; allocs wr 0.042/frame sk 0.0006/frame; zst 141528 B; decompressed 597929 B fnv b88cc2b8caaed09b
+bingx trade00 | median 2.12 CPU-s per Mframe over 5 passes

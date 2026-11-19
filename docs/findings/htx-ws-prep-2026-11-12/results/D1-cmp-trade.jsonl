@@ -1,0 +1,1 @@
+{"ref": "frames/D1-A-trade.jsonl.zst", "other": "frames/D1-B-trade.jsonl.zst", "ref_peer": "43.169.95.96", "other_peer": "43.169.95.96", "window_s": 85.6, "common": 471, "only_ref": 2, "only_other": 1, "delta_ms_p1": -922.246511, "delta_ms_p50": -89.150569, "delta_ms_p99": 0.212307, "delta_ms_max": 15.797033, "delta_ms_min": -1181.177501}

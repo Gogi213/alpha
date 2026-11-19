@@ -16,7 +16,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).parent))
 import core  # noqa: E402
-from common import EXCHANGES, build_symmap, load_pool, norm  # noqa: E402
+from common import EXCHANGES, build_symmap, load_pool, norm, unit_of  # noqa: E402
 
 G = {}
 
@@ -37,7 +37,7 @@ def work_coin(coin):
     g = G
     arrs, info = {}, {}
     for ex, (sym, mult, _) in g["coins"][coin].items():
-        unit = float((g["meta"][ex].get(sym) or {}).get("ctVal") or 1.0) if ex == "okx" else 1.0
+        unit = unit_of(ex, g["meta"][ex].get(sym))
         a = load(g["work"], ex, sym, mult, unit)
         if a is None:
             continue

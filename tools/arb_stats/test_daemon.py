@@ -2,7 +2,8 @@
 import io
 import json
 import sys
-from datetime import datetime, timezone
+import time
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import numpy as np
@@ -21,13 +22,16 @@ import test_inc as ti  # noqa: E402
 
 MIN = 60_000
 RUN = 1794656001
+RUNS = {"gate": common.MINRUN_EX["gate"]}      # у Gate метка постоянного запуска — своя (common.minrun); пробный запуск раньше неё пропускается
 SYMS = {   # монета -> биржи
-    "AAA": ("binance", "bybit", "okx", "bingx"),
+    "AAA": ("binance", "bybit", "okx", "bingx", "gate"),
     "BBB": ("binance", "bybit", "okx"),
     "CCC": ("bybit", "bingx"),
     "DDD": ("binance",),            # одна биржа — пар нет
+    "EEE": ("okx", "gate"),         # пара только с Gate
 }
-NAME = {"binance": "{}USDT", "bybit": "{}USDT", "okx": "{}-USDT-SWAP", "bingx": "{}-USDT"}
+NAME = {"binance": "{}USDT", "bybit": "{}USDT", "okx": "{}-USDT-SWAP", "bingx": "{}-USDT", "gate": "{}_USDT"}
+META = {"gate": {"quanto_multiplier": "0.1"}}   # монет в контракте: у остальных биржа отдаёт размер в монете (OKX — ctVal, здесь 1)
 
 
 def line(delta_ns, lag, sym, bid, ask, bsz, asz):
@@ -42,6 +46,7 @@ class Env:
         monkeypatch.setattr(arb_daemon, "START_MS", self.start)
         monkeypatch.setattr(arb_live, "START_MS", self.start)
         monkeypatch.setattr(parse_inc, "DECOMP", ["cat"])
+        monkeypatch.setattr(common, "SINCE", {})            # время теста — до первого дня данных Gate
         rng = np.random.default_rng(seed)
         self.rows = {ex: [] for ex in common.EXCHANGES}      # (rx, e, имя символа, bid, ask, bsz, asz)
         self.paths, self.plain_paths, self.plain = {}, {}, {}
@@ -50,12 +55,15 @@ class Env:
             monkeypatch.setitem(common.ROOTS, ex, str(root))
             (root / self.day).mkdir(parents=True)
             pool = [NAME[ex].format(c) for c, exs in SYMS.items() if ex in exs]
-            (root / f"pool-{self.day}.json").write_text(json.dumps({"pool": pool, "meta": {s: {"ctVal": 1} for s in pool}}))
-            self.paths[ex] = root / self.day / f"book00-{RUN}.tsv.zst"
-            self.plain_paths[ex] = tmp / "plain" / ex / self.day / f"book00-{RUN}.tsv.zst"
+            (root / f"pool-{self.day}.json").write_text(json.dumps({"pool": pool, "meta": {s: META.get(ex, {"ctVal": 1}) for s in pool}}))
+            run = RUNS.get(ex, RUN)
+            self.paths[ex] = root / self.day / f"book00-{run}.tsv.zst"
+            self.plain_paths[ex] = tmp / "plain" / ex / self.day / f"book00-{run}.tsv.zst"
             self.plain_paths[ex].parent.mkdir(parents=True)
             self.paths[ex].write_bytes(b"")
             self.plain[ex] = b""
+            if ex == "gate":
+                (root / self.day / f"book00-{run - 115}.tsv.zst").write_bytes(b"not zstd: trial run, must be skipped")
         for k, (coin, exs) in enumerate(SYMS.items()):
             sh = ti.shocks(rng, 9, 0.25)
             for ex in exs:
@@ -163,6 +171,9 @@ def test_service_matches_full_pass_with_restarts(tmp_path, monkeypatch):
     ticks(env, 70, 175, box, restart_at=(105, 140), compare_at=(70, 100, 105, 110, 140, 175))
     doc = json.loads((env.live / "arb.json").read_text())
     assert doc["period"] == arb_daemon.PERIOD_S and doc["written"] > 0 and doc["rows"]
+    got = {(r["c"], r["a"], r["b"]) for r in doc["rows"]}      # Gate — пятая биржа: все её пары с остальными четырьмя, «… → Gate»
+    assert {("AAA", ex, "gate") for ex in ("binance", "bybit", "okx", "bingx")} <= got and ("EEE", "okx", "gate") in got
+    assert not any(a == "gate" for _, a, _ in got) and doc["names"]["gate"] == "Gate"
     assert box[0].W.passes >= 20 and sum(s.late for s in box[0].W.syms.values()) == 0
 
 
@@ -184,3 +195,103 @@ def test_bootstrap_from_old_chunks_then_service(tmp_path, monkeypatch):
     same(det, env.reference(t_boot), "bootstrap")
     box = [arb_daemon.Service(str(env.live), now_ms=now1)]
     ticks(env, 125, 170, box, compare_at=(125, 170))
+
+
+def test_gate_units_and_trial_run_skipped(tmp_path, monkeypatch):
+    env = Env(tmp_path, monkeypatch)
+    cmap, coins = arb_daemon.coin_map(env.day)
+    assert cmap[("gate", "AAA_USDT")] == ("AAA", 1.0, 0.1)       # единица размера Gate — quanto_multiplier (монет в контракте)
+    assert cmap[("okx", "AAA-USDT-SWAP")][2] == 1.0 and cmap[("binance", "AAAUSDT")][2] == 1.0
+    assert coins["EEE"].keys() == {"okx", "gate"}
+    assert common.unit_of("gate", {"quanto_multiplier": "0.01"}) == 0.01 and common.unit_of("gate", None) == 1.0
+    assert common.unit_of("okx", {"ctVal": "0.1"}) == 0.1 and common.unit_of("bybit", {"ctVal": "5"}) == 1.0
+    bid, ask = np.array([2.0]), np.array([3.0])
+    dep = arb_daemon.to_sym_arrays({"e": np.array([1]), "rx": np.array([1]), "bid": bid, "ask": ask, "bsz": np.array([10.0]), "asz": np.array([100.0])}, 1.0, 0.1)[4]
+    assert dep[0] == pytest.approx(min(10 * 2.0, 100 * 3.0) * 0.1)
+    files = {Path(j[2]).name for j in arb_live.discover([env.day]) if j[0] == "gate"}
+    assert files == {f"book00-{common.MINRUN_EX['gate']}.tsv.zst"}       # пробный запуск Gate (метка раньше MINRUN_EX) не читается
+    root = Path(common.ROOTS["gate"])      # пул — последний не позже дня (старые биржи: последний пул 14.11, у Gate — 15.11)
+    (root / f"pool-{env.day}.json").rename(root / "pool-2026-11-10.json")
+    assert common.load_pool("gate", "2026-11-12")[0] and common.load_pool("gate", "2026-11-10")[0]
+    with pytest.raises(OSError):
+        common.load_pool("gate", "2026-11-09")
+    monkeypatch.setattr(common, "SINCE", {"gate": "2026-11-15"})
+    assert common.load_pool("gate", "2026-11-14") == ([], {}, {}) and common.load_pool("gate", env.day) == ([], {}, {})      # до первого дня — биржи в счёте нет (пулов нет)
+    assert common.norm("gate", "BTC_USDT") == ("BTC", 1.0) and common.norm("gate", "1000PEPE_USDT") == ("PEPE", 1000.0) and common.norm("gate", "币安人生_USDT")[0] == "币安人生"
+
+
+def test_rebuild_from_raw_files_gives_all_pairs_incl_gate(tmp_path, monkeypatch):
+    env = Env(tmp_path, monkeypatch, seed=3)
+    now1 = ti.T_BEGIN + 120 * MIN + 15_000
+    env.grow(now1)
+    monkeypatch.setattr(arb_live, "discover", lambda days: [(ex, env.day, str(p), p.stat().st_size) for ex, p in env.plain_paths.items()])   # несжатые копии (DECOMP = cat)
+    monkeypatch.setattr(time, "time", lambda: now1 / 1000)
+    prev = (datetime.fromisoformat(env.day) - timedelta(days=1)).date().isoformat()      # начало окна прогрева — накануне: пулы того дня нужны парсеру
+    for ex in common.EXCHANGES:
+        root = Path(common.ROOTS[ex])
+        (root / f"pool-{prev}.json").write_text((root / f"pool-{env.day}.json").read_text())
+    env.live.mkdir()
+    (env.live / "state.pkl").write_bytes(b"x")
+    with pytest.raises(SystemExit):
+        arb_daemon.main("rebuild", str(env.live), 1)                       # занятый каталог не трогаем
+    (env.live / "state.pkl").unlink()
+    arb_daemon.main("rebuild", str(env.live), 1)
+    W = arb_daemon.load_world(str(env.live))
+    _, det = arb_daemon.results(W, W.t_a)
+    same(det, env.reference(W.t_a), "rebuild")
+    assert {("AAA", ex, "gate") for ex in ("binance", "bybit", "okx", "bingx")} <= set(det) and ("EEE", "okx", "gate") in det
+    import state_report
+    _, coins = arb_daemon.coin_map(env.day)
+    rep = state_report.report(W, coins)
+    assert rep["coins_with_exchange"] == 2 and rep["pairs_with_exchange"] == 5 and rep["excluded"] == [] and rep["not_ready"] == []
+    assert rep["pairs_by_exchange"]["gate"] == 5
+    del W.pairs[("EEE", "okx", "gate")]                         # пары нет при готовых сторонах — названа в сводке отброшенной
+    W.syms[("gate", "EEE_USDT")].mid *= 5
+    assert state_report.report(W, coins)["excluded"] == [["EEE", "okx", "gate", pytest.approx(0.2, rel=0.3)]]
+
+
+def test_bootstrap_pair_ok_compares_mids_over_the_common_span(tmp_path):
+    """Gate с короткой историей: цена за сутки ушла со 100 до 60, у Gate — только последние 6 часов; медианы разных промежутков (≈ 80 против ≈ 62) дали бы ratio 1,29 и ложное исключение."""
+    parsed = tmp_path / "parsed"
+    T1 = 1794699960000       # граница bootstrap — целая минута, как в боевом
+    for ex, sym, hours in (("binance", "AAAUSDT", 24), ("gate", "AAA_USDT", 6)):
+        (parsed / ex).mkdir(parents=True)
+        e = T1 - hours * 3600_000 + np.arange(hours * 360, dtype=np.int64) * 10_000
+        px = 100.0 - 40.0 * (e - (T1 - 24 * 3600_000)) / (24 * 3600_000)
+        np.savez(parsed / ex / f"{sym}.2026-11-15-book00-1.1.npz", e=e, rx=e + 50, lag=np.full(len(e), 50, "i4"), bid=px - 0.01, ask=px + 0.01, bsz=np.ones(len(e)), asz=np.ones(len(e)))
+    per = {"binance": ("AAAUSDT", 1.0, True), "gate": ("AAA_USDT", 1.0, True)}
+    cmap = {("binance", "AAAUSDT"): ("AAA", 1.0, 1.0), ("gate", "AAA_USDT"): ("AAA", 1.0, 0.1)}
+    syms, pairs, alive = arb_daemon.boot_coin(("AAA", per, cmap, str(parsed), T1))
+    assert ("AAA", "binance", "gate") in pairs and pairs[("AAA", "binance", "gate")].m0 is not None
+    assert set(alive) == {"binance", "gate"}
+    assert not 0.9 < syms[("binance", "AAAUSDT")].mid / syms[("gate", "AAA_USDT")].mid < 1.1      # медианы собственных историй расходятся — прежнее правило исключило бы пару
+    # пара принята и остаётся: проход службы не судит существующую пару заново по серединам символов
+    W = arb_daemon.new_world()
+    W.syms, W.pairs = syms, pairs
+    arb_daemon.step_coin(W, "AAA", per, {k: s.carry for k, s in syms.items()}, {k: None for k in syms}, T1 // MIN + 1)
+    assert pairs[("AAA", "binance", "gate")].m0 is not None and len(pairs[("AAA", "binance", "gate")].mid) >= 1
+    # две монеты разных активов (общий отрезок — цена 100 против 20) по-прежнему исключаются
+    bad = {("binance", "BBBUSDT"): {"e": np.arange(100, dtype=np.int64) * 1000, "bid": np.full(100, 100.0), "ask": np.full(100, 100.1)},
+           ("gate", "BBB_USDT"): {"e": np.arange(100, dtype=np.int64) * 1000, "bid": np.full(100, 20.0), "ask": np.full(100, 20.1)}}
+    assert not arb_daemon.span_ratio_ok(bad[("binance", "BBBUSDT")], bad[("gate", "BBB_USDT")]) and arb_daemon.span_ratio_ok(None, bad[("gate", "BBB_USDT")])
+
+
+# середины Sym.mid живого состояния srv 15.11.2026: тикер — разные активы на биржах (ANTHROPIC, BB, ON) → пары не считаются; BARD — один актив (по минутам ratio p50 0,998)
+MIDS = {
+    "ANTHROPIC": {"okx": 102.295, "bingx": 1341.95},
+    "BB": {"binance": 0.0055185, "okx": 8.687, "bingx": 0.0054935},
+    "ON": {"binance": 0.08365, "bybit": 69.04, "bingx": 0.08405},
+    "BARD": {"binance": 0.12125, "bybit": 0.121005, "okx": 0.12045, "bingx": 0.12075},
+}
+
+
+def test_pair_ok_excludes_tickers_that_are_different_assets():
+    from types import SimpleNamespace as NS
+    kept = {}
+    for coin, mids in MIDS.items():
+        exs = [e for e in common.EXCHANGES if e in mids]
+        kept[coin] = {(a, b) for i, a in enumerate(exs) for b in exs[i + 1:] if arb_daemon.pair_ok(NS(mid=mids[a]), NS(mid=mids[b]))}
+    assert kept["ANTHROPIC"] == set()
+    assert kept["BB"] == {("binance", "bingx")}
+    assert kept["ON"] == {("binance", "bingx")}
+    assert len(kept["BARD"]) == 6

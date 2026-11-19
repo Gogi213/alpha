@@ -20,7 +20,7 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).parent))
 import core  # noqa: E402
 import maker_run  # noqa: E402
-from hold_common import CENTRE_MIN, EX5, STALE_MS, TZ_MS, unit_of  # noqa: E402
+from hold_common import CENTRE_MIN, EX5, STALE_MS, TZ_MS, rolling_centre, unit_of  # noqa: E402
 from hold_filter import FUND_MARGIN_MS, GAP_MARGIN_MS, OUTAGES, load_audit, load_raw, max_free_gap, merge, overlaps  # noqa: E402
 
 TH, VIEW = 50.0, "c"
@@ -152,10 +152,10 @@ def work_pair(key):
         mults[ex] = mult
         books[ex] = maker_run.load_book(g["bwork"], ex, sym, mult, unit_of(ex, meta))
     A, B = books[a], books[b]
-    T, S, Bu, ia, ib = core.pair_series(A, B, g["t1"])
+    T, S, Bu, ia, ib = core.pair_series(A, B, g["t1"], stale_ms=None)
     cap_ok = ((T - A["e"][ia]) <= core.CAP_MS) & ((T - B["e"][ib]) <= core.CAP_MS)          # как в hold_scan: по таким тикам строится центр (c0 совпадает с таблицей)
     mins, _, sb, bb = core.minute_bars(T[cap_ok], S[cap_ok], Bu[cap_ok])
-    m0, cen = core.rolling_centre(mins, sb, bb, CENTRE_MIN, CENTRE_MIN // 2)
+    m0, cen = rolling_centre(mins, sb, bb, CENTRE_MIN, CENTRE_MIN // 2)
     cT = cen[np.clip(T // 60000 - m0, 0, len(cen) - 1)]
     M = (S + Bu) / 2
     mid_min = np.full(len(cen), np.nan)

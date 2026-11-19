@@ -1,0 +1,1376 @@
+{
+ "span": [
+  1794914041175,
+  1795000441000
+ ],
+ "shards": [
+  "book00",
+  "book01",
+  "mark00",
+  "trade00",
+  "trade01"
+ ],
+ "live_shards": [
+  "book00",
+  "book01",
+  "trade00",
+  "trade01",
+  "trade02",
+  "trade03",
+  "trade04",
+  "trade06",
+  "trade07",
+  "trade08",
+  "mark00"
+ ],
+ "windows": [
+  {
+   "counts": {
+    "боевой, шарды с теми же символами": {
+     "connected": 20,
+     "subscribed": 20,
+     "gap_end": 12,
+     "path_rejected": 14,
+     "path_rejected_rtt": 1,
+     "gap": 11,
+     "path_reject_capped": 4,
+     "ping_degraded:timeout": 1,
+     "error": 4,
+     "attempts": 21,
+     "blocks": 4,
+     "max300": 38
+    },
+    "копия": {
+     "connected": 7,
+     "subscribed": 7,
+     "gap_end": 4,
+     "error": 7,
+     "gap": 3,
+     "path_switch": 5,
+     "connect_wait": 6,
+     "ping_degraded:timeout": 2,
+     "storm_hold": 1,
+     "attempts": 7,
+     "blocks": 1,
+     "max300": 20
+    },
+    "боевой, все шарды": {
+     "connected": 57,
+     "subscribed": 57,
+     "gap_end": 25,
+     "path_rejected": 50,
+     "path_rejected_rtt": 2,
+     "gap": 25,
+     "path_reject_capped": 20,
+     "ping_degraded:timeout": 2,
+     "error": 7,
+     "attempts": 59,
+     "blocks": 20,
+     "max300": 154
+    }
+   },
+   "paused": {
+    "боевой, шарды с теми же символами": {
+     "shard_s": 554.767,
+     "n": 13,
+     "n_long": 10,
+     "by_kind": {
+      "book": [
+       354.075,
+       10,
+       2
+      ],
+      "trade": [
+       0.0,
+       0,
+       8
+      ],
+      "mark": [
+       200.692,
+       3,
+       1
+      ]
+     }
+    },
+    "копия": {
+     "shard_s": 617.807,
+     "n": 4,
+     "n_long": 3,
+     "by_kind": {
+      "book": [
+       439.413,
+       3,
+       2
+      ],
+      "mark": [
+       178.394,
+       1,
+       1
+      ],
+      "trade": [
+       0.0,
+       0,
+       2
+      ]
+     }
+    },
+    "боевой, все шарды": {
+     "shard_s": 3495.64,
+     "n": 28,
+     "n_long": 25,
+     "by_kind": {
+      "book": [
+       3294.948,
+       25,
+       17
+      ],
+      "mark": [
+       200.692,
+       3,
+       1
+      ],
+      "trade": [
+       0.0,
+       0,
+       9
+      ]
+     }
+    }
+   },
+   "name": "W1",
+   "class": "S",
+   "lo": 1794926371175,
+   "hi": 1794926621175
+  },
+  {
+   "counts": {
+    "боевой, шарды с теми же символами": {
+     "path_rejected": 662,
+     "path_reject_capped": 539,
+     "connected": 1042,
+     "subscribed": 1042,
+     "error": 282,
+     "gap": 413,
+     "gap_end": 411,
+     "ping_degraded:timeout": 77,
+     "path_rejected_rtt": 24,
+     "storm_hold": 60,
+     "path_ok": 121,
+     "path_switch": 102,
+     "attempts": 1066,
+     "blocks": 599,
+     "max300": 55
+    },
+    "копия": {
+     "path_switch": 233,
+     "ping_degraded:timeout": 207,
+     "gap": 329,
+     "connect_wait": 557,
+     "ping_degraded:silent_in_gap": 34,
+     "connected": 604,
+     "subscribed": 604,
+     "gap_end": 327,
+     "error": 381,
+     "path_slow_accepted:uncovered": 10,
+     "storm_abort": 12,
+     "storm_hold": 124,
+     "path_upgrade": 2,
+     "path_rejected": 4,
+     "path_rejected_rtt": 2,
+     "attempts": 606,
+     "blocks": 124,
+     "max300": 22
+    },
+    "боевой, все шарды": {
+     "path_rejected": 3585,
+     "path_reject_capped": 3274,
+     "connected": 4294,
+     "subscribed": 4294,
+     "error": 486,
+     "gap": 1437,
+     "gap_end": 1436,
+     "ping_degraded:timeout": 148,
+     "path_rejected_rtt": 122,
+     "path_ok": 290,
+     "path_switch": 238,
+     "storm_hold": 123,
+     "path_slow_accepted:uncovered": 4,
+     "attempts": 4416,
+     "blocks": 3397,
+     "max300": 195
+    }
+   },
+   "paused": {
+    "боевой, шарды с теми же символами": {
+     "shard_s": 16485.269,
+     "n": 412,
+     "n_long": 404,
+     "by_kind": {
+      "book": [
+       11706.718,
+       307,
+       2
+      ],
+      "trade": [
+       0.0,
+       0,
+       8
+      ],
+      "mark": [
+       4778.551,
+       105,
+       1
+      ]
+     }
+    },
+    "копия": {
+     "shard_s": 14449.333,
+     "n": 325,
+     "n_long": 317,
+     "by_kind": {
+      "book": [
+       10518.311,
+       239,
+       2
+      ],
+      "mark": [
+       3931.022,
+       86,
+       1
+      ],
+      "trade": [
+       0.0,
+       0,
+       2
+      ]
+     }
+    },
+    "боевой, все шарды": {
+     "shard_s": 87644.338,
+     "n": 1438,
+     "n_long": 1421,
+     "by_kind": {
+      "book": [
+       82865.787,
+       1333,
+       17
+      ],
+      "mark": [
+       4778.551,
+       105,
+       1
+      ],
+      "trade": [
+       0.0,
+       0,
+       9
+      ]
+     }
+    }
+   },
+   "name": "W2",
+   "class": "S",
+   "lo": 1794926691175,
+   "hi": 1794935891175
+  },
+  {
+   "counts": {
+    "боевой, шарды с теми же символами": {
+     "gap": 2,
+     "connected": 3,
+     "subscribed": 3,
+     "gap_end": 3,
+     "path_rejected": 2,
+     "path_reject_capped": 2,
+     "ping_degraded:timeout": 1,
+     "attempts": 3,
+     "blocks": 2,
+     "max300": 23
+    },
+    "копия": {
+     "connect_wait": 2,
+     "connected": 2,
+     "subscribed": 2,
+     "gap_end": 1,
+     "error": 3,
+     "ping_degraded:timeout": 1,
+     "attempts": 2,
+     "blocks": 0,
+     "max300": 21
+    },
+    "боевой, все шарды": {
+     "gap": 4,
+     "connected": 6,
+     "subscribed": 6,
+     "gap_end": 4,
+     "path_rejected": 8,
+     "path_reject_capped": 7,
+     "ping_degraded:timeout": 1,
+     "path_ok": 1,
+     "attempts": 6,
+     "blocks": 7,
+     "max300": 137
+    }
+   },
+   "paused": {
+    "боевой, шарды с теми же символами": {
+     "shard_s": 73.55,
+     "n": 3,
+     "n_long": 3,
+     "by_kind": {
+      "book": [
+       45.066,
+       2,
+       2
+      ],
+      "trade": [
+       0.0,
+       0,
+       8
+      ],
+      "mark": [
+       28.484,
+       1,
+       1
+      ]
+     }
+    },
+    "копия": {
+     "shard_s": 50.649,
+     "n": 3,
+     "n_long": 3,
+     "by_kind": {
+      "book": [
+       50.649,
+       3,
+       2
+      ],
+      "mark": [
+       0.0,
+       0,
+       1
+      ],
+      "trade": [
+       0.0,
+       0,
+       2
+      ]
+     }
+    },
+    "боевой, все шарды": {
+     "shard_s": 116.301,
+     "n": 6,
+     "n_long": 6,
+     "by_kind": {
+      "book": [
+       87.817,
+       5,
+       17
+      ],
+      "mark": [
+       28.484,
+       1,
+       1
+      ],
+      "trade": [
+       0.0,
+       0,
+       9
+      ]
+     }
+    }
+   },
+   "name": "W3",
+   "class": "E",
+   "lo": 1794936041175,
+   "hi": 1794936071175
+  },
+  {
+   "counts": {
+    "боевой, шарды с теми же символами": {
+     "gap": 2,
+     "connected": 3,
+     "subscribed": 3,
+     "gap_end": 3,
+     "path_rejected": 1,
+     "path_reject_capped": 1,
+     "attempts": 3,
+     "blocks": 1,
+     "max300": 26
+    },
+    "копия": {
+     "storm_hold": 1,
+     "error": 3,
+     "connect_wait": 3,
+     "connected": 3,
+     "subscribed": 3,
+     "attempts": 3,
+     "blocks": 1,
+     "max300": 21
+    },
+    "боевой, все шарды": {
+     "gap": 3,
+     "connected": 23,
+     "subscribed": 23,
+     "gap_end": 5,
+     "path_ok": 9,
+     "path_switch": 10,
+     "storm_hold": 4,
+     "path_rejected": 15,
+     "path_reject_capped": 13,
+     "attempts": 23,
+     "blocks": 17,
+     "max300": 137
+    }
+   },
+   "paused": {
+    "боевой, шарды с теми же символами": {
+     "shard_s": 214.282,
+     "n": 5,
+     "n_long": 4,
+     "by_kind": {
+      "book": [
+       159.145,
+       2,
+       2
+      ],
+      "trade": [
+       0.0,
+       0,
+       8
+      ],
+      "mark": [
+       55.137,
+       3,
+       1
+      ]
+     }
+    },
+    "копия": {
+     "shard_s": 80.516,
+     "n": 2,
+     "n_long": 1,
+     "by_kind": {
+      "book": [
+       0.516,
+       1,
+       2
+      ],
+      "mark": [
+       80.0,
+       1,
+       1
+      ],
+      "trade": [
+       0.0,
+       0,
+       2
+      ]
+     }
+    },
+    "боевой, все шарды": {
+     "shard_s": 328.429,
+     "n": 9,
+     "n_long": 8,
+     "by_kind": {
+      "book": [
+       273.292,
+       6,
+       17
+      ],
+      "mark": [
+       55.137,
+       3,
+       1
+      ],
+      "trade": [
+       0.0,
+       0,
+       9
+      ]
+     }
+    }
+   },
+   "name": "W4",
+   "class": "E",
+   "lo": 1794936151175,
+   "hi": 1794936231175
+  },
+  {
+   "counts": {
+    "боевой, шарды с теми же символами": {
+     "connected": 18,
+     "subscribed": 18,
+     "gap_end": 7,
+     "path_rejected": 13,
+     "path_reject_capped": 10,
+     "gap": 5,
+     "error": 4,
+     "path_ok": 1,
+     "path_switch": 1,
+     "attempts": 18,
+     "blocks": 10,
+     "max300": 31
+    },
+    "копия": {
+     "connect_wait": 14,
+     "path_slow_accepted:uncovered": 2,
+     "connected": 13,
+     "subscribed": 13,
+     "error": 8,
+     "path_upgrade": 1,
+     "ping_degraded:timeout": 3,
+     "storm_hold": 4,
+     "gap": 6,
+     "gap_end": 6,
+     "path_rejected_rtt": 1,
+     "path_switch": 3,
+     "attempts": 14,
+     "blocks": 4,
+     "max300": 21
+    },
+    "боевой, все шарды": {
+     "connected": 53,
+     "subscribed": 53,
+     "gap_end": 15,
+     "path_rejected": 45,
+     "path_reject_capped": 38,
+     "gap": 14,
+     "error": 4,
+     "path_ok": 7,
+     "path_rejected_rtt": 2,
+     "path_switch": 5,
+     "storm_hold": 2,
+     "ping_degraded:timeout": 1,
+     "attempts": 55,
+     "blocks": 40,
+     "max300": 138
+    }
+   },
+   "paused": {
+    "боевой, шарды с теми же символами": {
+     "shard_s": 298.414,
+     "n": 9,
+     "n_long": 9,
+     "by_kind": {
+      "book": [
+       196.811,
+       7,
+       2
+      ],
+      "trade": [
+       0.0,
+       0,
+       8
+      ],
+      "mark": [
+       101.603,
+       2,
+       1
+      ]
+     }
+    },
+    "копия": {
+     "shard_s": 283.793,
+     "n": 6,
+     "n_long": 6,
+     "by_kind": {
+      "book": [
+       114.218,
+       4,
+       2
+      ],
+      "mark": [
+       169.575,
+       2,
+       1
+      ],
+      "trade": [
+       0.0,
+       0,
+       2
+      ]
+     }
+    },
+    "боевой, все шарды": {
+     "shard_s": 903.137,
+     "n": 18,
+     "n_long": 18,
+     "by_kind": {
+      "book": [
+       801.534,
+       16,
+       17
+      ],
+      "mark": [
+       101.603,
+       2,
+       1
+      ],
+      "trade": [
+       0.0,
+       0,
+       9
+      ]
+     }
+    }
+   },
+   "name": "W5",
+   "class": "E",
+   "lo": 1794936321175,
+   "hi": 1794936511175
+  },
+  {
+   "counts": {
+    "боевой, шарды с теми же символами": {
+     "path_rejected": 1,
+     "path_reject_capped": 1,
+     "gap": 1,
+     "connected": 2,
+     "subscribed": 2,
+     "gap_end": 2,
+     "attempts": 2,
+     "blocks": 1,
+     "max300": 27
+    },
+    "копия": {
+     "gap": 2,
+     "path_switch": 1,
+     "ping_degraded:timeout": 1,
+     "storm_hold": 1,
+     "connect_wait": 2,
+     "error": 1,
+     "connected": 1,
+     "subscribed": 1,
+     "attempts": 1,
+     "blocks": 1,
+     "max300": 21
+    },
+    "боевой, все шарды": {
+     "path_rejected": 2,
+     "path_reject_capped": 4,
+     "gap": 2,
+     "connected": 4,
+     "subscribed": 4,
+     "gap_end": 3,
+     "storm_hold": 2,
+     "path_rejected_rtt": 1,
+     "ping_degraded:timeout": 1,
+     "attempts": 5,
+     "blocks": 6,
+     "max300": 133
+    }
+   },
+   "paused": {
+    "боевой, шарды с теми же символами": {
+     "shard_s": 102.726,
+     "n": 3,
+     "n_long": 3,
+     "by_kind": {
+      "book": [
+       70.925,
+       2,
+       2
+      ],
+      "trade": [
+       0.0,
+       0,
+       8
+      ],
+      "mark": [
+       31.801,
+       1,
+       1
+      ]
+     }
+    },
+    "копия": {
+     "shard_s": 66.694,
+     "n": 2,
+     "n_long": 2,
+     "by_kind": {
+      "book": [
+       66.694,
+       2,
+       2
+      ],
+      "mark": [
+       0.0,
+       0,
+       1
+      ],
+      "trade": [
+       0.0,
+       0,
+       2
+      ]
+     }
+    },
+    "боевой, все шарды": {
+     "shard_s": 167.946,
+     "n": 6,
+     "n_long": 6,
+     "by_kind": {
+      "book": [
+       136.145,
+       5,
+       17
+      ],
+      "mark": [
+       31.801,
+       1,
+       1
+      ],
+      "trade": [
+       0.0,
+       0,
+       9
+      ]
+     }
+    }
+   },
+   "name": "W6",
+   "class": "E",
+   "lo": 1794936821175,
+   "hi": 1794936861175
+  },
+  {
+   "counts": {
+    "боевой, шарды с теми же символами": {
+     "connected": 4,
+     "subscribed": 4,
+     "gap_end": 3,
+     "path_rejected": 3,
+     "path_reject_capped": 4,
+     "gap": 4,
+     "path_rejected_rtt": 1,
+     "error": 1,
+     "storm_hold": 1,
+     "attempts": 5,
+     "blocks": 5,
+     "max300": 29
+    },
+    "копия": {
+     "connect_wait": 7,
+     "connected": 6,
+     "subscribed": 6,
+     "gap_end": 4,
+     "ping_degraded:timeout": 3,
+     "path_switch": 2,
+     "storm_hold": 3,
+     "gap": 3,
+     "path_slow_accepted:uncovered": 2,
+     "error": 4,
+     "attempts": 6,
+     "blocks": 3,
+     "max300": 21
+    },
+    "боевой, все шарды": {
+     "connected": 30,
+     "subscribed": 30,
+     "gap_end": 6,
+     "path_rejected": 23,
+     "path_reject_capped": 23,
+     "gap": 7,
+     "path_rejected_rtt": 2,
+     "error": 6,
+     "ping_degraded:timeout": 2,
+     "storm_hold": 2,
+     "attempts": 32,
+     "blocks": 25,
+     "max300": 140
+    }
+   },
+   "paused": {
+    "боевой, шарды с теми же символами": {
+     "shard_s": 286.709,
+     "n": 5,
+     "n_long": 5,
+     "by_kind": {
+      "book": [
+       190.472,
+       3,
+       2
+      ],
+      "trade": [
+       0.0,
+       0,
+       8
+      ],
+      "mark": [
+       96.237,
+       2,
+       1
+      ]
+     }
+    },
+    "копия": {
+     "shard_s": 158.788,
+     "n": 5,
+     "n_long": 4,
+     "by_kind": {
+      "book": [
+       157.128,
+       4,
+       2
+      ],
+      "mark": [
+       1.66,
+       1,
+       1
+      ],
+      "trade": [
+       0.0,
+       0,
+       2
+      ]
+     }
+    },
+    "боевой, все шарды": {
+     "shard_s": 478.339,
+     "n": 9,
+     "n_long": 9,
+     "by_kind": {
+      "book": [
+       382.102,
+       7,
+       17
+      ],
+      "mark": [
+       96.237,
+       2,
+       1
+      ],
+      "trade": [
+       0.0,
+       0,
+       9
+      ]
+     }
+    }
+   },
+   "name": "W7",
+   "class": "E",
+   "lo": 1794937101175,
+   "hi": 1794937211175
+  },
+  {
+   "counts": {
+    "боевой, шарды с теми же символами": {
+     "connected": 593,
+     "subscribed": 593,
+     "gap_end": 119,
+     "path_rejected": 435,
+     "path_reject_capped": 389,
+     "gap": 119,
+     "error": 92,
+     "path_rejected_rtt": 79,
+     "ping_degraded:timeout": 68,
+     "path_slow_accepted:uncovered": 1,
+     "path_switch": 69,
+     "path_ok": 111,
+     "storm_hold": 42,
+     "attempts": 672,
+     "blocks": 431,
+     "max300": 73
+    },
+    "копия": {
+     "connect_wait": 268,
+     "connected": 281,
+     "subscribed": 281,
+     "gap_end": 150,
+     "error": 174,
+     "path_switch": 110,
+     "ping_degraded:timeout": 144,
+     "gap": 149,
+     "storm_hold": 91,
+     "path_slow_accepted:uncovered": 30,
+     "path_rejected_rtt": 5,
+     "path_rejected": 2,
+     "path_upgrade": 2,
+     "path_ok": 2,
+     "attempts": 286,
+     "blocks": 91,
+     "max300": 22
+    },
+    "боевой, все шарды": {
+     "connected": 2041,
+     "subscribed": 2041,
+     "gap_end": 560,
+     "path_rejected": 1795,
+     "path_reject_capped": 1845,
+     "gap": 562,
+     "error": 142,
+     "path_rejected_rtt": 265,
+     "ping_degraded:timeout": 89,
+     "path_slow_accepted:uncovered": 3,
+     "path_switch": 117,
+     "path_ok": 163,
+     "storm_hold": 56,
+     "attempts": 2306,
+     "blocks": 1901,
+     "max300": 190
+    }
+   },
+   "paused": {
+    "боевой, шарды с теми же символами": {
+     "shard_s": 7300.302,
+     "n": 121,
+     "n_long": 120,
+     "by_kind": {
+      "book": [
+       5692.72,
+       105,
+       2
+      ],
+      "trade": [
+       3.421,
+       1,
+       8
+      ],
+      "mark": [
+       1604.161,
+       15,
+       1
+      ]
+     }
+    },
+    "копия": {
+     "shard_s": 5485.889,
+     "n": 150,
+     "n_long": 150,
+     "by_kind": {
+      "book": [
+       4600.898,
+       127,
+       2
+      ],
+      "mark": [
+       884.991,
+       23,
+       1
+      ],
+      "trade": [
+       0.0,
+       0,
+       2
+      ]
+     }
+    },
+    "боевой, все шарды": {
+     "shard_s": 43908.735,
+     "n": 564,
+     "n_long": 562,
+     "by_kind": {
+      "book": [
+       42301.153,
+       548,
+       17
+      ],
+      "mark": [
+       1604.161,
+       15,
+       1
+      ],
+      "trade": [
+       3.421,
+       1,
+       9
+      ]
+     }
+    }
+   },
+   "name": "W8",
+   "class": "S",
+   "lo": 1794937281175,
+   "hi": 1794941711175
+  },
+  {
+   "counts": {
+    "боевой, шарды с теми же символами": {
+     "gap": 2,
+     "connected": 15,
+     "subscribed": 15,
+     "gap_end": 2,
+     "path_rejected": 8,
+     "path_reject_capped": 1,
+     "path_ok": 7,
+     "path_switch": 5,
+     "path_rejected_rtt": 1,
+     "error": 2,
+     "attempts": 16,
+     "blocks": 1,
+     "max300": 59
+    },
+    "копия": {
+     "path_switch": 4,
+     "ping_degraded:timeout": 1,
+     "error": 2,
+     "storm_hold": 1,
+     "gap": 2,
+     "connect_wait": 2,
+     "connected": 4,
+     "subscribed": 4,
+     "gap_end": 1,
+     "path_rejected": 1,
+     "attempts": 4,
+     "blocks": 1,
+     "max300": 22
+    },
+    "боевой, все шарды": {
+     "gap": 8,
+     "connected": 39,
+     "subscribed": 39,
+     "gap_end": 7,
+     "path_rejected": 25,
+     "path_reject_capped": 10,
+     "ping_degraded:timeout": 12,
+     "path_ok": 16,
+     "path_switch": 13,
+     "error": 3,
+     "path_rejected_rtt": 2,
+     "attempts": 41,
+     "blocks": 10,
+     "max300": 187
+    }
+   },
+   "paused": {
+    "боевой, шарды с теми же символами": {
+     "shard_s": 185.607,
+     "n": 2,
+     "n_long": 2,
+     "by_kind": {
+      "book": [
+       185.607,
+       2,
+       2
+      ],
+      "trade": [
+       0.0,
+       0,
+       8
+      ],
+      "mark": [
+       0.0,
+       0,
+       1
+      ]
+     }
+    },
+    "копия": {
+     "shard_s": 94.498,
+     "n": 2,
+     "n_long": 1,
+     "by_kind": {
+      "book": [
+       94.498,
+       2,
+       2
+      ],
+      "mark": [
+       0.0,
+       0,
+       1
+      ],
+      "trade": [
+       0.0,
+       0,
+       2
+      ]
+     }
+    },
+    "боевой, все шарды": {
+     "shard_s": 747.214,
+     "n": 8,
+     "n_long": 8,
+     "by_kind": {
+      "book": [
+       747.214,
+       8,
+       17
+      ],
+      "mark": [
+       0.0,
+       0,
+       1
+      ],
+      "trade": [
+       0.0,
+       0,
+       9
+      ]
+     }
+    }
+   },
+   "name": "W9",
+   "class": "E",
+   "lo": 1794995641175,
+   "hi": 1794995751175
+  }
+ ],
+ "params": {
+  "live": "/data/collect/binance/data",
+  "copy": "/data/tk582v3/data",
+  "copy_shards": null,
+  "live_shards": "book00,book01,trade00,trade01,trade02,trade03,trade04,trade06,trade07,trade08,mark00",
+  "compare_live_shards": null,
+  "compare_kinds": "book,mark",
+  "from_ms": null,
+  "to_ms": 1795000441000,
+  "warmup_s": 300,
+  "slot_s": 10,
+  "stop_share": 0.5,
+  "episode_share": 0.15,
+  "merge_s": 60,
+  "min_pause_s": 4,
+  "windows": null,
+  "live_health": "/data/turbo-probe/soak-binance/health.json",
+  "copy_health": "/data/tk582v3/health.json",
+  "compare_bin": "/data/tk582v3/alpha-tk582v3-cmp",
+  "compare_span_h": 2.0,
+  "compare_from_ms": null,
+  "compare_to_ms": null,
+  "work": "/data/tk582v3/cmp",
+  "json": "rep24.json"
+ },
+ "total": {
+  "counts": {
+   "боевой, шарды с теми же символами": {
+    "connected": 2105,
+    "subscribed": 2105,
+    "path_ok": 388,
+    "path_switch": 298,
+    "gap": 650,
+    "ping_degraded:timeout": 207,
+    "gap_end": 650,
+    "storm_abort": 50,
+    "storm_hold": 138,
+    "error": 432,
+    "path_rejected": 1335,
+    "path_rejected_rtt": 124,
+    "path_reject_capped": 1047,
+    "path_slow_accepted:uncovered": 1,
+    "replace_capped": 2,
+    "attempts": 2229,
+    "blocks": 1187,
+    "max300": 73
+   },
+   "копия": {
+    "connected": 1245,
+    "subscribed": 1245,
+    "path_ok": 92,
+    "path_switch": 470,
+    "ping_degraded:timeout": 431,
+    "error": 687,
+    "gap": 561,
+    "ping_degraded:silent_in_gap": 44,
+    "path_slow_accepted:dark": 2,
+    "gap_end": 561,
+    "path_rejected": 72,
+    "connect_wait": 984,
+    "path_slow_accepted:uncovered": 50,
+    "storm_abort": 60,
+    "storm_hold": 260,
+    "path_upgrade": 11,
+    "path_rejected_rtt": 23,
+    "replace_capped": 12,
+    "path_slow_accepted:sole_source": 6,
+    "attempts": 1268,
+    "blocks": 272,
+    "max300": 22
+   },
+   "боевой, все шарды": {
+    "connected": 8108,
+    "subscribed": 8108,
+    "path_ok": 996,
+    "path_switch": 834,
+    "gap": 2178,
+    "ping_degraded:timeout": 403,
+    "gap_end": 2178,
+    "storm_abort": 275,
+    "storm_hold": 374,
+    "error": 743,
+    "path_rejected": 6302,
+    "path_rejected_rtt": 496,
+    "path_reject_capped": 5600,
+    "path_slow_accepted:uncovered": 7,
+    "replace_capped": 14,
+    "attempts": 8604,
+    "blocks": 5988,
+    "max300": 195
+   }
+  },
+  "paused": {
+   "боевой, шарды с теми же символами": {
+    "shard_s": 28301.255,
+    "n": 648,
+    "n_long": 610,
+    "by_kind": {
+     "book": [
+      20502.121,
+      461,
+      2
+     ],
+     "trade": [
+      205.167,
+      50,
+      8
+     ],
+     "mark": [
+      7593.967,
+      137,
+      1
+     ]
+    }
+   },
+   "копия": {
+    "shard_s": 23015.694,
+    "n": 557,
+    "n_long": 539,
+    "by_kind": {
+     "book": [
+      17271.364,
+      416,
+      2
+     ],
+     "mark": [
+      5702.942,
+      130,
+      1
+     ],
+     "trade": [
+      41.388,
+      11,
+      2
+     ]
+    }
+   },
+   "боевой, все шарды": {
+    "shard_s": 141666.01,
+    "n": 2176,
+    "n_long": 2126,
+    "by_kind": {
+     "book": [
+      133866.876,
+      1989,
+      17
+     ],
+     "mark": [
+      7593.967,
+      137,
+      1
+     ],
+     "trade": [
+      205.167,
+      50,
+      9
+     ]
+    }
+   }
+  }
+ },
+ "outside_windows_shard_s": {
+  "боевой, шарды с теми же символами": 2799.629,
+  "копия": 1727.7269999999999
+ },
+ "health": {
+  "live": {
+   "version": "29d981c0",
+   "connect_budget": {
+    "alarm": false,
+    "free": 280,
+    "limit": 280,
+    "max_wait_s": 0,
+    "urgent_reserve": 54,
+    "used": 0,
+    "wait_s_total": 42,
+    "waiting": 0,
+    "waits_total": 1,
+    "window_s": 300
+   },
+   "storm": {
+    "aborts": 734,
+    "episodes": 38,
+    "holds": 957,
+    "impaired": 0,
+    "on": false,
+    "shards": 27,
+    "since_s": null
+   },
+   "shards": 27,
+   "shards_connected_lt2": [],
+   "ts_ms": 1795000473992
+  },
+  "copy": {
+   "version": "6af269a7",
+   "connect_budget": {
+    "alarm": false,
+    "free": 20,
+    "limit": 20,
+    "max_wait_s": 0,
+    "urgent_reserve": 6,
+    "used": 0,
+    "wait_s_total": 111323,
+    "waiting": 0,
+    "waits_total": 1054,
+    "window_s": 300
+   },
+   "storm": {
+    "aborts": 60,
+    "episodes": 28,
+    "holds": 260,
+    "impaired": 0,
+    "on": false,
+    "shards": 5,
+    "since_s": null
+   },
+   "shards": 5,
+   "shards_connected_lt2": [],
+   "ts_ms": 1795000471243
+  }
+ },
+ "streams_per_shard": {
+  "боевой": {
+   "book00": 11,
+   "book01": 32,
+   "trade00": 11,
+   "trade01": 64,
+   "trade02": 64,
+   "trade03": 63,
+   "trade04": 64,
+   "trade06": 64,
+   "trade07": 64,
+   "trade08": 64,
+   "mark00": 1
+  },
+  "копия": {
+   "book00": 14,
+   "book01": 14,
+   "mark00": 1,
+   "trade00": 14,
+   "trade01": 14
+  }
+ },
+ "compare": {
+  "from_ms": 1794993241000,
+  "to_ms": 1795000441000,
+  "days": [
+   "2026-11-18"
+  ],
+  "live_shards": [
+   "book00",
+   "book01",
+   "mark00"
+  ],
+  "kinds": [
+   "book",
+   "mark"
+  ],
+  "files_live": 3,
+  "files_copy": 3,
+  "rc": 0,
+  "sec": 526,
+  "out": "A: 13655215 личностей (book/trade/mark строк [6877038, 0, 6778177]), B: 13257787 ([6466400, 0, 6791387]); окно сравнения 7180 с\nобщих 13139368, только A 469350, только B 72635, различное содержимое среди общих 0 (book/trade/mark [0, 0, 0])\nrx_b − rx_a, мкс: p0.1 -1600109 p1 -51982 p10 -2543 p50 -0 p90 1531 p99 121232 p99.9 8010567; хвост > +1 мс: 2034503 (15.484 %), < −1 мс: 2710307",
+  "err": ""
+ }
+}

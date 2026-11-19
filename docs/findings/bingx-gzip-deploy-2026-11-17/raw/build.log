@@ -1,0 +1,7 @@
+rbuild: ядер 6, свободно 39G, target 4091 МБ
+   Compiling hftbacktest v0.9.4 (/opt/rbuild/src-srv/vendor/hftbacktest)
+   Compiling alpha v0.1.0 (/opt/rbuild/src-srv)
+    Finished `release` profile [optimized] target(s) in 1m 51s
+7accfc20cd4369538de8e70a15b3e7c8  /data/turbo-probe/alpha-tk583-9d5bbf27
+[bus] сборка.готова: шина недоступна (URLError), в spool
+rc=0

@@ -1,0 +1,9 @@
+15:00:19 start k2
+15:03:21 window base1 done
+15:03:21 apply: echo 2 > /sys/class/net/eth0/napi_defer_hard_irqs; echo 100000 > /sys/class/net/eth0/gro_flush_timeout; cat /sys/class/net/eth0/napi_defer_hard_irqs /sys/class/net/eth0/gro_flush_timeout
+2
+100000
+15:06:43 window knob done
+15:06:43 revert: echo 0 > /sys/class/net/eth0/napi_defer_hard_irqs; echo 0 > /sys/class/net/eth0/gro_flush_timeout
+15:10:04 window base2 done
+ALLDONE

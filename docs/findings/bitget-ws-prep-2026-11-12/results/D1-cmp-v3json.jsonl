@@ -1,0 +1,1 @@
+{"ref": "frames/D1-C-v3json.jsonl.zst", "other": "frames/D1-D-v3json.jsonl.zst", "ref_peer": "18.154.63.102", "other_peer": "18.154.63.109", "window_s": 85.7, "common": 125050, "only_ref": 41645, "only_other": 1277, "delta_ms_p1": -75.559341, "delta_ms_p50": -5.514981, "delta_ms_p99": 42.494433, "delta_ms_max": 116.031187, "delta_ms_min": -382.590211}

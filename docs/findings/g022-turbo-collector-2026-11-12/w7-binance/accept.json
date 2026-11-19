@@ -1,0 +1,942 @@
+{
+ "window_ms": [
+  1794493431556,
+  1794493612696
+ ],
+ "dials": 61,
+ "dials_5min_max": 61,
+ "events": {
+  "connect_wait": 46,
+  "path_rejected_rtt": 24,
+  "connected": 37,
+  "subscribed": 37,
+  "path_ok": 36,
+  "gap": 4
+ },
+ "events_detail": {
+  "connect_wait": [
+   {
+    "shard": "trade00",
+    "ts_ms": 1794493567833
+   },
+   {
+    "shard": "trade00",
+    "ts_ms": 1794493569854
+   },
+   {
+    "shard": "book08",
+    "ts_ms": 1794493568844
+   },
+   {
+    "shard": "book08",
+    "ts_ms": 1794493570864
+   },
+   {
+    "shard": "book08",
+    "ts_ms": 1794493572884
+   },
+   {
+    "shard": "book14",
+    "ts_ms": 1794493569855
+   },
+   {
+    "shard": "book14",
+    "ts_ms": 1794493570864
+   },
+   {
+    "shard": "book14",
+    "ts_ms": 1794493571874
+   },
+   {
+    "shard": "book11",
+    "ts_ms": 1794493568844
+   },
+   {
+    "shard": "book11",
+    "ts_ms": 1794493569855
+   },
+   {
+    "shard": "book11",
+    "ts_ms": 1794493570864
+   },
+   {
+    "shard": "book11",
+    "ts_ms": 1794493571874
+   },
+   {
+    "shard": "trade02",
+    "ts_ms": 1794493569855
+   },
+   {
+    "shard": "trade02",
+    "ts_ms": 1794493571874
+   },
+   {
+    "shard": "book09",
+    "ts_ms": 1794493568844
+   },
+   {
+    "shard": "book09",
+    "ts_ms": 1794493570864
+   },
+   {
+    "shard": "book04",
+    "ts_ms": 1794493567833
+   },
+   {
+    "shard": "book15",
+    "ts_ms": 1794493572884
+   },
+   {
+    "shard": "book13",
+    "ts_ms": 1794493569854
+   },
+   {
+    "shard": "book13",
+    "ts_ms": 1794493571874
+   }
+  ],
+  "path_rejected_rtt": [
+   {
+    "shard": "trade00",
+    "ts_ms": 1794493568179
+   },
+   {
+    "shard": "trade00",
+    "ts_ms": 1794493570223
+   },
+   {
+    "shard": "book08",
+    "ts_ms": 1794493571240
+   },
+   {
+    "shard": "book08",
+    "ts_ms": 1794493573233
+   },
+   {
+    "shard": "book14",
+    "ts_ms": 1794493570216
+   },
+   {
+    "shard": "book14",
+    "ts_ms": 1794493571241
+   },
+   {
+    "shard": "book14",
+    "ts_ms": 1794493572214
+   },
+   {
+    "shard": "book14",
+    "ts_ms": 1794493573227
+   },
+   {
+    "shard": "book11",
+    "ts_ms": 1794493569193
+   },
+   {
+    "shard": "book11",
+    "ts_ms": 1794493570231
+   },
+   {
+    "shard": "book11",
+    "ts_ms": 1794493571241
+   },
+   {
+    "shard": "trade02",
+    "ts_ms": 1794493570215
+   },
+   {
+    "shard": "trade02",
+    "ts_ms": 1794493571251
+   },
+   {
+    "shard": "trade02",
+    "ts_ms": 1794493572217
+   },
+   {
+    "shard": "book13",
+    "ts_ms": 1794493570237
+   },
+   {
+    "shard": "book03",
+    "ts_ms": 1794493568179
+   },
+   {
+    "shard": "book10",
+    "ts_ms": 1794493572228
+   },
+   {
+    "shard": "book10",
+    "ts_ms": 1794493573236
+   },
+   {
+    "shard": "book10",
+    "ts_ms": 1794493574115
+   },
+   {
+    "shard": "trade01",
+    "ts_ms": 1794493569192
+   }
+  ],
+  "path_ok": [
+   {
+    "shard": "trade00",
+    "ts_ms": 1794493586829
+   },
+   {
+    "shard": "book08",
+    "ts_ms": 1794493584771
+   },
+   {
+    "shard": "book08",
+    "ts_ms": 1794493589696
+   },
+   {
+    "shard": "book14",
+    "ts_ms": 1794493587804
+   },
+   {
+    "shard": "book14",
+    "ts_ms": 1794493589671
+   },
+   {
+    "shard": "book11",
+    "ts_ms": 1794493587874
+   },
+   {
+    "shard": "book11",
+    "ts_ms": 1794493587875
+   },
+   {
+    "shard": "trade02",
+    "ts_ms": 1794493587896
+   },
+   {
+    "shard": "trade02",
+    "ts_ms": 1794493588830
+   },
+   {
+    "shard": "book09",
+    "ts_ms": 1794493584788
+   },
+   {
+    "shard": "book09",
+    "ts_ms": 1794493586816
+   },
+   {
+    "shard": "book04",
+    "ts_ms": 1794493583777
+   },
+   {
+    "shard": "book15",
+    "ts_ms": 1794493588828
+   },
+   {
+    "shard": "book13",
+    "ts_ms": 1794493586819
+   },
+   {
+    "shard": "book13",
+    "ts_ms": 1794493587815
+   },
+   {
+    "shard": "trade03",
+    "ts_ms": 1794493583779
+   },
+   {
+    "shard": "trade03",
+    "ts_ms": 1794493586843
+   },
+   {
+    "shard": "mark00",
+    "ts_ms": 1794493584830
+   },
+   {
+    "shard": "book03",
+    "ts_ms": 1794493584799
+   },
+   {
+    "shard": "book03",
+    "ts_ms": 1794493585887
+   }
+  ],
+  "gap": [
+   {
+    "shard": "book14",
+    "ts_ms": 1794493572659
+   },
+   {
+    "shard": "book09",
+    "ts_ms": 1794493569652
+   },
+   {
+    "shard": "book05",
+    "ts_ms": 1794493570634
+   },
+   {
+    "shard": "book06",
+    "ts_ms": 1794493571662
+   }
+  ]
+ },
+ "disk_stream": {
+  "b": {
+   "n": 680620,
+   "lag_ms": {
+    "p50": 123,
+    "p99": 419,
+    "max": 825
+   },
+   "lag_p50_10s_max": 173,
+   "max_pause_ms": 61
+  },
+  "t": {
+   "n": 86325,
+   "lag_ms": {
+    "p50": 120,
+    "p99": 332,
+    "max": 640
+   },
+   "lag_p50_10s_max": 166,
+   "max_pause_ms": 87
+  },
+  "m": {
+   "n": 172674,
+   "lag_ms": {
+    "p50": 205,
+    "p99": 335,
+    "max": 1494
+   },
+   "lag_p50_10s_max": 245,
+   "max_pause_ms": 1628
+  }
+ },
+ "shards": {
+  "trade01": {
+   "windows": 18,
+   "msgs": 4724,
+   "max_gap_ms": 135,
+   "lag_p50_ms_median": 117.8,
+   "lag_p50_ms_max": 119.8,
+   "lag_p99_ms_max": 182.3,
+   "cpu_frac_max": 0.03
+  },
+  "book12": {
+   "windows": 18,
+   "msgs": 59462,
+   "max_gap_ms": 316,
+   "lag_p50_ms_median": 126.0,
+   "lag_p50_ms_max": 157.7,
+   "lag_p99_ms_max": 364.5,
+   "cpu_frac_max": 0.068
+  },
+  "book15": {
+   "windows": 18,
+   "msgs": 91271,
+   "max_gap_ms": 325,
+   "lag_p50_ms_median": 126.0,
+   "lag_p50_ms_max": 157.7,
+   "lag_p99_ms_max": 532.5,
+   "cpu_frac_max": 0.083
+  },
+  "trade02": {
+   "windows": 18,
+   "msgs": 3567,
+   "max_gap_ms": 232,
+   "lag_p50_ms_median": 117.8,
+   "lag_p50_ms_max": 123.9,
+   "lag_p99_ms_max": 161.8,
+   "cpu_frac_max": 0.025
+  },
+  "mark00": {
+   "windows": 18,
+   "msgs": 439,
+   "max_gap_ms": 1400,
+   "lag_p50_ms_median": 206.8,
+   "lag_p50_ms_max": 227.3,
+   "lag_p99_ms_max": 1065.0,
+   "cpu_frac_max": 0.025
+  },
+  "book05": {
+   "windows": 18,
+   "msgs": 36739,
+   "max_gap_ms": 259485,
+   "lag_p50_ms_median": 119.8,
+   "lag_p50_ms_max": 119.8,
+   "lag_p99_ms_max": 356.4,
+   "cpu_frac_max": 0.094
+  },
+  "trade05": {
+   "windows": 18,
+   "msgs": 4523,
+   "max_gap_ms": 131,
+   "lag_p50_ms_median": 117.8,
+   "lag_p50_ms_max": 117.8,
+   "lag_p99_ms_max": 161.8,
+   "cpu_frac_max": 0.026
+  },
+  "book01": {
+   "windows": 18,
+   "msgs": 100748,
+   "max_gap_ms": 251,
+   "lag_p50_ms_median": 128.0,
+   "lag_p50_ms_max": 161.8,
+   "lag_p99_ms_max": 487.4,
+   "cpu_frac_max": 0.096
+  },
+  "book13": {
+   "windows": 18,
+   "msgs": 27206,
+   "max_gap_ms": 84,
+   "lag_p50_ms_median": 121.9,
+   "lag_p50_ms_max": 121.9,
+   "lag_p99_ms_max": 364.5,
+   "cpu_frac_max": 0.079
+  },
+  "book09": {
+   "windows": 18,
+   "msgs": 13753,
+   "max_gap_ms": 258569,
+   "lag_p50_ms_median": 121.9,
+   "lag_p50_ms_max": 123.9,
+   "lag_p99_ms_max": 372.7,
+   "cpu_frac_max": 0.043
+  },
+  "book08": {
+   "windows": 18,
+   "msgs": 45251,
+   "max_gap_ms": 28,
+   "lag_p50_ms_median": 117.8,
+   "lag_p50_ms_max": 117.8,
+   "lag_p99_ms_max": 323.6,
+   "cpu_frac_max": 0.133
+  },
+  "book03": {
+   "windows": 18,
+   "msgs": 15579,
+   "max_gap_ms": 201,
+   "lag_p50_ms_median": 119.8,
+   "lag_p50_ms_max": 121.9,
+   "lag_p99_ms_max": 190.5,
+   "cpu_frac_max": 0.05
+  },
+  "book10": {
+   "windows": 18,
+   "msgs": 30187,
+   "max_gap_ms": 55,
+   "lag_p50_ms_median": 119.8,
+   "lag_p50_ms_max": 119.8,
+   "lag_p99_ms_max": 282.6,
+   "cpu_frac_max": 0.091
+  },
+  "book02": {
+   "windows": 18,
+   "msgs": 101544,
+   "max_gap_ms": 322,
+   "lag_p50_ms_median": 128.0,
+   "lag_p50_ms_max": 178.2,
+   "lag_p99_ms_max": 1040.4,
+   "cpu_frac_max": 0.085
+  },
+  "trade04": {
+   "windows": 18,
+   "msgs": 63602,
+   "max_gap_ms": 126,
+   "lag_p50_ms_median": 121.9,
+   "lag_p50_ms_max": 149.5,
+   "lag_p99_ms_max": 372.7,
+   "cpu_frac_max": 0.051
+  },
+  "book00": {
+   "windows": 18,
+   "msgs": 116079,
+   "max_gap_ms": 245,
+   "lag_p50_ms_median": 126.0,
+   "lag_p50_ms_max": 157.7,
+   "lag_p99_ms_max": 438.3,
+   "cpu_frac_max": 0.084
+  },
+  "trade00": {
+   "windows": 18,
+   "msgs": 34671,
+   "max_gap_ms": 325,
+   "lag_p50_ms_median": 121.9,
+   "lag_p50_ms_max": 149.5,
+   "lag_p99_ms_max": 372.7,
+   "cpu_frac_max": 0.038
+  },
+  "book06": {
+   "windows": 18,
+   "msgs": 15355,
+   "max_gap_ms": 275485,
+   "lag_p50_ms_median": 119.8,
+   "lag_p50_ms_max": 119.8,
+   "lag_p99_ms_max": 223.2,
+   "cpu_frac_max": 0.051
+  },
+  "book07": {
+   "windows": 18,
+   "msgs": 124450,
+   "max_gap_ms": 234,
+   "lag_p50_ms_median": 126.0,
+   "lag_p50_ms_max": 165.9,
+   "lag_p99_ms_max": 520.2,
+   "cpu_frac_max": 0.111
+  },
+  "book04": {
+   "windows": 18,
+   "msgs": 78424,
+   "max_gap_ms": 268,
+   "lag_p50_ms_median": 133.1,
+   "lag_p50_ms_max": 170.0,
+   "lag_p99_ms_max": 696.3,
+   "cpu_frac_max": 0.064
+  },
+  "trade06": {
+   "windows": 18,
+   "msgs": 2819,
+   "max_gap_ms": 293,
+   "lag_p50_ms_median": 119.8,
+   "lag_p50_ms_max": 121.9,
+   "lag_p99_ms_max": 165.9,
+   "cpu_frac_max": 0.018
+  },
+  "book11": {
+   "windows": 18,
+   "msgs": 20483,
+   "max_gap_ms": 70,
+   "lag_p50_ms_median": 121.9,
+   "lag_p50_ms_max": 141.3,
+   "lag_p99_ms_max": 182.3,
+   "cpu_frac_max": 0.07
+  },
+  "book14": {
+   "windows": 18,
+   "msgs": 25947,
+   "max_gap_ms": 262465,
+   "lag_p50_ms_median": 119.8,
+   "lag_p50_ms_max": 137.2,
+   "lag_p99_ms_max": 307.2,
+   "cpu_frac_max": 0.076
+  },
+  "trade03": {
+   "windows": 18,
+   "msgs": 7999,
+   "max_gap_ms": 79,
+   "lag_p50_ms_median": 117.8,
+   "lag_p50_ms_max": 117.8,
+   "lag_p99_ms_max": 161.8,
+   "cpu_frac_max": 0.033
+  },
+  "trade07": {
+   "windows": 18,
+   "msgs": 13658,
+   "max_gap_ms": 264,
+   "lag_p50_ms_median": 123.9,
+   "lag_p50_ms_max": 157.7,
+   "lag_p99_ms_max": 479.2,
+   "cpu_frac_max": 0.026
+  }
+ },
+ "records": {
+  "b": 680620,
+  "t": 86325,
+  "m": 172674,
+  "g": 754,
+  "c": 74,
+  "r": 218
+ },
+ "sequence_checks": {
+  "book_u_not_increasing": 10,
+  "trade_a_not_increasing": 0,
+  "trade_a_gaps": 0,
+  "trade_a_gap_ids": 0,
+  "mark_E_not_increasing": 0
+ },
+ "ping_ms": {
+  "n": 754,
+  "p50": 294.587,
+  "p99": 475.941,
+  "max": 768.733
+ },
+ "raw_samples": [
+  "{\"result\":null,\"id\":1}",
+  "{\"result\":null,\"id\":1}",
+  "{\"result\":null,\"id\":1}",
+  "{\"result\":null,\"id\":1}",
+  "{\"result\":null,\"id\":1}"
+ ],
+ "disk_bytes": 26893166,
+ "health": {
+  "backpressure": {
+   "queue_lag_ms": {
+    "p50": 0.1,
+    "p99": 5.7,
+    "window_s": 60
+   },
+   "reader": {
+    "busy_max_us": 17482,
+    "handoff_max_us": 17482
+   },
+   "recv_q": {
+    "behind_pct": 13.401,
+    "max_bytes": 51248,
+    "samples": 7328
+   },
+   "ring": {
+    "blocked_ms_total": 0,
+    "cap": 32768,
+    "depth_max": 259,
+    "full_events_total": 0,
+    "full_events_window": 0
+   },
+   "sink": {
+    "cap": 64,
+    "depth_max": 1,
+    "write_max_ms": 38.7
+   },
+   "window_s": 10
+  },
+  "exchange": "binance",
+  "fresh": {
+   "kinds": {
+    "book": {
+     "late_1h": 112,
+     "late_24h": 112,
+     "max_1h_ms": 2123,
+     "max_24h_ms": 2123
+    },
+    "mark": {
+     "late_1h": 0,
+     "late_24h": 0,
+     "max_1h_ms": 1494,
+     "max_24h_ms": 1494
+    },
+    "raw": {
+     "late_1h": 0,
+     "late_24h": 0,
+     "max_1h_ms": 1064,
+     "max_24h_ms": 1064
+    },
+    "trade": {
+     "late_1h": 0,
+     "late_24h": 0,
+     "max_1h_ms": 691,
+     "max_24h_ms": 691
+    }
+   },
+   "late_ms": 2000
+  },
+  "lag_in_by_kind_ms": {
+   "book": {
+    "p50": 119.8,
+    "p99": 364.5,
+    "window_s": 60
+   },
+   "mark": {
+    "p50": 202.8,
+    "p99": 290.8,
+    "window_s": 60
+   },
+   "trade": {
+    "p50": 117.8,
+    "p99": 165.9,
+    "window_s": 60
+   }
+  },
+  "lag_in_ms": {
+   "p50": 121.9,
+   "p99": 340.0,
+   "window_s": 60
+  },
+  "lag_out_ms": {
+   "p50": 91.1,
+   "p99": 111.6,
+   "window_s": 60
+  },
+  "last_frame_ms": 1794493618083,
+  "last_write_ms": 1794493618082,
+  "process": {
+   "cpu_by_class": {
+    "alpha": 0.002,
+    "ln": 0.009,
+    "rx": 0.87,
+    "sh": 0.005,
+    "signals": 0.0,
+    "sk": 0.06,
+    "wr": 0.414
+   },
+   "cpu_cores": 1.363,
+   "hot_thread": {
+    "cores": 0.034,
+    "name": "rx-book05-17954"
+   },
+   "rss_mb": 175.223,
+   "sched_wait_cores": 3.663,
+   "threads": 177,
+   "version": "unknown"
+  },
+  "schema": 2,
+  "shards": [
+   {
+    "busy_max_us": 6039,
+    "connected": 2,
+    "lag_in_p99_ms": 219.1,
+    "msgs_10s": 7230,
+    "recvq_max": 9010,
+    "ring_depth_max": 67,
+    "shard": "book00"
+   },
+   {
+    "busy_max_us": 14036,
+    "connected": 2,
+    "lag_in_p99_ms": 380.9,
+    "msgs_10s": 7050,
+    "recvq_max": 43826,
+    "ring_depth_max": 65,
+    "shard": "book01"
+   },
+   {
+    "busy_max_us": 8024,
+    "connected": 2,
+    "lag_in_p99_ms": 340.0,
+    "msgs_10s": 7690,
+    "recvq_max": 48355,
+    "ring_depth_max": 239,
+    "shard": "book02"
+   },
+   {
+    "busy_max_us": 3515,
+    "connected": 2,
+    "lag_in_p99_ms": 190.5,
+    "msgs_10s": 3538,
+    "recvq_max": 29074,
+    "ring_depth_max": 61,
+    "shard": "book03"
+   },
+   {
+    "busy_max_us": 4583,
+    "connected": 2,
+    "lag_in_p99_ms": 397.3,
+    "msgs_10s": 6707,
+    "recvq_max": 44815,
+    "ring_depth_max": 166,
+    "shard": "book04"
+   },
+   {
+    "busy_max_us": 17482,
+    "connected": 2,
+    "lag_in_p99_ms": 356.4,
+    "msgs_10s": 9419,
+    "recvq_max": 15802,
+    "ring_depth_max": 105,
+    "shard": "book05"
+   },
+   {
+    "busy_max_us": 16846,
+    "connected": 2,
+    "lag_in_p99_ms": 307.2,
+    "msgs_10s": 3341,
+    "recvq_max": 20043,
+    "ring_depth_max": 114,
+    "shard": "book06"
+   },
+   {
+    "busy_max_us": 8577,
+    "connected": 2,
+    "lag_in_p99_ms": 260.1,
+    "msgs_10s": 8719,
+    "recvq_max": 17288,
+    "ring_depth_max": 70,
+    "shard": "book07"
+   },
+   {
+    "busy_max_us": 4912,
+    "connected": 2,
+    "lag_in_p99_ms": 389.1,
+    "msgs_10s": 11799,
+    "recvq_max": 40572,
+    "ring_depth_max": 172,
+    "shard": "book08"
+   },
+   {
+    "busy_max_us": 5618,
+    "connected": 2,
+    "lag_in_p99_ms": 364.5,
+    "msgs_10s": 3047,
+    "recvq_max": 13000,
+    "ring_depth_max": 77,
+    "shard": "book09"
+   },
+   {
+    "busy_max_us": 11247,
+    "connected": 2,
+    "lag_in_p99_ms": 282.6,
+    "msgs_10s": 8958,
+    "recvq_max": 43994,
+    "ring_depth_max": 259,
+    "shard": "book10"
+   },
+   {
+    "busy_max_us": 2990,
+    "connected": 2,
+    "lag_in_p99_ms": 186.4,
+    "msgs_10s": 5114,
+    "recvq_max": 7378,
+    "ring_depth_max": 48,
+    "shard": "book11"
+   },
+   {
+    "busy_max_us": 3260,
+    "connected": 2,
+    "lag_in_p99_ms": 413.7,
+    "msgs_10s": 2432,
+    "recvq_max": 20193,
+    "ring_depth_max": 29,
+    "shard": "book12"
+   },
+   {
+    "busy_max_us": 1638,
+    "connected": 2,
+    "lag_in_p99_ms": 364.5,
+    "msgs_10s": 6654,
+    "recvq_max": 44009,
+    "ring_depth_max": 158,
+    "shard": "book13"
+   },
+   {
+    "busy_max_us": 13252,
+    "connected": 2,
+    "lag_in_p99_ms": 348.2,
+    "msgs_10s": 6873,
+    "recvq_max": 51248,
+    "ring_depth_max": 108,
+    "shard": "book14"
+   },
+   {
+    "busy_max_us": 4372,
+    "connected": 2,
+    "lag_in_p99_ms": 364.5,
+    "msgs_10s": 6511,
+    "recvq_max": 31071,
+    "ring_depth_max": 149,
+    "shard": "book15"
+   },
+   {
+    "busy_max_us": 6122,
+    "connected": 2,
+    "lag_in_p99_ms": 235.5,
+    "msgs_10s": 1994,
+    "recvq_max": 0,
+    "ring_depth_max": 36,
+    "shard": "trade00"
+   },
+   {
+    "busy_max_us": 1448,
+    "connected": 2,
+    "lag_in_p99_ms": 174.1,
+    "msgs_10s": 1062,
+    "recvq_max": 5374,
+    "ring_depth_max": 19,
+    "shard": "trade01"
+   },
+   {
+    "busy_max_us": 4399,
+    "connected": 2,
+    "lag_in_p99_ms": 161.8,
+    "msgs_10s": 1139,
+    "recvq_max": 583,
+    "ring_depth_max": 44,
+    "shard": "trade02"
+   },
+   {
+    "busy_max_us": 627,
+    "connected": 2,
+    "lag_in_p99_ms": 161.8,
+    "msgs_10s": 1779,
+    "recvq_max": 6315,
+    "ring_depth_max": 61,
+    "shard": "trade03"
+   },
+   {
+    "busy_max_us": 5438,
+    "connected": 2,
+    "lag_in_p99_ms": 161.8,
+    "msgs_10s": 3034,
+    "recvq_max": 12756,
+    "ring_depth_max": 60,
+    "shard": "trade04"
+   },
+   {
+    "busy_max_us": 2716,
+    "connected": 2,
+    "lag_in_p99_ms": 170.0,
+    "msgs_10s": 1214,
+    "recvq_max": 226,
+    "ring_depth_max": 14,
+    "shard": "trade05"
+   },
+   {
+    "busy_max_us": 701,
+    "connected": 2,
+    "lag_in_p99_ms": 161.8,
+    "msgs_10s": 770,
+    "recvq_max": 231,
+    "ring_depth_max": 8,
+    "shard": "trade06"
+   },
+   {
+    "busy_max_us": 2020,
+    "connected": 2,
+    "lag_in_p99_ms": 170.0,
+    "msgs_10s": 1022,
+    "recvq_max": 796,
+    "ring_depth_max": 23,
+    "shard": "trade07"
+   },
+   {
+    "busy_max_us": 4939,
+    "connected": 2,
+    "lag_in_p99_ms": 290.8,
+    "msgs_10s": 40,
+    "recvq_max": 0,
+    "ring_depth_max": 1,
+    "shard": "mark00"
+   }
+  ],
+  "started_ms": 1794493267819,
+  "symbols": {
+   "subscribed": 512,
+   "with_data_1m": 512
+  },
+  "totals": {
+   "dups": 476047,
+   "files_closed": 0,
+   "raw": 378,
+   "raw_copies": 48,
+   "records": 1779559,
+   "rows": 1781227,
+   "rx_clamped": 1225,
+   "sink_blocks_dropped": 0,
+   "sink_errors": 0
+  },
+  "ts_ms": 1794493618082,
+  "ws": {
+   "connections": 50,
+   "entrance_switches_1h": 0,
+   "entrance_switches_24h": 0,
+   "gaps_1h": 4,
+   "gaps_24h": 4,
+   "path_switches_1h": 0,
+   "path_switches_24h": 0,
+   "ping_ms": {
+    "max": 567.9,
+    "p50": 291.0
+   },
+   "reconnects_1h": 0,
+   "reconnects_24h": 0,
+   "timeouts_1h": 0,
+   "timeouts_24h": 0
+  }
+ }
+}

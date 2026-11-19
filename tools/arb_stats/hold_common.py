@@ -72,3 +72,22 @@ def build_coins(parsed, days):
             if cur is None or (exact and not cur[3]):
                 coins[coin][ex] = (sym, mult, meta[ex].get(sym) or {}, exact)
     return {c: {ex: v[:3] for ex, v in d.items()} for c, d in coins.items() if len(d) >= 2}, meta
+
+
+def rolling_centre(mins, sb, bb, win_min=CENTRE_MIN, need_bars=CENTRE_MIN // 2):
+    """core.rolling_centre с окном и порогом баров параметрами (core.py остаётся боевым, как в /opt/arb-tab: там окно только 60 / 30).
+    Центр по минуте k = медиана середины закрытия (S_c + B_c)/2 баров окна [k−win_min, k−1]; NaN, если баров < need_bars. -> m0, массив центров по минутам.
+    Окно только из прошлого: заглядывания вперёд нет; сдвиг уровня, державшийся дольше окна, становится новым центром."""
+    import warnings
+    import numpy as np
+    m0, m1 = int(mins[0]), int(mins[-1])
+    mid = np.full(m1 - m0 + 1, np.nan)
+    mid[mins - m0] = (sb[3] + bb[3]) / 2
+    pad = np.r_[np.full(win_min, np.nan), mid]
+    win = np.lib.stride_tricks.sliding_window_view(pad, win_min)[: len(mid)]   # окно [k−win_min, k−1] для минуты k
+    cnt = np.sum(~np.isnan(win), axis=1)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)
+        c = np.nanmedian(win, axis=1)
+    c[cnt < need_bars] = np.nan
+    return m0, c

@@ -1,0 +1,11 @@
+# started on Fri Nov 13 13:53:58 2026
+
+
+ Performance counter stats for process id '2579146':
+
+            164179      context-switches                                                      
+             64200      cpu-migrations                                                        
+                 1      page-faults                                                           
+
+      20.014433471 seconds time elapsed
+

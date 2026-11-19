@@ -19,17 +19,17 @@ sys.path.insert(0, str(Path(__file__).parent))
 import core  # noqa: E402
 import hold_scan as hs  # noqa: E402
 import maker_run  # noqa: E402
-from hold_common import CAP_MS, CENTRE_MIN, DAYS, unit_of  # noqa: E402
+from hold_common import CAP_MS, CENTRE_MIN, DAYS, rolling_centre, unit_of  # noqa: E402
 
 G = {}
 SUBSETS = ("keep", "keep_p")
 
 
 def series(A, B, t1):
-    T, S, Bu, ia, ib = core.pair_series(A, B, t1)
+    T, S, Bu, ia, ib = core.pair_series(A, B, t1, stale_ms=None)
     valid = ((T - A["e"][ia]) <= CAP_MS) & ((T - B["e"][ib]) <= CAP_MS)
     mins, _, sb, bb = core.minute_bars(T[valid], S[valid], Bu[valid])
-    m0, cen = core.rolling_centre(mins, sb, bb, CENTRE_MIN, CENTRE_MIN // 2)
+    m0, cen = rolling_centre(mins, sb, bb, CENTRE_MIN, CENTRE_MIN // 2)
     return T, S, Bu, (S + Bu) / 2, cen[np.clip(T // 60000 - m0, 0, len(cen) - 1)]
 
 

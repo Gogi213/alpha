@@ -1,0 +1,93 @@
+{
+ "schema": 1,
+ "kind": "accept_hour",
+ "exchange": "binance",
+ "ts_ms": 1794471906000,
+ "utc": "20261112T082506Z",
+ "window_ms": [
+  1794471726000,
+  1794471906000
+ ],
+ "window_s": 180,
+ "verdict": "ok",
+ "fail_reasons": [],
+ "health": {
+  "age_s": 2,
+  "symbols": {
+   "subscribed": 511,
+   "with_data_1m": 510
+  },
+  "connections": 50,
+  "timeouts_1h": 0,
+  "reconnects_1h": 0,
+  "entrance_switches_1h": 0,
+  "gaps_1h": 0,
+  "fresh": {
+   "book": {
+    "late_1h": 0,
+    "max_1h_ms": 626
+   },
+   "mark": {
+    "late_1h": 0,
+    "max_1h_ms": 215
+   },
+   "raw": {
+    "late_1h": 0,
+    "max_1h_ms": 235
+   },
+   "trade": {
+    "late_1h": 0,
+    "max_1h_ms": 598
+   }
+  },
+  "lag_in_ms": {
+   "p50": 116.7,
+   "p99": 480.5,
+   "window_s": 60
+  },
+  "lag_out_ms": {
+   "p50": 526.9,
+   "p99": 1025.2,
+   "window_s": 60
+  }
+ },
+ "files": {
+  "records": {
+   "b": 445547,
+   "g": 1690,
+   "m": 42660,
+   "r": 180,
+   "t": 68551
+  },
+  "symbols_with_data": {
+   "book": 511,
+   "trade": 511,
+   "mark": 237
+  },
+  "pool": 511,
+  "pool_without_book_in_files": [],
+  "late": {
+   "book": {
+    "late_all": 0,
+    "late_after_grace": 0,
+    "max_ms": 626
+   },
+   "trade": {
+    "late_all": 0,
+    "late_after_grace": 0,
+    "max_ms": 198
+   },
+   "mark": {
+    "late_all": 0,
+    "late_after_grace": 0,
+    "max_ms": 215
+   }
+  },
+  "sequence_checks": {
+   "book_u_not_increasing": 0,
+   "trade_a_not_increasing": 0,
+   "mark_E_not_increasing": 0
+  }
+ },
+ "events": {}
+}

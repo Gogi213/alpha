@@ -1,0 +1,17 @@
+{
+ "since_ms": 1794452877000,
+ "until_ms": 1794456520104,
+ "events": [],
+ "n_timeout": 0,
+ "n_gap": 0,
+ "n_error": 0,
+ "health": {
+  "connections": 36,
+  "timeouts_1h": 0,
+  "gaps_1h": 0,
+  "reconnects_1h": 0,
+  "timeouts_24h": 0,
+  "gaps_24h": 0,
+  "reconnects_24h": 0
+ }
+}

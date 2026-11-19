@@ -1,0 +1,11 @@
+stop at 08:29:21 UTC
+== bb
+book00-1794472086.tsv.zst zstd-t=ok rows=1020 ok=1020 last=[c	10575617	closed	1795472086]
+mark00-1794472086.tsv.zst zstd-t=ok rows=248 ok=248 last=[c	70692012	closed	1795472086]
+trade00-1794472086.tsv.zst zstd-t=ok rows=827 ok=827 last=[c	103204732	closed	1795472086]
+stopped events: 3
+== bn
+book00-1794472086.tsv.zst zstd-t=ok rows=39544 ok=39544 last=[c	340595	closed	1795472086]
+mark00-1794472086.tsv.zst zstd-t=ok rows=17645 ok=17645 last=[c	1108648	closed	1794472086]
+trade00-1794472086.tsv.zst zstd-t=ok rows=1024 ok=1024 last=[c	576038	closed	1795472086]
+stopped events: 3

@@ -45,7 +45,7 @@ def patched(A, B, t0, t1):
     if r is None:
         return None
     row, bars, eps, hist = r
-    T, S, Bu, ia, ib = core.pair_series(A, B, t1)
+    T, S, Bu, ia, ib = core.pair_series(A, B, t1, stale_ms=None)
     depth = np.minimum(A["dep"][ia], B["dep"][ib])
     row["_z"] = zero_eps(T, S, Bu, depth, t0, t1)
     return row, bars, eps, hist

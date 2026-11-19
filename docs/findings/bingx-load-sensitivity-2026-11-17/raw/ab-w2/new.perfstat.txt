@@ -1,0 +1,9 @@
+
+ Performance counter stats for thread id '3434229':
+
+          25676.24 msec task-clock                       #    0.122 CPUs utilized             
+       21353387803      cycles                           #    0.832 GHz                       
+       11865455181      instructions                     #    0.56  insn per cycle            
+
+     210.007525872 seconds time elapsed
+

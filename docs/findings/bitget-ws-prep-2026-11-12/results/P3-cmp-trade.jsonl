@@ -1,0 +1,1 @@
+{"ref": "frames/P3-ws-18.154.63.54.jsonl.zst", "other": "frames/P3-ws-18.154.63.61.jsonl.zst", "ref_peer": "18.154.63.54", "other_peer": "18.154.63.61", "window_s": 175.5, "common": 5366, "only_ref": 0, "only_other": 0, "delta_ms_p1": -88.043237, "delta_ms_p50": -0.404716, "delta_ms_p99": 39.223172, "delta_ms_max": 85.131203, "delta_ms_min": -180.700321}

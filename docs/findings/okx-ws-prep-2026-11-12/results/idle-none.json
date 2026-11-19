@@ -1,0 +1,1 @@
+{"mode": "none", "frames": 0, "pong_text": 0, "events": [], "proto_rtt_ms": [], "closed_at_s": 30.9, "close": "ConnectionClosedError(Close(code=4004, reason='No data received in 30s.'), Close(code=4004, reason='No data received in 30s.'), True)", "connect_s": 0.94}

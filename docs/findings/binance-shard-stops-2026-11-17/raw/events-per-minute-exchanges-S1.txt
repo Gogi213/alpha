@@ -1,0 +1,19 @@
+== binance 27 files
+21:17 path_reje=1 connected=10 gap_end=1
+21:18 timeout=3 ping_degr=3 path_reje=7 path_reje=11 connected=49 gap_end=4
+21:19 timeout=33 ping_degr=33 ws_end=2 path_reje=15 path_reje=31 connected=31 gap_end=9
+21:20 timeout=1 ping_degr=1 path_reje=7 connected=19 gap_end=5
+21:21 connected=21 gap_end=6
+21:22 connected=3
+21:23 path_reje=2 connected=3
+== bybit 21 files
+21:18 gap_end=1
+== okx 12 files
+== bingx 15 files
+== gate 9 files
+21:17 connected=9
+21:18 ping_degr=10 path_reje=1 path_reje=3 connected=15
+21:19 ping_degr=3 ws_end=2 connected=2
+21:20 ws_end=1 path_reje=1 connected=9
+21:21 connected=2
+21:22 connected=2

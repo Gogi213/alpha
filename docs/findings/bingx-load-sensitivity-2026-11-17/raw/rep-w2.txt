@@ -1,0 +1,8 @@
+old {"window_s": 210, "frames": 371344, "fps": 1769, "task_ms": 27617.5, "on_cpu_pct": 13.2, "cycles_per_frame": 63206, "instr_per_frame": 39104, "ipc": 0.62, "ghz_eff": 0.85, "oncpu_us_per_frame": 74.4, "runq_wait_ms_per_s": 2.2, "slices": 20440, "queue_lag_p99_ms_median": 12.2, "queue_lag_p99_ms_p90": 20.7, "n_rows": 140, "loop_us": {"p50": 1024, "p99": 4096, "p99_9": 16384}, "tick_us": {"p50": 256, "p99": 2048, "p99_9": 8192}, "gzip": null, "version": "29d981c0", "cpu_cores": 0.141, "sched_wait_cores": 0.005}
+new {"window_s": 210, "frames": 372107, "fps": 1773, "task_ms": 25676.24, "on_cpu_pct": 12.2, "cycles_per_frame": 57385, "instr_per_frame": 31887, "ipc": 0.56, "ghz_eff": 0.832, "oncpu_us_per_frame": 69.0, "runq_wait_ms_per_s": 1.9, "slices": 20444, "queue_lag_p99_ms_median": 12.2, "queue_lag_p99_ms_p90": 15.7, "n_rows": 140, "loop_us": {"p50": 1024, "p99": 4096, "p99_9": 16384}, "tick_us": {"p50": 256, "p99": 2048, "p99_9": 8192}, "gzip": {"fallback": 0, "fast": 509358}, "version": "tk580-gzbench6", "cpu_cores": 0.131, "sched_wait_cores": 0.003}
+host idle mean 60.8 steal mean 2.60 n 376
+cycles_per_frame: old 63206 new 57385 ratio new/old 0.908
+instr_per_frame: old 39104 new 31887 ratio new/old 0.815
+oncpu_us_per_frame: old 74.4 new 69.0 ratio new/old 0.927
+queue_lag_p99_ms_median: old 12.2 new 12.2 ratio new/old 1.000
+queue_lag_p99_ms_p90: old 20.7 new 15.7 ratio new/old 0.758

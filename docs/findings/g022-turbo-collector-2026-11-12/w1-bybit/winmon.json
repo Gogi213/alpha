@@ -1,0 +1,19 @@
+{
+ "started": 1794483460.290419,
+ "seconds": 180,
+ "units": {
+  "soak-bybit.service": {
+   "cpu_cores_mean": 0.568,
+   "cpu_cores_p95": 0.794,
+   "cpu_cores_max": 0.962,
+   "cpu_wait_some_frac_mean": 0.0958,
+   "cpu_wait_some_frac_max": 0.2171,
+   "recvq_max_bytes": 4180,
+   "recvq_samples": 5940,
+   "recvq_nonzero_samples": 97,
+   "recvq_nonzero_pct": 1.633,
+   "recvq_mean_bytes": 5.0,
+   "conns_max": 36
+  }
+ }
+}

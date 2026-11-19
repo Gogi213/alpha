@@ -1,0 +1,60 @@
+     4.61%  alpha-old          [.] alpha::collector::writer::ShardWriter::step                                                                                           -      -            
+     3.90%  alpha-old          [.] alpha::collector::reactor::run                                                                                                        -      -            
+     3.50%  alpha-old          [.] <alpha::collector::writer::Sink as alpha::collector::exchange::Out>::rec                                                              -      -            
+     3.24%  alpha-old          [.] build_decode_table.constprop.1                                                                                                        -      -            
+     2.71%  alpha-old          [.] alpha::collector::codec::Encoder::record                                                                                              -      -            
+     2.15%  alpha-old          [.] deflate_decompress_bmi2                                                                                                               -      -            
+     1.90%  alpha-old          [.] alpha::collector::ring::RingTx::push                                                                                                  -      -            
+     1.86%  alpha-old          [.] alpha::collector::session::Rx::deliver                                                                                                -      -            
+     1.74%  alpha-old          [.] alpha::collector::ring::RingRx::take                                                                                                  -      -            
+     1.49%  [kernel.kallsyms]  [k] rep_movs_alternative                                                                                                                  -      -            
+     1.43%  alpha-old          [.] bytes::bytes_mut::shared_v_drop                                                                                                       -      -            
+     1.36%  libc.so.6          [.] 0x000000000016ae39                                                                                                                    -      -            
+     1.29%  alpha-old          [.] hashbrown::rustc_entry::<impl hashbrown::map::HashMap<K,V,S,A>>::rustc_entry                                                          -      -            
+     1.26%  alpha-old          [.] _aesni_ctr32_ghash_6x                                                                                                                 -      -            
+     1.26%  alpha-old          [.] alpha::collector::scan::parse_object                                                                                                  -      -            
+     1.26%  alpha-old          [.] rustls::conn::ConnectionCore<Data>::process_new_packets                                                                               -      -            
+     1.25%  libc.so.6          [.] malloc                                                                                                                                -      -            
+     1.21%  alpha-old          [.] tungstenite::protocol::WebSocketContext::read                                                                                         -      -            
+     1.04%  alpha-old          [.] build_decode_table.constprop.0                                                                                                        -      -            
+     1.04%  alpha-old          [.] alpha::collector::session::Rx::message                                                                                                -      -            
+     1.00%  alpha-old          [.] alpha::collector::session::Rx::tick                                                                                                   -      -            
+     0.95%  alpha-old          [.] rustls::conn::ConnectionCommon<Data>::complete_io                                                                                     -      -            
+     0.94%  alpha-old          [.] <rustls::crypto::ring::tls13::Tls13MessageDecrypter as rustls::crypto::cipher::MessageDecrypter>::decrypt                             -      -            
+     0.87%  alpha-old          [.] tungstenite::protocol::frame::FrameCodec::read_frame                                                                                  -      -            
+     0.83%  alpha-old          [.] crc32_x86_pclmulqdq_avx                                                                                                               -      -            
+     0.76%  alpha-old          [.] tungstenite::protocol::frame::frame::FrameHeader::parse_internal                                                                      -      -            
+     0.75%  libc.so.6          [.] 0x000000000016b2c0                                                                                                                    -      -            
+     0.73%  alpha-old          [.] <rustls::stream::Stream<C,T> as std::io::Read>::read                                                                                  -      -            
+     0.70%  alpha-old          [.] ring_core_0_17_14__gcm_ghash_avx                                                                                                      -      -            
+     0.69%  alpha-old          [.] _ZN5alpha9collector6worker10WorkerCore4tick17h41667951a3f00ed9E.llvm.2707702424654996143                                              -      -            
+     0.68%  alpha-old          [.] alpha::collector::scan::Cur::nested                                                                                                   -      -            
+     0.67%  alpha-old          [.] ring_core_0_17_14__aes_hw_ctr32_encrypt_blocks                                                                                        -      -            
+     0.66%  [kernel.kallsyms]  [k] tcp_poll                                                                                                                              -      -            
+     0.66%  alpha-old          [.] rustls::msgs::message::outbound::read_opaque_message_header                                                                           -      -            
+     0.61%  alpha-old          [.] <alpha::collector::bingx::BingxParser as alpha::collector::exchange::Parser>::parse                                                   -      -            
+     0.61%  alpha-old          [.] <alpha::collector::net::RxSock as std::io::Read>::read                                                                                -      -            
+     0.56%  alpha-old          [.] alpha::collector::scan::slots                                                                                                         -      -            
+     0.53%  alpha-old          [.] hashbrown::map::HashMap<K,V,S,A>::get_mut                                                                                             -      -            
+     0.51%  alpha-old          [.] rustls::msgs::deframer::buffers::DeframerVecBuffer::read                                                                              -      -            
+     0.49%  alpha-old          [.] ring::aead::aes_gcm::aeshwclmulmovbe::open                                                                                            -      -            
+     0.49%  alpha-old          [.] ring::aead::algorithm::aes_gcm_open                                                                                                   -      -            
+     0.48%  libc.so.6          [.] 0x000000000016be13                                                                                                                    -      -            
+     0.45%  alpha-old          [.] _ZN71_$LT$core..hash..sip..Hasher$LT$S$GT$$u20$as$u20$core..hash..Hasher$GT$5write17h43acea0cc0e24e64E.llvm.15952371007539179670      -      -            
+     0.45%  alpha-old          [.] alpha::collector::bingx::trades                                                                                                       -      -            
+     0.44%  alpha-old          [.] libdeflate_gzip_decompress                                                                                                            -      -            
+     0.42%  alpha-old          [.] ring::aead::aes_gcm::open                                                                                                             -      -            
+     0.41%  alpha-old          [.] alpha::collector::writer::Core::ensure_file                                                                                           -      -            
+     0.41%  alpha-old          [.] <rustls::client::tls13::ExpectTraffic as rustls::common_state::State<rustls::client::client_conn::ClientConnectionData>>::handle      -      -            
+     0.41%  alpha-old          [.] rustls::vecbuf::ChunkVecBuffer::is_full                                                                                               -      -            
+     0.40%  alpha-old          [.] <bytes::bytes::Bytes as core::convert::From<alloc::vec::Vec<u8>>>::from                                                               -      -            
+     0.40%  [kernel.kallsyms]  [k] fdget                                                                                                                                 -      -            
+     0.39%  alpha-old          [.] alloc::vec::Vec<T,A>::retain_mut                                                                                                      -      -            
+     0.38%  [kernel.kallsyms]  [k] memset_orig                                                                                                                           -      -            
+     0.37%  alpha-old          [.] <rustls::msgs::message::Message as core::convert::TryFrom<rustls::msgs::message::inbound::InboundPlainMessage>>::try_from             -      -            
+     0.37%  alpha-old          [.] alpha::collector::gzip::Gunzip::unpack                                                                                                -      -            
+     0.37%  alpha-old          [.] std::time::Instant::now                                                                                                               -      -            
+     0.36%  [kernel.kallsyms]  [k] __check_object_size                                                                                                                   -      -            
+     0.36%  alpha-old          [.] ring_core_0_17_14__aesni_gcm_decrypt                                                                                                  -      -            
+     0.34%  alpha-old          [.] ring::cpu::intel::featureflags::get_or_init                                                                                           -      -            
+     0.34%  [kernel.kallsyms]  [k] tcp_recvmsg_locked                                                                                                                    -      -            

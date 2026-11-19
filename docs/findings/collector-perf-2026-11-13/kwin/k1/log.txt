@@ -1,0 +1,7 @@
+14:49:52 start k1
+14:52:54 window base1 done
+14:52:54 apply: ethtool -L eth0 combined 2
+14:56:15 window knob done
+14:56:15 revert: ethtool -L eth0 combined 8
+14:59:37 window base2 done
+ALLDONE

@@ -1,0 +1,63 @@
+Connection reset by 5.231.25.224 port 22
+[bus] сборк�test collector::tests_pool::the_pause_ends_at_the_first_frame_received_after_it ... ok
+test statarb::tests::delay_x_matches_reference_and_shifts_second_leg ... ok
+test statarb::tests::delay_x_waits_for_open_of_second_leg ... ok
+test statarb::tests::funding_minutes_share_the_epoch_of_panels ... ok
+test statarb::tests::funding_perp_spot_and_perp_perp_matches_reference ... ok
+test statarb::tests::funding_from_exchange_files_lands_in_panel_minutes ... ok
+test statarb::tests::funding_rule_requires_positive_k - should panic ... ok
+test statarb::tests::funding_rule_matches_reference_and_rule_holds ... ok
+test statarb::tests::funding_rule_without_payments_does_not_trade ... ok
+test statarb::tests::gap_minute_is_not_invented_and_blocks_fill ... ok
+test statarb::tests::overlap_of_spans ... ok
+test statarb::tests::funding_rule_with_delay_gaps_and_two_funding_legs_matches_reference ... ok
+test statarb::tests::panel_roundtrip_and_csv_gap_rule ... ok
+test statarb::tests::single_trade_gross_fees_by_leg_closed_form ... ok
+test statarb::tests::spot_and_perp_fees_after_rebate ... ok
+test statarb::tests::pair_kernel_matches_reference_with_gaps ... ok
+test stats::tests::all_zero_data_refuses_instead_of_reporting_spurious_significance ... ok
+test stats::tests::alpha_finer_than_the_webb_grid_refuses_instead_of_returning_a_p_value ... ok
+test stats::tests::below_minimum_cluster_count_refuses_instead_of_returning_a_p_value ... ok
+test stats::tests::bootstrap_empirical_size_matches_gate_alpha_within_tolerance ... ignored, 20000 * 9999 реплик — минуты в --release; запускать вручную для калибровки
+test stats::tests::bootstrap_empirical_size_smoke_is_in_the_right_ballpark ... ok
+test stats::tests::constant_nonzero_data_refuses_instead_of_reporting_spurious_significance ... ok
+test stats::tests::different_seeds_can_give_different_p_values ... ok
+test stats::tests::exactly_g_min_clusters_passes_the_cluster_count_gate ... ok
+test stats::tests::p_grid_resolution_matches_the_exact_power_for_several_cluster_counts ... ok
+test stats::tests::p_grid_resolution_underflows_to_zero_at_397_clusters_but_log10_stays_informative ... ok
+test stats::tests::pure_noise_does_not_give_a_small_p ... ok
+test stats::tests::rademacher_at_seven_clusters_is_coarser_than_gate_alpha_but_webb_is_not ... ok
+test stats::tests::same_data_and_seed_give_exactly_the_same_p_value ... ok
+test stats::tests::strong_positive_signal_with_low_variance_gives_a_small_p ... ok
+test stats::tests::the_replication_loop_does_not_allocate_per_replicate ... ok
+test stats::tests::webb_p_grid_resolution_is_finer_than_gate_alpha_at_g_7_8_9_10 ... ok
+test statarb::tests::z_hook_matches_reference_z_series ... ok
+test lob::backtest::fast_depth::tests::fast_depth_matches_the_crate_book_field_for_field ... ok
+test collector::tests_pool::a_pause_inside_the_shards_usual_range_is_not_a_gap_but_the_same_pause_on_a_fresh_shard_is ... ok
+test commands::lob::session::tests::parse_book_write_path_allocations_per_message_after_warmup ... ok
+test lob::backtest::window_depth::tests::wide_tick_range_matches_the_crate_book ... ok
+
+test result: ok. 1380 passed; 0 failed; 11 ignored; 0 measured; 0 filtered out; finished in 36.44s
+
+     Running unittests src/main.rs (/opt/rbuild/target-srv-dbg/release/deps/alpha-a5510f852e191710)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/collector_bench.rs (/opt/rbuild/target-srv-dbg/release/deps/collector_bench-64b306f78288e547)
+
+running 2 tests
+test parse_message_bench ... ignored, бенч, не гейт: запускать руками с --ignored --nocapture
+test zstd_level_bytes_per_record_and_cpu_on_a_real_binlog ... ignored
+
+test result: ok. 0 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests alpha
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[bus] сборка.готова: шина недоступна (URLError), в spool
+rc=0

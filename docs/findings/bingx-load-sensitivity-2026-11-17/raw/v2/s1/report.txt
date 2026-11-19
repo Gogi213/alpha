@@ -1,0 +1,138 @@
+# session /data/tk580/v2/s1
+23:50:59 start label=s1 first=old phases=[W:120 Q:900 L:2100 Q:900] load_nice=19 total=4020s copies=1
+23:53:19 phase 1 W 120s done
+00:08:21 phase 2 Q 900s done
+00:08:22 phase 3 L: load started nice=19, MemAvailable 57 GB
+00:43:23 phase 3 L: load stopped; scan.log tail: 安人生 3s pairs 3 我踏马来了 0s pairs 1 牛来 4s pairs 3 龙虾 2s pairs 3 ZRO 15s pairs 10 BTW 1730s pairs 10 
+00:43:23 phase 3 L 2100s done
+00:58:26 phase 4 Q 900s done
+00:58:59 done
+
+== phase 1 W: 120 s (cut 20 s), load1 11.7, hold RSS peak 0.0 GB, biggest other-thread process 0.7 GB, MemAvailable min 57.2 GB
+   host: idle 2.2% steal 7.1% nice 71.1% user 8.7% sys 7.0% iowait 0.0% soft 3.8% | PSI cpu some 30.7% / mem some 0.00% full 0.00% / io some 0.1% full 0.0% | pgfault 3k/s majfault 0/s pgscan 0.0k/s direct 0/s compact_stall 0.0/s swap 0/s
+   OLD: msgs/s 1767; queue_lag_p99 all-shards median 15.5 p90 20.7 p99 25.3 max 25.3 (n 70), book median 11.1 p90 12.2, rows>30ms 0%
+        thread: on-CPU 10.1%, runq wait 33.6 ms/s, wakeups 119/s, minflt 32/s majflt 0.0/s
+        perf (covered 60 s): cycles/frame 66753, instr/frame 40580, IPC 0.61, GHz 1.13, LLC-ref/frame 1021.2, LLC-miss/frame 241.67 (23.7% of refs; 5.955/k-instr), L1d-miss/frame 663.1, page-faults 34/s, ctx-sw 123/s, migr 0.7/s; counted 100%
+   NEW: msgs/s 1770; queue_lag_p99 all-shards median 15.2 p90 19.2 p99 20.2 max 20.2 (n 70), book median 11.1 p90 12.4, rows>30ms 0%
+        thread: on-CPU 8.8%, runq wait 27.2 ms/s, wakeups 115/s, minflt 15/s majflt 0.0/s
+        perf (covered 60 s): cycles/frame 57451, instr/frame 32485, IPC 0.57, GHz 1.18, LLC-ref/frame 888.6, LLC-miss/frame 220.20 (24.8% of refs; 6.779/k-instr), L1d-miss/frame 562.1, page-faults 25/s, ctx-sw 115/s, migr 0.6/s; counted 100%
+   live queue_lag_p99 median/p90: bingx: book 16.9/20.2, trade 20.2/23.8, mark 31.0/37.4 | okx: book 12.4/12.9, trade 16.0/16.6, mark 16.0/17.7 | bybit: book 15.4/19.2, trade 20.2/45.6, mark 16.3/17.7
+
+== phase 2 Q: 903 s (cut 20 s), load1 12.0, hold RSS peak 0.0 GB, biggest other-thread process 0.7 GB, MemAvailable min 53.4 GB
+   host: idle 3.9% steal 5.7% nice 69.1% user 9.3% sys 7.8% iowait 0.0% soft 4.2% | PSI cpu some 29.4% / mem some 0.00% full 0.00% / io some 0.1% full 0.0% | pgfault 7k/s majfault 0/s pgscan 0.0k/s direct 0/s compact_stall 0.0/s swap 0/s
+   OLD: msgs/s 1766; queue_lag_p99 all-shards median 15.2 p90 36.4 p99 282.6 max 1294.3 (n 616), book median 10.9 p90 14.5, rows>30ms 12%
+        thread: on-CPU 10.5%, runq wait 38.7 ms/s, wakeups 117/s, minflt 8/s majflt 0.0/s
+        perf (covered 840 s): cycles/frame 65893, instr/frame 40266, IPC 0.61, GHz 1.10, LLC-ref/frame 983.3, LLC-miss/frame 240.36 (24.4% of refs; 5.969/k-instr), L1d-miss/frame 649.3, page-faults 9/s, ctx-sw 117/s, migr 1.6/s; counted 100%
+   NEW: msgs/s 1767; queue_lag_p99 all-shards median 14.5 p90 26.9 p99 274.4 max 2195.5 (n 616), book median 10.4 p90 16.6, rows>30ms 10%
+        thread: on-CPU 9.4%, runq wait 34.7 ms/s, wakeups 116/s, minflt 8/s majflt 0.0/s
+        perf (covered 840 s): cycles/frame 58726, instr/frame 32499, IPC 0.55, GHz 1.10, LLC-ref/frame 890.5, LLC-miss/frame 228.44 (25.7% of refs; 7.029/k-instr), L1d-miss/frame 575.5, page-faults 8/s, ctx-sw 116/s, migr 1.5/s; counted 100%
+   live queue_lag_p99 median/p90: bingx: book 21.8/34.3, trade 23.3/33.3, mark 44.5/80.9 | okx: book 12.9/23.3, trade 18.4/37.4, mark 17.2/22.8 | bybit: book 16.3/56.8, trade 23.3/91.1, mark 17.2/32.5
+
+== phase 3 L: 2102 s (cut 20 s), load1 19.5, hold RSS peak 23.4 GB, biggest other-thread process 0.7 GB, MemAvailable min 45.7 GB
+   host: idle 0.2% steal 8.5% nice 64.1% user 8.1% sys 15.6% iowait 0.0% soft 3.5% | PSI cpu some 62.3% / mem some 1.13% full 0.68% / io some 0.6% full 0.0% | pgfault 26k/s majfault 0/s pgscan 5.4k/s direct 5104/s compact_stall 16.9/s swap 0/s
+   OLD: msgs/s 1699; queue_lag_p99 all-shards median 17.7 p90 446.5 p99 4096.0 max 6094.8 (n 1435), book median 11.6 p90 348.2, rows>30ms 20%
+        thread: on-CPU 9.6%, runq wait 52.9 ms/s, wakeups 114/s, minflt 1/s majflt 0.0/s
+        perf (covered 2040 s): cycles/frame 65264, instr/frame 40478, IPC 0.62, GHz 1.18, LLC-ref/frame 929.2, LLC-miss/frame 243.65 (26.2% of refs; 6.019/k-instr), L1d-miss/frame 618.3, page-faults 1/s, ctx-sw 114/s, migr 0.6/s; counted 100%
+   NEW: msgs/s 1744; queue_lag_p99 all-shards median 16.6 p90 161.8 p99 4161.5 max 15335.4 (n 1455), book median 10.9 p90 137.2, rows>30ms 21%
+        thread: on-CPU 8.7%, runq wait 50.8 ms/s, wakeups 113/s, minflt 1/s majflt 0.0/s
+        perf (covered 2040 s): cycles/frame 57631, instr/frame 32340, IPC 0.56, GHz 1.17, LLC-ref/frame 839.5, LLC-miss/frame 227.81 (27.1% of refs; 7.044/k-instr), L1d-miss/frame 551.9, page-faults 1/s, ctx-sw 113/s, migr 0.6/s; counted 100%
+   live queue_lag_p99 median/p90: bingx: book 20.2/471.0, trade 23.8/421.9, mark 44.5/503.8 | okx: book 14.5/57.9, trade 20.2/78.8, mark 18.7/26.4 | bybit: book 17.4/49.7, trade 24.3/74.8, mark 18.7/66.6
+
+== phase 4 Q: 902 s (cut 20 s), load1 14.2, hold RSS peak 0.0 GB, biggest other-thread process 2.1 GB, MemAvailable min 54.1 GB
+   host: idle 2.0% steal 6.4% nice 72.6% user 8.5% sys 6.8% iowait 0.0% soft 3.7% | PSI cpu some 39.5% / mem some 0.03% full 0.02% / io some 0.4% full 0.0% | pgfault 5k/s majfault 5/s pgscan 1.0k/s direct 16/s compact_stall 0.1/s swap 0/s
+   OLD: msgs/s 1771; queue_lag_p99 all-shards median 14.5 p90 26.4 p99 32.0 max 40.4 (n 623), book median 10.4 p90 12.2, rows>30ms 1%
+        thread: on-CPU 9.9%, runq wait 35.8 ms/s, wakeups 117/s, minflt 0/s majflt 0.0/s
+        perf (covered 900 s): cycles/frame 59608, instr/frame 37271, IPC 0.63, GHz 1.14, LLC-ref/frame 899.9, LLC-miss/frame 216.01 (24.0% of refs; 5.796/k-instr), L1d-miss/frame 584.6, page-faults 0/s, ctx-sw 110/s, migr 0.9/s; counted 100%
+   NEW: msgs/s 1760; queue_lag_p99 all-shards median 14.2 p90 22.8 p99 38.4 max 39.4 (n 616), book median 10.1 p90 10.6, rows>30ms 4%
+        thread: on-CPU 8.8%, runq wait 31.6 ms/s, wakeups 116/s, minflt 1/s majflt 0.0/s
+        perf (covered 900 s): cycles/frame 52399, instr/frame 29926, IPC 0.57, GHz 1.12, LLC-ref/frame 799.2, LLC-miss/frame 208.50 (26.1% of refs; 6.967/k-instr), L1d-miss/frame 512.0, page-faults 1/s, ctx-sw 109/s, migr 0.8/s; counted 100%
+   live queue_lag_p99 median/p90: bingx: book 17.2/23.3, trade 21.8/24.3, mark 41.5/65.0 | okx: book 11.9/15.7, trade 16.6/22.8, mark 16.0/17.7 | bybit: book 14.5/18.7, trade 19.7/30.0, mark 16.3/19.2
+
+== per 60 s (queue_lag_p99 median of all shards, ms; cyc/frame in k; LLC-miss per frame)
+  UTC   ph     OLD ql OLD kcpf OLD lmf OLD msg/s  NEW ql NEW kcpf NEW lmf NEW msg/s  liveBXbook  OKXbook BYbook   idle  cpuP  memP pgf/k  holdG  ambG
+  23:51    W      16.0     64.4  230.61      1772    15.2     57.6  224.19      1776       15.7     12.4   16.3    2.6  33.0  0.00     4    0.0   0.7
+  23:52    W      14.7     66.9  242.02      1764    15.3     57.7  221.22      1761       17.4     12.3   14.5    1.8  29.1  0.00     4    0.0   0.7
+  23:53    -      15.1     66.5  234.35      1759    14.3     60.5  228.50      1761       19.7     12.2   15.8    1.4  28.9  0.00     4    0.0   0.7
+  23:54    Q      14.8     66.0  242.58      1764    15.0     59.8  232.46      1768       24.3     11.4   12.7    5.2  27.6  0.00     3    0.0   0.7
+  23:55    Q      15.0     66.9  238.82      1766    14.2     60.6  231.44      1766       24.8     13.2   13.4    4.0  26.5  0.00     3    0.0   0.7
+  23:56    Q      14.5     67.1  243.19      1768    15.2     58.6  232.78      1766       18.7     22.8   56.8    4.0  29.9  0.00    13    0.0   0.7
+  23:57    Q      15.7     67.1  251.69      1765    15.7     60.0  234.60      1765       18.4     12.9   15.2    1.0  38.6  0.00    13    0.0   0.7
+  23:58    Q      14.7     67.0  245.09      1764    14.2     61.3  233.49      1764       22.8     12.4   13.2    2.0  32.4  0.00    18    0.0   0.7
+  23:59    Q      17.2     69.4  237.53      1765    16.3     60.7  224.71      1759       20.2     13.3   13.4    3.2  32.6  0.00    26    0.0   0.7
+  00:00    Q      94.2     66.6  244.93      1759   101.4     60.6  238.63      1764     1392.6    114.7 1589.2    3.5  33.8  0.00     3    0.0   0.7
+  00:01    Q      13.8     65.3  244.43      1763    13.6     56.8  227.71      1770       25.1     12.6   16.3    5.8  28.6  0.00     3    0.0   0.7
+  00:02    Q      15.0     66.4  242.91      1762    14.2     59.0  227.70      1765       22.8     12.7   25.1    4.3  25.8  0.00     2    0.0   0.7
+  00:03    Q      14.2     61.1  228.53      1775    12.7     54.7  217.94      1772       19.2     14.1   18.4    5.5  27.3  0.00     2    0.0   0.7
+  00:04    Q      14.5     65.2  241.79      1776    13.8     57.6  226.20      1778       22.6     18.2   18.2    5.1  27.8  0.00     3    0.0   0.7
+  00:05    Q      15.5     64.7  232.09      1767    15.0     56.9  222.57      1770       21.8     12.6   17.7    2.9  28.3  0.00     3    0.0   0.7
+  00:06    Q      16.5     64.8  234.37      1778    14.1     58.6  223.60      1773       22.8     12.4   14.0    5.5  25.9  0.00     2    0.0   0.7
+  00:07    Q      13.7     64.7  236.17      1764    13.8     57.0  223.68      1765       21.2     11.4   17.2    4.1  27.4  0.00     2    0.0   0.7
+  00:08    -      16.9     65.6  237.25      1759    16.6     60.6  231.56      1761       19.2     11.9   18.7    0.6  60.0  0.00    30    4.1   0.7
+  00:09    L      17.2     64.1  239.74      1764    16.6     59.9  230.20      1762       24.6     12.6   18.4    0.3  62.0  0.00    21    7.5   0.7
+  00:10    L      17.2     69.4  251.11      1762    15.2     59.3  229.70      1766       23.8     12.3   18.7    0.2  61.1  0.00    20    7.0   0.7
+  00:11    L      17.4     65.8  244.04      1760    16.9     60.3  231.20      1759       19.4     12.4   15.2    0.1  60.8  0.00    16    8.9   0.7
+  00:12    L      16.4     68.5  252.77      1766    15.6     57.7  230.43      1762       15.8     15.2   15.5    0.2  62.3  0.00    18    8.6   0.7
+  00:13    L      16.6     67.4  245.37      1761    15.6     62.6  241.93      1765       17.7     15.7   16.9    0.2  61.3  0.00    25   10.0   0.7
+  00:14    L      16.6     68.3  248.59      1763    16.5     61.6  242.03      1763       24.1     14.1   15.8    0.1  63.7  0.29    30   10.7   0.7
+  00:15    L      16.9     63.8  239.33      1755    16.1     59.8  234.30      1749       22.3     13.7   14.5    0.1  61.4  0.71    33   11.7   0.7
+  00:16    L      17.9     63.9  237.66      1760    16.9     62.2  224.36      1767       18.7     12.7   22.3    0.2  64.4 11.03    39   13.5   0.7
+  00:17    L      18.7     65.3  254.98      1326    28.9     56.7  226.19      1476      236.9     20.2   34.2    0.2  62.6  7.48    33   14.6   0.7
+  00:18    L    1130.5     56.7  213.58      1988  1392.6     55.4  223.47      1718     1146.9    278.5  198.7    0.3  62.9  3.63    30   15.6   0.7
+  00:19    L     548.9     59.2  219.31      1611   372.8     53.1  213.17      1655      573.4    165.9   21.2    0.1  66.5  6.51    43   16.7   0.7
+  00:20    L    1097.7     71.1  277.01      1141  1024.0     57.8  231.00      1621      843.8    279.6   85.0    0.2  64.8  0.06    34   15.5   0.0
+  00:21    L     348.2     89.3  399.45       970   105.5     62.8  252.04      1647      169.4     70.7   17.2    0.2  62.6  0.00    34   14.3   0.0
+  00:22    L      15.5     92.3  368.19      1158    16.6     56.7  225.15      1825       19.2     20.9   17.2    0.1  63.4  0.00    34   14.2   0.0
+  00:23    L      15.8     61.7  224.35      1976    16.3     55.6  229.43      1768       28.4     14.6   19.2    0.2  65.7  0.00    30   12.3   0.7
+  00:24    L      18.7     65.5  237.71      1759    17.2     58.5  226.50      1761       24.3     15.3   24.8    0.1  62.9  0.00    28   13.8   0.7
+  00:25    L      17.1     63.0  233.16      1763    17.7     56.6  230.37      1764       19.7     18.7   49.2    0.1  62.8  0.00    24   13.6   0.7
+  00:26    L      17.2     65.6  236.12      1767    16.6     56.1  225.87      1766       19.7     15.8   18.2    0.1  63.2  0.00    28   14.3   0.7
+  00:27    L      17.2     61.3  233.94      1764    16.5     55.7  225.12      1762       18.2     14.7   17.7    0.3  68.4  0.00    33   15.3   0.7
+  00:28    L      19.9     65.1  230.22      1758    17.2     57.2  208.63      1759       21.8     15.9   19.2    0.4  62.4  0.00    24   15.5   0.7
+  00:29    L     130.6     57.2  202.82      1754    70.7     52.0  193.13      1751      161.8     16.6   23.1    0.2  62.9  0.00    28   16.3   0.7
+  00:30    L     167.9     63.3  233.69      1764   139.2     55.5  221.43      1768      170.0     13.2   64.0    0.1  65.2  0.00    24   17.6   0.7
+  00:31    L      19.2     63.1  235.39      1759    20.2     57.2  226.69      1759       19.2     15.7   18.2    0.2  63.7  0.25    23   17.7   0.7
+  00:32    L      16.6     64.0  236.79      1768    15.0     57.8  224.26      1761       24.1     14.3   14.5    0.1  63.2  3.02    31   18.1   0.7
+  00:33    L      15.2     64.8  245.52      1764    16.3     55.8  224.76      1763       16.6     12.3   16.5    0.1  62.6  2.36    21   17.9   0.7
+  00:34    L      14.4     65.7  242.06      1763    13.7     58.0  230.82      1768       16.3     12.4   17.7    0.1  59.9  0.00    17   18.0   0.7
+  00:35    L      15.6     64.3  243.71      1762    15.2     57.1  225.67      1761       16.9     15.0   14.2    0.0  61.1  0.00    16   18.9   0.7
+  00:36    L      14.8     65.4  242.48      1754    15.7     58.7  238.73      1760       14.8     14.0   14.1    0.1  62.2  0.00    18   19.1   0.7
+  00:37    L      17.2     64.7  244.74      1764    16.1     58.8  231.50      1756       16.0     11.6   13.8    0.1  60.9  0.85    26   20.5   0.7
+  00:38    L      17.7     65.8  240.98      1757    16.6     57.5  231.60      1758       16.6     12.7   18.9    0.1  62.8  0.52    22   21.2   0.7
+  00:39    L      16.6     62.4  236.56      1763    15.4     59.1  228.27      1761       18.7     14.5   14.2    0.2  61.6  0.02    22   22.0   0.7
+  00:40    L      16.6     63.1  235.88      1765    16.0     58.4  231.00      1764       18.4     17.7   15.1    0.2  63.1  1.21    23   23.0   0.7
+  00:41    L      16.5     66.4  248.76      1759    16.0     54.9  233.59      1761       17.4     15.6   14.7    0.2  59.0  1.01    19   23.4   0.7
+  00:42    L      17.4     65.7  244.37      1763    15.0     53.3  225.19      1761       15.0     12.8   14.3    0.4  46.7  0.00    16   22.9   0.7
+  00:43    -      13.2     62.4  233.86      1755    12.9     54.1  220.30      1764       22.1     11.5   15.3    4.7  26.2  0.00     4   22.5   0.7
+  00:44    Q      13.1     61.5  229.56      1766    12.8     55.7  223.94      1760       17.2     11.4   13.7    5.4  25.2  0.00     2    0.0   0.7
+  00:45    Q      14.2     63.7  232.18      1760    13.7     54.7  221.03      1757       18.4     14.8   17.9    3.0  27.7  0.00     2    0.0   0.7
+  00:46    Q      15.1     63.7  233.33      1757    14.2     53.9  217.08      1764       25.6     14.1   13.7    3.1  33.1  0.00     5    0.0   0.9
+  00:47    Q      15.4     63.7  232.58      1768    13.4     54.4  218.35      1758       20.4     16.6   16.6    3.2  29.0  0.00     4    0.0   1.0
+  00:48    Q      16.5     63.0  232.64      1760    15.2     60.0  230.37      1762       17.4     11.8   13.3    0.6  33.0  0.07     5    0.0   1.3
+  00:49    Q      15.6     64.4  230.96      1766    15.6     54.9  218.13      1765       17.2     11.6   13.4    1.1  30.1  0.00     4    0.0   1.3
+  00:50    Q      16.0     61.6  231.66      1760    16.3     56.3  223.28      1761       17.7     12.9   17.9    0.5  44.0  0.23     9    0.0   1.1
+  00:51    Q      14.7     68.2  239.22      1761    15.3     56.7  221.15      1760       15.0     12.4   17.7    0.3  53.7  0.09     9    0.0   1.5
+  00:52    Q      15.8     63.0  224.17      1766    14.6     55.2  228.30      1764       15.2     11.5   13.7    0.2  58.4  0.01     7    0.0   1.8
+  00:53    Q      14.2     63.5  229.42      1756    14.8     55.6  220.05      1758       14.5     11.9   14.5    0.1  58.1  0.04     9    0.0   2.1
+  00:54    Q      15.7     66.9  235.72      1764    15.2     57.6  224.70      1758       20.7     11.4   14.2    0.3  54.5  0.00     7    0.0   1.9
+  00:55    Q      14.8     65.7  234.21      1764    11.9     56.4  226.31      1768       14.1     11.2   12.9    0.1  55.5  0.00     5    0.0   1.0
+  00:56    Q      14.0     64.4  231.50      1770    12.9     55.2  219.54      1769       15.6     11.8   15.1    2.2  34.5  0.00     3    0.0   0.7
+  00:57    Q      13.3     63.9  233.06      1767    15.0     57.9  229.18      1761       20.4     10.9   15.2    4.9  25.4  0.00     2    0.0   0.7
+
+== paired OLD − NEW per minute (queue_lag median of all shards; positive = NEW lower), by phase kind and by ambient level (live BingX book median that minute)
+  phase Q: n 28 min, OLD median 14.9 NEW median 14.4; diff mean +0.26 median +0.50 ms, NEW lower in 64% of minutes (sign test p 0.076); OLD/NEW ratio of medians 1.03
+  phase L: n 34 min, OLD median 17.2 NEW median 16.5; diff mean +9.58 median +0.75 ms, NEW lower in 76% of minutes (sign test p 0.003); OLD/NEW ratio of medians 1.04
+  all phases: n 62 min, OLD median 16.4 NEW median 15.6; diff mean +5.37 median +0.63 ms, NEW lower in 71% of minutes (sign test p 0.000); OLD/NEW ratio of medians 1.05
+  ambient low (live BX book ≤ 18.4 ms): n 23 min, OLD median 15.7 NEW median 15.6; diff mean +0.56 median +0.60 ms, NEW lower in 70% of minutes (sign test p 0.027); OLD/NEW ratio of medians 1.01
+  ambient mid (18.4–22.8): n 21 min, OLD median 15.7 NEW median 15.2; diff mean +0.54 median +0.60 ms, NEW lower in 71% of minutes (sign test p 0.078); OLD/NEW ratio of medians 1.03
+  ambient high (> 22.8 ms): n 18 min, OLD median 17.9 NEW median 16.9; diff mean +17.16 median +0.83 ms, NEW lower in 72% of minutes (sign test p 0.096); OLD/NEW ratio of medians 1.06
+  PSI cpu some 20–40 %: n 22 min, OLD median 14.9 NEW median 14.2; diff mean +0.20 median +0.50 ms, NEW lower in 68% of minutes (sign test p 0.041); OLD/NEW ratio of medians 1.05
+  PSI cpu some ≥ 40 %: n 40 min, OLD median 17.0 NEW median 16.3; diff mean +8.22 median +0.75 ms, NEW lower in 72% of minutes (sign test p 0.006); OLD/NEW ratio of medians 1.04
+
+== sensitivity: median of per-minute queue_lag by phase kind (same session; Q = nothing of mine, L = hold_scan+hold_marks, B = memhog bw, C = memhog chase)
+  OLD: Q 14.9 ms (n 28, ×1.00); L 17.2 ms (n 34, ×1.15)
+  NEW: Q 14.4 ms (n 28, ×1.00); L 16.5 ms (n 34, ×1.15)
+  live: Q 23.3 ms (n 28, ×1.00); L 25.3 ms (n 34, ×1.09)
+
+== per-frame counters by phase kind (median of per-minute values; minutes with msgs/s < 1500 or an incident (live BingX book ≥ 100 ms) left out)
+  Q (n 27 min): OLD: cycles/frame 64.7k, LLC-miss/frame 234; NEW: cycles/frame 56.9k, LLC-miss/frame 225; NEW/OLD cycles ×0.879, LLC-miss ×0.953
+  L (n 26 min): OLD: cycles/frame 64.9k, LLC-miss/frame 240; NEW: cycles/frame 57.9k, LLC-miss/frame 230; NEW/OLD cycles ×0.899, LLC-miss ×0.955

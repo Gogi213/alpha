@@ -1,0 +1,267 @@
+{
+ "exchange": "binance",
+ "window_ms": [
+  1794483460112,
+  1794483641025
+ ],
+ "symbols": 25,
+ "total": {
+  "rest": 36826,
+  "file": 36826,
+  "missing_in_file": 0,
+  "extra_in_file": 0,
+  "mismatch": 0
+ },
+ "per_symbol": {
+  "IDOLUSDT": {
+   "rest": 8482,
+   "file": 8482,
+   "missing_in_file": 0,
+   "extra_in_file": 0,
+   "mismatch": 0,
+   "missing_examples": [],
+   "extra_examples": [],
+   "mismatch_examples": []
+  },
+  "ONEUSDT": {
+   "rest": 4850,
+   "file": 4850,
+   "missing_in_file": 0,
+   "extra_in_file": 0,
+   "mismatch": 0,
+   "missing_examples": [],
+   "extra_examples": [],
+   "mismatch_examples": []
+  },
+  "MAGMAUSDT": {
+   "rest": 3900,
+   "file": 3900,
+   "missing_in_file": 0,
+   "extra_in_file": 0,
+   "mismatch": 0,
+   "missing_examples": [],
+   "extra_examples": [],
+   "mismatch_examples": []
+  },
+  "KGENUSDT": {
+   "rest": 2485,
+   "file": 2485,
+   "missing_in_file": 0,
+   "extra_in_file": 0,
+   "mismatch": 0,
+   "missing_examples": [],
+   "extra_examples": [],
+   "mismatch_examples": []
+  },
+  "XMRUSDT": {
+   "rest": 2138,
+   "file": 2138,
+   "missing_in_file": 0,
+   "extra_in_file": 0,
+   "mismatch": 0,
+   "missing_examples": [],
+   "extra_examples": [],
+   "mismatch_examples": []
+  },
+  "ERAUSDT": {
+   "rest": 1717,
+   "file": 1717,
+   "missing_in_file": 0,
+   "extra_in_file": 0,
+   "mismatch": 0,
+   "missing_examples": [],
+   "extra_examples": [],
+   "mismatch_examples": []
+  },
+  "JCTUSDT": {
+   "rest": 1568,
+   "file": 1568,
+   "missing_in_file": 0,
+   "extra_in_file": 0,
+   "mismatch": 0,
+   "missing_examples": [],
+   "extra_examples": [],
+   "mismatch_examples": []
+  },
+  "ARIAUSDT": {
+   "rest": 1412,
+   "file": 1412,
+   "missing_in_file": 0,
+   "extra_in_file": 0,
+   "mismatch": 0,
+   "missing_examples": [],
+   "extra_examples": [],
+   "mismatch_examples": []
+  },
+  "BTWUSDT": {
+   "rest": 1188,
+   "file": 1188,
+   "missing_in_file": 0,
+   "extra_in_file": 0,
+   "mismatch": 0,
+   "missing_examples": [],
+   "extra_examples": [],
+   "mismatch_examples": []
+  },
+  "BNBUSDT": {
+   "rest": 897,
+   "file": 897,
+   "missing_in_file": 0,
+   "extra_in_file": 0,
+   "mismatch": 0,
+   "missing_examples": [],
+   "extra_examples": [],
+   "mismatch_examples": []
+  },
+  "HUMAUSDT": {
+   "rest": 765,
+   "file": 765,
+   "missing_in_file": 0,
+   "extra_in_file": 0,
+   "mismatch": 0,
+   "missing_examples": [],
+   "extra_examples": [],
+   "mismatch_examples": []
+  },
+  "LITUSDT": {
+   "rest": 704,
+   "file": 704,
+   "missing_in_file": 0,
+   "extra_in_file": 0,
+   "mismatch": 0,
+   "missing_examples": [],
+   "extra_examples": [],
+   "mismatch_examples": []
+  },
+  "AKEUSDT": {
+   "rest": 694,
+   "file": 694,
+   "missing_in_file": 0,
+   "extra_in_file": 0,
+   "mismatch": 0,
+   "missing_examples": [],
+   "extra_examples": [],
+   "mismatch_examples": []
+  },
+  "SXTUSDT": {
+   "rest": 690,
+   "file": 690,
+   "missing_in_file": 0,
+   "extra_in_file": 0,
+   "mismatch": 0,
+   "missing_examples": [],
+   "extra_examples": [],
+   "mismatch_examples": []
+  },
+  "TAOUSDT": {
+   "rest": 626,
+   "file": 626,
+   "missing_in_file": 0,
+   "extra_in_file": 0,
+   "mismatch": 0,
+   "missing_examples": [],
+   "extra_examples": [],
+   "mismatch_examples": []
+  },
+  "KITEUSDT": {
+   "rest": 592,
+   "file": 592,
+   "missing_in_file": 0,
+   "extra_in_file": 0,
+   "mismatch": 0,
+   "missing_examples": [],
+   "extra_examples": [],
+   "mismatch_examples": []
+  },
+  "ENAUSDT": {
+   "rest": 572,
+   "file": 572,
+   "missing_in_file": 0,
+   "extra_in_file": 0,
+   "mismatch": 0,
+   "missing_examples": [],
+   "extra_examples": [],
+   "mismatch_examples": []
+  },
+  "ARBUSDT": {
+   "rest": 511,
+   "file": 511,
+   "missing_in_file": 0,
+   "extra_in_file": 0,
+   "mismatch": 0,
+   "missing_examples": [],
+   "extra_examples": [],
+   "mismatch_examples": []
+  },
+  "BULLAUSDT": {
+   "rest": 492,
+   "file": 492,
+   "missing_in_file": 0,
+   "extra_in_file": 0,
+   "mismatch": 0,
+   "missing_examples": [],
+   "extra_examples": [],
+   "mismatch_examples": []
+  },
+  "AAVEUSDT": {
+   "rest": 489,
+   "file": 489,
+   "missing_in_file": 0,
+   "extra_in_file": 0,
+   "mismatch": 0,
+   "missing_examples": [],
+   "extra_examples": [],
+   "mismatch_examples": []
+  },
+  "LSKUSDT": {
+   "rest": 434,
+   "file": 434,
+   "missing_in_file": 0,
+   "extra_in_file": 0,
+   "mismatch": 0,
+   "missing_examples": [],
+   "extra_examples": [],
+   "mismatch_examples": []
+  },
+  "PIEVERSEUSDT": {
+   "rest": 427,
+   "file": 427,
+   "missing_in_file": 0,
+   "extra_in_file": 0,
+   "mismatch": 0,
+   "missing_examples": [],
+   "extra_examples": [],
+   "mismatch_examples": []
+  },
+  "UNIUSDT": {
+   "rest": 421,
+   "file": 421,
+   "missing_in_file": 0,
+   "extra_in_file": 0,
+   "mismatch": 0,
+   "missing_examples": [],
+   "extra_examples": [],
+   "mismatch_examples": []
+  },
+  "XPLUSDT": {
+   "rest": 392,
+   "file": 392,
+   "missing_in_file": 0,
+   "extra_in_file": 0,
+   "mismatch": 0,
+   "missing_examples": [],
+   "extra_examples": [],
+   "mismatch_examples": []
+  },
+  "PROMUSDT": {
+   "rest": 380,
+   "file": 380,
+   "missing_in_file": 0,
+   "extra_in_file": 0,
+   "mismatch": 0,
+   "missing_examples": [],
+   "extra_examples": [],
+   "mismatch_examples": []
+  }
+ }
+}

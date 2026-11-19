@@ -1,0 +1,21 @@
+== thr
+записей книги 69402: rx − отправка, мкс: p0.1 48 p1 73 p10 138 p50 359 p90 1842 p99 11269 p99.9 27447 max 86007
+  reactor null
+  cpu 0.048 queue_lag {'p50': 0.6, 'p99': 13.2, 'p99_9': 38.4, 'window_s': 60}
+== b5
+записей книги 69402: rx − отправка, мкс: p0.1 18 p1 26 p10 63 p50 363 p90 3341 p99 10746 p99.9 32082 max 99379
+  reactor {"frames": 138980, "heartbeat_age_ms": 74, "kernel_stamps": 36105, "loop_max_us": 55, "loops": 24301, "read_syscalls": 36105, "reads": 36105, "ready_events": 36107, "tap": {"hits": 0, "kernel_drops": 0, "misses": 0, "on": false, "packet_to_parse_us": {"p50": null, "p99": null, "p99_9": null}}, "user_minus_kernel_us": {"p50": 2048, "p99": 16384, "p99_9": 32768}}
+  cpu 0.004 queue_lag {'p50': 1.8, 'p99': 13.4, 'p99_9': 36.4, 'window_s': 60}
+== t2
+записей книги 69402: rx − отправка, мкс: p0.1 18 p1 25 p10 54 p50 223 p90 1323 p99 7679 p99.9 21925 max 77275
+  reactor {"frames": 138980, "heartbeat_age_ms": 20, "kernel_stamps": 50522, "loop_max_us": 3663, "loops": 43300, "read_syscalls": 50522, "reads": 50522, "ready_events": 50524, "tap": {"hits": 0, "kernel_drops": 2785, "misses": 139038, "on": true, "packet_to_parse_us": {"p50": null, "p99": null, "p99_9": null}}, "user_minus_kernel_us": {"p50": 1024, "p99": 8192, "p99_9": 32768}}
+  cpu 0.008 queue_lag {'p50': 0.9, 'p99': 9.9, 'p99_9': 22.3, 'window_s': 60}
+== t5
+записей книги 69402: rx − отправка, мкс: p0.1 19 p1 27 p10 67 p50 411 p90 3633 p99 14470 p99.9 33036 max 144508
+  reactor {"frames": 138980, "heartbeat_age_ms": 128, "kernel_stamps": 35955, "loop_max_us": 1059, "loops": 24272, "read_syscalls": 35955, "reads": 35955, "ready_events": 35957, "tap": {"hits": 0, "kernel_drops": 4046, "misses": 139038, "on": true, "packet_to_parse_us": {"p50": null, "p99": null, "p99_9": null}}, "user_minus_kernel_us": {"p50": 2048, "p99": 16384, "p99_9": 32768}}
+  cpu 0.008 queue_lag {'p50': 1.9, 'p99': 13.4, 'p99_9': 28.4, 'window_s': 60}
+== t10
+записей книги 69402: rx − отправка, мкс: p0.1 21 p1 30 p10 87 p50 1243 p90 7853 p99 18635 p99.9 47400 max 81232
+  reactor {"frames": 138980, "heartbeat_age_ms": 188, "kernel_stamps": 23968, "loop_max_us": 1619, "loops": 13373, "read_syscalls": 23968, "reads": 23968, "ready_events": 23970, "tap": {"hits": 0, "kernel_drops": 7331, "misses": 139038, "on": true, "packet_to_parse_us": {"p50": null, "p99": null, "p99_9": null}}, "user_minus_kernel_us": {"p50": 4096, "p99": 32768, "p99_9": 32768}}
+  cpu 0.01 queue_lag {'p50': 2.6, 'p99': 17.7, 'p99_9': 30.5, 'window_s': 60}
+каталог: /data/perf/st/170200-*

@@ -1,0 +1,13 @@
+{"ev": "connected", "session": 1795444665, "url": "wss://fstream.binance.com/market/stream", "rtt_ms": 235, "ts_ms": 1794444666112, "shard": "mark00"}
+{"ev": "connected", "session": 1794444665, "url": "wss://fstream.binance.com/market/stream", "rtt_ms": 235, "ts_ms": 1794444666151, "shard": "mark00"}
+{"ev": "subscribed", "session": 1795444665, "streams": 1, "ts_ms": 1794444666317, "shard": "mark00"}
+{"ev": "subscribed", "session": 1794444665, "streams": 1, "ts_ms": 1794444666353, "shard": "mark00"}
+{"ev": "path_ok", "session": 1795444665, "n": 23, "p50_ms": 176, "p99_ms": 223, "ts_ms": 1794444682005, "shard": "mark00"}
+{"ev": "path_ok", "session": 1794444665, "n": 23, "p50_ms": 182, "p99_ms": 223, "ts_ms": 1794444682008, "shard": "mark00"}
+{"ev": "timeout", "what": "ping", "session": 1795444665, "ts_ms": 1794444718281, "shard": "mark00"}
+{"ev": "ping_degraded", "session": 1795444665, "ts_ms": 1794444718281, "shard": "mark00"}
+{"ev": "connected", "session": 1795444666, "url": "wss://fstream.binance.com/market/stream", "rtt_ms": 236, "ts_ms": 1794444719122, "shard": "mark00"}
+{"ev": "subscribed", "session": 1795444666, "streams": 1, "ts_ms": 1794444719324, "shard": "mark00"}
+{"ev": "path_ok", "session": 1795444666, "n": 23, "p50_ms": 178, "p99_ms": 205, "ts_ms": 1794444735023, "shard": "mark00"}
+{"ev": "path_switch", "old_session": 1795444665, "new_session": 1795444666, "ts_ms": 1794444755037, "shard": "mark00"}
+{"ev": "stopped", "ts_ms": 1794444783806, "shard": "mark00"}

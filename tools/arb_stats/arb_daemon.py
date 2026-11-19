@@ -8,7 +8,9 @@
   3. пишет arb.json (`written`, `period` — по ним страница опрашивает раз в период) и chart-<gen>.jsonl;
   4. сохраняет состояние (state.pkl: пары, символы, позиции чтения) — перезапуск продолжает с того же места.
 Первый запуск без state.pkl: bootstrap из кусков прежнего почасового разбора (<live>/parsed и <live>/state) — полный счёт одним проходом.
-Запуск: python3 arb_daemon.py run <live> | bootstrap <live> [PAR] | once <live>. Файл /data/perf/HOLD — проход пропускается (запись в skips.log).
+Запуск: python3 arb_daemon.py run <live> | bootstrap <live> [PAR] | once <live> | rebuild <пустой каталог> [PAR]. Файл /data/perf/HOLD — проход пропускается (запись в skips.log).
+rebuild — состояние с нуля по сырым файлам (этап A по всем биржам, затем bootstrap): так подключается новая биржа (Gate — пятая), чьих символов в прежних кусках нет;
+в боевой каталог не пишется (должен быть пустым) — готовый state.pkl кладётся на место при остановленной службе, служба догоняет с него.
 Нужен пакет zstandard (на srv — /opt/arb-tab/pylib, PYTHONPATH в юните).
 """
 import glob
@@ -30,7 +32,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 import arb_inc  # noqa: E402
 import arb_live  # noqa: E402
 import parse_inc  # noqa: E402
-from common import EXCHANGES, load_pool, norm  # noqa: E402,F401
+from common import EXCHANGES, load_pool, norm, unit_of  # noqa: E402,F401
 
 PERIOD_S = 300               # период проходов
 TICK_OFFSET_S = 15           # проход через 15 с после границы периода: сборщики успевают дописать минуту
@@ -49,6 +51,8 @@ def log(**kw):
 
 class Reader:
     """Один открытый файл book<N>: распаковщик и позиция живут между проходами. Состояние st — как в parse_inc (off, cum, last, done)."""
+
+    consume = staticmethod(parse_inc.consume)     # разбор записей: книги; TradeReader (arb_turnover.py) подставляет разбор сделок
 
     def __init__(self, path, st):
         self.path, self.st = path, st
@@ -82,7 +86,7 @@ class Reader:
         self.buf = blob[end:]
         if not end:
             return 0
-        return parse_inc.consume(io.BytesIO(blob[:end]), self.st, want, keep_from, arrs)[0]
+        return self.consume(io.BytesIO(blob[:end]), self.st, want, keep_from, arrs)[0]
 
     def read(self, want, keep_from, arrs):
         """Дочитывает файл: записи — в arrs {символ (bytes): массивы}. -> число записей."""
@@ -123,7 +127,7 @@ def coin_map(day):
     cmap = {}
     for coin, per in coins.items():
         for ex, (sym, mult, _) in per.items():
-            unit = float((meta[ex].get(sym) or {}).get("ctVal") or 1.0) if ex == "okx" else 1.0
+            unit = unit_of(ex, meta[ex].get(sym))
             cmap[(ex, sym)] = (coin, mult, unit)
     return cmap, coins
 
@@ -137,7 +141,7 @@ def to_sym_arrays(a, mult, unit):
 
 # --- мир: всё состояние службы ---------------------------------------------------------------------------------------
 
-VERSION = 2                  # формат состояния: 2 — плотные минутные ряды пар и живые минуты бирж (график «как было»)
+VERSION = 3                  # формат состояния: 2 — плотные минутные ряды пар и живые минуты бирж (график «как было»); 3 — запись символа с временем последней сырой записи серии (hold), круги пары по порогам THETAS
 
 
 def new_world():
@@ -176,9 +180,22 @@ def pair_ok(sa, sb):
     return 0.9 < sa.mid / sb.mid < 1.1      # цены одной монеты на двух биржах — одного порядка (иначе разный множитель названия)
 
 
-def step_coin(W, coin, per, carry0, batch, k_to):
+def span_ratio_ok(ba, bb):
+    """Проверка «одна монета» при пересборке: отношение медиан середин по общему отрезку времени пары, а не по собственной истории каждой стороны (у Gate история короче —
+    медианы разных промежутков дают ложные исключения: BARD, BTW, SOPH, EVAA, цена ушла на 10–40 % между медианой суток и последних часов)."""
+    if ba is None or bb is None:
+        return True
+    lo = max(int(ba["e"][0]), int(bb["e"][0]))
+    ma, mb = ba["e"] >= lo, bb["e"] >= lo
+    if not ma.any() or not mb.any():
+        return True
+    return 0.9 < float(np.median((ba["bid"][ma] + ba["ask"][ma]) / 2)) / float(np.median((bb["bid"][mb] + bb["ask"][mb]) / 2)) < 1.1
+
+
+def step_coin(W, coin, per, carry0, batch, k_to, okfn=None):
     """Дописывает проход (минуты до k_to) ко всем парам монеты (по биржам из per, порядок EXCHANGES). Существующие пары дописываются
-    каждый проход, даже без новых записей: минуты без записей получают перенесённое состояние."""
+    каждый проход, даже без новых записей: минуты без записей получают перенесённое состояние. Принятая пара остаётся (проверку «одна монета» проходит при создании:
+    okfn(ka, kb) — пересборка судит по общему отрезку времени пары; иначе pair_ok по серединам символов)."""
     exs = [ex for ex in EXCHANGES if ex in per and ready(W, ex, per[ex][0])]
     for i in range(len(exs)):
         for j in range(i + 1, len(exs)):
@@ -187,7 +204,7 @@ def step_coin(W, coin, per, carry0, batch, k_to):
             key = (coin, ea, eb)
             if key not in W.pairs and batch.get(ka) is None and batch.get(kb) is None:
                 continue
-            if not pair_ok(W.syms[ka], W.syms[kb]):
+            if key not in W.pairs and not (okfn(ka, kb) if okfn else pair_ok(W.syms[ka], W.syms[kb])):
                 continue
             A, B = arb_inc.with_carry(carry0.get(ka), batch.get(ka)), arb_inc.with_carry(carry0.get(kb), batch.get(kb))
             ps = W.pairs.get(key)
@@ -203,7 +220,7 @@ def advance(W, coins, t_b):
         carry0[key] = s.carry
         b = s.take(W.t_a if W.t_a is not None else t_b - 10 ** 12, t_b)
         batch[key] = b
-        if b is not None:
+        if b is not None and len(b["e"]):
             nb += 1
             alive.setdefault(key[0], []).append(np.unique(b["e"] // MIN))
             if s.mid is None:
@@ -249,12 +266,12 @@ def boot_coin(arg):
     W.syms = syms
     carry0 = {k: None for k in syms}
     for k, s in syms.items():
-        b = s.take(t_boot - 10 ** 12, t_boot)
-        batch[k] = b
+        batch[k] = s.take(t_boot - 10 ** 12, t_boot)
+    for k, b in batch.items():
         if b is not None:
-            s.mid = float(np.median((b["bid"] + b["ask"]) / 2))
+            syms[k].mid = float(np.median((b["bid"] + b["ask"]) / 2))
             alive.setdefault(k[0], []).append(np.unique(b["e"] // MIN))
-    step_coin(W, coin, per, carry0, batch, t_boot // MIN)
+    step_coin(W, coin, per, carry0, batch, t_boot // MIN, okfn=lambda ka, kb: span_ratio_ok(batch.get(ka), batch.get(kb)))
     return syms, W.pairs, {ex: np.unique(np.concatenate(ms)) for ex, ms in alive.items()}
 
 
@@ -393,6 +410,14 @@ class Service:
 def main(cmd, live, par=3):
     Path(live).mkdir(parents=True, exist_ok=True)
     if cmd == "bootstrap":
+        bootstrap(live, par)
+        return
+    if cmd == "rebuild":
+        if any(Path(live, n).exists() for n in ("state.pkl", "state", "parsed")):
+            log(error="rebuild: каталог не пустой (есть state.pkl / state / parsed) — боевое состояние не трогаем")
+            sys.exit(2)
+        files, kept = arb_live.parse_all(live, int(time.time() * 1000), par)
+        log(event="parse", files=files, kept=kept)
         bootstrap(live, par)
         return
     import fcntl   # только Linux: замок от двух служб

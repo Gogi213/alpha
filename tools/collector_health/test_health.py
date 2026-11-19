@@ -85,6 +85,21 @@ def test_states(tmp_path):
     assert rows["binance"]["state"] == "warn" and rows["bybit"]["state"] == "warn"
 
 
+def test_not_subscribed_from_rest_flags_the_row_and_shows_in_detail(tmp_path):
+    import time
+    import v3
+    base = {"ts_ms": int(time.time() * 1000), "symbols": {"subscribed": 3, "with_data_1m": 3}, "ws": {}, "fresh": {"kinds": {}}}
+    root = str(tmp_path)
+    r = v3.exchange_row("bybit", "Bybit", base, root, time.time(), 0, None)
+    assert r["detail"]["not_subscribed"] is None and not r["live_bad"]   # прежняя сборка: поля нет
+    h = {**base, "symbols": {"subscribed": 3, "with_data_1m": 3, "not_subscribed": 0, "not_subscribed_qv_usd": 0}, "pool": {"rest_age_s": 42}}
+    r = v3.exchange_row("bybit", "Bybit", h, root, time.time(), 0, None)
+    assert r["detail"]["not_subscribed"] == [0, 0, 42] and not r["live_bad"]
+    h = {**base, "symbols": {"subscribed": 3, "with_data_1m": 3, "not_subscribed": 55, "not_subscribed_qv_usd": 12_300_000}, "pool": {"rest_age_s": 7}}
+    r = v3.exchange_row("bybit", "Bybit", h, root, time.time(), 0, None)
+    assert r["detail"]["not_subscribed"] == [55, 12_300_000, 7] and r["live_bad"] and not r["ok"]
+
+
 def test_symbols_508_of_509_warn_0_of_509_bad(tmp_path):
     put(tmp_path, "binance", doc(symbols={"subscribed": 509, "with_data_1m": 508}))
     put(tmp_path, "bybit", doc(symbols={"subscribed": 509, "with_data_1m": 0}))
@@ -126,7 +141,8 @@ def test_http_api_and_page(tmp_path):
         api = json.load(urllib.request.urlopen(base + "/api/health"))
         assert [r["exchange"] for r in api["rows"]] == ["binance", "bybit"]
         assert api["rows"][0]["state"] == "ok" and api["rows"][1]["state"] == "off"
-        assert "Здоровье коллекторов" in urllib.request.urlopen(base + "/").read().decode()
+        page = urllib.request.urlopen(base + "/").read().decode()
+        assert "<title>Сбор данных</title>" in page and "/api/v3" in page  # страница v3 (13.11); прежнюю отдаёт /api/health как данные
     finally:
         srv.shutdown()
 
@@ -150,7 +166,8 @@ def test_row_without_fresh_field_is_ok_and_empty(tmp_path):
 
 
 def test_entrance_switch_in_hour_is_warn_and_passes_through(tmp_path):
-    """G-022: линия перешла на запасной вход за час — строка жёлтая; за сутки были, за час нет — зелёная; поле старого health.json отсутствует — не ошибка. Столбец есть на странице."""
+    """G-022: линия перешла на запасной вход за час — строка /api/health жёлтая; за сутки были, за час нет — зелёная; поле старого health.json отсутствует — не ошибка.
+    Страница v3 (13.11) переходов на запасной вход не показывает — столбца «Смена входа» в ней нет; сигнал остаётся только в /api/health."""
     ws = dict(doc()["ws"], entrance_switches_1h=2, entrance_switches_24h=3)
     put(tmp_path, "binance", doc(ws=ws))
     put(tmp_path, "bybit", doc(ws=dict(ws, entrance_switches_1h=0)))
@@ -160,7 +177,7 @@ def test_entrance_switch_in_hour_is_warn_and_passes_through(tmp_path):
     put(tmp_path, "bybit", doc())
     assert by_ex(serve.collect(tmp_path, NOW, EXPECTED, THR))["bybit"]["state"] == "ok"
     page = (Path(serve.__file__).resolve().parent / "page.html").read_text(encoding="utf-8")
-    assert "Смена входа" in page and "entrance_switches_1h" in page and page.count('colspan="12"') == 2
+    assert "Смена входа" not in page and "/api/v3" in page
 
 
 def test_hour_acceptance_file_in_health_dir_is_not_a_row(tmp_path):
@@ -196,6 +213,7 @@ def test_late_below_hour_threshold_keeps_row_green_and_at_threshold_is_warn(tmp_
 def test_v3_bar_is_flagged_by_minute_late_threshold_and_row_by_hour_threshold(tmp_path):
     import time
     import v3
+    import v3
     s0 = 900 * 10
     full = {m: [0, 0, 0, 0, "ser"] for m in range(s0 // 60, (s0 + 900) // 60)}
     mins = dict(full)
@@ -212,3 +230,157 @@ def test_v3_bar_is_flagged_by_minute_late_threshold_and_row_by_hour_threshold(tm
     root = str(tmp_path)
     assert v3.exchange_row("bingx", "BingX", h, root, time.time(), 0, {"late_1h_flag": 5000})["ok"] is True
     assert v3.exchange_row("bingx", "BingX", h, root, time.time(), 0, None)["ok"] is False
+
+
+def _row(tmp_path, h):
+    import time
+    import v3
+    base = {"ts_ms": int(time.time() * 1000), "ws": {}, "fresh": {"kinds": {}}}
+    return v3.exchange_row("binance", "Binance", {**base, **h}, str(tmp_path), time.time(), 0, None)
+
+
+def test_independent_not_subscribed_does_not_turn_red_on_quiet_symbols(tmp_path):
+    # Binance 16.11: 521 из 522 «с данными за минуту» — тихие символы молчат по минуте и дольше; независимый счётчик (кадры книги за 10 мин) — 0
+    quiet = {"subscribed": 522, "with_data_1m": 521, "not_subscribed": 0, "not_subscribed_qv_usd": 0, "book_window_s": 600}
+    r = _row(tmp_path, {"symbols": quiet, "pool": {"rest_age_s": 20}})
+    assert not r["live_bad"] and r["ok"], r["detail"]["not_subscribed"]
+    # прежняя сборка без счётчика: красит, как раньше
+    r = _row(tmp_path, {"symbols": {"subscribed": 522, "with_data_1m": 521}})
+    assert r["live_bad"]
+    # независимый счётчик нашёл символы без записей — красный, список в подробностях
+    bad = {**quiet, "not_subscribed": 2, "not_subscribed_qv_usd": 6_000_000, "not_subscribed_top": [["BTCUSDT", 4e9], ["AUSDT", 1e6]]}
+    r = _row(tmp_path, {"symbols": bad, "pool": {"rest_age_s": 20}})
+    assert r["live_bad"] and not r["ok"] and r["detail"]["not_subscribed_top"][0][0] == "BTCUSDT"
+    # первые минуты после запуска: счётчика ещё нет (null) — не красный
+    r = _row(tmp_path, {"symbols": {**quiet, "not_subscribed": None, "not_subscribed_qv_usd": None}})
+    assert not r["live_bad"] and r["detail"]["not_subscribed"] is None
+
+
+def test_budget_alarm_storm_and_backfill_show_on_the_row(tmp_path):
+    h = {"symbols": {"subscribed": 3, "with_data_1m": 3, "not_subscribed": 0, "book_window_s": 600},
+         "connect_budget": {"used": 265, "limit": 280, "waiting": 0, "alarm": True},
+         "storm": {"on": True, "episodes": 2, "holds": 14, "aborts": 3},
+         "backfill": {"enabled": True, "ids_confirmed": 8081, "ids_backfilled": 8000, "ids_absent": 81, "ids_lost": 0, "open_ids": 0, "rate_limited": 1, "paused_s": 40},
+         "ws": {"gaps_1h": 4, "gaps_1h_nontrade": 0}}
+    r = _row(tmp_path, h)
+    assert r["budget_bad"] and not r["ok"]
+    assert r["detail"]["budget"] == [265, 280, 0, True] and r["detail"]["storm"] == [True, 2, 14, 3]
+    assert r["detail"]["backfill"] == [8081, 8000, 0, 0, 81, 1, 40]
+    # бюджет в норме: паузы шардов сделок при дозапросе потерей не считаются
+    h["connect_budget"] = {"used": 100, "limit": 280, "waiting": 0, "alarm": False}
+    r = _row(tmp_path, h)
+    assert not r["budget_bad"] and r["ok"] and r["detail"]["pause_gaps_1h"] == 4 and r["detail"]["pause_gaps_nontrade_1h"] == 0
+    # Б2: пауза шарда книги или mark дозапросом не восстанавливается — красная и при дозапросе
+    h["ws"] = {"gaps_1h": 4, "gaps_1h_nontrade": 1}
+    assert not _row(tmp_path, h)["ok"]
+    # сборка без поля `gaps_1h_nontrade` (прежний health): все паузы красят, как раньше
+    h["ws"] = {"gaps_1h": 4}
+    assert not _row(tmp_path, h)["ok"]
+    # без дозапроса паузы красят, как раньше
+    h["ws"] = {"gaps_1h": 4, "gaps_1h_nontrade": 0}
+    h.pop("backfill")
+    assert not _row(tmp_path, h)["ok"]
+
+
+def test_lost_ids_in_the_series_color_the_bar_and_the_row(tmp_path):
+    import json as _json
+    import time
+    now = time.time()
+    m = int(now) // 60 - 3
+    (tmp_path / "series-minutes.jsonl").write_text("\n".join([
+        _json.dumps({"start": int(now) - 3600, "version": "x"}),
+        _json.dumps({"t": m * 60, "lost_ms": 0, "pause_ms": 9000, "lost_ids": 8081, "gaps": 1, "late": [0, 0, 0, 0], "to": [0, 0]}),
+    ]) + "\n", encoding="utf-8")
+    import v3
+    h = {"ts_ms": int(now * 1000), "symbols": {"subscribed": 3, "with_data_1m": 3, "not_subscribed": 0, "book_window_s": 600}, "ws": {}, "fresh": {"kinds": {}},
+         "backfill": {"enabled": True, "ids_confirmed": 8081, "ids_backfilled": 0, "ids_lost": 8081, "open_ids": 0}}
+    r = v3.exchange_row("binance", "Binance", h, str(tmp_path), now, 0, None)
+    assert r["lost_ids_1h"] == 8081 and not r["ok"]
+    assert any(b[0] == 1 and b[7] == 8081 for b in r["bars"])
+
+
+def test_late_backfill_loss_from_health_turns_the_row_red_without_a_series_row(tmp_path):
+    # Н1 проверки: итог дозапроса приходит после записи минуты — в ряду потери нет, health (`ids_lost_1h`, по времени пропуска) её показывает
+    bf = {"enabled": True, "ids_confirmed": 500, "ids_backfilled": 400, "ids_absent": 0, "ids_lost": 100, "open_ids": 0, "ids_lost_1h": 100}
+    h = {"symbols": {"subscribed": 3, "with_data_1m": 3, "not_subscribed": 0, "book_window_s": 600}, "backfill": bf}
+    r = _row(tmp_path, h)
+    assert r["lost_ids_1h"] == 0 and r["backfill_lost_1h"] == 100 and not r["ok"]
+    # потеря старше часа (`ids_lost` растёт, `ids_lost_1h` = 0) строку не красит
+    assert _row(tmp_path, {**h, "backfill": {**bf, "ids_lost_1h": 0}})["ok"]
+    # дозапрос выключен или сборка без поля: не красит
+    assert _row(tmp_path, {**h, "backfill": {**bf, "enabled": False}})["ok"]
+    b2 = dict(bf)
+    b2.pop("ids_lost_1h")
+    assert _row(tmp_path, {**h, "backfill": b2})["ok"]
+
+
+def test_late_series_rows_add_to_the_minute_and_color_the_bar(tmp_path):
+    # Н1 повторной проверки: итог дозапроса и вердикт проверки паузы приходят после строки минуты — отдельная строка той же минуты складывается с ней
+    import json as _json
+    import time
+    import v3
+    now = time.time()
+    m = int(now) // 60 - 5
+    rows = [
+        {"start": int(now) - 3600, "version": "x"},
+        {"t": m * 60, "lost_ms": 0, "pause_ms": 0, "lost_ids": 0, "gaps": 0, "late": [0, 0, 0, 0], "to": [0, 0]},
+        {"t": (m + 1) * 60, "lost_ms": 2000, "pause_ms": 2000, "lost_ids": 5, "gaps": 1, "late": [0, 0, 0, 0], "to": [0, 0]},
+        {"t": m * 60, "lost_ids_late": 40},
+        {"t": m * 60, "lost_ids_late": 2, "lost_ms_late": 4000},
+        {"t": (m + 1) * 60, "lost_ids_late": 7},
+        {"t": (m - 30) * 60, "lost_ids_late": 9},   # минута запуска: строки у неё нет
+    ]
+    (tmp_path / "series-minutes.jsonl").write_text("\n".join(_json.dumps(r) for r in rows) + "\n", encoding="utf-8")
+    mins, _ = v3.read_series(str(tmp_path))
+    assert mins[m][0] == 4000 and mins[m][4] == 42, mins[m]
+    assert mins[m + 1][0] == 2000 and mins[m + 1][4] == 12
+    assert mins[m - 30][4] == 9 and mins[m - 30][1] == [0, 0, 0, 0]
+    h = {"ts_ms": int(now * 1000), "symbols": {"subscribed": 3, "with_data_1m": 3, "not_subscribed": 0, "book_window_s": 600}, "ws": {}, "fresh": {"kinds": {}},
+         "backfill": {"enabled": True, "ids_confirmed": 54, "ids_backfilled": 0, "ids_lost": 54, "open_ids": 0}}
+    r = v3.exchange_row("binance", "Binance", h, str(tmp_path), now, 0, None)
+    assert r["lost_ids_1h"] == 63 and r["lost_1h_s"] == 6.0 and not r["ok"]
+    assert any(b[0] == 1 and b[7] >= 42 for b in r["bars"])
+
+def test_late_pause_rows_add_lost_ms_and_never_replace_the_minute_row(tmp_path):
+    # 16.11, происшествие 12:50: пауза шарда, закончившаяся после строки её минуты, — поздняя строка с `gaps_late` / `pause_ms_late` / `lost_ms_late`;
+    # строка без `lost_ms_late` (только `pause_ms_late`) тоже поздняя: иначе она заменила бы строку минуты нулями
+    import json as _json
+    import time
+    import v3
+    now = time.time()
+    m = int(now) // 60 - 5
+    rows = [
+        {"start": int(now) - 3600, "version": "x"},
+        {"t": m * 60, "lost_ms": 1000, "pause_ms": 1000, "lost_ids": 0, "gaps": 1, "late": [0, 0, 0, 0], "to": [0, 0]},
+        {"t": m * 60, "lost_ms_late": 1250000, "gaps_late": 10, "pause_ms_late": 1875000},
+        {"t": m * 60, "pause_ms_late": 125000, "gaps_late": 1},
+    ]
+    (tmp_path / "series-minutes.jsonl").write_text("\n".join(_json.dumps(r) for r in rows) + "\n", encoding="utf-8")
+    mins, _ = v3.read_series(str(tmp_path))
+    assert mins[m][0] == 1_251_000 and mins[m][4] == 0, mins[m]
+
+
+def _bybit_row(tmp_path, pc, ws):
+    h = {"symbols": {"subscribed": 3, "with_data_1m": 3, "not_subscribed": 0, "book_window_s": 600}, "ws": ws}
+    if pc is not None:
+        h["pause_check"] = pc
+    import time
+    import v3
+    base = {"ts_ms": int(time.time() * 1000), "fresh": {"kinds": {}}}
+    return v3.exchange_row("bybit", "Bybit", {**base, **h}, str(tmp_path), time.time(), 0, None)
+
+def test_bybit_trade_pause_is_a_loss_only_when_rest_found_exchange_trades(tmp_path):
+    # Bybit 16.11: 4 паузы trade01 за 2 ч — тишина рынка (REST: сделок биржи внутри нет); строка красная только от потери, «не проверено» или паузы книги / mark
+    quiet = {"enabled": True, "quiet_1h": 4, "loss_1h": 0, "unverified_1h": 0, "pending": 0, "ongoing_s": 0, "rate_limited": 0, "paused_s": 0}
+    ws = {"gaps_1h": 4, "gaps_1h_nontrade": 0}
+    r = _bybit_row(tmp_path, quiet, ws)
+    assert r["ok"] and r["detail"]["pause_check"] == [4, 0, 0, 0, 0, 0, 0] and r["detail"]["pause_gaps_1h"] == 4
+    assert not _bybit_row(tmp_path, {**quiet, "loss_1h": 1}, ws)["ok"]
+    assert not _bybit_row(tmp_path, {**quiet, "unverified_1h": 1}, ws)["ok"]
+    assert not _bybit_row(tmp_path, quiet, {"gaps_1h": 5, "gaps_1h_nontrade": 1})["ok"]   # книга и mark — потеря, как были
+    assert _bybit_row(tmp_path, {**quiet, "pending": 2, "ongoing_s": 20}, ws)["ok"]   # проверка идёт, пауза короткая — не красит
+    assert not _bybit_row(tmp_path, {**quiet, "ongoing_s": 61}, ws)["ok"]   # идущая долго — красит, не дожидаясь вердикта
+    # сборка без проверки: все паузы красят, как раньше
+    r = _bybit_row(tmp_path, None, ws)
+    assert not r["ok"] and r["detail"]["pause_check"] is None
+    assert not _bybit_row(tmp_path, {"enabled": False}, ws)["ok"]

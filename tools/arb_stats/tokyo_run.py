@@ -36,12 +36,17 @@ LATS = (0, 1, 2, 5, 10, 20, 50)
 LIFE_BPD, LIFE_N = 40, 320            # гистограмма жизни: log10(мс) × 40, 0 … 8 декад
 G = {}
 
-_pair_series = core.pair_series
+_core_pair_series = core.pair_series
 
 
-def pair_series_cap(A, B, t1):
-    """core.pair_series только в моменты, когда обе ноги не старше CAP_MS (с последнего изменения лучшей цены)."""
-    T, S, Bu, ia, ib = _pair_series(A, B, t1)
+def _pair_series(A, B, t1, stale_ms=None):
+    """core.pair_series без отсечки устаревания по hold (stale_ms=None — прежнее поведение, на нём стоят отчёты Tokyo): отсечку ведёт CAP_MS по A["e"] ниже. Боевой core.py (60 с по hold) не меняется."""
+    return _core_pair_series(A, B, t1, stale_ms=stale_ms)
+
+
+def pair_series_cap(A, B, t1, stale_ms=None):
+    """core.pair_series только в моменты, когда обе ноги не старше CAP_MS (с последнего изменения лучшей цены). stale_ms — как у core.pair_series (maker / outlier передают None)."""
+    T, S, Bu, ia, ib = _pair_series(A, B, t1, stale_ms)
     ok = (T - A["e"][ia] <= CAP_MS) & (T - B["e"][ib] <= CAP_MS)
     return T[ok], S[ok], Bu[ok], ia[ok], ib[ok]
 

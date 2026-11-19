@@ -1,0 +1,23 @@
+18:10:59 binance=8.1 bybit=4.5 okx=4.5 bingx=5.3 | some avg10=18.36 avg60=17.12 avg300=18.64 | load 7.37 | ФАЗА ФОНА
+18:11:29 binance=7.6 bybit=4.8 okx=3.6 bingx=4.7 | some avg10=17.32 avg60=17.76 avg300=18.69 | load 7.96 | ФАЗА ФОНА
+18:11:59 binance=4.8 bybit=3.7 okx=3.3 bingx=4.7 | some avg10=13.30 avg60=16.29 avg300=18.24 | load 7.87 | ФАЗА ФОНА
+18:12:29 binance=8.6 bybit=5.4 okx=3.6 bingx=5.1 | some avg10=19.09 avg60=17.97 avg300=18.50 | load 10.76 | ФАЗА ФОНА
+18:12:59 binance=8.3 bybit=6.0 okx=4.1 bingx=5.2 | some avg10=15.23 avg60=17.24 avg300=18.28 | load 8.25 | ФАЗА ФОНА
+18:13:29 binance=5.7 bybit=4.0 okx=3.4 bingx=4.3 | some avg10=19.22 avg60=18.12 avg300=18.40 | load 8.02 | ФАЗА ФОНА
+18:13:59 binance=6.5 bybit=4.1 okx=3.2 bingx=4.4 | some avg10=14.15 avg60=16.68 avg300=18.02 | load 10.05 | ФАЗА ФОНА
+18:14:29 binance=4.8 bybit=3.2 okx=2.8 bingx=3.7 | some avg10=13.99 avg60=15.91 avg300=17.71 | load 8.38 | ФАЗА ФОНА
+18:14:59 binance=4.1 bybit=3.2 okx=2.8 bingx=3.6 | some avg10=12.99 avg60=15.14 avg300=17.36 | load 8.80 | ФАЗА ФОНА
+18:15:29 binance=11.4 bybit=8.3 okx=5.7 bingx=6.3 | some avg10=17.91 avg60=18.45 avg300=18.07 | load 10.23 | ФАЗА ФОНА
+18:15:59 пороги боя (мс): binance=14.1 bybit=10.0 okx=10.0 bingx=10.0
+18:15:59 binance=10.9 bybit=8.1 okx=5.2 bingx=6.3 | some avg10=14.75 avg60=16.91 avg300=17.72 | load 9.95
+18:16:29 binance=7.5 bybit=4.1 okx=2.6 bingx=4.7 | some avg10=24.32 avg60=20.32 avg300=18.51 | load 12.57
+18:16:59 binance=10.4 bybit=5.3 okx=3.7 bingx=4.7 | some avg10=19.97 avg60=21.44 avg300=19.01 | load 10.30
+18:17:29 binance=13.4 bybit=6.7 okx=4.9 bingx=6.1 | some avg10=24.91 avg60=24.20 avg300=20.01 | load 15.66
+18:17:59 binance=11.6 bybit=7.0 okx=5.8 bingx=7.1 | some avg10=22.95 avg60=23.89 avg300=20.35 | load 13.14
+18:18:29 binance=7.6 bybit=5.1 okx=4.7 bingx=6.0 | some avg10=20.92 avg60=23.94 avg300=20.76 | load 14.74
+18:18:59 binance=9.9 bybit=5.6 okx=4.5 bingx=6.1 | some avg10=24.30 avg60=23.94 avg300=21.07 | load 11.53
+18:19:29 binance=15.5 bybit=8.3 okx=6.0 bingx=9.1 | some avg10=29.11 avg60=26.60 avg300=22.05 | load 8.50
+18:19:59 binance=13.2 bybit=7.2 okx=5.6 bingx=9.1 | some avg10=22.04 avg60=25.42 avg300=22.24 | load 9.06
+18:20:29 binance=41.5 bybit=20.7 okx=24.3 bingx=18.7 | some avg10=30.87 avg60=29.45 avg300=23.65 | load 22.85
+18:20:59 binance=42.5 bybit=20.7 okx=24.8 bingx=19.7 | some avg10=25.77 avg60=28.15 avg300=23.89 | load 30.04
+18:20:59 СТОП: боевой queue_lag p99 выше порога два замера подряд (binance=42.5>14.1, bybit=20.7>10.0, okx=24.8>10.0, bingx=19.7>10.0)

@@ -1,0 +1,159 @@
+# bingx_session_unpacks_gzip_answers_ping_and_does_not_write_heartbeats, srv, --release, 25 запусков (16.11.2026)
+## база 065ac7e2
+RUN 0 rc=0 
+RUN 1 rc=0 
+RUN 2 rc=0 
+RUN 3 rc=0 
+RUN 4 rc=0 
+RUN 5 rc=0 
+RUN 6 rc=0 
+RUN 7 rc=0 
+RUN 8 rc=0 
+RUN 9 rc=101 записей книги из gzip-кадров: 20
+RUN 10 rc=0 
+RUN 11 rc=101 записей книги из gzip-кадров: 20
+RUN 12 rc=101 записей книги из gzip-кадров: 20
+RUN 13 rc=0 
+RUN 14 rc=101 записей книги из gzip-кадров: 19
+RUN 15 rc=101 записей книги из gzip-кадров: 20
+RUN 16 rc=101 записей книги из gzip-кадров: 20
+RUN 17 rc=101 записей книги из gzip-кадров: 20
+RUN 18 rc=0 
+RUN 19 rc=0 
+RUN 20 rc=0 
+RUN 21 rc=0 
+RUN 22 rc=0 
+RUN 23 rc=0 
+RUN 24 rc=0 
+## исправленное дерево
+RUN 0 rc=0 
+RUN 1 rc=0 
+RUN 2 rc=0 
+RUN 3 rc=0 
+RUN 4 rc=0 
+RUN 5 rc=0 
+RUN 6 rc=0 
+RUN 7 rc=0 
+RUN 8 rc=0 
+RUN 9 rc=0 
+RUN 10 rc=0 
+RUN 11 rc=0 
+RUN 12 rc=0 
+RUN 13 rc=0 
+RUN 14 rc=0 
+RUN 15 rc=0 
+RUN 16 rc=0 
+RUN 17 rc=0 
+RUN 18 rc=0 
+RUN 19 rc=0 
+RUN 20 rc=0 
+RUN 21 rc=0 
+RUN 22 rc=0 
+RUN 23 rc=0 
+RUN 24 rc=0 
+
+# collector::tests::uncovered_shard_accepts_a_slow_path_at_once_and_upgrades_later, srv, --release, 25 запусков (16.11.2026, v2); процесс теста на каждый запуск, nice 19, CPUQuota 200 %
+## до правки теста, по одному
+RUN 0 rc=0 
+RUN 1 rc=0 
+RUN 2 rc=0 
+RUN 3 rc=0 
+RUN 4 rc=101 tests.rs:3490 left=1
+RUN 5 rc=0 
+RUN 6 rc=0 
+RUN 7 rc=0 
+RUN 8 rc=0 
+RUN 9 rc=101 tests.rs:3490 left=1
+RUN 10 rc=0 
+RUN 11 rc=0 
+RUN 12 rc=0 
+RUN 13 rc=101 tests.rs:3490 left=1
+RUN 14 rc=101 tests.rs:3490 left=1
+RUN 15 rc=0 
+RUN 16 rc=0 
+RUN 17 rc=101 tests.rs:3490 left=1
+RUN 18 rc=0 
+RUN 19 rc=0 
+RUN 20 rc=0 
+RUN 21 rc=101 tests.rs:3490 left=1
+RUN 22 rc=101 tests.rs:3490 left=1
+RUN 23 rc=0 
+RUN 24 rc=101 tests.rs:3490 left=1
+## до правки теста, по 8 параллельно
+RUN 0 rc=101 tests.rs:3490 left=1
+RUN 1 rc=0 
+RUN 2 rc=101 tests.rs:3490 left=1
+RUN 3 rc=101 tests.rs:3490 left=1
+RUN 4 rc=0 
+RUN 5 rc=101 tests.rs:3490 left=1
+RUN 6 rc=101 tests.rs:3490 left=1
+RUN 7 rc=101 tests.rs:3490 left=1
+RUN 8 rc=101 tests.rs:3490 left=1
+RUN 9 rc=101 tests.rs:3490 left=1
+RUN 10 rc=0 
+RUN 11 rc=101 tests.rs:3490 left=1
+RUN 12 rc=101 tests.rs:3490 left=1
+RUN 13 rc=101 tests.rs:3490 left=1
+RUN 14 rc=101 tests.rs:3490 left=1
+RUN 15 rc=0 
+RUN 16 rc=0 
+RUN 17 rc=0 
+RUN 18 rc=0 
+RUN 19 rc=0 
+RUN 20 rc=0 
+RUN 21 rc=0 
+RUN 22 rc=0 
+RUN 23 rc=101 tests.rs:3490 left=1
+RUN 24 rc=0 
+## после правки, по одному
+RUN 0 rc=0 
+RUN 1 rc=0 
+RUN 2 rc=0 
+RUN 3 rc=0 
+RUN 4 rc=0 
+RUN 5 rc=0 
+RUN 6 rc=0 
+RUN 7 rc=0 
+RUN 8 rc=0 
+RUN 9 rc=0 
+RUN 10 rc=0 
+RUN 11 rc=0 
+RUN 12 rc=0 
+RUN 13 rc=0 
+RUN 14 rc=0 
+RUN 15 rc=0 
+RUN 16 rc=0 
+RUN 17 rc=0 
+RUN 18 rc=0 
+RUN 19 rc=0 
+RUN 20 rc=0 
+RUN 21 rc=0 
+RUN 22 rc=0 
+RUN 23 rc=0 
+RUN 24 rc=0 
+## после правки, по 8 параллельно
+RUN 0 rc=0 
+RUN 1 rc=0 
+RUN 2 rc=0 
+RUN 3 rc=0 
+RUN 4 rc=0 
+RUN 5 rc=0 
+RUN 6 rc=0 
+RUN 7 rc=0 
+RUN 8 rc=0 
+RUN 9 rc=0 
+RUN 10 rc=0 
+RUN 11 rc=0 
+RUN 12 rc=0 
+RUN 13 rc=0 
+RUN 14 rc=0 
+RUN 15 rc=0 
+RUN 16 rc=0 
+RUN 17 rc=0 
+RUN 18 rc=0 
+RUN 19 rc=0 
+RUN 20 rc=0 
+RUN 21 rc=0 
+RUN 22 rc=0 
+RUN 23 rc=0 
+RUN 24 rc=0 

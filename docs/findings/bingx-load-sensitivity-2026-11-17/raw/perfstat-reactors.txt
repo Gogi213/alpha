@@ -1,0 +1,15 @@
+# TK-580: perf stat -t <rx-reactor> боевых коллекторов srv, 16.11 (UTC)
+# 1) BingX, 20 с, ~21:00 UTC, хост занят (load 12): perf stat -e task-clock,cycles,instructions -t <tid>
+           6557.93 msec task-clock                       #    0.328 CPUs utilized
+        6607353138      cycles                           #    1.008 GHz
+        4789488333      instructions                     #    0.72  insn per cycle
+# /proc/<tid>/schedstat за те же 20 с: run 6550,6 мс; ожидание в очереди на ЦП 1454,8 мс; квантов 4083
+# 2) все пять реакторов параллельно, 12 с каждый (tools/collector-perf/tk580_ghz.sh), ~21:42 UTC; mpstat 1 с: idle 68,8 %, usr 15,3, sys 4,3, soft 11,0, steal 0,6
+collect-bingx on-CPU 27.0% eff 1.12 GHz IPC 0.86
+collect-okx on-CPU 15.8% eff 1.03 GHz IPC 0.67
+collect-gate on-CPU 7.2% eff 0.94 GHz IPC 0.44
+collect-binance on-CPU 23.3% eff 0.98 GHz IPC 0.55
+soak-bybit on-CPU 13.3% eff 1.00 GHz IPC 0.50
+# 3) стенд на Софии (Xeon Gold 5120), perf stat на процессе стенда, 5 проходов × 135 462 кадра, одним декодером за раз:
+libdeflate: 3261,87 мс task-clock, 8,548·10⁹ циклов (2,620 ГГц), 14,94·10⁹ инструкций, IPC 1,75  → 12 620 циклов/кадр
+tiny:       1871,26 мс task-clock, 4,951·10⁹ циклов (2,646 ГГц), 10,02·10⁹ инструкций, IPC 2,02  → 7 310 циклов/кадр (−42 %)

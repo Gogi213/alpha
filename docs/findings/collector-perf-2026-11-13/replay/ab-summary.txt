@@ -1,0 +1,240 @@
+binance book00 base2 | replay binance shard book00: 112074 frames, 23 MB, sessions 2
+binance book00 base2 |   parse only: 1120.6 ns/frame (0.89 Mframe/s per core), allocs 0.0000/frame, records 112072, raw frames 2 (check 1356257004224015644)
+binance book00 base2 | pass 0: wall 0.63 s, CPU wr 0.48 s + sk 0.07 s = 0.55 s => 4.91 CPU-s per Mframe (wr 4.28, sk 0.62); records 56036 dups 56036 raw 2 rows 56038; allocs wr 0.002/frame sk 0.0001/frame; zst 837491 B; decompressed 3270199 B fnv c68192824c361e84
+binance book00 base2 | median 4.91 CPU-s per Mframe over 1 passes
+binance book00 lto | replay binance shard book00: 112074 frames, 23 MB, sessions 2
+binance book00 lto |   parse only: 1486.8 ns/frame (0.67 Mframe/s per core), allocs 0.0000/frame, records 112072, raw frames 2 (check 1356257004224015644)
+binance book00 lto | pass 0: wall 0.61 s, CPU wr 0.51 s + sk 0.06 s = 0.57 s => 5.09 CPU-s per Mframe (wr 4.55, sk 0.54); records 56036 dups 56036 raw 2 rows 56038; allocs wr 0.002/frame sk 0.0001/frame; zst 837491 B; decompressed 3270199 B fnv c68192824c361e84
+binance book00 lto | median 5.09 CPU-s per Mframe over 1 passes
+binance book00 ltomi | replay binance shard book00: 112074 frames, 23 MB, sessions 2
+binance book00 ltomi |   parse only: 1187.6 ns/frame (0.84 Mframe/s per core), allocs 0.0000/frame, records 112072, raw frames 2 (check 1356257004224015644)
+binance book00 ltomi | pass 0: wall 0.38 s, CPU wr 0.33 s + sk 0.07 s = 0.40 s => 3.57 CPU-s per Mframe (wr 2.94, sk 0.62); records 56036 dups 56036 raw 2 rows 56038; allocs wr 0.000/frame sk 0.0000/frame; zst 837491 B; decompressed 3270199 B fnv c68192824c361e84
+binance book00 ltomi | median 3.57 CPU-s per Mframe over 1 passes
+bybit book00 base2 | replay bybit shard book00: 80101 frames, 15 MB, sessions 2
+bybit book00 base2 |   parse only: 3306.4 ns/frame (0.30 Mframe/s per core), allocs 0.0000/frame, records 80099, raw frames 2 (check 24481744946515101)
+bybit book00 base2 | pass 0: wall 0.61 s, CPU wr 0.54 s + sk 0.05 s = 0.59 s => 7.37 CPU-s per Mframe (wr 6.74, sk 0.62); records 39973 dups 40126 raw 2 rows 39975; allocs wr 0.004/frame sk 0.0001/frame; zst 630265 B; decompressed 2173467 B fnv 5bba24f96091e1a4
+bybit book00 base2 | median 7.37 CPU-s per Mframe over 1 passes
+bybit book00 lto | replay bybit shard book00: 80101 frames, 15 MB, sessions 2
+bybit book00 lto |   parse only: 2659.1 ns/frame (0.38 Mframe/s per core), allocs 0.0000/frame, records 80099, raw frames 2 (check 24481744946515101)
+bybit book00 lto | pass 0: wall 0.48 s, CPU wr 0.41 s + sk 0.04 s = 0.45 s => 5.62 CPU-s per Mframe (wr 5.12, sk 0.50); records 39973 dups 40126 raw 2 rows 39975; allocs wr 0.004/frame sk 0.0001/frame; zst 630265 B; decompressed 2173467 B fnv 5bba24f96091e1a4
+bybit book00 lto | median 5.62 CPU-s per Mframe over 1 passes
+bybit book00 ltomi | replay bybit shard book00: 80101 frames, 15 MB, sessions 2
+bybit book00 ltomi |   parse only: 2391.9 ns/frame (0.42 Mframe/s per core), allocs 0.0000/frame, records 80099, raw frames 2 (check 24481744946515101)
+bybit book00 ltomi | pass 0: wall 0.34 s, CPU wr 0.29 s + sk 0.03 s = 0.32 s => 3.99 CPU-s per Mframe (wr 3.62, sk 0.37); records 39973 dups 40126 raw 2 rows 39975; allocs wr 0.000/frame sk 0.0000/frame; zst 630265 B; decompressed 2173467 B fnv 5bba24f96091e1a4
+bybit book00 ltomi | median 3.99 CPU-s per Mframe over 1 passes
+okx book00 base2 | replay okx shard book00: 164350 frames, 28 MB, sessions 2
+okx book00 base2 |   parse only: 3370.6 ns/frame (0.30 Mframe/s per core), allocs 0.0000/frame, records 164164, raw frames 186 (check 8497390521417085)
+okx book00 base2 | pass 0: wall 1.22 s, CPU wr 1.15 s + sk 0.10 s = 1.25 s => 7.61 CPU-s per Mframe (wr 7.00, sk 0.61); records 82084 dups 82080 raw 186 rows 82270; allocs wr 0.003/frame sk 0.0000/frame; zst 1271898 B; decompressed 4964093 B fnv 951112830e840fc2
+okx book00 base2 | median 7.61 CPU-s per Mframe over 1 passes
+okx book00 lto | replay okx shard book00: 164350 frames, 28 MB, sessions 2
+okx book00 lto |   parse only: 3106.1 ns/frame (0.32 Mframe/s per core), allocs 0.0000/frame, records 164164, raw frames 186 (check 8497390521417085)
+okx book00 lto | pass 0: wall 1.15 s, CPU wr 1.09 s + sk 0.09 s = 1.18 s => 7.18 CPU-s per Mframe (wr 6.63, sk 0.55); records 82084 dups 82080 raw 186 rows 82270; allocs wr 0.003/frame sk 0.0000/frame; zst 1271898 B; decompressed 4964093 B fnv 951112830e840fc2
+okx book00 lto | median 7.18 CPU-s per Mframe over 1 passes
+okx book00 ltomi | replay okx shard book00: 164350 frames, 28 MB, sessions 2
+okx book00 ltomi |   parse only: 3372.4 ns/frame (0.30 Mframe/s per core), allocs 0.0000/frame, records 164164, raw frames 186 (check 8497390521417085)
+okx book00 ltomi | pass 0: wall 0.99 s, CPU wr 0.95 s + sk 0.13 s = 1.08 s => 6.57 CPU-s per Mframe (wr 5.78, sk 0.79); records 82084 dups 82080 raw 186 rows 82270; allocs wr 0.000/frame sk 0.0000/frame; zst 1271898 B; decompressed 4964093 B fnv 951112830e840fc2
+okx book00 ltomi | median 6.57 CPU-s per Mframe over 1 passes
+bingx book00 base2 | replay bingx shard book00: 160617 frames, 30 MB, sessions 2
+bingx book00 base2 |   parse only: 2533.1 ns/frame (0.39 Mframe/s per core), allocs 0.0000/frame, records 160259, raw frames 358 (check 287597428373401965)
+bingx book00 base2 | pass 0: wall 1.23 s, CPU wr 1.00 s + sk 0.07 s = 1.07 s => 6.66 CPU-s per Mframe (wr 6.23, sk 0.44); records 80132 dups 80127 raw 358 rows 80490; allocs wr 0.005/frame sk 0.0000/frame; zst 760161 B; decompressed 4680501 B fnv c034049fedebef53
+bingx book00 base2 | median 6.66 CPU-s per Mframe over 1 passes
+bingx book00 lto | replay bingx shard book00: 160617 frames, 30 MB, sessions 2
+bingx book00 lto |   parse only: 2433.2 ns/frame (0.41 Mframe/s per core), allocs 0.0000/frame, records 160259, raw frames 358 (check 287597428373401965)
+bingx book00 lto | pass 0: wall 1.18 s, CPU wr 1.07 s + sk 0.08 s = 1.15 s => 7.16 CPU-s per Mframe (wr 6.66, sk 0.50); records 80132 dups 80127 raw 358 rows 80490; allocs wr 0.005/frame sk 0.0000/frame; zst 760161 B; decompressed 4680501 B fnv c034049fedebef53
+bingx book00 lto | median 7.16 CPU-s per Mframe over 1 passes
+bingx book00 ltomi | replay bingx shard book00: 160617 frames, 30 MB, sessions 2
+bingx book00 ltomi |   parse only: 1831.1 ns/frame (0.55 Mframe/s per core), allocs 0.0000/frame, records 160259, raw frames 358 (check 287597428373401965)
+bingx book00 ltomi | pass 0: wall 0.90 s, CPU wr 0.80 s + sk 0.06 s = 0.86 s => 5.35 CPU-s per Mframe (wr 4.98, sk 0.37); records 80132 dups 80127 raw 358 rows 80490; allocs wr 0.000/frame sk 0.0000/frame; zst 760161 B; decompressed 4680501 B fnv c034049fedebef53
+bingx book00 ltomi | median 5.35 CPU-s per Mframe over 1 passes
+binance book00 base2 | replay binance shard book00: 112074 frames, 23 MB, sessions 2
+binance book00 base2 |   parse only: 1354.3 ns/frame (0.74 Mframe/s per core), allocs 0.0000/frame, records 112072, raw frames 2 (check 1356257004224015644)
+binance book00 base2 | pass 0: wall 0.50 s, CPU wr 0.44 s + sk 0.05 s = 0.49 s => 4.37 CPU-s per Mframe (wr 3.93, sk 0.45); records 56036 dups 56036 raw 2 rows 56038; allocs wr 0.002/frame sk 0.0001/frame; zst 837491 B; decompressed 3270199 B fnv c68192824c361e84
+binance book00 base2 | median 4.37 CPU-s per Mframe over 1 passes
+binance book00 lto | replay binance shard book00: 112074 frames, 23 MB, sessions 2
+binance book00 lto |   parse only: 981.2 ns/frame (1.02 Mframe/s per core), allocs 0.0000/frame, records 112072, raw frames 2 (check 1356257004224015644)
+binance book00 lto | pass 0: wall 0.37 s, CPU wr 0.31 s + sk 0.06 s = 0.37 s => 3.30 CPU-s per Mframe (wr 2.77, sk 0.54); records 56036 dups 56036 raw 2 rows 56038; allocs wr 0.002/frame sk 0.0001/frame; zst 837491 B; decompressed 3270199 B fnv c68192824c361e84
+binance book00 lto | median 3.30 CPU-s per Mframe over 1 passes
+binance book00 ltomi | replay binance shard book00: 112074 frames, 23 MB, sessions 2
+binance book00 ltomi |   parse only: 892.8 ns/frame (1.12 Mframe/s per core), allocs 0.0000/frame, records 112072, raw frames 2 (check 1356257004224015644)
+binance book00 ltomi | pass 0: wall 0.24 s, CPU wr 0.17 s + sk 0.04 s = 0.21 s => 1.87 CPU-s per Mframe (wr 1.52, sk 0.36); records 56036 dups 56036 raw 2 rows 56038; allocs wr 0.000/frame sk 0.0000/frame; zst 837491 B; decompressed 3270199 B fnv c68192824c361e84
+binance book00 ltomi | median 1.87 CPU-s per Mframe over 1 passes
+bybit book00 base2 | replay bybit shard book00: 80101 frames, 15 MB, sessions 2
+bybit book00 base2 |   parse only: 2544.1 ns/frame (0.39 Mframe/s per core), allocs 0.0000/frame, records 80099, raw frames 2 (check 24481744946515101)
+bybit book00 base2 | pass 0: wall 0.67 s, CPU wr 0.55 s + sk 0.05 s = 0.60 s => 7.49 CPU-s per Mframe (wr 6.87, sk 0.62); records 39973 dups 40126 raw 2 rows 39975; allocs wr 0.004/frame sk 0.0001/frame; zst 630265 B; decompressed 2173467 B fnv 5bba24f96091e1a4
+bybit book00 base2 | median 7.49 CPU-s per Mframe over 1 passes
+bybit book00 lto | replay bybit shard book00: 80101 frames, 15 MB, sessions 2
+bybit book00 lto |   parse only: 2344.9 ns/frame (0.43 Mframe/s per core), allocs 0.0000/frame, records 80099, raw frames 2 (check 24481744946515101)
+bybit book00 lto | pass 0: wall 0.41 s, CPU wr 0.34 s + sk 0.03 s = 0.37 s => 4.62 CPU-s per Mframe (wr 4.24, sk 0.37); records 39973 dups 40126 raw 2 rows 39975; allocs wr 0.004/frame sk 0.0001/frame; zst 630265 B; decompressed 2173467 B fnv 5bba24f96091e1a4
+bybit book00 lto | median 4.62 CPU-s per Mframe over 1 passes
+bybit book00 ltomi | replay bybit shard book00: 80101 frames, 15 MB, sessions 2
+bybit book00 ltomi |   parse only: 1654.0 ns/frame (0.60 Mframe/s per core), allocs 0.0000/frame, records 80099, raw frames 2 (check 24481744946515101)
+bybit book00 ltomi | pass 0: wall 0.25 s, CPU wr 0.22 s + sk 0.04 s = 0.26 s => 3.25 CPU-s per Mframe (wr 2.75, sk 0.50); records 39973 dups 40126 raw 2 rows 39975; allocs wr 0.000/frame sk 0.0000/frame; zst 630265 B; decompressed 2173467 B fnv 5bba24f96091e1a4
+bybit book00 ltomi | median 3.25 CPU-s per Mframe over 1 passes
+okx book00 base2 | replay okx shard book00: 164350 frames, 28 MB, sessions 2
+okx book00 base2 |   parse only: 3988.2 ns/frame (0.25 Mframe/s per core), allocs 0.0000/frame, records 164164, raw frames 186 (check 8497390521417085)
+okx book00 base2 | pass 0: wall 1.15 s, CPU wr 1.03 s + sk 0.08 s = 1.11 s => 6.75 CPU-s per Mframe (wr 6.27, sk 0.49); records 82084 dups 82080 raw 186 rows 82270; allocs wr 0.003/frame sk 0.0000/frame; zst 1271898 B; decompressed 4964093 B fnv 951112830e840fc2
+okx book00 base2 | median 6.75 CPU-s per Mframe over 1 passes
+okx book00 lto | replay okx shard book00: 164350 frames, 28 MB, sessions 2
+okx book00 lto |   parse only: 3011.9 ns/frame (0.33 Mframe/s per core), allocs 0.0000/frame, records 164164, raw frames 186 (check 8497390521417085)
+okx book00 lto | pass 0: wall 1.51 s, CPU wr 1.35 s + sk 0.14 s = 1.49 s => 9.07 CPU-s per Mframe (wr 8.21, sk 0.85); records 82084 dups 82080 raw 186 rows 82270; allocs wr 0.003/frame sk 0.0000/frame; zst 1271898 B; decompressed 4964093 B fnv 951112830e840fc2
+okx book00 lto | median 9.07 CPU-s per Mframe over 1 passes
+okx book00 ltomi | replay okx shard book00: 164350 frames, 28 MB, sessions 2
+okx book00 ltomi |   parse only: 2615.2 ns/frame (0.38 Mframe/s per core), allocs 0.0000/frame, records 164164, raw frames 186 (check 8497390521417085)
+okx book00 ltomi | pass 0: wall 0.84 s, CPU wr 0.80 s + sk 0.06 s = 0.86 s => 5.23 CPU-s per Mframe (wr 4.87, sk 0.37); records 82084 dups 82080 raw 186 rows 82270; allocs wr 0.000/frame sk 0.0000/frame; zst 1271898 B; decompressed 4964093 B fnv 951112830e840fc2
+okx book00 ltomi | median 5.23 CPU-s per Mframe over 1 passes
+bingx book00 base2 | replay bingx shard book00: 160617 frames, 30 MB, sessions 2
+bingx book00 base2 |   parse only: 1515.3 ns/frame (0.66 Mframe/s per core), allocs 0.0000/frame, records 160259, raw frames 358 (check 287597428373401965)
+bingx book00 base2 | pass 0: wall 1.06 s, CPU wr 0.92 s + sk 0.05 s = 0.97 s => 6.04 CPU-s per Mframe (wr 5.73, sk 0.31); records 80132 dups 80127 raw 358 rows 80490; allocs wr 0.005/frame sk 0.0000/frame; zst 760161 B; decompressed 4680501 B fnv c034049fedebef53
+bingx book00 base2 | median 6.04 CPU-s per Mframe over 1 passes
+bingx book00 lto | replay bingx shard book00: 160617 frames, 30 MB, sessions 2
+bingx book00 lto |   parse only: 2091.8 ns/frame (0.48 Mframe/s per core), allocs 0.0000/frame, records 160259, raw frames 358 (check 287597428373401965)
+bingx book00 lto | pass 0: wall 1.19 s, CPU wr 1.07 s + sk 0.05 s = 1.12 s => 6.97 CPU-s per Mframe (wr 6.66, sk 0.31); records 80132 dups 80127 raw 358 rows 80490; allocs wr 0.005/frame sk 0.0000/frame; zst 760161 B; decompressed 4680501 B fnv c034049fedebef53
+bingx book00 lto | median 6.97 CPU-s per Mframe over 1 passes
+bingx book00 ltomi | replay bingx shard book00: 160617 frames, 30 MB, sessions 2
+bingx book00 ltomi |   parse only: 1939.6 ns/frame (0.52 Mframe/s per core), allocs 0.0000/frame, records 160259, raw frames 358 (check 287597428373401965)
+bingx book00 ltomi | pass 0: wall 0.55 s, CPU wr 0.51 s + sk 0.06 s = 0.57 s => 3.55 CPU-s per Mframe (wr 3.18, sk 0.37); records 80132 dups 80127 raw 358 rows 80490; allocs wr 0.000/frame sk 0.0000/frame; zst 760161 B; decompressed 4680501 B fnv c034049fedebef53
+bingx book00 ltomi | median 3.55 CPU-s per Mframe over 1 passes
+binance book00 base2 | replay binance shard book00: 112074 frames, 23 MB, sessions 2
+binance book00 base2 |   parse only: 1111.7 ns/frame (0.90 Mframe/s per core), allocs 0.0000/frame, records 112072, raw frames 2 (check 1356257004224015644)
+binance book00 base2 | pass 0: wall 0.52 s, CPU wr 0.46 s + sk 0.07 s = 0.53 s => 4.73 CPU-s per Mframe (wr 4.10, sk 0.62); records 56036 dups 56036 raw 2 rows 56038; allocs wr 0.002/frame sk 0.0001/frame; zst 837491 B; decompressed 3270199 B fnv c68192824c361e84
+binance book00 base2 | median 4.73 CPU-s per Mframe over 1 passes
+binance book00 lto | replay binance shard book00: 112074 frames, 23 MB, sessions 2
+binance book00 lto |   parse only: 1633.0 ns/frame (0.61 Mframe/s per core), allocs 0.0000/frame, records 112072, raw frames 2 (check 1356257004224015644)
+binance book00 lto | pass 0: wall 0.79 s, CPU wr 0.54 s + sk 0.08 s = 0.62 s => 5.53 CPU-s per Mframe (wr 4.82, sk 0.71); records 56036 dups 56036 raw 2 rows 56038; allocs wr 0.002/frame sk 0.0001/frame; zst 837491 B; decompressed 3270199 B fnv c68192824c361e84
+binance book00 lto | median 5.53 CPU-s per Mframe over 1 passes
+binance book00 ltomi | replay binance shard book00: 112074 frames, 23 MB, sessions 2
+binance book00 ltomi |   parse only: 1193.5 ns/frame (0.84 Mframe/s per core), allocs 0.0000/frame, records 112072, raw frames 2 (check 1356257004224015644)
+binance book00 ltomi | pass 0: wall 0.42 s, CPU wr 0.38 s + sk 0.05 s = 0.43 s => 3.84 CPU-s per Mframe (wr 3.39, sk 0.45); records 56036 dups 56036 raw 2 rows 56038; allocs wr 0.000/frame sk 0.0000/frame; zst 837491 B; decompressed 3270199 B fnv c68192824c361e84
+binance book00 ltomi | median 3.84 CPU-s per Mframe over 1 passes
+bybit book00 base2 | replay bybit shard book00: 80101 frames, 15 MB, sessions 2
+bybit book00 base2 |   parse only: 2633.3 ns/frame (0.38 Mframe/s per core), allocs 0.0000/frame, records 80099, raw frames 2 (check 24481744946515101)
+bybit book00 base2 | pass 0: wall 0.75 s, CPU wr 0.62 s + sk 0.05 s = 0.67 s => 8.36 CPU-s per Mframe (wr 7.74, sk 0.62); records 39973 dups 40126 raw 2 rows 39975; allocs wr 0.004/frame sk 0.0001/frame; zst 630265 B; decompressed 2173467 B fnv 5bba24f96091e1a4
+bybit book00 base2 | median 8.36 CPU-s per Mframe over 1 passes
+bybit book00 lto | replay bybit shard book00: 80101 frames, 15 MB, sessions 2
+bybit book00 lto |   parse only: 3783.5 ns/frame (0.26 Mframe/s per core), allocs 0.0000/frame, records 80099, raw frames 2 (check 24481744946515101)
+bybit book00 lto | pass 0: wall 0.55 s, CPU wr 0.47 s + sk 0.04 s = 0.51 s => 6.37 CPU-s per Mframe (wr 5.87, sk 0.50); records 39973 dups 40126 raw 2 rows 39975; allocs wr 0.004/frame sk 0.0001/frame; zst 630265 B; decompressed 2173467 B fnv 5bba24f96091e1a4
+bybit book00 lto | median 6.37 CPU-s per Mframe over 1 passes
+bybit book00 ltomi | replay bybit shard book00: 80101 frames, 15 MB, sessions 2
+bybit book00 ltomi |   parse only: 2037.5 ns/frame (0.49 Mframe/s per core), allocs 0.0000/frame, records 80099, raw frames 2 (check 24481744946515101)
+bybit book00 ltomi | pass 0: wall 0.23 s, CPU wr 0.21 s + sk 0.04 s = 0.25 s => 3.12 CPU-s per Mframe (wr 2.62, sk 0.50); records 39973 dups 40126 raw 2 rows 39975; allocs wr 0.000/frame sk 0.0000/frame; zst 630265 B; decompressed 2173467 B fnv 5bba24f96091e1a4
+bybit book00 ltomi | median 3.12 CPU-s per Mframe over 1 passes
+okx book00 base2 | replay okx shard book00: 164350 frames, 28 MB, sessions 2
+okx book00 base2 |   parse only: 2993.2 ns/frame (0.33 Mframe/s per core), allocs 0.0000/frame, records 164164, raw frames 186 (check 8497390521417085)
+okx book00 base2 | pass 0: wall 1.51 s, CPU wr 1.35 s + sk 0.08 s = 1.43 s => 8.70 CPU-s per Mframe (wr 8.21, sk 0.49); records 82084 dups 82080 raw 186 rows 82270; allocs wr 0.003/frame sk 0.0000/frame; zst 1271898 B; decompressed 4964093 B fnv 951112830e840fc2
+okx book00 base2 | median 8.70 CPU-s per Mframe over 1 passes
+okx book00 lto | replay okx shard book00: 164350 frames, 28 MB, sessions 2
+okx book00 lto |   parse only: 2861.3 ns/frame (0.35 Mframe/s per core), allocs 0.0000/frame, records 164164, raw frames 186 (check 8497390521417085)
+okx book00 lto | pass 0: wall 1.76 s, CPU wr 1.53 s + sk 0.10 s = 1.63 s => 9.92 CPU-s per Mframe (wr 9.31, sk 0.61); records 82084 dups 82080 raw 186 rows 82270; allocs wr 0.003/frame sk 0.0000/frame; zst 1271898 B; decompressed 4964093 B fnv 951112830e840fc2
+okx book00 lto | median 9.92 CPU-s per Mframe over 1 passes
+okx book00 ltomi | replay okx shard book00: 164350 frames, 28 MB, sessions 2
+okx book00 ltomi |   parse only: 2824.9 ns/frame (0.35 Mframe/s per core), allocs 0.0000/frame, records 164164, raw frames 186 (check 8497390521417085)
+okx book00 ltomi | pass 0: wall 0.96 s, CPU wr 0.89 s + sk 0.09 s = 0.98 s => 5.96 CPU-s per Mframe (wr 5.42, sk 0.55); records 82084 dups 82080 raw 186 rows 82270; allocs wr 0.000/frame sk 0.0000/frame; zst 1271898 B; decompressed 4964093 B fnv 951112830e840fc2
+okx book00 ltomi | median 5.96 CPU-s per Mframe over 1 passes
+bingx book00 base2 | replay bingx shard book00: 160617 frames, 30 MB, sessions 2
+bingx book00 base2 |   parse only: 1658.6 ns/frame (0.60 Mframe/s per core), allocs 0.0000/frame, records 160259, raw frames 358 (check 287597428373401965)
+bingx book00 base2 | pass 0: wall 0.85 s, CPU wr 0.78 s + sk 0.04 s = 0.82 s => 5.11 CPU-s per Mframe (wr 4.86, sk 0.25); records 80132 dups 80127 raw 358 rows 80490; allocs wr 0.005/frame sk 0.0000/frame; zst 760161 B; decompressed 4680501 B fnv c034049fedebef53
+bingx book00 base2 | median 5.11 CPU-s per Mframe over 1 passes
+bingx book00 lto | replay bingx shard book00: 160617 frames, 30 MB, sessions 2
+bingx book00 lto |   parse only: 1798.0 ns/frame (0.56 Mframe/s per core), allocs 0.0000/frame, records 160259, raw frames 358 (check 287597428373401965)
+bingx book00 lto | pass 0: wall 0.99 s, CPU wr 0.89 s + sk 0.05 s = 0.94 s => 5.85 CPU-s per Mframe (wr 5.54, sk 0.31); records 80132 dups 80127 raw 358 rows 80490; allocs wr 0.005/frame sk 0.0000/frame; zst 760161 B; decompressed 4680501 B fnv c034049fedebef53
+bingx book00 lto | median 5.85 CPU-s per Mframe over 1 passes
+bingx book00 ltomi | replay bingx shard book00: 160617 frames, 30 MB, sessions 2
+bingx book00 ltomi |   parse only: 1734.1 ns/frame (0.58 Mframe/s per core), allocs 0.0000/frame, records 160259, raw frames 358 (check 287597428373401965)
+bingx book00 ltomi | pass 0: wall 0.67 s, CPU wr 0.62 s + sk 0.06 s = 0.68 s => 4.23 CPU-s per Mframe (wr 3.86, sk 0.37); records 80132 dups 80127 raw 358 rows 80490; allocs wr 0.000/frame sk 0.0000/frame; zst 760161 B; decompressed 4680501 B fnv c034049fedebef53
+bingx book00 ltomi | median 4.23 CPU-s per Mframe over 1 passes
+binance book00 base2 | replay binance shard book00: 112074 frames, 23 MB, sessions 2
+binance book00 base2 |   parse only: 1155.2 ns/frame (0.87 Mframe/s per core), allocs 0.0000/frame, records 112072, raw frames 2 (check 1356257004224015644)
+binance book00 base2 | pass 0: wall 0.33 s, CPU wr 0.27 s + sk 0.05 s = 0.32 s => 2.86 CPU-s per Mframe (wr 2.41, sk 0.45); records 56036 dups 56036 raw 2 rows 56038; allocs wr 0.002/frame sk 0.0001/frame; zst 837491 B; decompressed 3270199 B fnv c68192824c361e84
+binance book00 base2 | median 2.86 CPU-s per Mframe over 1 passes
+binance book00 lto | replay binance shard book00: 112074 frames, 23 MB, sessions 2
+binance book00 lto |   parse only: 1385.4 ns/frame (0.72 Mframe/s per core), allocs 0.0000/frame, records 112072, raw frames 2 (check 1356257004224015644)
+binance book00 lto | pass 0: wall 0.46 s, CPU wr 0.40 s + sk 0.05 s = 0.45 s => 4.02 CPU-s per Mframe (wr 3.57, sk 0.45); records 56036 dups 56036 raw 2 rows 56038; allocs wr 0.002/frame sk 0.0001/frame; zst 837491 B; decompressed 3270199 B fnv c68192824c361e84
+binance book00 lto | median 4.02 CPU-s per Mframe over 1 passes
+binance book00 ltomi | replay binance shard book00: 112074 frames, 23 MB, sessions 2
+binance book00 ltomi |   parse only: 951.7 ns/frame (1.05 Mframe/s per core), allocs 0.0000/frame, records 112072, raw frames 2 (check 1356257004224015644)
+binance book00 ltomi | pass 0: wall 0.21 s, CPU wr 0.18 s + sk 0.05 s = 0.23 s => 2.05 CPU-s per Mframe (wr 1.61, sk 0.45); records 56036 dups 56036 raw 2 rows 56038; allocs wr 0.000/frame sk 0.0000/frame; zst 837491 B; decompressed 3270199 B fnv c68192824c361e84
+binance book00 ltomi | median 2.05 CPU-s per Mframe over 1 passes
+bybit book00 base2 | replay bybit shard book00: 80101 frames, 15 MB, sessions 2
+bybit book00 base2 |   parse only: 2056.2 ns/frame (0.49 Mframe/s per core), allocs 0.0000/frame, records 80099, raw frames 2 (check 24481744946515101)
+bybit book00 base2 | pass 0: wall 0.27 s, CPU wr 0.23 s + sk 0.03 s = 0.26 s => 3.25 CPU-s per Mframe (wr 2.87, sk 0.37); records 39973 dups 40126 raw 2 rows 39975; allocs wr 0.004/frame sk 0.0001/frame; zst 630265 B; decompressed 2173467 B fnv 5bba24f96091e1a4
+bybit book00 base2 | median 3.25 CPU-s per Mframe over 1 passes
+bybit book00 lto | replay bybit shard book00: 80101 frames, 15 MB, sessions 2
+bybit book00 lto |   parse only: 2504.2 ns/frame (0.40 Mframe/s per core), allocs 0.0000/frame, records 80099, raw frames 2 (check 24481744946515101)
+bybit book00 lto | pass 0: wall 0.51 s, CPU wr 0.44 s + sk 0.04 s = 0.48 s => 5.99 CPU-s per Mframe (wr 5.49, sk 0.50); records 39973 dups 40126 raw 2 rows 39975; allocs wr 0.004/frame sk 0.0001/frame; zst 630265 B; decompressed 2173467 B fnv 5bba24f96091e1a4
+bybit book00 lto | median 5.99 CPU-s per Mframe over 1 passes
+bybit book00 ltomi | replay bybit shard book00: 80101 frames, 15 MB, sessions 2
+bybit book00 ltomi |   parse only: 1790.1 ns/frame (0.56 Mframe/s per core), allocs 0.0000/frame, records 80099, raw frames 2 (check 24481744946515101)
+bybit book00 ltomi | pass 0: wall 0.37 s, CPU wr 0.34 s + sk 0.03 s = 0.37 s => 4.62 CPU-s per Mframe (wr 4.24, sk 0.37); records 39973 dups 40126 raw 2 rows 39975; allocs wr 0.000/frame sk 0.0000/frame; zst 630265 B; decompressed 2173467 B fnv 5bba24f96091e1a4
+bybit book00 ltomi | median 4.62 CPU-s per Mframe over 1 passes
+okx book00 base2 | replay okx shard book00: 164350 frames, 28 MB, sessions 2
+okx book00 base2 |   parse only: 2589.4 ns/frame (0.39 Mframe/s per core), allocs 0.0000/frame, records 164164, raw frames 186 (check 8497390521417085)
+okx book00 base2 | pass 0: wall 1.30 s, CPU wr 1.15 s + sk 0.10 s = 1.25 s => 7.61 CPU-s per Mframe (wr 7.00, sk 0.61); records 82084 dups 82080 raw 186 rows 82270; allocs wr 0.003/frame sk 0.0000/frame; zst 1271898 B; decompressed 4964093 B fnv 951112830e840fc2
+okx book00 base2 | median 7.61 CPU-s per Mframe over 1 passes
+okx book00 lto | replay okx shard book00: 164350 frames, 28 MB, sessions 2
+okx book00 lto |   parse only: 3068.4 ns/frame (0.33 Mframe/s per core), allocs 0.0000/frame, records 164164, raw frames 186 (check 8497390521417085)
+okx book00 lto | pass 0: wall 1.40 s, CPU wr 1.34 s + sk 0.09 s = 1.43 s => 8.70 CPU-s per Mframe (wr 8.15, sk 0.55); records 82084 dups 82080 raw 186 rows 82270; allocs wr 0.003/frame sk 0.0000/frame; zst 1271898 B; decompressed 4964093 B fnv 951112830e840fc2
+okx book00 lto | median 8.70 CPU-s per Mframe over 1 passes
+okx book00 ltomi | replay okx shard book00: 164350 frames, 28 MB, sessions 2
+okx book00 ltomi |   parse only: 2615.5 ns/frame (0.38 Mframe/s per core), allocs 0.0000/frame, records 164164, raw frames 186 (check 8497390521417085)
+okx book00 ltomi | pass 0: wall 0.69 s, CPU wr 0.65 s + sk 0.09 s = 0.74 s => 4.50 CPU-s per Mframe (wr 3.95, sk 0.55); records 82084 dups 82080 raw 186 rows 82270; allocs wr 0.000/frame sk 0.0000/frame; zst 1271898 B; decompressed 4964093 B fnv 951112830e840fc2
+okx book00 ltomi | median 4.50 CPU-s per Mframe over 1 passes
+bingx book00 base2 | replay bingx shard book00: 160617 frames, 30 MB, sessions 2
+bingx book00 base2 |   parse only: 1551.1 ns/frame (0.64 Mframe/s per core), allocs 0.0000/frame, records 160259, raw frames 358 (check 287597428373401965)
+bingx book00 base2 | pass 0: wall 0.97 s, CPU wr 0.90 s + sk 0.04 s = 0.94 s => 5.85 CPU-s per Mframe (wr 5.60, sk 0.25); records 80132 dups 80127 raw 358 rows 80490; allocs wr 0.005/frame sk 0.0000/frame; zst 760161 B; decompressed 4680501 B fnv c034049fedebef53
+bingx book00 base2 | median 5.85 CPU-s per Mframe over 1 passes
+bingx book00 lto | replay bingx shard book00: 160617 frames, 30 MB, sessions 2
+bingx book00 lto |   parse only: 1415.6 ns/frame (0.71 Mframe/s per core), allocs 0.0000/frame, records 160259, raw frames 358 (check 287597428373401965)
+bingx book00 lto | pass 0: wall 0.78 s, CPU wr 0.68 s + sk 0.05 s = 0.73 s => 4.54 CPU-s per Mframe (wr 4.23, sk 0.31); records 80132 dups 80127 raw 358 rows 80490; allocs wr 0.005/frame sk 0.0000/frame; zst 760161 B; decompressed 4680501 B fnv c034049fedebef53
+bingx book00 lto | median 4.54 CPU-s per Mframe over 1 passes
+bingx book00 ltomi | replay bingx shard book00: 160617 frames, 30 MB, sessions 2
+bingx book00 ltomi |   parse only: 2080.7 ns/frame (0.48 Mframe/s per core), allocs 0.0000/frame, records 160259, raw frames 358 (check 287597428373401965)
+bingx book00 ltomi | pass 0: wall 0.58 s, CPU wr 0.53 s + sk 0.05 s = 0.58 s => 3.61 CPU-s per Mframe (wr 3.30, sk 0.31); records 80132 dups 80127 raw 358 rows 80490; allocs wr 0.000/frame sk 0.0000/frame; zst 760161 B; decompressed 4680501 B fnv c034049fedebef53
+bingx book00 ltomi | median 3.61 CPU-s per Mframe over 1 passes
+binance book00 base2 | replay binance shard book00: 112074 frames, 23 MB, sessions 2
+binance book00 base2 |   parse only: 1298.0 ns/frame (0.77 Mframe/s per core), allocs 0.0000/frame, records 112072, raw frames 2 (check 1356257004224015644)
+binance book00 base2 | pass 0: wall 0.47 s, CPU wr 0.42 s + sk 0.06 s = 0.48 s => 4.28 CPU-s per Mframe (wr 3.75, sk 0.54); records 56036 dups 56036 raw 2 rows 56038; allocs wr 0.002/frame sk 0.0001/frame; zst 837491 B; decompressed 3270199 B fnv c68192824c361e84
+binance book00 base2 | median 4.28 CPU-s per Mframe over 1 passes
+binance book00 lto | replay binance shard book00: 112074 frames, 23 MB, sessions 2
+binance book00 lto |   parse only: 1785.4 ns/frame (0.56 Mframe/s per core), allocs 0.0000/frame, records 112072, raw frames 2 (check 1356257004224015644)
+binance book00 lto | pass 0: wall 0.42 s, CPU wr 0.35 s + sk 0.07 s = 0.42 s => 3.75 CPU-s per Mframe (wr 3.12, sk 0.62); records 56036 dups 56036 raw 2 rows 56038; allocs wr 0.002/frame sk 0.0001/frame; zst 837491 B; decompressed 3270199 B fnv c68192824c361e84
+binance book00 lto | median 3.75 CPU-s per Mframe over 1 passes
+binance book00 ltomi | replay binance shard book00: 112074 frames, 23 MB, sessions 2
+binance book00 ltomi |   parse only: 1142.1 ns/frame (0.88 Mframe/s per core), allocs 0.0000/frame, records 112072, raw frames 2 (check 1356257004224015644)
+binance book00 ltomi | pass 0: wall 0.23 s, CPU wr 0.20 s + sk 0.07 s = 0.27 s => 2.41 CPU-s per Mframe (wr 1.78, sk 0.62); records 56036 dups 56036 raw 2 rows 56038; allocs wr 0.000/frame sk 0.0000/frame; zst 837491 B; decompressed 3270199 B fnv c68192824c361e84
+binance book00 ltomi | median 2.41 CPU-s per Mframe over 1 passes
+bybit book00 base2 | replay bybit shard book00: 80101 frames, 15 MB, sessions 2
+bybit book00 base2 |   parse only: 2268.1 ns/frame (0.44 Mframe/s per core), allocs 0.0000/frame, records 80099, raw frames 2 (check 24481744946515101)
+bybit book00 base2 | pass 0: wall 0.39 s, CPU wr 0.33 s + sk 0.05 s = 0.38 s => 4.74 CPU-s per Mframe (wr 4.12, sk 0.62); records 39973 dups 40126 raw 2 rows 39975; allocs wr 0.004/frame sk 0.0001/frame; zst 630265 B; decompressed 2173467 B fnv 5bba24f96091e1a4
+bybit book00 base2 | median 4.74 CPU-s per Mframe over 1 passes
+bybit book00 lto | replay bybit shard book00: 80101 frames, 15 MB, sessions 2
+bybit book00 lto |   parse only: 2231.9 ns/frame (0.45 Mframe/s per core), allocs 0.0000/frame, records 80099, raw frames 2 (check 24481744946515101)
+bybit book00 lto | pass 0: wall 0.44 s, CPU wr 0.40 s + sk 0.04 s = 0.44 s => 5.49 CPU-s per Mframe (wr 4.99, sk 0.50); records 39973 dups 40126 raw 2 rows 39975; allocs wr 0.004/frame sk 0.0001/frame; zst 630265 B; decompressed 2173467 B fnv 5bba24f96091e1a4
+bybit book00 lto | median 5.49 CPU-s per Mframe over 1 passes
+bybit book00 ltomi | replay bybit shard book00: 80101 frames, 15 MB, sessions 2
+bybit book00 ltomi |   parse only: 1822.4 ns/frame (0.55 Mframe/s per core), allocs 0.0000/frame, records 80099, raw frames 2 (check 24481744946515101)
+bybit book00 ltomi | pass 0: wall 0.28 s, CPU wr 0.24 s + sk 0.05 s = 0.29 s => 3.62 CPU-s per Mframe (wr 3.00, sk 0.62); records 39973 dups 40126 raw 2 rows 39975; allocs wr 0.000/frame sk 0.0000/frame; zst 630265 B; decompressed 2173467 B fnv 5bba24f96091e1a4
+bybit book00 ltomi | median 3.62 CPU-s per Mframe over 1 passes
+okx book00 base2 | replay okx shard book00: 164350 frames, 28 MB, sessions 2
+okx book00 base2 |   parse only: 2788.2 ns/frame (0.36 Mframe/s per core), allocs 0.0000/frame, records 164164, raw frames 186 (check 8497390521417085)
+okx book00 base2 | pass 0: wall 1.05 s, CPU wr 0.97 s + sk 0.07 s = 1.04 s => 6.33 CPU-s per Mframe (wr 5.90, sk 0.43); records 82084 dups 82080 raw 186 rows 82270; allocs wr 0.003/frame sk 0.0000/frame; zst 1271898 B; decompressed 4964093 B fnv 951112830e840fc2
+okx book00 base2 | median 6.33 CPU-s per Mframe over 1 passes
+okx book00 lto | replay okx shard book00: 164350 frames, 28 MB, sessions 2
+okx book00 lto |   parse only: 2252.1 ns/frame (0.44 Mframe/s per core), allocs 0.0000/frame, records 164164, raw frames 186 (check 8497390521417085)
+okx book00 lto | pass 0: wall 1.18 s, CPU wr 1.13 s + sk 0.10 s = 1.23 s => 7.48 CPU-s per Mframe (wr 6.88, sk 0.61); records 82084 dups 82080 raw 186 rows 82270; allocs wr 0.003/frame sk 0.0000/frame; zst 1271898 B; decompressed 4964093 B fnv 951112830e840fc2
+okx book00 lto | median 7.48 CPU-s per Mframe over 1 passes
+okx book00 ltomi | replay okx shard book00: 164350 frames, 28 MB, sessions 2
+okx book00 ltomi |   parse only: 2625.2 ns/frame (0.38 Mframe/s per core), allocs 0.0000/frame, records 164164, raw frames 186 (check 8497390521417085)
+okx book00 ltomi | pass 0: wall 0.90 s, CPU wr 0.87 s + sk 0.09 s = 0.96 s => 5.84 CPU-s per Mframe (wr 5.29, sk 0.55); records 82084 dups 82080 raw 186 rows 82270; allocs wr 0.000/frame sk 0.0000/frame; zst 1271898 B; decompressed 4964093 B fnv 951112830e840fc2
+okx book00 ltomi | median 5.84 CPU-s per Mframe over 1 passes
+bingx book00 base2 | replay bingx shard book00: 160617 frames, 30 MB, sessions 2
+bingx book00 base2 |   parse only: 1855.7 ns/frame (0.54 Mframe/s per core), allocs 0.0000/frame, records 160259, raw frames 358 (check 287597428373401965)
+bingx book00 base2 | pass 0: wall 0.83 s, CPU wr 0.78 s + sk 0.05 s = 0.83 s => 5.17 CPU-s per Mframe (wr 4.86, sk 0.31); records 80132 dups 80127 raw 358 rows 80490; allocs wr 0.005/frame sk 0.0000/frame; zst 760161 B; decompressed 4680501 B fnv c034049fedebef53
+bingx book00 base2 | median 5.17 CPU-s per Mframe over 1 passes
+bingx book00 lto | replay bingx shard book00: 160617 frames, 30 MB, sessions 2
+bingx book00 lto |   parse only: 1981.3 ns/frame (0.50 Mframe/s per core), allocs 0.0000/frame, records 160259, raw frames 358 (check 287597428373401965)
+bingx book00 lto | pass 0: wall 0.94 s, CPU wr 0.79 s + sk 0.05 s = 0.84 s => 5.23 CPU-s per Mframe (wr 4.92, sk 0.31); records 80132 dups 80127 raw 358 rows 80490; allocs wr 0.005/frame sk 0.0000/frame; zst 760161 B; decompressed 4680501 B fnv c034049fedebef53
+bingx book00 lto | median 5.23 CPU-s per Mframe over 1 passes
+bingx book00 ltomi | replay bingx shard book00: 160617 frames, 30 MB, sessions 2
+bingx book00 ltomi |   parse only: 1954.1 ns/frame (0.51 Mframe/s per core), allocs 0.0000/frame, records 160259, raw frames 358 (check 287597428373401965)
+bingx book00 ltomi | pass 0: wall 0.59 s, CPU wr 0.55 s + sk 0.05 s = 0.60 s => 3.74 CPU-s per Mframe (wr 3.42, sk 0.31); records 80132 dups 80127 raw 358 rows 80490; allocs wr 0.000/frame sk 0.0000/frame; zst 760161 B; decompressed 4680501 B fnv c034049fedebef53
+bingx book00 ltomi | median 3.74 CPU-s per Mframe over 1 passes

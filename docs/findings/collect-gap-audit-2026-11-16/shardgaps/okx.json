@@ -1,0 +1,244 @@
+{
+ "book00": {
+  "windows": 23837,
+  "windows_msgs0": 0,
+  "gap_ge_1s": 0,
+  "gap_ge_5s": 0,
+  "gap_ge_30s": 0,
+  "stats_skipped_ge25s": 0,
+  "top": [],
+  "skipped_top": []
+ },
+ "book01": {
+  "windows": 23837,
+  "windows_msgs0": 0,
+  "gap_ge_1s": 4,
+  "gap_ge_5s": 2,
+  "gap_ge_30s": 0,
+  "stats_skipped_ge25s": 0,
+  "top": [
+   {
+    "t": "15.11 13:33:20",
+    "max_gap_ms": 13108,
+    "msgs": 9176
+   },
+   {
+    "t": "15.11 13:33:10",
+    "max_gap_ms": 8605,
+    "msgs": 1349
+   },
+   {
+    "t": "15.11 13:32:50",
+    "max_gap_ms": 2905,
+    "msgs": 4674
+   },
+   {
+    "t": "13.11 19:02:03",
+    "max_gap_ms": 1117,
+    "msgs": 8919
+   }
+  ],
+  "skipped_top": []
+ },
+ "book02": {
+  "windows": 23837,
+  "windows_msgs0": 0,
+  "gap_ge_1s": 1,
+  "gap_ge_5s": 0,
+  "gap_ge_30s": 0,
+  "stats_skipped_ge25s": 0,
+  "top": [
+   {
+    "t": "13.11 19:02:02",
+    "max_gap_ms": 1023,
+    "msgs": 6940
+   }
+  ],
+  "skipped_top": []
+ },
+ "book03": {
+  "windows": 23837,
+  "windows_msgs0": 0,
+  "gap_ge_1s": 1,
+  "gap_ge_5s": 0,
+  "gap_ge_30s": 0,
+  "stats_skipped_ge25s": 0,
+  "top": [
+   {
+    "t": "15.11 00:00:03",
+    "max_gap_ms": 1003,
+    "msgs": 6849
+   }
+  ],
+  "skipped_top": []
+ },
+ "mark00": {
+  "windows": 23837,
+  "windows_msgs0": 0,
+  "gap_ge_1s": 0,
+  "gap_ge_5s": 0,
+  "gap_ge_30s": 0,
+  "stats_skipped_ge25s": 0,
+  "top": [],
+  "skipped_top": []
+ },
+ "mark01": {
+  "windows": 23837,
+  "windows_msgs0": 0,
+  "gap_ge_1s": 0,
+  "gap_ge_5s": 0,
+  "gap_ge_30s": 0,
+  "stats_skipped_ge25s": 0,
+  "top": [],
+  "skipped_top": []
+ },
+ "mark02": {
+  "windows": 23837,
+  "windows_msgs0": 0,
+  "gap_ge_1s": 0,
+  "gap_ge_5s": 0,
+  "gap_ge_30s": 0,
+  "stats_skipped_ge25s": 0,
+  "top": [],
+  "skipped_top": []
+ },
+ "mark03": {
+  "windows": 23837,
+  "windows_msgs0": 0,
+  "gap_ge_1s": 0,
+  "gap_ge_5s": 0,
+  "gap_ge_30s": 0,
+  "stats_skipped_ge25s": 0,
+  "top": [],
+  "skipped_top": []
+ },
+ "trade00": {
+  "windows": 23837,
+  "windows_msgs0": 0,
+  "gap_ge_1s": 2,
+  "gap_ge_5s": 0,
+  "gap_ge_30s": 0,
+  "stats_skipped_ge25s": 0,
+  "top": [
+   {
+    "t": "15.11 13:31:40",
+    "max_gap_ms": 1399,
+    "msgs": 1368
+   },
+   {
+    "t": "15.11 18:44:06",
+    "max_gap_ms": 1214,
+    "msgs": 586
+   }
+  ],
+  "skipped_top": []
+ },
+ "trade01": {
+  "windows": 23837,
+  "windows_msgs0": 0,
+  "gap_ge_1s": 5,
+  "gap_ge_5s": 0,
+  "gap_ge_30s": 0,
+  "stats_skipped_ge25s": 0,
+  "top": [
+   {
+    "t": "14.11 11:53:29",
+    "max_gap_ms": 1205,
+    "msgs": 560
+   },
+   {
+    "t": "15.11 19:56:59",
+    "max_gap_ms": 1150,
+    "msgs": 339
+   },
+   {
+    "t": "15.11 20:50:31",
+    "max_gap_ms": 1138,
+    "msgs": 326
+   },
+   {
+    "t": "14.11 11:47:39",
+    "max_gap_ms": 1027,
+    "msgs": 598
+   },
+   {
+    "t": "14.11 11:39:42",
+    "max_gap_ms": 1000,
+    "msgs": 624
+   }
+  ],
+  "skipped_top": []
+ },
+ "trade02": {
+  "windows": 23837,
+  "windows_msgs0": 0,
+  "gap_ge_1s": 84,
+  "gap_ge_5s": 0,
+  "gap_ge_30s": 0,
+  "stats_skipped_ge25s": 0,
+  "top": [
+   {
+    "t": "14.11 12:08:20",
+    "max_gap_ms": 1874,
+    "msgs": 276
+   },
+   {
+    "t": "13.11 23:39:16",
+    "max_gap_ms": 1801,
+    "msgs": 288
+   },
+   {
+    "t": "15.11 00:00:03",
+    "max_gap_ms": 1702,
+    "msgs": 1712
+   },
+   {
+    "t": "15.11 13:22:29",
+    "max_gap_ms": 1672,
+    "msgs": 257
+   },
+   {
+    "t": "13.11 23:53:47",
+    "max_gap_ms": 1634,
+    "msgs": 214
+   }
+  ],
+  "skipped_top": []
+ },
+ "trade03": {
+  "windows": 23837,
+  "windows_msgs0": 0,
+  "gap_ge_1s": 7,
+  "gap_ge_5s": 2,
+  "gap_ge_30s": 0,
+  "stats_skipped_ge25s": 0,
+  "top": [
+   {
+    "t": "13.11 13:43:50",
+    "max_gap_ms": 13922,
+    "msgs": 323
+   },
+   {
+    "t": "13.11 13:43:40",
+    "max_gap_ms": 5918,
+    "msgs": 746
+   },
+   {
+    "t": "14.11 05:59:10",
+    "max_gap_ms": 3423,
+    "msgs": 1102
+   },
+   {
+    "t": "14.11 05:48:39",
+    "max_gap_ms": 1326,
+    "msgs": 1340
+   },
+   {
+    "t": "15.11 20:23:40",
+    "max_gap_ms": 1279,
+    "msgs": 374
+   }
+  ],
+  "skipped_top": []
+ }
+}

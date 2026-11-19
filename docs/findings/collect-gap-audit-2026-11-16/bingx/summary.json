@@ -1,0 +1,276 @@
+{
+ "exchange": "bingx",
+ "window_utc": [
+  "2026-11-13T06:15",
+  "2026-11-15T20:38"
+ ],
+ "minutes": 3743,
+ "symbols_total": 938,
+ "symbols_rest_ok": 873,
+ "symbols_rest_missing": [
+  "4STOCK-USDT",
+  "AGI-USDT",
+  "GANG-USDT",
+  "KNTQ-USDT",
+  "NCCOALUMINIUM2USD-USDT",
+  "NCCOHEATINGOIL2USD-USDT",
+  "NCCOLEAD2USD-USDT",
+  "NCCONICKEL2USD-USDT",
+  "NCCOXAGEUR2USD-USDT",
+  "NCCOXAUAUD2USD-USDT",
+  "NCCOXAUCAD2USD-USDT",
+  "NCCOXAUCHF2USD-USDT",
+  "NCCOXAUEUR2USD-USDT",
+  "NCCOXAUGBP2USD-USDT",
+  "NCCOXAUJPY2USD-USDT",
+  "NCCOXAUSGD2USD-USDT",
+  "NCCOXAUXAG2USD-USDT",
+  "NCCOXAUXPT2USD-USDT",
+  "NCCOZINC2USD-USDT",
+  "NCFXGBPSGD2USD-USDT",
+  "NCFXUSD2RUB-USDT",
+  "NCFXUSD2TRY-USDT",
+  "NCSIDOWJONES2USD-USDT",
+  "NCSIDXY2USD-USDT",
+  "NCSIGER2USD-USDT",
+  "NCSINIKKEI2252USD-USDT",
+  "NCSIRUSSELL20002USD-USDT",
+  "NCSKAEP2USD-USDT",
+  "NCSKALNY2USD-USDT",
+  "NCSKASST2USD-USDT",
+  "NCSKBOTZ2USD-USDT",
+  "NCSKCART2USD-USDT",
+  "NCSKCTSH2USD-USDT",
+  "NCSKDHI2USD-USDT",
+  "NCSKDLR2USD-USDT",
+  "NCSKDUK2USD-USDT",
+  "NCSKELF2USD-USDT",
+  "NCSKEMR2USD-USDT",
+  "NCSKENPH2USD-USDT",
+  "NCSKEUV2USD-USDT",
+  "NCSKFANG2USD-USDT",
+  "NCSKFDX2USD-USDT",
+  "NCSKGD2USD-USDT",
+  "NCSKICE2USD-USDT",
+  "NCSKIJR2USD-USDT",
+  "NCSKITUB2USD-USDT",
+  "NCSKJCI2USD-USDT",
+  "NCSKLABU2USD-USDT",
+  "NCSKLNG2USD-USDT",
+  "NCSKLOW2USD-USDT"
+ ],
+ "traded_symbol_minutes": 3202604,
+ "book_hole_minutes": 14105,
+ "book_hole_pct": 0.4404,
+ "book_hole_soft_minutes": 14096,
+ "book_hole_soft_pct": 0.4401,
+ "trade_hole_minutes": 14107,
+ "trade_hole_pct": 0.4405,
+ "trade_hole_soft_minutes": 14096,
+ "trade_hole_soft_pct": 0.4401,
+ "runs": [
+  {
+   "start_utc": "2026-11-13T06:13",
+   "start_epoch": 1794550435
+  },
+  {
+   "start_utc": "2026-11-13T11:14",
+   "start_epoch": 1794568469
+  },
+  {
+   "start_utc": "2026-11-13T13:36",
+   "start_epoch": 1794577010
+  },
+  {
+   "start_utc": "2026-11-13T20:38",
+   "start_epoch": 1794602326
+  },
+  {
+   "start_utc": "2026-11-13T22:39",
+   "start_epoch": 1794609562
+  },
+  {
+   "start_utc": "2026-11-13T23:12",
+   "start_epoch": 1794611522
+  },
+  {
+   "start_utc": "2026-11-13T23:34",
+   "start_epoch": 1794612894
+  },
+  {
+   "start_utc": "2026-11-14T00:53",
+   "start_epoch": 1794617580
+  },
+  {
+   "start_utc": "2026-11-14T11:45",
+   "start_epoch": 1794656729
+  }
+ ],
+ "stretches_book": {
+  "count": 26,
+  "minutes": 14233,
+  "symbols": 25,
+  "by_class": {
+   "absent": {
+    "count": 26,
+    "minutes": 14233
+   },
+   "stall": {
+    "count": 0,
+    "minutes": 0
+   },
+   "mixed": {
+    "count": 0,
+    "minutes": 0
+   }
+  },
+  "len_buckets": {
+   "5-14": 0,
+   "15-59": 0,
+   "60-239": 18,
+   "240+": 8
+  },
+  "traded_minutes_inside": 14105
+ },
+ "stretches_trade": {
+  "count": 26,
+  "minutes": 14233,
+  "symbols": 25,
+  "by_class": {
+   "absent": {
+    "count": 26,
+    "minutes": 14233
+   },
+   "stall": {
+    "count": 0,
+    "minutes": 0
+   },
+   "mixed": {
+    "count": 0,
+    "minutes": 0
+   }
+  },
+  "len_buckets": {
+   "5-14": 0,
+   "15-59": 0,
+   "60-239": 18,
+   "240+": 8
+  },
+  "traded_minutes_inside": 14105
+ },
+ "book_hole_minutes_in_stretches": 14105,
+ "book_hole_minutes_short": 0,
+ "short_holes_by_hour": {},
+ "short_holes_soft": 0,
+ "pool_size_by_run": {
+  "2026-11-13T06:13": 893,
+  "2026-11-13T11:14": 893,
+  "2026-11-13T13:36": 894,
+  "2026-11-13T20:38": 925,
+  "2026-11-13T22:39": 853,
+  "2026-11-13T23:12": 853,
+  "2026-11-13T23:34": 852,
+  "2026-11-14T00:53": 855,
+  "2026-11-14T11:45": 853
+ },
+ "book_hole_usd": {
+  "hole_quote_usd": 55232369,
+  "total_quote_usd": 10703142371,
+  "pct": 0.516
+ },
+ "absent_by_run": {
+  "2026-11-13T06:13": {
+   "absent_symbols_traded": 2,
+   "traded_minutes": 598,
+   "quote_usd": 361268
+  },
+  "2026-11-13T11:14": {
+   "absent_symbols_traded": 1,
+   "traded_minutes": 142,
+   "quote_usd": 29265
+  },
+  "2026-11-13T13:36": {
+   "absent_symbols_traded": 3,
+   "traded_minutes": 1155,
+   "quote_usd": 606129
+  },
+  "2026-11-13T20:38": {
+   "absent_symbols_traded": 4,
+   "traded_minutes": 484,
+   "quote_usd": 275789
+  },
+  "2026-11-13T22:39": {
+   "absent_symbols_traded": 4,
+   "traded_minutes": 132,
+   "quote_usd": 54533
+  },
+  "2026-11-13T23:12": {
+   "absent_symbols_traded": 4,
+   "traded_minutes": 88,
+   "quote_usd": 32524
+  },
+  "2026-11-13T23:34": {
+   "absent_symbols_traded": 5,
+   "traded_minutes": 390,
+   "quote_usd": 195134
+  },
+  "2026-11-14T00:53": {
+   "absent_symbols_traded": 2,
+   "traded_minutes": 1304,
+   "quote_usd": 672843
+  },
+  "2026-11-14T11:45": {
+   "absent_symbols_traded": 21,
+   "traded_minutes": 9816,
+   "quote_usd": 53006385
+  }
+ },
+ "absent_by_qv24_bucket": {
+  "<300k": {
+   "pairs": 38,
+   "traded_min": 10789,
+   "quote_usd": 52302036
+  },
+  "300k-1M": {
+   "pairs": 1,
+   "traded_min": 367,
+   "quote_usd": 347052
+  },
+  "1M-10M": {
+   "pairs": 7,
+   "traded_min": 2953,
+   "quote_usd": 2584782
+  },
+  ">=10M": {
+   "pairs": 0,
+   "traded_min": 0,
+   "quote_usd": 0
+  }
+ },
+ "absent_runs": {
+  "pairs": 46,
+  "by_verdict": {
+   "top_excluded": 0,
+   "below_threshold": 38,
+   "above_threshold": 8,
+   "unknown(no 24h history)": 0
+  },
+  "traded_min_by_verdict": {
+   "top_excluded": 0,
+   "below_threshold": 10789,
+   "above_threshold": 3320,
+   "unknown(no 24h history)": 0
+  },
+  "above_threshold_within_5pct": 0
+ },
+ "shard_outages_ge50pct": {
+  "count": 0,
+  "minutes": 0
+ },
+ "simultaneous_no_book_soft_per_minute": {
+  "p50": 4.0,
+  "p90": 4.0,
+  "p99": 20.0,
+  "max": 21
+ }
+}

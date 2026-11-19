@@ -1,0 +1,33 @@
+{
+ "cutoff_ms": 300.0,
+ "accepted": {
+  "n": 0,
+  "p10": null,
+  "p50": null,
+  "p90": null,
+  "max": null,
+  "over_cutoff": 0
+ },
+ "rejected": {
+  "n": 0,
+  "p10": null,
+  "p50": null,
+  "p90": null,
+  "max": null,
+  "over_cutoff": 0
+ },
+ "slow_accepted": {
+  "n": 0,
+  "p10": null,
+  "p50": null,
+  "p90": null,
+  "max": null,
+  "over_cutoff": 0
+ },
+ "events": {
+  "switch_failed": 6,
+  "timeout": 2,
+  "ping_degraded": 2
+ },
+ "per_shard_connected": {}
+}

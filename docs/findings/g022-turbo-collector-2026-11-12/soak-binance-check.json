@@ -1,0 +1,431 @@
+{
+ "files": 50,
+ "closed_files": 25,
+ "closed_files_bad": 0,
+ "bad_examples": [],
+ "rx_decreases": 0,
+ "kinds": {
+  "b": {
+   "symbol_runs": 1022,
+   "records": 7279587,
+   "duplicates": 0,
+   "out_of_order": 655
+  },
+  "m": {
+   "symbol_runs": 1908,
+   "records": 1605591,
+   "duplicates": 0,
+   "out_of_order": 0
+  },
+  "t": {
+   "symbol_runs": 1022,
+   "records": 745355,
+   "duplicates": 0,
+   "out_of_order": 2,
+   "id_gaps": 0,
+   "id_gap_ids": 0
+  }
+ },
+ "per_file": [
+  {
+   "file": "2026-11-12/book00-1794483442.tsv.zst",
+   "closed": true,
+   "rows": 239137,
+   "rx_decreases": 0,
+   "ok_rows": 239137,
+   "rows_match_ok": true,
+   "zstd_t": true,
+   "last_control": "closed"
+  },
+  {
+   "file": "2026-11-12/book00-1794484245.tsv.zst",
+   "closed": false,
+   "rows": 293157,
+   "rx_decreases": 0
+  },
+  {
+   "file": "2026-11-12/book01-1794483442.tsv.zst",
+   "closed": true,
+   "rows": 192765,
+   "rx_decreases": 0,
+   "ok_rows": 192765,
+   "rows_match_ok": true,
+   "zstd_t": true,
+   "last_control": "closed"
+  },
+  {
+   "file": "2026-11-12/book01-1794484245.tsv.zst",
+   "closed": false,
+   "rows": 263620,
+   "rx_decreases": 0
+  },
+  {
+   "file": "2026-11-12/book02-1794483442.tsv.zst",
+   "closed": true,
+   "rows": 212751,
+   "rx_decreases": 0,
+   "ok_rows": 212751,
+   "rows_match_ok": true,
+   "zstd_t": true,
+   "last_control": "closed"
+  },
+  {
+   "file": "2026-11-12/book02-1794484245.tsv.zst",
+   "closed": false,
+   "rows": 299455,
+   "rx_decreases": 0
+  },
+  {
+   "file": "2026-11-12/book03-1794483442.tsv.zst",
+   "closed": true,
+   "rows": 92331,
+   "rx_decreases": 0,
+   "ok_rows": 92331,
+   "rows_match_ok": true,
+   "zstd_t": true,
+   "last_control": "closed"
+  },
+  {
+   "file": "2026-11-12/book03-1794484245.tsv.zst",
+   "closed": false,
+   "rows": 151032,
+   "rx_decreases": 0
+  },
+  {
+   "file": "2026-11-12/book04-1794483442.tsv.zst",
+   "closed": true,
+   "rows": 187699,
+   "rx_decreases": 0,
+   "ok_rows": 187699,
+   "rows_match_ok": true,
+   "zstd_t": true,
+   "last_control": "closed"
+  },
+  {
+   "file": "2026-11-12/book04-1794484245.tsv.zst",
+   "closed": false,
+   "rows": 245555,
+   "rx_decreases": 0
+  },
+  {
+   "file": "2026-11-12/book05-1794483442.tsv.zst",
+   "closed": true,
+   "rows": 253443,
+   "rx_decreases": 0,
+   "ok_rows": 253443,
+   "rows_match_ok": true,
+   "zstd_t": true,
+   "last_control": "closed"
+  },
+  {
+   "file": "2026-11-12/book05-1794484245.tsv.zst",
+   "closed": false,
+   "rows": 335760,
+   "rx_decreases": 0
+  },
+  {
+   "file": "2026-11-12/book06-1794483442.tsv.zst",
+   "closed": true,
+   "rows": 120853,
+   "rx_decreases": 0,
+   "ok_rows": 120853,
+   "rows_match_ok": true,
+   "zstd_t": true,
+   "last_control": "closed"
+  },
+  {
+   "file": "2026-11-12/book06-1794484245.tsv.zst",
+   "closed": false,
+   "rows": 139746,
+   "rx_decreases": 0
+  },
+  {
+   "file": "2026-11-12/book07-1794483442.tsv.zst",
+   "closed": true,
+   "rows": 363002,
+   "rx_decreases": 0,
+   "ok_rows": 363002,
+   "rows_match_ok": true,
+   "zstd_t": true,
+   "last_control": "closed"
+  },
+  {
+   "file": "2026-11-12/book07-1794484245.tsv.zst",
+   "closed": false,
+   "rows": 424547,
+   "rx_decreases": 0
+  },
+  {
+   "file": "2026-11-12/book08-1794483442.tsv.zst",
+   "closed": true,
+   "rows": 249406,
+   "rx_decreases": 0,
+   "ok_rows": 249406,
+   "rows_match_ok": true,
+   "zstd_t": true,
+   "last_control": "closed"
+  },
+  {
+   "file": "2026-11-12/book08-1794484245.tsv.zst",
+   "closed": false,
+   "rows": 414618,
+   "rx_decreases": 0
+  },
+  {
+   "file": "2026-11-12/book09-1794483442.tsv.zst",
+   "closed": true,
+   "rows": 162012,
+   "rx_decreases": 0,
+   "ok_rows": 162012,
+   "rows_match_ok": true,
+   "zstd_t": true,
+   "last_control": "closed"
+  },
+  {
+   "file": "2026-11-12/book09-1794484245.tsv.zst",
+   "closed": false,
+   "rows": 189608,
+   "rx_decreases": 0
+  },
+  {
+   "file": "2026-11-12/book10-1794483442.tsv.zst",
+   "closed": true,
+   "rows": 179468,
+   "rx_decreases": 0,
+   "ok_rows": 179468,
+   "rows_match_ok": true,
+   "zstd_t": true,
+   "last_control": "closed"
+  },
+  {
+   "file": "2026-11-12/book10-1794484245.tsv.zst",
+   "closed": false,
+   "rows": 254340,
+   "rx_decreases": 0
+  },
+  {
+   "file": "2026-11-12/book11-1794483442.tsv.zst",
+   "closed": true,
+   "rows": 151826,
+   "rx_decreases": 0,
+   "ok_rows": 151826,
+   "rows_match_ok": true,
+   "zstd_t": true,
+   "last_control": "closed"
+  },
+  {
+   "file": "2026-11-12/book11-1794484245.tsv.zst",
+   "closed": false,
+   "rows": 227835,
+   "rx_decreases": 0
+  },
+  {
+   "file": "2026-11-12/book12-1794483442.tsv.zst",
+   "closed": true,
+   "rows": 79145,
+   "rx_decreases": 0,
+   "ok_rows": 79145,
+   "rows_match_ok": true,
+   "zstd_t": true,
+   "last_control": "closed"
+  },
+  {
+   "file": "2026-11-12/book12-1794484245.tsv.zst",
+   "closed": false,
+   "rows": 103553,
+   "rx_decreases": 0
+  },
+  {
+   "file": "2026-11-12/book13-1794483442.tsv.zst",
+   "closed": true,
+   "rows": 202718,
+   "rx_decreases": 0,
+   "ok_rows": 202718,
+   "rows_match_ok": true,
+   "zstd_t": true,
+   "last_control": "closed"
+  },
+  {
+   "file": "2026-11-12/book13-1794484245.tsv.zst",
+   "closed": false,
+   "rows": 293041,
+   "rx_decreases": 0
+  },
+  {
+   "file": "2026-11-12/book14-1794483442.tsv.zst",
+   "closed": true,
+   "rows": 236133,
+   "rx_decreases": 0,
+   "ok_rows": 236133,
+   "rows_match_ok": true,
+   "zstd_t": true,
+   "last_control": "closed"
+  },
+  {
+   "file": "2026-11-12/book14-1794484245.tsv.zst",
+   "closed": false,
+   "rows": 290861,
+   "rx_decreases": 0
+  },
+  {
+   "file": "2026-11-12/book15-1794483442.tsv.zst",
+   "closed": true,
+   "rows": 214860,
+   "rx_decreases": 0,
+   "ok_rows": 214860,
+   "rows_match_ok": true,
+   "zstd_t": true,
+   "last_control": "closed"
+  },
+  {
+   "file": "2026-11-12/book15-1794484245.tsv.zst",
+   "closed": false,
+   "rows": 226137,
+   "rx_decreases": 0
+  },
+  {
+   "file": "2026-11-12/mark00-1794483442.tsv.zst",
+   "closed": true,
+   "rows": 764321,
+   "rx_decreases": 0,
+   "ok_rows": 764321,
+   "rows_match_ok": true,
+   "zstd_t": true,
+   "last_control": "closed"
+  },
+  {
+   "file": "2026-11-12/mark00-1794484245.tsv.zst",
+   "closed": false,
+   "rows": 843634,
+   "rx_decreases": 0
+  },
+  {
+   "file": "2026-11-12/trade00-1794483442.tsv.zst",
+   "closed": true,
+   "rows": 36178,
+   "rx_decreases": 0,
+   "ok_rows": 36178,
+   "rows_match_ok": true,
+   "zstd_t": true,
+   "last_control": "closed"
+  },
+  {
+   "file": "2026-11-12/trade00-1794484245.tsv.zst",
+   "closed": false,
+   "rows": 51303,
+   "rx_decreases": 0
+  },
+  {
+   "file": "2026-11-12/trade01-1794483442.tsv.zst",
+   "closed": true,
+   "rows": 27828,
+   "rx_decreases": 0,
+   "ok_rows": 27828,
+   "rows_match_ok": true,
+   "zstd_t": true,
+   "last_control": "closed"
+  },
+  {
+   "file": "2026-11-12/trade01-1794484245.tsv.zst",
+   "closed": false,
+   "rows": 43076,
+   "rx_decreases": 0
+  },
+  {
+   "file": "2026-11-12/trade02-1794483442.tsv.zst",
+   "closed": true,
+   "rows": 28641,
+   "rx_decreases": 0,
+   "ok_rows": 28641,
+   "rows_match_ok": true,
+   "zstd_t": true,
+   "last_control": "closed"
+  },
+  {
+   "file": "2026-11-12/trade02-1794484245.tsv.zst",
+   "closed": false,
+   "rows": 40739,
+   "rx_decreases": 0
+  },
+  {
+   "file": "2026-11-12/trade03-1794483442.tsv.zst",
+   "closed": true,
+   "rows": 81391,
+   "rx_decreases": 0,
+   "ok_rows": 81391,
+   "rows_match_ok": true,
+   "zstd_t": true,
+   "last_control": "closed"
+  },
+  {
+   "file": "2026-11-12/trade03-1794484245.tsv.zst",
+   "closed": false,
+   "rows": 83363,
+   "rx_decreases": 0
+  },
+  {
+   "file": "2026-11-12/trade04-1794483442.tsv.zst",
+   "closed": true,
+   "rows": 59408,
+   "rx_decreases": 0,
+   "ok_rows": 59408,
+   "rows_match_ok": true,
+   "zstd_t": true,
+   "last_control": "closed"
+  },
+  {
+   "file": "2026-11-12/trade04-1794484245.tsv.zst",
+   "closed": false,
+   "rows": 93738,
+   "rx_decreases": 0
+  },
+  {
+   "file": "2026-11-12/trade05-1794483442.tsv.zst",
+   "closed": true,
+   "rows": 25769,
+   "rx_decreases": 0,
+   "ok_rows": 25769,
+   "rows_match_ok": true,
+   "zstd_t": true,
+   "last_control": "closed"
+  },
+  {
+   "file": "2026-11-12/trade05-1794484245.tsv.zst",
+   "closed": false,
+   "rows": 40079,
+   "rx_decreases": 0
+  },
+  {
+   "file": "2026-11-12/trade06-1794483442.tsv.zst",
+   "closed": true,
+   "rows": 22870,
+   "rx_decreases": 0,
+   "ok_rows": 22870,
+   "rows_match_ok": true,
+   "zstd_t": true,
+   "last_control": "closed"
+  },
+  {
+   "file": "2026-11-12/trade06-1794484245.tsv.zst",
+   "closed": false,
+   "rows": 34645,
+   "rx_decreases": 0
+  },
+  {
+   "file": "2026-11-12/trade07-1794483442.tsv.zst",
+   "closed": true,
+   "rows": 34981,
+   "rx_decreases": 0,
+   "ok_rows": 34981,
+   "rows_match_ok": true,
+   "zstd_t": true,
+   "last_control": "closed"
+  },
+  {
+   "file": "2026-11-12/trade07-1794484245.tsv.zst",
+   "closed": false,
+   "rows": 46851,
+   "rx_decreases": 0
+  }
+ ]
+}
