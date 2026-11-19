@@ -1,0 +1,9 @@
+[Unit]
+Description=TK-613: счётчики задач для вкладки «Прогресс» (srv:8090), только чтение
+
+[Service]
+Type=oneshot
+Nice=19
+IOSchedulingClass=idle
+TimeoutStartSec=50
+ExecStart=/usr/bin/python3 /data/pages/_src/tk613_collect.py
