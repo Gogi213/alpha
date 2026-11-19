@@ -86,6 +86,7 @@ function g4(ts, nowMs) {
   eq('сборки', (await page.evaluate(() => document.querySelector('[data-f=builds]').innerText)), 'Сборки: ' + J.host.builds.text);
   eq('строка Софии', J.host.sofia && J.host.sofia.ok ? meta.includes('София: загрузка ' + J.host.sofia.load.map(x => ru(x, 1)).join(' / ')) && meta.includes('свободно ' + ru(J.host.sofia.disk.free_gb, 1) + ' ГБ') : meta.includes('София: нет данных'), true);
   eq('подзаголовок: время сборки GMT+4', (await page.locator('#lv-sub').innerText()).includes(g4(J.generated_ts, nowMs)), true);
+  C.warnTexts0 = await page.locator('.lv-warn').allInnerTexts();
   eq('нет предупреждений при свежих данных', await page.locator('.lv-warn').count(), ((nowMs / 1000 - J.generated_ts > 180) ? 1 : 0) + ((J.now.ok && nowMs / 1000 - J.now.pushed_ts > 300) ? 1 : 0));
   C.overflowX = await overflow();
   if (C.overflowX > 0) fail('горизонтальный перелив ' + C.overflowX);
@@ -131,7 +132,8 @@ function g4(ts, nowMs) {
   eq('предупреждение «нет связи», данные остались', [(await page.locator('.lv-warn').allInnerTexts()).some(x => x.includes('Нет связи')), (await empties()).length + (await nowRows()).length > 0], [true, true]);
   await page.unroute('**/data/tasks.json*'); ignoreNet = false;
   await page.evaluate(() => loadLive()); await page.waitForTimeout(500);
-  eq('связь вернулась — предупреждений нет, кроме устаревшей передачи ПК', await page.locator('.lv-warn').count(), ((T0 - J.generated_ts > 180) ? 1 : 0) + ((J.now.ok && T0 - J.now.pushed_ts > 300) ? 1 : 0));
+  const L = await page.evaluate(() => ({d: LV.data, now: Date.now() / 1000}));
+  eq('связь вернулась — предупреждения только по возрасту данных', await page.locator('.lv-warn').count(), ((L.now - L.d.generated_ts > 180) ? 1 : 0) + ((L.d.now.ok && L.now - L.d.now.pushed_ts > 300) ? 1 : 0));
 
   // ── автообновление: ещё один запрос за 61 с, на другой вкладке — нет запросов
   const r0 = reqs;
@@ -143,7 +145,7 @@ function g4(ts, nowMs) {
   eq('на другой вкладке запросов нет', reqs - r1, 0);
   await page.click('#toptabs button[data-tab="live"]'); await page.waitForTimeout(600);
   eq('возврат на «Прогресс»: сразу перечитывает', reqs - r1, 1);
-  eq('после возврата строки на месте', (await nowRows()).length, NW.length);
+  eq('после возврата строки на месте', (await nowRows()).length, (await page.evaluate(() => LV.data.now.threads.length)));
 
   // ── хеши и остальные вкладки
   for (const k of ['progress', 'targets', 'equity', 'features', 'model', 'live']) {
