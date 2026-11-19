@@ -10,5 +10,9 @@
 *.txt text eol=lf
 .claude/tickets/*.md text eol=lf
 .claude/dispatcher/*.py text eol=lf
+# 2026-11-20 (TK-626, возврат проверяющего): заморозки, исходы ворот и contracts.csv хешируются в заморозке; блоб git, копия с autocrlf и файл на srv
+# должны быть одним и тем же текстом (код хеширует с CRLF → LF: `retitr_full.sha256_lf`; правила — чтобы и `git archive` / checkout не расходились)
+*.json text eol=lf
+*.csv text eol=lf
 # 2026-11-18 (TK-598): заморозка П-42 §13.23 — sha256 frozen.json и моделей проверяет код чтения; autocrlf не должен менять байты
 docs/findings/p42-catboost-targets-2026-11-18/freeze/** -text

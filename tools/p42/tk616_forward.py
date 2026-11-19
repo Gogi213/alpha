@@ -68,7 +68,7 @@ def t0_ms(day):
 
 
 def sha256_text(path):
-    return rf.sha256_file(path)
+    return rf.sha256_lf(path)                      # LF-нормализованный хеш: блоб git, копия с autocrlf и файл на srv дают одно число
 
 
 # ---- заморозка ---------------------------------------------------------------------------------------------------------------------
@@ -223,8 +223,8 @@ def check_universe(fz, udir, base_dir, point, prev_lists=None):
         bp = os.path.join(base_dir, "symbols-%s.txt" % n)
         if not os.path.exists(bp):
             raise GuardError("нет базового списка %s (--base-dir)" % bp)
-        if rf.sha256_file(bp) != un["base"][n]["sha256"]:
-            raise GuardError("базовый список %s: sha256 %s ≠ замороженному %s" % (bp, rf.sha256_file(bp), un["base"][n]["sha256"]))
+        if sha256_text(bp) != un["base"][n]["sha256"]:
+            raise GuardError("базовый список %s: sha256 %s ≠ замороженному %s" % (bp, sha256_text(bp), un["base"][n]["sha256"]))
         base[n] = rr.read_symbols(bp)[1]
     cur, text, sha = {}, {}, {}
     for n in UNI_NAMES:
@@ -232,7 +232,7 @@ def check_universe(fz, udir, base_dir, point, prev_lists=None):
         if not os.path.exists(cp):
             raise GuardError("нет списка вселенной точки %s: готовится скриптом подготовки до точки" % cp)
         text[n], cur[n] = rr.read_symbols(cp)
-        sha[n] = rf.sha256_file(cp)
+        sha[n] = sha256_text(cp)
         if len(set(cur[n])) != len(cur[n]):
             raise GuardError("список %s: повторы монет" % cp)
         miss = sorted(set(base[n]) - set(cur[n]))
@@ -265,7 +265,7 @@ def check_universe(fz, udir, base_dir, point, prev_lists=None):
             raise GuardError("класс crypto базовых контрактов изменён")
         if prev_lists is not None and set(prev_lists[n]) - set(cur[n]):
             raise GuardError("вселенная точки %s не содержит вселенной предыдущей точки (%s): %s" % (point["id"], n, sorted(set(prev_lists[n]) - set(cur[n]))[:3]))
-    return {"lists": cur, "text": text, "sha256": sha, "contracts_sha256": rf.sha256_file(cpath)}
+    return {"lists": cur, "text": text, "sha256": sha, "contracts_sha256": sha256_text(cpath)}
 
 
 @dataclasses.dataclass

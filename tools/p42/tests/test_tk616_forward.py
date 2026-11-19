@@ -103,14 +103,14 @@ class Env:
         open(os.path.join(self.base_dir, "contracts.csv"), "w").write("symbol\n" + "\n".join(COINS) + "\n")
         sha, md5 = sha_of(BIN_BYTES)
         self.old_fz = old.build(results(("S_mk1",)), "r" * 64, self.bin, md5, sha, "s" * 64)
-        base = {n: {"sha256": rf.sha256_file(os.path.join(self.base_dir, "symbols-%s.txt" % n)), "n": len(c)} for n, c in UNIS.items()}
-        self.fz = fz.build(self.old_fz, "o" * 64, base, rf.sha256_file(os.path.join(self.base_dir, "contracts.csv")), gmk_626(passed), {"ok": True, "files": 24, "diff": []}, "g" * 64, "a" * 64)
+        base = {n: {"sha256": fw.sha256_text(os.path.join(self.base_dir, "symbols-%s.txt" % n)), "n": len(c)} for n, c in UNIS.items()}
+        self.fz = fz.build(self.old_fz, "o" * 64, base, fw.sha256_text(os.path.join(self.base_dir, "contracts.csv")), gmk_626(passed), {"ok": True, "files": 24, "diff": []}, "g" * 64, "a" * 64)
         self.freeze = os.path.join(root, "tk626-frozen.json")
         json.dump(self.fz, open(self.freeze, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
         self.fwd = os.path.join(root, "fwd")
 
     def args(self, point, **kw):
-        a = dict(freeze=self.freeze, freeze_commit="c0ffee", freeze_sha256=rf.sha256_file(self.freeze), root=self.fwd, bin=self.bin, base_dir=self.base_dir, universe_dir="", threads=1,
+        a = dict(freeze=self.freeze, freeze_commit="c0ffee", freeze_sha256=fw.sha256_text(self.freeze), root=self.fwd, bin=self.bin, base_dir=self.base_dir, universe_dir="", threads=1,
                  tick_store="", sig_cache="", funding="", nboot=NB, point=point, go=True)
         a.update(kw)
         return argparse.Namespace(**a)
@@ -178,10 +178,43 @@ def test_freeze_main_refuses_when_gate_a_failed_and_writes_loadable_file_otherwi
         json.dump({"ok": True, "files": 24, "diff": []}, open(ga, "w"))
         assert fz.main(args) == 0
         f = fw.load_freeze(out)
-        assert f["universe"]["base"]["all"] == {"sha256": rf.sha256_file(os.path.join(e.base_dir, "symbols-all.txt")), "n": 6} and f["universe"]["base"]["tradfi"]["n"] == 2
-        assert f["gates"]["G-626c"]["results_sha256"] == rf.sha256_file(gm) and f["universe"]["contracts_sha256"] == rf.sha256_file(os.path.join(e.base_dir, "contracts.csv"))
+        assert f["universe"]["base"]["all"] == {"sha256": fw.sha256_text(os.path.join(e.base_dir, "symbols-all.txt")), "n": 6} and f["universe"]["base"]["tradfi"]["n"] == 2
+        assert f["gates"]["G-626c"]["results_sha256"] == fw.sha256_text(gm) and f["universe"]["contracts_sha256"] == fw.sha256_text(os.path.join(e.base_dir, "contracts.csv"))
         assert b"\r" not in open(out, "rb").read()                                       # LF: sha256 файла = sha256 блоба в git
         assert old.main([]) == 2                                                          # прежний сборщик заморозки 96e302480 не пишет файл
+
+
+def test_freeze_sha256_is_the_same_for_lf_and_crlf_copies_of_every_hashed_file():
+    """Проверяющий TK-626: заморозка собиралась из копии с autocrlf (CRLF) и не воспроизводилась из блобов git (LF)."""
+    CRLF, LF = bytes([13, 10]), bytes([10])
+
+    def crlf_copy(src, dst):
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
+        open(dst, "wb").write(open(src, "rb").read().replace(CRLF, LF).replace(LF, CRLF))
+
+    with tmp() as t:
+        e = Env(t)
+        gm, ga, oldf = (os.path.join(t, n) for n in ("gmk.json", "gate-a.json", "old.json"))
+        json.dump({"gmk": gmk_626(True)}, open(gm, "w"))
+        json.dump({"ok": True, "files": 24, "diff": []}, open(ga, "w"))
+        json.dump(e.old_fz, open(oldf, "w"), indent=1)
+        c = os.path.join(t, "crlf")
+        crlf_base = os.path.join(c, "base")
+        for n in os.listdir(e.base_dir):
+            crlf_copy(os.path.join(e.base_dir, n), os.path.join(crlf_base, n))
+        for n, src in (("gmk.json", gm), ("gate-a.json", ga), ("old.json", oldf)):
+            crlf_copy(src, os.path.join(c, n))
+        assert CRLF in open(os.path.join(crlf_base, "contracts.csv"), "rb").read() and CRLF in open(os.path.join(c, "old.json"), "rb").read()
+        lf_out, crlf_out = os.path.join(t, "lf.json"), os.path.join(c, "out.json")
+        assert fz.main(["--old", oldf, "--base-dir", e.base_dir, "--gmk", gm, "--gate-a", ga, "--out", lf_out]) == 0
+        assert fz.main(["--old", os.path.join(c, "old.json"), "--base-dir", crlf_base, "--gmk", os.path.join(c, "gmk.json"), "--gate-a", os.path.join(c, "gate-a.json"),
+                        "--out", crlf_out]) == 0
+        a, b = (json.load(open(p, encoding="utf-8")) for p in (lf_out, crlf_out))
+        a["universe"].pop("contracts_files"), b["universe"].pop("contracts_files")      # пути записываются как переданы (--base-dir), содержимое хешей — нет
+        assert a == b and fw.sha256_text(lf_out) == hashlib.sha256(open(lf_out, "rb").read()).hexdigest()
+        p0 = os.path.join(e.base_dir, "contracts.csv")
+        assert fw.sha256_text(p0) == fw.sha256_text(os.path.join(crlf_base, "contracts.csv")) != rf.sha256_file(os.path.join(crlf_base, "contracts.csv"))
+        assert json.load(open(lf_out, encoding="utf-8"))["universe"]["contracts_files"]["srv"] == fz.SRV_CONTRACTS
 
 
 def test_load_freeze_rejects_broken_geometry():
@@ -227,14 +260,14 @@ def test_freeze_commit_guard_with_git_and_without():
         expect_guard(lambda: fw.check_freeze_committed(e.freeze, t), "не закоммичена")           # в индексе — ещё не коммит
         assert git(t, "commit", "-q", "-m", "freeze").returncode == 0
         commit, sha = fw.check_freeze_committed(e.freeze, t)
-        assert len(commit) == 40 and sha == rf.sha256_file(e.freeze)
+        assert len(commit) == 40 and sha == fw.sha256_text(e.freeze)
         open(e.freeze, "a").write("\n ")
         expect_guard(lambda: fw.check_freeze_committed(e.freeze, t), "изменена после коммита")
     with tmp() as t:
         e = Env(t)
         expect_guard(lambda: fw.check_freeze_committed(e.freeze, t), "нужны --freeze-commit и --freeze-sha256")
         expect_guard(lambda: fw.check_freeze_committed(e.freeze, t, "abc", "0" * 64), "≠ заданному")
-        assert fw.check_freeze_committed(e.freeze, t, "abc", rf.sha256_file(e.freeze)) == ("abc", rf.sha256_file(e.freeze))
+        assert fw.check_freeze_committed(e.freeze, t, "abc", fw.sha256_text(e.freeze)) == ("abc", fw.sha256_text(e.freeze))
         expect_guard(lambda: fw.check_freeze_committed(os.path.join(t, "нет.json"), t, "abc", "x"), "нет файла")
 
 

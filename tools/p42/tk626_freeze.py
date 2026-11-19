@@ -26,6 +26,7 @@ S_BASE = "lat=4 latx=4 pk=1 pb=1 fh=4 fk=120 fm=50 fb=0.5 ew=5 ex=0 tt=20 tb=0.1
 L_BASE = "lat=4 latx=4 pk=1 pb=1 fh=4 fk=120 fm=50 fb=0.5 ew=5 ex=0 rf=0.2 rs=20"
 CELL_KEYS = {"S_base": "%s %s" % (S_BASE, T24), "S_mk1": "%s mk=1 %s" % (S_BASE, T24), "L_base": "%s %s" % (L_BASE, T24)}
 MAKER_KEYS = {"L_mk1": "%s mk=1 %s" % (L_BASE, T24), "L_mk2": "%s mk=2 %s" % (L_BASE, T24), "S_mk1": CELL_KEYS["S_mk1"], "S_mk2": "%s mk=2 %s" % (S_BASE, T24)}   # §13.28 п. 6, m = 4
+SRV_CONTRACTS = "/data/p42-tk621/universe/contracts.csv"                                  # база на srv (`BASE` в tk626_prep.sh); тот же файл, что в git, по LF-хешу
 SIDE = {"S_base": "S", "S_mk1": "S", "L_base": "L"}
 ALPHA_SPLIT_RULE = ("§13.28.1 п. 3: α(S_base) + α(S_mk1) + α(L_base) ≤ 0,05; кандидаты TK-618/620 (их нет) берут α только из доли α(S_base); "
                     "S_mk1 не прошёл G-626c — его 0,01 переходит к α(S_base)")
@@ -41,9 +42,10 @@ def vid_of(cell, keys=None):
     return rf.Req(SIDE.get(cell, cell[0]), keys or CELL_KEYS[cell], False).vid
 
 
-def build(old_fz, old_sha256, base, contracts_sha256, gmk, gate_a, gmk_sha256="", gate_a_sha256=""):
+def build(old_fz, old_sha256, base, contracts_sha256, gmk, gate_a, gmk_sha256="", gate_a_sha256="", contracts_files=None):
     """old_fz — прежняя заморозка (словарь); base — {имя: {"sha256", "n"}} для all / crypto / tradfi; gmk — `results.json` G-626c (поле `gmk`); gate_a — исход G-626a;
-    gmk_sha256 / gate_a_sha256 — sha256 файлов `results.json` / `gate-a.json` (`results_sha256` п. 6)."""
+    gmk_sha256 / gate_a_sha256 — sha256 файлов `results.json` / `gate-a.json` (`results_sha256` п. 6); contracts_files — пути `contracts.csv` базы (в git и на srv).
+    Все sha256 текстовых файлов — по содержимому с LF (`fw.sha256_text`, CRLF → LF): заморозка собирается одинаково из блобов git, копии с autocrlf и файлов srv."""
     for c, k in (("S_base", S_BASE), ("S_mk1", S_BASE + " mk=1"), ("L_base", L_BASE)):
         if old_fz["cells"][c]["keys"] != k:
             raise rf.GuardError("клетка %s: ключи прежней заморозки не те, что в §13.28 п. 2" % c)
@@ -54,8 +56,8 @@ def build(old_fz, old_sha256, base, contracts_sha256, gmk, gate_a, gmk_sha256=""
     return {"version": fw.VERSION, "protocol": "П-42 §13.28.1 (поправка к §13.28 п. 7–8)",
             "supersedes": {"file": "docs/research/freeze/tk616-frozen.json", "commit": "96e302480", "sha256": old_sha256, "version": old_fz["version"]},
             "binary": old_fz["binary"],
-            "universe": {"read": list(fw.UNI_NAMES), "decision": "all", "base": base, "contracts_sha256": contracts_sha256, "listing_after": fw.LISTING_AFTER,
-                         "t24": "12"},
+            "universe": {"read": list(fw.UNI_NAMES), "decision": "all", "base": base, "contracts_sha256": contracts_sha256, "contracts_files": contracts_files or {},
+                         "listing_after": fw.LISTING_AFTER, "t24": "12"},
             "cells": cells, "alpha": alphas(passed), "point_shares": old.POINT_SHARES, "points": old.points(wins), "windows": wins, "alpha_split_rule": ALPHA_SPLIT_RULE,
             "gates": {"G-626a": dict(gate_a, results_sha256=gate_a_sha256),
                       "G-626c": {"smk1_passed": passed, "results_sha256": gmk_sha256, "cells": {c: {k: gmk[c][k] for k in ("side", "sum", "n", "mean", "p", "holm_threshold", "holm_reject", "positive_months", "counted_months",
@@ -74,12 +76,14 @@ def main(argv=None):
     base = {}
     for n in fw.UNI_NAMES:
         p = os.path.join(a.base_dir, "symbols-%s.txt" % n)
-        base[n] = {"sha256": rf.sha256_file(p), "n": len([x for x in open(p, encoding="utf-8").read().replace("\n", ",").split(",") if x])}
+        base[n] = {"sha256": fw.sha256_text(p), "n": len([x for x in open(p, encoding="utf-8").read().replace("\n", ",").split(",") if x])}
     gmk = json.load(open(a.gmk, encoding="utf-8"))["gmk"]
     gate_a = json.load(open(a.gate_a, encoding="utf-8"))
     if not gate_a.get("ok"):
         raise rf.GuardError("G-626a не пройдены: заморозка не собирается (запасной вариант — §13.28.1 п. 8)")
-    fz = build(old_fz, rf.sha256_file(a.old), base, rf.sha256_file(os.path.join(a.base_dir, "contracts.csv")), gmk, gate_a, rf.sha256_file(a.gmk), rf.sha256_file(a.gate_a))
+    cpath = os.path.join(a.base_dir, "contracts.csv")
+    cfiles = {"git": cpath.replace(os.sep, "/"), "srv": SRV_CONTRACTS}
+    fz = build(old_fz, fw.sha256_text(a.old), base, fw.sha256_text(cpath), gmk, gate_a, fw.sha256_text(a.gmk), fw.sha256_text(a.gate_a), cfiles)
     with open(a.out, "w", encoding="utf-8", newline="\n") as f:                 # LF: sha256 файла = sha256 блоба в git (охрана `--freeze-sha256` на srv)
         f.write(json.dumps(fz, ensure_ascii=False, indent=1) + "\n")
     fw.load_freeze(a.out)
