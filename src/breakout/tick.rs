@@ -783,6 +783,8 @@ pub struct TickOut {
     pub takes: u32,
     /// Цена последней сделки до 00:00 UTC конца суток `g` (настоящая цена), для суток входа … суток перед выходом.
     pub marks: Vec<(usize, i64)>,
+    /// v22 (`tl`): выставленный лимитный приказ трейла — (мс срабатывания, настоящая цена ×1e8); `None` — приказа не было (`tl = 0` или трейл не срабатывал).
+    pub tl: Option<(i64, i64)>,
 }
 
 /// Множитель ступени `i` лестницы тейков в тысячных NATR (§13.12): `t_low + (t_high − t_low)·(i/(n−1))^γ`; γ = 1 — прежняя
@@ -920,6 +922,8 @@ struct Pos {
     /// §13.21: NATR-стоп (`sn`) и шаг лестницы тейков (`tj`); `None` — выкл.
     natr_stop: Option<NatrStop>,
     step: Option<StepLadder>,
+    /// v22 (`tl`): лимитный приказ трейла стоит — тейки сняты, трейл заморожен, остаются рыночные стопы и выходы от уровня.
+    lim: bool,
 }
 
 impl Pos {
@@ -1000,6 +1004,7 @@ impl Pos {
             below_since: NONE_MS,
             natr_stop,
             step,
+            lim: false,
         }
     }
 
@@ -1045,7 +1050,11 @@ impl Pos {
 
     /// Сделка с ценой `p` (рама) в момент `ms`. `Some(вид)` — стоп сработал на этой сделке (исполнение по `p`).
     fn on_trade(&mut self, ms: i64, p: i64) -> Option<ExitKind> {
-        let trail_lvl = if self.armed { self.trail } else { i64::MIN };
+        let trail_lvl = if self.armed && !self.lim {
+            self.trail
+        } else {
+            i64::MIN
+        };
         // §13.21: NATR-стоп пересчитывается на каждой сделке; «самый плотный из активных» — уровень, ближайший к цене (в рамe — наибольший)
         let natr_lvl = self
             .natr_stop
@@ -1062,6 +1071,13 @@ impl Pos {
             } else {
                 ExitKind::HardStop
             });
+        }
+        if self.lim {
+            return if self.rules {
+                self.level_exit(ms, p)
+            } else {
+                None
+            };
         }
         self.fill_takes(ms, p);
         self.maxp = self.maxp.max(p);
@@ -1291,6 +1307,11 @@ fn sim_tail_e(
     let mut last = (entry_ms, p0);
     let mut exit: Option<(i64, i64, ExitKind)> = None;
     let mut pending: Option<(i64, ExitKind)> = None;
+    // v22 (`tl`): стоящий приказ трейла — (цена в рамe, момент, с которого он живёт, цена последней сделки до его прихода); `tl_info` — (мс срабатывания,
+    // настоящая цена) для вывода
+    let mut lim: Option<(i64, i64, i64)> = None;
+    let mut tl_info: Option<(i64, i64)> = None;
+    let mut maker_exit = false;
     while let Some((ms, px, _)) = next() {
         let d = (ms / DAY_MS) as usize;
         while cur_day < d {
@@ -1299,6 +1320,43 @@ fn sim_tail_e(
         }
         let p = s * px;
         last = (ms, p);
+        if let Some((lpx, live, arrival)) = lim {
+            if ms < live {
+                // приказ в пути (задержка выхода): как окно задержки рыночного выхода — сделки только исполняют тейки
+                pos.fill_takes(ms, p);
+                lim = Some((lpx, live, p));
+                continue;
+            }
+            // `tl = 2`: к приходу приказа цена уже строго за ним — приказ маркетабелен и исполняется как рыночный выход v21 (тейкер по сделке, с проскальзыванием)
+            if ex.tl == 2 && arrival > lpx {
+                exit = Some((ms, p, ExitKind::Trail));
+                break;
+            }
+            lim = Some((lpx, live, i64::MIN));
+            pos.lim = true;
+            if let Some((due, kind)) = pending {
+                if ms >= due {
+                    exit = Some((ms, p, kind));
+                    break;
+                }
+            }
+            if p >= lpx {
+                exit = Some((ms, lpx, ExitKind::Trail));
+                maker_exit = true;
+                break;
+            }
+            if pending.is_none() {
+                if let Some(kind) = pos.on_trade(ms, p) {
+                    if ex.lat_exit_ms > 0 {
+                        pending = Some((ms + ex.lat_exit_ms, kind));
+                    } else {
+                        exit = Some((ms, p, kind));
+                        break;
+                    }
+                }
+            }
+            continue;
+        }
         if let Some((due, kind)) = pending {
             if ms >= due {
                 exit = Some((ms, p, kind));
@@ -1308,6 +1366,11 @@ fn sim_tail_e(
             continue;
         }
         if let Some(kind) = pos.on_trade(ms, p) {
+            if ex.tl > 0 && kind == ExitKind::Trail {
+                lim = Some((pos.trail, ms + ex.lat_exit_ms, p));
+                tl_info = Some((ms, s * pos.trail));
+                continue;
+            }
             if ex.lat_exit_ms > 0 {
                 pending = Some((ms + ex.lat_exit_ms, kind));
                 continue;
@@ -1317,13 +1380,18 @@ fn sim_tail_e(
         }
     }
     let (xm, xp, kind) = exit.unwrap_or((last.0, last.1, ExitKind::Forced));
-    let px_frame = xp - frac(xp.abs(), ex.slip_bps, 10_000);
+    // лимитный выход трейла — по цене приказа, мейкер, без проскальзывания; остальные выходы — тейкер с проскальзыванием
+    let px_frame = if maker_exit {
+        xp
+    } else {
+        xp - frac(xp.abs(), ex.slip_bps, 10_000)
+    };
     let mut legs = pos.legs;
     legs.push(TLeg {
         ms: xm,
         px: s * px_frame,
         u: pos.rem,
-        maker: false,
+        maker: maker_exit,
     });
     TickOut {
         entry_ms,
@@ -1333,6 +1401,7 @@ fn sim_tail_e(
         kind,
         takes: pos.next_tp as u32,
         marks,
+        tl: tl_info,
     }
 }
 
@@ -1956,6 +2025,8 @@ pub struct TickTrade {
     pub lot2: Option<TickOut>,
     /// §13.19: вид выхода лота 1 (при `lot2` поле `kind` — вид сделки целиком).
     pub kind1: ExitKind,
+    /// v22 (`tl`): приказ трейла лота 1 — (мс срабатывания, настоящая цена ×1e8); `None` — приказа не было.
+    pub tl: Option<(i64, i64)>,
 }
 
 #[derive(Debug, Clone)]
@@ -2259,6 +2330,7 @@ pub fn run_tick_mk(
                 None
             },
             kind1: tr.kind,
+            tl: tr.tl,
             lot2: tr2,
         });
     }

@@ -1,0 +1,148 @@
+{
+ "old": {
+  "trades": 108,
+  "lots": 184,
+  "sum_net_nf": 77.4561227372472,
+  "mean_net_nf": 0.7171863216411778,
+  "sum_net": 77.4561227372472,
+  "gross": 105.35179573920443,
+  "fees": 27.895673001957224,
+  "funding": 0.0,
+  "trail_exits": 59,
+  "placed": 0,
+  "filled": 0,
+  "market_on_arrival": 0,
+  "unfilled": 0,
+  "unfilled_by": {},
+  "delay_ms": {
+   "n": 0,
+   "<=100ms": 0,
+   "<=1s": 0,
+   "<=10s": 0,
+   "<=60s": 0,
+   ">60s": 0,
+   "median_s": NaN,
+   "p90_s": NaN,
+   "max_s": NaN
+  },
+  "kinds": {
+   "rt": 124,
+   "trail": 59,
+   "stop": 1
+  }
+ },
+ "new": {
+  "trades": 108,
+  "lots": 184,
+  "sum_net_nf": 76.36390694225213,
+  "mean_net_nf": 0.7070732124282605,
+  "sum_net": 76.36390694225213,
+  "gross": 103.0738619611784,
+  "fees": 26.709955018926326,
+  "funding": 0.0,
+  "trail_exits": 56,
+  "placed": 59,
+  "filled": 38,
+  "market_on_arrival": 18,
+  "unfilled": 3,
+  "unfilled_by": {
+   "rt": 3
+  },
+  "delay_ms": {
+   "n": 38,
+   "<=100ms": 12,
+   "<=1s": 11,
+   "<=10s": 11,
+   "<=60s": 2,
+   ">60s": 2,
+   "median_s": 0.256,
+   "p90_s": 15.122,
+   "max_s": 134.831
+  },
+  "kinds": {
+   "rt": 127,
+   "trail": 56,
+   "stop": 1
+  }
+ },
+ "pair": {
+  "matched": {
+   "n": 108,
+   "sum_d_nf": -1.0922157949951135,
+   "mean_d_nf": -0.010113109212917717,
+   "better": 19,
+   "worse": 6,
+   "same": 83,
+   "d_gross": -2.277933778026009,
+   "d_fees": -1.18571798303089,
+   "d_funding": 0.0
+  },
+  "old_had_trail": {
+   "n": 36,
+   "sum_d_nf": -1.0922157949951135,
+   "mean_d_nf": -0.03033932763875315,
+   "better": 19,
+   "worse": 6,
+   "same": 11,
+   "d_gross": -2.277933778026009,
+   "d_fees": -1.18571798303089,
+   "d_funding": 0.0
+  },
+  "old_had_trail_new_all_filled": {
+   "n": 34,
+   "sum_d_nf": 3.44812988524525,
+   "mean_d_nf": 0.10141558486015442,
+   "better": 19,
+   "worse": 4,
+   "same": 11,
+   "d_gross": 2.260982143699012,
+   "d_fees": -1.1871477415462333,
+   "d_funding": 0.0
+  },
+  "old_had_trail_new_some_unfilled": {
+   "n": 2,
+   "sum_d_nf": -4.540345680240364,
+   "mean_d_nf": -2.270172840120182,
+   "better": 0,
+   "worse": 2,
+   "same": 0,
+   "d_gross": -4.538915921725021,
+   "d_fees": 0.0014297585153434655,
+   "d_funding": 0.0
+  },
+  "old_no_trail": {
+   "n": 72,
+   "sum_d_nf": 0.0,
+   "mean_d_nf": 0.0,
+   "better": 0,
+   "worse": 0,
+   "same": 72,
+   "d_gross": 0.0,
+   "d_fees": 0.0,
+   "d_funding": 0.0
+  },
+  "only_old": {
+   "n": 0,
+   "sum_nf": 0
+  },
+  "only_new": {
+   "n": 0,
+   "sum_nf": 0
+  }
+ },
+ "decomp": {
+  "total": {
+   "lots": 38,
+   "a_fee": 1.1871477415462333,
+   "b_slip": 0.627906975332107,
+   "c_price": 1.6330751683669078,
+   "u": 6343.75,
+   "sum": 3.448129885245248
+  },
+  "check": {
+   "trades": 23,
+   "sum_resid": 2.5222879340702775e-15,
+   "max_abs_resid": 2.1094237467877974e-15
+  }
+ }
+}

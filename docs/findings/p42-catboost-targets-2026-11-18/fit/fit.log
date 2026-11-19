@@ -1,0 +1,17 @@
+10:42:50 fit long
+обучение по фолдам: строк [9015, 9332, 8976, 9165, 9628], отброшено exit ≥ 74 сут.: [0, 0, 0, 0, 0]
+CV: 360 подгонок, 171 с
+T1 n_sel=103 S1_OOF=-1.3698 S2_OOF=-2.5438 gate=False
+T3 n_sel=103 S1_OOF=-0.7151 S2_OOF=-1.4199 gate=False
+T4 n_sel=103 S1_OOF=-1.2736 S2_OOF=-2.3786 gate=False
+T5 n_sel=103 S1_OOF=-1.1432 S2_OOF=-2.1547 gate=False
+T6 n_sel=103 S1_OOF=0.3088 S2_OOF=0.3379 gate=True
+10:46:11 fit short
+обучение по фолдам: строк [9748, 9135, 9506, 9067, 9078], отброшено exit ≥ 74 сут.: [0, 0, 0, 0, 0]
+CV: 420 подгонок, 195 с
+T1 n_sel=65 S1_OOF=0.4512 S2_OOF=1.2978 gate=True
+T2 n_sel=65 S1_OOF=0.0613 S2_OOF=0.8755 gate=True
+T3 n_sel=65 S1_OOF=-0.0423 S2_OOF=0.7632 gate=False
+T4 n_sel=65 S1_OOF=0.1631 S2_OOF=0.9857 gate=True
+T5 n_sel=65 S1_OOF=0.5855 S2_OOF=1.4433 gate=True
+T6 n_sel=65 S1_OOF=-0.1752 S2_OOF=0.6192 gate=False

@@ -1,0 +1,234 @@
+#!/usr/bin/env python3
+"""П-42 v22 (TK-603): описательное сравнение «трейл тейкером (tl=0)» против «трейл лимиткой (tl=1|2)» по detail-файлам двух клеток.
+
+Использование: python tools/p42/trail_limit_report.py --side long|short --days LO:HI --old <каталог клетки tl=0> --new <каталог клетки tl>0> [--json out.json]
+Каталог клетки — `<run>/<id>/` с `<side>-detail.jsonl` (прогон с P42_DETAIL=1). Окно — сутки входа от начала счёта движка (`entry_day`, как в trades.csv).
+Ничего не отбирает и не выбирает: суммы, средние на сделку, число сделок, трейлы (выставлено / исполнено / не исполнено и чем закрыто), задержка исполнения,
+парное изменение P&L по ключу (монета, уровень, сигнал). Деньги: net_nf = gross − fees (без фандинга), net — как в движке (с фандингом).
+"""
+import argparse
+import json
+from collections import Counter
+
+DAY_MS = 86_400_000
+START_DAY = 14  # = START_DAY движка
+
+
+def load(d, side, lo, hi):
+    rows = []
+    with open(f"{d}/{side}-detail.jsonl", encoding="utf8") as f:
+        for line in f:
+            r = json.loads(line)
+            if lo <= r["entry_ms"] // DAY_MS - START_DAY < hi:
+                rows.append(r)
+    return rows
+
+
+def lots(r):
+    out = [{"kind": r.get("kind1", r["kind"]), "legs": r["legs"], "tl": r.get("tl"), "e": r["entry_px_e8"]}]
+    if "lot2" in r:
+        l2 = r["lot2"]
+        out.append({"kind": l2["kind"], "legs": l2["legs"], "tl": l2.get("tl"), "e": l2["entry_px_e8"]})
+    return out
+
+
+def key(r):
+    return (r["sym"], r["level"], r["sig_ms"])
+
+
+def nf(r):
+    return r["gross"] - r["fees"]
+
+
+def quant(v, q):
+    if not v:
+        return float("nan")
+    v = sorted(v)
+    return v[min(len(v) - 1, int(q * len(v)))]
+
+
+def stats(rows):
+    n = len(rows)
+    s_nf = sum(nf(r) for r in rows)
+    s_net = sum(r["net"] for r in rows)
+    ls = [l for r in rows for l in lots(r)]
+    trail = [l for l in ls if l["kind"] == "trail"]
+    placed = [l for l in ls if l["tl"] is not None]
+    filled = [l for l in placed if l["kind"] == "trail" and l["legs"][-1][3]]  # исполнен лимиткой (мейкер)
+    mkt = [l for l in placed if l["kind"] == "trail" and not l["legs"][-1][3]]  # tl=2: пришёл при цене уже за ним — рынок как в v21
+    unfilled = [l for l in placed if l["kind"] != "trail"]
+    delay = [l["legs"][-1][0] - l["tl"][0] for l in filled]
+    return {
+        "trades": n,
+        "lots": len(ls),
+        "sum_net_nf": s_nf,
+        "mean_net_nf": s_nf / n if n else float("nan"),
+        "sum_net": s_net,
+        "gross": sum(r["gross"] for r in rows),
+        "fees": sum(r["fees"] for r in rows),
+        "funding": sum(r["funding"] for r in rows),
+        "trail_exits": len(trail),
+        "placed": len(placed),
+        "filled": len(filled),
+        "market_on_arrival": len(mkt),
+        "unfilled": len(unfilled),
+        "unfilled_by": dict(Counter(l["kind"] for l in unfilled)),
+        "delay_ms": {
+            "n": len(delay),
+            "<=100ms": sum(d <= 100 for d in delay),
+            "<=1s": sum(100 < d <= 1000 for d in delay),
+            "<=10s": sum(1000 < d <= 10_000 for d in delay),
+            "<=60s": sum(10_000 < d <= 60_000 for d in delay),
+            ">60s": sum(d > 60_000 for d in delay),
+            "median_s": quant(delay, 0.5) / 1000,
+            "p90_s": quant(delay, 0.9) / 1000,
+            "max_s": (max(delay) / 1000) if delay else float("nan"),
+        },
+        "kinds": dict(Counter(l["kind"] for l in ls)),
+    }
+
+
+def pair(old, new):
+    o = {key(r): r for r in old}
+    n = {key(r): r for r in new}
+    both = sorted(set(o) & set(n))
+    only_o = [o[k] for k in o if k not in n]
+    only_n = [n[k] for k in n if k not in o]
+    d = [(nf(n[k]) - nf(o[k]), k) for k in both]
+
+    def agg(ks):
+        v = [nf(n[k]) - nf(o[k]) for k in ks]
+        return {
+            "n": len(v),
+            "sum_d_nf": sum(v),
+            "mean_d_nf": sum(v) / len(v) if v else float("nan"),
+            "better": sum(x > 1e-9 for x in v),
+            "worse": sum(x < -1e-9 for x in v),
+            "same": sum(abs(x) <= 1e-9 for x in v),
+            "d_gross": sum(n[k]["gross"] - o[k]["gross"] for k in ks),
+            "d_fees": sum(n[k]["fees"] - o[k]["fees"] for k in ks),
+            "d_funding": sum(n[k]["funding"] - o[k]["funding"] for k in ks),
+        }
+
+    had_trail = [k for k in both if any(l["kind"] == "trail" for l in lots(o[k]))]
+    ht = set(had_trail)
+    rest = [k for k in both if k not in ht]
+    all_filled = [k for k in had_trail if all(l["tl"] is None or l["kind"] == "trail" for l in lots(n[k]))]
+    af = set(all_filled)
+    some_unfilled = [k for k in had_trail if k not in af]
+    return {
+        "matched": agg(both),
+        "old_had_trail": agg(had_trail),
+        "old_had_trail_new_all_filled": agg(all_filled),
+        "old_had_trail_new_some_unfilled": agg(some_unfilled),
+        "old_no_trail": agg(rest),
+        "only_old": {"n": len(only_o), "sum_nf": sum(nf(r) for r in only_o)},
+        "only_new": {"n": len(only_n), "sum_nf": sum(nf(r) for r in only_n)},
+    }
+
+
+TAKER_BPS, MAKER_BPS = 3.5 * 0.9, 1.4 * 0.9  # тариф владельца после возврата 10 % (В-47)
+SLIP_BPS = 1  # slip_bps баз L_base / S_base
+
+
+def decomp(old, new, side):
+    """Разложение Δ на лот, у которого v21 вышел трейлом тейкером, а новый вариант исполнил приказ мейкером по L (без фандинга: net_nf).
+    Лот остатка u, цена входа лота e, v21: выход по цене px_o = p ∓ slip·p (p — цена сделки выхода), новый: выход по L, мейкер. Точно:
+    Δ = (a) комиссия: u/e·(px_o·taker − L·maker)/1e4  +  (b) избежанное проскальзывание: s·u·(p − px_o)/e  +  (c) цена: s·u·(L − p)/e.
+    Проверка: на сделках, где все лоты — такие или не изменились, Σ(a+b+c) = Σ Δnf сделки."""
+    s = 1 if side == "long" else -1
+    o = {key(r): r for r in old}
+    n = {key(r): r for r in new}
+    z = lambda: {"lots": 0, "a_fee": 0.0, "b_slip": 0.0, "c_price": 0.0, "u": 0.0}
+    tot = z()
+    chk = {"trades": 0, "sum_resid": 0.0, "max_abs_resid": 0.0}
+    per_trade = {}
+    for k in sorted(set(o) & set(n)):
+        lo, ln = lots(o[k]), lots(n[k])
+        if len(lo) != len(ln):
+            continue
+        dec, same = 0.0, True
+        for a, b in zip(lo, ln):
+            lg_o, lg_n = a["legs"][-1], b["legs"][-1]
+            if a["kind"] == "trail" and b["kind"] == "trail" and not lg_o[3] and lg_n[3] and lg_o[2] == lg_n[2]:
+                u, e, L = lg_o[2] / 1e6, a["e"], lg_n[1]
+                px_o = lg_o[1]
+                p = px_o / (1 - s * SLIP_BPS / 1e4)
+                fa = u / e * (px_o * TAKER_BPS - L * MAKER_BPS) / 1e4
+                fb = s * u * (p - px_o) / e
+                fc = s * u * (L - p) / e
+                tot["lots"] += 1
+                tot["u"] += u
+                tot["a_fee"] += fa
+                tot["b_slip"] += fb
+                tot["c_price"] += fc
+                dec += fa + fb + fc
+            elif a["legs"] != b["legs"]:
+                same = False
+        if dec != 0.0:
+            per_trade[k] = (dec, same)
+    for k, (dec, same) in per_trade.items():
+        if same:
+            r = nf(n[k]) - nf(o[k]) - dec
+            chk["trades"] += 1
+            chk["sum_resid"] += r
+            chk["max_abs_resid"] = max(chk["max_abs_resid"], abs(r))
+    tot["sum"] = tot["a_fee"] + tot["b_slip"] + tot["c_price"]
+    return {"total": tot, "check": chk}
+
+
+def fmt(x, p=2):
+    return f"{x:,.{p}f}".replace(",", " ") if isinstance(x, float) else str(x)
+
+
+def lines(label, so, sn, pr, dc=None):
+    L = [f"**{label}**", "", "| | tl=0 (было) | tl>0 (стало) |", "|---|---:|---:|"]
+    for name, k, p in [
+        ("сделок", "trades", 0), ("Σ net_nf, $", "sum_net_nf", 2), ("среднее net_nf на сделку, $", "mean_net_nf", 3),
+        ("Σ net с фандингом, $", "sum_net", 2), ("gross, $", "gross", 2), ("комиссии, $", "fees", 2), ("фандинг, $", "funding", 2),
+        ("трейл-выходов (лотов)", "trail_exits", 0),
+    ]:
+        L.append(f"| {name} | {fmt(so[k], p) if p else so[k]} | {fmt(sn[k], p) if p else sn[k]} |")
+    d = sn["delay_ms"]
+    L += ["", f"Приказы трейла (tl>0): выставлено {sn['placed']}, исполнено лимиткой {sn['filled']}, исполнено рынком на приходе {sn['market_on_arrival']}, не исполнено {sn['unfilled']} (закрыто: {sn['unfilled_by']}).",
+          f"Задержка исполнения: ≤100 мс {d['<=100ms']}, ≤1 с {d['<=1s']}, ≤10 с {d['<=10s']}, ≤60 с {d['<=60s']}, >60 с {d['>60s']}; медиана {fmt(d['median_s'], 1)} с, p90 {fmt(d['p90_s'], 1)} с, макс {fmt(d['max_s'], 0)} с.", ""]
+    m = pr["matched"]
+    L.append(f"Парно (одна и та же сделка: монета, уровень, сигнал): {m['n']} сделок, Σ Δnet_nf {fmt(m['sum_d_nf'])} $, среднее {fmt(m['mean_d_nf'], 3)} $; лучше {m['better']}, хуже {m['worse']}, без изменения {m['same']}; Δgross {fmt(m['d_gross'])}, Δкомиссии {fmt(m['d_fees'])}, Δфандинг {fmt(m['d_funding'])}.")
+    for nm, k in [("были трейл-выходы, все приказы исполнены (лимиткой или рынком на приходе)", "old_had_trail_new_all_filled"),
+                  ("были трейл-выходы, есть неисполненный приказ", "old_had_trail_new_some_unfilled"),
+                  ("трейл-выходов не было (разница — каскад портфеля)", "old_no_trail")]:
+        a = pr[k]
+        L.append(f"- {nm}: {a['n']} сделок, Σ Δ {fmt(a['sum_d_nf'])} $, среднее {fmt(a['mean_d_nf'], 3)} $; лучше {a['better']}, хуже {a['worse']}.")
+    if dc:
+        t, c = dc["total"], dc["check"]
+        m = t["lots"] or float("nan")
+        L.append(
+            f"Разложение Δ на лотах, где v21 вышел трейлом тейкером, а приказ исполнен мейкером по L: {t['lots']} лотов, Σ Δ {fmt(t['sum'])} $ "
+            f"= комиссия {fmt(t['a_fee'])} + избежанное проскальзывание {fmt(t['b_slip'])} + цена L против цены сделки v21 {fmt(t['c_price'])}; "
+            f"на лот {fmt(t['sum'] / m, 3)} = {fmt(t['a_fee'] / m, 3)} + {fmt(t['b_slip'] / m, 3)} + {fmt(t['c_price'] / m, 3)} $. "
+            f"Сверка с Δnf сделок, где все лоты такие или без изменений: {c['trades']} сделок, Σ невязки {fmt(c['sum_resid'], 4)} $, макс |невязки| {fmt(c['max_abs_resid'], 4)} $.")
+    L.append(f"Только в «было»: {pr['only_old']['n']} сделок (Σ {fmt(pr['only_old']['sum_nf'])} $); только в «стало»: {pr['only_new']['n']} (Σ {fmt(pr['only_new']['sum_nf'])} $).")
+    return "\n".join(L)
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    ap.add_argument("--side", choices=("long", "short"), required=True)
+    ap.add_argument("--days", required=True, help="LO:HI — сутки входа от начала счёта движка, [LO, HI)")
+    ap.add_argument("--old", required=True)
+    ap.add_argument("--new", required=True)
+    ap.add_argument("--label", default="")
+    ap.add_argument("--json")
+    a = ap.parse_args()
+    lo, hi = (int(x) for x in a.days.split(":"))
+    old, new = load(a.old, a.side, lo, hi), load(a.new, a.side, lo, hi)
+    so, sn, pr = stats(old), stats(new), pair(old, new)
+    dc = decomp(old, new, a.side)
+    print(lines(a.label or f"{a.side}, сутки {lo}:{hi}", so, sn, pr, dc))
+    if a.json:
+        with open(a.json, "w", encoding="utf8") as f:
+            json.dump({"old": so, "new": sn, "pair": pr, "decomp": dc}, f, ensure_ascii=False, indent=1)
+
+
+if __name__ == "__main__":
+    main()

@@ -397,6 +397,7 @@ fn out_manual(entry_ms: i64, exit_ms: i64, exit_px: f64, marks: Vec<(usize, i64)
         kind: ExitKind::Forced,
         takes: 0,
         marks,
+        tl: None,
     }
 }
 
@@ -3309,4 +3310,353 @@ fn mk_second_lot_is_immediate_late_or_cancelled_and_follows_mk2_with_lot1() {
     let t = &r.trades[0];
     let l2 = t.lot2.as_ref().expect("второй лот");
     assert_eq!((l2.entry_ms, l2.entry_px), (t.entry_ms, px(100.00)));
+// ───────────────────────────── v22 (`tl`): трейл лимиткой (TK-603) ─────────────────────────────
+
+/// Трейл взводится при +0,5 (1 NATR) и держит откат 0,5: вход 100,0 → максимум 100,6 → уровень трейла 100,1; тейки далеко (102,0 / 102,5), безубыток выкл.
+fn ex_tl(tl: u8) -> super::params::ExitCfg {
+    let mut e = ex_test();
+    e.a_m = 1000;
+    e.r_m = 1000;
+    e.be = false;
+    e.t_low_m = 4000;
+    e.t_high_m = 5000;
+    e.tl = tl;
+    e
+}
+
+/// Вход 100,0 → максимум 100,6 (трейл 100,1) → срабатывание на сделке в 40 мс по цене `trig`.
+fn tl_head(trig: f64) -> Vec<(i64, f64, bool)> {
+    vec![(10, 100.0, false), (20, 100.6, false), (40, trig, true)]
+}
+
+fn with_tail(mut v: Vec<(i64, f64, bool)>, tail: &[(i64, f64, bool)]) -> Vec<(i64, f64, bool)> {
+    v.extend_from_slice(tail);
+    v
+}
+
+#[test]
+fn tl_key_parses_validates_default_off_and_minute_engine_rejects() {
+    let (_, p) = super::params::parse_variant("x tl=1").expect("разбор");
+    assert_eq!(p.exit.tl, 1);
+    let (_, p2) = super::params::parse_variant("x tl=2").expect("разбор");
+    assert_eq!(p2.exit.tl, 2);
+    let (_, base) = super::params::parse_variant("x lat=4").expect("разбор");
+    let (_, zero) = super::params::parse_variant("x lat=4 tl=0").expect("разбор");
+    assert_eq!(base.exit.tl, 0);
+    assert_eq!(zero.exit, base.exit);
+    assert!(super::params::parse_variant("x tl=3").is_err());
+    assert!(super::cli::reject_tick_only(&p, "x tl=1").is_err());
+    assert!(super::cli::reject_tick_only(&base, "x").is_ok());
+}
+
+#[test]
+fn tl_off_trail_is_taker_at_the_trade_price_that_broke_it() {
+    let mut ex = ex_tl(0);
+    ex.slip_bps = 1;
+    let out = sim(tl_head(99.0), Side::Long, &ex);
+    assert_eq!((out.kind, out.exit_ms), (ExitKind::Trail, 40));
+    let last = out.legs.last().expect("нога");
+    assert!(!last.maker);
+    assert_eq!(
+        last.px,
+        px(99.0) - px(99.0) / 10_000,
+        "цена сделки − проскальзывание"
+    );
+    assert_eq!(out.tl, None);
+}
+
+#[test]
+fn tl_limit_fills_at_its_price_when_a_later_trade_reaches_it_for_both_modes() {
+    // срабатывание 100,05 ≤ 100,1; сделка по самой цене приказа 100,1; затем 100,2
+    let ticks = with_tail(tl_head(100.05), &[(50, 100.1, false), (60, 100.2, false)]);
+    for tl in [1, 2] {
+        let out = sim(ticks.clone(), Side::Long, &ex_tl(tl));
+        assert_eq!(
+            (out.kind, out.exit_ms),
+            (ExitKind::Trail, 50),
+            "tl={tl}: дошла"
+        );
+        let last = out.legs.last().expect("нога");
+        assert_eq!((last.px, last.maker, last.ms), (px(100.1), true, 50));
+        assert_eq!(last.u, NOTIONAL_U, "приказ на весь остаток");
+        assert_eq!(out.tl, Some((40, px(100.1))));
+    }
+    // прежнее поведение на тех же сделках: тейкер на сделке срабатывания
+    let old = sim(tl_head(100.05), Side::Long, &ex_tl(0));
+    assert_eq!((old.kind, old.exit_ms), (ExitKind::Trail, 40));
+}
+
+#[test]
+fn tl_trigger_trade_never_fills_its_own_order() {
+    // сделка срабатывания ровно по цене приказа (100,1 ≤ 100,1); дальше сделок нет — приказ не исполнен, конец потока
+    let out = sim(tl_head(100.1), Side::Long, &ex_tl(1));
+    assert_eq!(out.kind, ExitKind::Forced);
+    assert!(!out.legs.last().expect("нога").maker);
+    assert_eq!(out.tl, Some((40, px(100.1))));
+}
+
+#[test]
+fn tl_gap_through_rests_and_fills_at_limit_price_when_price_comes_back() {
+    // гэп: сделка срабатывания 99,0 (ниже приказа 100,1, выше стопа 95,0); потом цена вернулась выше приказа до 100,4
+    let ticks = with_tail(
+        tl_head(99.0),
+        &[(50, 99.5, false), (60, 100.4, false), (70, 90.0, true)],
+    );
+    let out = sim(ticks, Side::Long, &ex_tl(1));
+    assert_eq!((out.kind, out.exit_ms), (ExitKind::Trail, 60));
+    let last = out.legs.last().expect("нога");
+    assert_eq!(
+        (last.px, last.maker),
+        (px(100.1), true),
+        "по цене приказа, не по сделке 100,4"
+    );
+    assert_eq!(
+        out.tl,
+        Some((40, px(100.1))),
+        "трейл после срабатывания не двигается"
+    );
+}
+
+#[test]
+fn tl_never_filled_order_rests_until_market_stop_which_is_taker_with_slip() {
+    let ticks = with_tail(
+        tl_head(99.0),
+        &[(50, 98.0, true), (60, 94.0, true), (70, 100.5, false)],
+    );
+    let out = sim(ticks.clone(), Side::Long, &ex_tl(1));
+    assert_eq!((out.kind, out.exit_ms), (ExitKind::HardStop, 60));
+    let last = out.legs.last().expect("нога");
+    assert_eq!((last.px, last.maker), (px(94.0), false));
+    assert_eq!(
+        out.tl,
+        Some((40, px(100.1))),
+        "приказ был выставлен, но не исполнен"
+    );
+    let mut ex = ex_tl(1);
+    ex.slip_bps = 1;
+    let out = sim(ticks, Side::Long, &ex);
+    assert_eq!(out.kind, ExitKind::HardStop);
+    assert_eq!(
+        out.legs.last().map(|l| l.px),
+        Some(px(94.0) - px(94.0) / 10_000),
+        "стоп — тейкер, проскальзывание хуже на 1 бп"
+    );
+}
+
+#[test]
+fn tl_stream_end_with_resting_order_is_forced_taker() {
+    let out = sim(
+        with_tail(tl_head(99.0), &[(50, 98.0, true)]),
+        Side::Long,
+        &ex_tl(1),
+    );
+    assert_eq!((out.kind, out.exit_ms), (ExitKind::Forced, 50));
+    let last = out.legs.last().expect("нога");
+    assert_eq!((last.px, last.maker), (px(98.0), false));
+}
+
+#[test]
+fn tl_breakeven_stays_market_while_limit_rests_and_takes_stay_makers() {
+    let mut ex = ex_tl(1);
+    ex.be = true;
+    ex.t_low_m = 1000;
+    ex.t_high_m = 2000; // тейки 100,5 / 101,0
+    let ticks = vec![
+        (10, 100.0, false),
+        (20, 100.6, false), // тейк 1 → стоп на цену входа 100,0; максимум 100,6 → трейл 100,1
+        (30, 100.05, true), // ≤ 100,1: трейл главнее безубытка → приказ на остаток по 100,1
+        (40, 99.9, true),   // ≤ 100,0 → безубыток, рынок
+        (50, 100.5, false),
+    ];
+    let out = sim(ticks, Side::Long, &ex);
+    assert_eq!(
+        (out.kind, out.exit_ms, out.takes),
+        (ExitKind::BreakEven, 40, 1)
+    );
+    assert!(out.legs[0].maker && out.legs[0].px == px(100.5));
+    let last = out.legs.last().expect("нога");
+    assert_eq!(
+        (last.px, last.maker),
+        (px(99.9), false),
+        "безубыток — тейкер по цене сделки"
+    );
+    assert_eq!(out.tl, Some((30, px(100.1))));
+}
+
+#[test]
+fn tl_limit_sells_only_the_remainder_after_takes() {
+    let mut ex = ex_tl(1);
+    ex.be = true;
+    ex.t_low_m = 1000;
+    ex.t_high_m = 2000;
+    let ticks = vec![
+        (10, 100.0, false),
+        (20, 100.6, false),
+        (30, 100.05, true),
+        (40, 100.2, false), // ≥ 100,1 → приказ исполнен
+    ];
+    let out = sim(ticks, Side::Long, &ex);
+    assert_eq!((out.kind, out.exit_ms, out.takes), (ExitKind::Trail, 40, 1));
+    let last = out.legs.last().expect("нога");
+    assert_eq!(
+        (last.px, last.maker, last.u),
+        (px(100.1), true, NOTIONAL_U - NOTIONAL_U / 4)
+    );
+}
+
+#[test]
+fn tl_short_mirrors_long() {
+    // шорт: вход 100,0 продавцом-тейкером; минимум 99,4 → трейл 99,9; срабатывание на росте до 99,95; приказ — откуп по 99,9
+    let head = |trig: f64| vec![(10, 100.0, true), (20, 99.4, true), (40, trig, false)];
+    let touch = with_tail(head(99.95), &[(50, 99.9, true), (60, 99.8, true)]);
+    let out = sim(touch.clone(), Side::Short, &ex_tl(1));
+    assert_eq!(
+        (out.kind, out.exit_ms),
+        (ExitKind::Trail, 50),
+        "tl=1: дошла"
+    );
+    let last = out.legs.last().expect("нога");
+    assert_eq!((last.px, last.maker), (px(99.9), true));
+    assert_eq!(out.tl, Some((40, px(99.9))));
+    let out = sim(touch, Side::Short, &ex_tl(2));
+    assert_eq!(
+        (out.kind, out.exit_ms),
+        (ExitKind::Trail, 50),
+        "tl=2: дошла"
+    );
+    // гэп вверх (стоп 105,0 не задет), затем падение цены ниже приказа: исполнение по 99,9, не по сделке 99,5
+    let out = sim(
+        with_tail(head(101.0), &[(50, 100.5, true), (60, 99.5, true)]),
+        Side::Short,
+        &ex_tl(1),
+    );
+    assert_eq!((out.kind, out.exit_ms), (ExitKind::Trail, 60));
+    let last = out.legs.last().expect("нога");
+    assert_eq!((last.px, last.maker), (px(99.9), true));
+    // рыночный стоп шорта (цена ≥ 105,0) — тейкер по цене сделки
+    let out = sim(
+        with_tail(head(101.0), &[(50, 106.0, false)]),
+        Side::Short,
+        &ex_tl(1),
+    );
+    assert_eq!(out.kind, ExitKind::HardStop);
+    let last = out.legs.last().expect("нога");
+    assert_eq!((last.px, last.maker), (px(106.0), false));
+}
+
+#[test]
+fn tl_order_goes_live_after_exit_latency_and_a_pending_stop_does_not_cancel_it_before_it_executes()
+{
+    let mut ex = ex_tl(1);
+    ex.lat_exit_ms = 50; // приказ живёт с 40 + 50 = 90
+                         // цена ≥ приказа до 90 мс — приказ ещё в пути, не исполняется; исполняется первой сделкой ≥ 90 мс
+    let out = sim(
+        with_tail(tl_head(100.05), &[(60, 100.2, false), (100, 100.2, false)]),
+        Side::Long,
+        &ex,
+    );
+    assert_eq!((out.kind, out.exit_ms), (ExitKind::Trail, 100));
+    assert_eq!(
+        out.legs.last().map(|l| (l.px, l.maker)),
+        Some((px(100.1), true))
+    );
+    // стоп сработал на 100 мс (рыночный выход — с 150), до 150 цена вернулась на приказ → исполнен приказ
+    let back = with_tail(
+        tl_head(99.0),
+        &[(100, 94.0, true), (120, 100.2, false), (160, 93.0, true)],
+    );
+    let out = sim(back, Side::Long, &ex);
+    assert_eq!((out.kind, out.exit_ms), (ExitKind::Trail, 120));
+    assert_eq!(
+        out.legs.last().map(|l| (l.px, l.maker)),
+        Some((px(100.1), true))
+    );
+    // цена не вернулась: рыночный выход на первой сделке ≥ 150 мс — тейкер по её цене
+    let down = with_tail(
+        tl_head(99.0),
+        &[(100, 94.0, true), (120, 94.5, true), (160, 93.0, true)],
+    );
+    let out = sim(down, Side::Long, &ex);
+    assert_eq!((out.kind, out.exit_ms), (ExitKind::HardStop, 160));
+    assert_eq!(
+        out.legs.last().map(|l| (l.px, l.maker)),
+        Some((px(93.0), false))
+    );
+}
+
+#[test]
+fn tl2_order_that_arrives_when_price_is_already_beyond_it_is_a_v21_market_exit_while_tl1_fills_at_its_price(
+) {
+    let mut ex = ex_tl(1);
+    ex.lat_exit_ms = 50; // приказ доходит на 90 мс; цена до этого вернулась выше приказа (100,2 > 100,1), а на 100 мс снова ниже
+    let ticks = with_tail(
+        tl_head(100.05),
+        &[(60, 100.2, false), (100, 100.0, true), (110, 100.3, false)],
+    );
+    // tl=1 (буква приказа): на приход приказа сделка 100,0 < 100,1 — приказ стоит; исполнен сделкой 100,3 по цене приказа
+    let out = sim(ticks.clone(), Side::Long, &ex);
+    assert_eq!((out.kind, out.exit_ms), (ExitKind::Trail, 110));
+    assert_eq!(
+        out.legs.last().map(|l| (l.px, l.maker)),
+        Some((px(100.1), true))
+    );
+    // tl=2: к приходу цена уже выше приказа — приказ исполняется сразу как рыночный: первая сделка ≥ 90 мс, тейкер (как выход v21)
+    ex.tl = 2;
+    ex.slip_bps = 1;
+    let out = sim(ticks.clone(), Side::Long, &ex);
+    assert_eq!((out.kind, out.exit_ms), (ExitKind::Trail, 100));
+    let last = out.legs.last().expect("нога");
+    assert!(!last.maker);
+    assert_eq!(last.px, px(100.0) - px(100.0) / 10_000);
+    assert_eq!(out.tl, Some((40, out.tl.expect("приказ").1)));
+    // tl=2: к приходу цена ещё ниже приказа — приказ стоит и исполняется по своей цене (как tl=1)
+    ex.slip_bps = 0;
+    let rest = with_tail(
+        tl_head(100.05),
+        &[(60, 99.9, true), (100, 100.2, false), (110, 100.3, false)],
+    );
+    let out = sim(rest, Side::Long, &ex);
+    assert_eq!((out.kind, out.exit_ms), (ExitKind::Trail, 100));
+    assert_eq!(
+        out.legs.last().map(|l| (l.px, l.maker)),
+        Some((px(100.1), true))
+    );
+    // без задержки приказ приходит сразу после срабатывания: цена срабатывания ≤ приказа — приказ стоит (tl=2 как tl=1)
+    ex.lat_exit_ms = 0;
+    let out = sim(
+        with_tail(tl_head(99.0), &[(50, 99.5, false), (60, 100.4, false)]),
+        Side::Long,
+        &ex,
+    );
+    assert_eq!((out.kind, out.exit_ms), (ExitKind::Trail, 60));
+    assert_eq!(
+        out.legs.last().map(|l| (l.px, l.maker)),
+        Some((px(100.1), true))
+    );
+}
+
+#[test]
+fn tl_trail_leg_pays_maker_fee_and_no_slippage_in_settle() {
+    let base = START_DAY as i64 * DAY_MS;
+    let s = Sym::from_cols("T", flat(START_DAY * 1440 + 4000, 100.0), vec![]);
+    let ticks: Vec<(i64, f64, bool)> = tl_head(100.05)
+        .into_iter()
+        .chain([(50, 100.2, false)])
+        .map(|(ms, p, bm)| (base + ms, p, bm))
+        .collect();
+    let out = sim_stream(&mut stream(ticks), base, Side::Long, NATR, &ex_tl(1)).expect("исход");
+    assert_eq!(out.kind, ExitKind::Trail);
+    let st = settle_tick(&s, Side::Long, &out);
+    let maker = |n: f64| n * 1.4 * 0.9 / 1e4;
+    assert!(
+        (st.gross - 0.5).abs() < 1e-9,
+        "500 $ · (100,1 − 100,0) / 100,0: {}",
+        st.gross
+    );
+    let want = fee_taker(500.0) + maker(500.0 * 1.001);
+    assert!(
+        (st.fees - want).abs() < 1e-9,
+        "вход тейкер, выход мейкер: {} против {want}",
+        st.fees
+    );
 }

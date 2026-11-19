@@ -1,0 +1,2425 @@
+{
+ "version": "tk610-frozen-1",
+ "protocol": "docs/research/P-42-level-breakout.md §13.27",
+ "created_utc": "2026-11-19T03:13:22.445697+00:00",
+ "tk599": {
+  "frozen_sha256": "e9004629e4c2432680fa0efeb16bce8c8c510d2a0aec7dde39a6e9888cb120be",
+  "commit": "f0389eef4d0ef5ee1366d49d1f99b746c4b1abd8",
+  "bin_md5": [
+   "a03c91df5a70c8eb32cbb7122943b8f9",
+   "a112684a495e61cf5219610e4eecff22"
+  ],
+  "grids_sha256": "e1d6bded92ddd44c68c130b98187756f9f3eaa36759291a619435e0e9a369e5d"
+ },
+ "feats": [
+  "pierce_ep",
+  "spread_tau",
+  "zv6h",
+  "tpm60",
+  "mv5",
+  "cons60",
+  "c5_btc_7d",
+  "c5_eth_7d",
+  "lturn24",
+  "age_h",
+  "natr_bp",
+  "since_touch_prior_h"
+ ],
+ "seed": 610,
+ "blocks": [
+  [
+   0,
+   30
+  ],
+  [
+   62,
+   91
+  ],
+  [
+   92,
+   122
+  ],
+  [
+   123,
+   135
+  ]
+ ],
+ "aug": [
+  31,
+  61
+ ],
+ "zone_ms": [
+  2592000000,
+  5443200000
+ ],
+ "grid": [
+  [
+   1,
+   50,
+   3
+  ],
+  [
+   1,
+   50,
+   10
+  ],
+  [
+   1,
+   200,
+   3
+  ],
+  [
+   1,
+   200,
+   10
+  ],
+  [
+   2,
+   50,
+   3
+  ],
+  [
+   2,
+   50,
+   10
+  ],
+  [
+   2,
+   200,
+   3
+  ],
+  [
+   2,
+   200,
+   10
+  ],
+  [
+   3,
+   50,
+   3
+  ],
+  [
+   3,
+   50,
+   10
+  ],
+  [
+   3,
+   200,
+   3
+  ],
+  [
+   3,
+   200,
+   10
+  ]
+ ],
+ "sides": {
+  "L": {
+   "cstar_keys": "lat=4 latx=4 pk=1 pb=1 fh=4 fk=120 fm=50 fb=0.5 ew=5 ex=0 rf=0.2 rs=20",
+   "cstar_decision": "база",
+   "filter": null,
+   "cell": [
+    1,
+    50,
+    10
+   ],
+   "iterations": 10,
+   "catboost": "1.2.10",
+   "rows_per_block": [
+    6086,
+    6614,
+    6060,
+    2370
+   ],
+   "cv_loss_mean_chosen": 4.756983802874866,
+   "folds": [
+    {
+     "file": "L_f0.cbm",
+     "sha256": "605f3d43afa3366c45a570c7cdd75768bac272cbf5cea805b066d6f7726d6ec5"
+    },
+    {
+     "file": "L_f1.cbm",
+     "sha256": "7461e4f409ec2b47dbfb9fb0f986b6f3ae4a70e92a11c2d14bacf53bd6ce0652"
+    },
+    {
+     "file": "L_f2.cbm",
+     "sha256": "7ff54ee6418aed823ebb50ce8dee7688d9524690a61f70d5bff34363d5efcd06"
+    },
+    {
+     "file": "L_f3.cbm",
+     "sha256": "7ee1d4d68b1d074cee74d80b510d0841b9d64bce41f5e6a3727551d757807147"
+    }
+   ],
+   "q": -0.443120240665599,
+   "n_oof": 1031,
+   "by_win": {
+    "wa": {
+     "cands": 557,
+     "no_key_F": 0,
+     "F_dropped": 0,
+     "nan_shat": 0,
+     "share_ge_q_all": 0.003590664272890485,
+     "share_ge_q_passF_in_credit_search": 0.0,
+     "aug_cands": 286,
+     "aug_ge_q": 2,
+     "aug_ge_q_passF": 2
+    },
+    "wb": {
+     "cands": 623,
+     "no_key_F": 0,
+     "F_dropped": 0,
+     "nan_shat": 0,
+     "share_ge_q_all": 0.08828250401284109,
+     "share_ge_q_passF_in_credit_search": 0.043859649122807015,
+     "aug_cands": 243,
+     "aug_ge_q": 2,
+     "aug_ge_q_passF": 2
+    },
+    "wc": {
+     "cands": 609,
+     "no_key_F": 0,
+     "F_dropped": 0,
+     "nan_shat": 0,
+     "share_ge_q_all": 0.5977011494252874,
+     "share_ge_q_passF_in_credit_search": 0.8349282296650717,
+     "aug_cands": 0,
+     "aug_ge_q": 0,
+     "aug_ge_q_passF": 0
+    }
+   },
+   "g8_candidates": {
+    "aug_cands": 529,
+    "aug_ge_q": 4,
+    "aug_ge_q_passF": 4
+   },
+   "g8_r2_trades_aug": {
+    "side": "L",
+    "variant": "L_r2",
+    "by_win": {
+     "wa": {
+      "win": "wa",
+      "variant": "L_r2",
+      "trades_total": 2,
+      "trades_aug_in_credit": 2,
+      "credit_days": [
+       0,
+       55
+      ]
+     },
+     "wb": {
+      "win": "wb",
+      "variant": "L_r2",
+      "trades_total": 31,
+      "trades_aug_in_credit": 0,
+      "credit_days": [
+       56,
+       93
+      ]
+     }
+    },
+    "trades_aug_total": 2
+   },
+   "sigma_cstar_search": {
+    "side": "L",
+    "n": 490,
+    "mean": -0.2404038897959184,
+    "sigma": 8.302980898095777,
+    "n_by_win": {
+     "wa": 130,
+     "wb": 162,
+     "wc": 198
+    }
+   }
+  },
+  "S": {
+   "cstar_keys": "lat=4 latx=4 pk=1 pb=1 fh=4 fk=120 fm=50 fb=0.5 ew=5 ex=0 tt=20 tb=0.1 rf=0.2 rs=2 bm=1 e=0.15 e2=0.05",
+   "cstar_decision": "C*",
+   "filter": null,
+   "cell": [
+    2,
+    200,
+    10
+   ],
+   "iterations": 122,
+   "catboost": "1.2.10",
+   "rows_per_block": [
+    6536,
+    5868,
+    6020,
+    2941
+   ],
+   "cv_loss_mean_chosen": 2.1999324240638414,
+   "folds": [
+    {
+     "file": "S_f0.cbm",
+     "sha256": "6dbc7eef410a2d8090439b8783e14651afea81fbf89f706e322b4bbfe9648ea3"
+    },
+    {
+     "file": "S_f1.cbm",
+     "sha256": "dd295f87eeb1c0b2170c82711a8fa45821fd26067844bb589181714bfe217c3d"
+    },
+    {
+     "file": "S_f2.cbm",
+     "sha256": "67f4e996426c6b32aa3be223386735e1d0bc5ae3aaf0c5b4c20b6bc233f87578"
+    },
+    {
+     "file": "S_f3.cbm",
+     "sha256": "718e956ab42da2d38fafabaa80f7780c09e9e847ad4feb29c43a2dcb5079767a"
+    }
+   ],
+   "q": 0.14799579902318805,
+   "n_oof": 501,
+   "by_win": {
+    "wa": {
+     "cands": 332,
+     "no_key_F": 0,
+     "F_dropped": 0,
+     "nan_shat": 0,
+     "share_ge_q_all": 0.28313253012048195,
+     "share_ge_q_passF_in_credit_search": 0.389937106918239,
+     "aug_cands": 173,
+     "aug_ge_q": 32,
+     "aug_ge_q_passF": 32
+    },
+    "wb": {
+     "cands": 297,
+     "no_key_F": 0,
+     "F_dropped": 0,
+     "nan_shat": 0,
+     "share_ge_q_all": 0.37037037037037035,
+     "share_ge_q_passF_in_credit_search": 0.5472972972972973,
+     "aug_cands": 134,
+     "aug_ge_q": 26,
+     "aug_ge_q_passF": 26
+    },
+    "wc": {
+     "cands": 290,
+     "no_key_F": 0,
+     "F_dropped": 0,
+     "nan_shat": 0,
+     "share_ge_q_all": 0.2793103448275862,
+     "share_ge_q_passF_in_credit_search": 0.12371134020618557,
+     "aug_cands": 0,
+     "aug_ge_q": 0,
+     "aug_ge_q_passF": 0
+    }
+   },
+   "g8_candidates": {
+    "aug_cands": 307,
+    "aug_ge_q": 58,
+    "aug_ge_q_passF": 58
+   },
+   "g8_r2_trades_aug": {
+    "side": "S",
+    "variant": "S_r2",
+    "by_win": {
+     "wa": {
+      "win": "wa",
+      "variant": "S_r2",
+      "trades_total": 68,
+      "trades_aug_in_credit": 18,
+      "credit_days": [
+       0,
+       55
+      ]
+     },
+     "wb": {
+      "win": "wb",
+      "variant": "S_r2",
+      "trades_total": 79,
+      "trades_aug_in_credit": 8,
+      "credit_days": [
+       56,
+       93
+      ]
+     }
+    },
+    "trades_aug_total": 26
+   },
+   "sigma_cstar_search": {
+    "side": "S",
+    "n": 323,
+    "mean": 0.5624917708978329,
+    "sigma": 5.1392235284998415,
+    "n_by_win": {
+     "wa": 96,
+     "wb": 99,
+     "wc": 128
+    }
+   }
+  }
+ },
+ "engine": {
+  "md5": "a112684a495e61cf5219610e4eecff22",
+  "bin": "/data/p42-tk607/bin/alpha-l1 (turbo TK-607, §13.24.6)",
+  "tick_store": true,
+  "sig_cache": true,
+  "allowed": [
+   "a03c91df5a70c8eb32cbb7122943b8f9",
+   "a112684a495e61cf5219610e4eecff22"
+  ],
+  "deviation": "§13.27 п. 11.10: движок a112684a (TK-607) вместо a03c91df"
+ },
+ "f12": {
+  "impl": "rust",
+  "bin_md5": "65519d8ff44e5be924f662609f9d54f7",
+  "days": 80,
+  "store": "/data/p42-tk599/tick-store",
+  "tables": 12
+ },
+ "r2_outputs_sha256": {
+  "wa": {
+   "L_g5cut": {
+    "long-coinday.csv": "8cadc62df6cb7cc3c6f8bef5b34cae938d8e6d64590c1ba644fdcd216a23d373",
+    "long-daily.csv": "0b8b7e94c458da444ad857a794052a37837eacd11dddf99d25abb5ee8bedaec5",
+    "long-entryrej.csv": "8456a30114acb489568836cea2ccbb95ce9e9a06cc07811bd6b1bbaf1e1d826d",
+    "long-levels.csv": "db440c5dc4e2562609f560836b4d7fd5e7de92d54ab3401f6f037a3e6f55ce49",
+    "long-sigsx.csv": "895d46c651def483847b4db2c6c87adf12cddeb96060cabccfd30c12a8a2c12b",
+    "long-trades.csv": "d34fef1accfaaebddd25913478fbbff951833bcaf87b42246287af24baa3a534",
+    "meta.json": "3b1e46f428037b3e36a06266bb5e2a5fccba3a32129128712e4520a66230dc36",
+    "short-coinday.csv": "7d43079ae1bbd7933fe17351116896c3e2e4ef72e83a2020f43d936f39c38abf",
+    "short-daily.csv": "6f3d3195b6162e5fc6c9fdf2752c52914d72f7748852a1a70f24a99e34bd4a22",
+    "short-entryrej.csv": "26e614c3e81f6a177577b40bd81f6e57444ae3aac1158789c446903c3ed8420a",
+    "short-levels.csv": "ee9c4b2143d8a89213a6b953b6a68482231e2ae956c6133077e53a21b2356639",
+    "short-sigsx.csv": "37f69279b05c32893ad3d49bf8405a76815534d9f876d5a715d0daee947a2cec",
+    "short-trades.csv": "8444ad89a44790763aa7205d2ca163a59e64e87c30ca03e66f7a91ee846081d0"
+   },
+   "L_g5pass": {
+    "long-coinday.csv": "886fb9c3cfd20fe64eb4d4f17e623e4ad9e7ed3597a209e03b9297f4eb3953a5",
+    "long-daily.csv": "9a7a0d9ce82bfeb0d023513b729d8270f82657474af102ddfb5390410628063b",
+    "long-entryrej.csv": "b544f34ac850ed6a2aed84444810af8bddec7341e5170e8efa10fc68a02683e1",
+    "long-levels.csv": "db440c5dc4e2562609f560836b4d7fd5e7de92d54ab3401f6f037a3e6f55ce49",
+    "long-sigsx.csv": "895d46c651def483847b4db2c6c87adf12cddeb96060cabccfd30c12a8a2c12b",
+    "long-trades.csv": "8b8ccad076b273330ac41ed1fb094a2bda26ba84225d157e6a9a34367d9dfc86",
+    "meta.json": "315144db98756e31b54bc0abd398e0a3f35c1b5dd339f59ca08d0203fd415225",
+    "short-coinday.csv": "7d43079ae1bbd7933fe17351116896c3e2e4ef72e83a2020f43d936f39c38abf",
+    "short-daily.csv": "6f3d3195b6162e5fc6c9fdf2752c52914d72f7748852a1a70f24a99e34bd4a22",
+    "short-entryrej.csv": "26e614c3e81f6a177577b40bd81f6e57444ae3aac1158789c446903c3ed8420a",
+    "short-levels.csv": "ee9c4b2143d8a89213a6b953b6a68482231e2ae956c6133077e53a21b2356639",
+    "short-sigsx.csv": "37f69279b05c32893ad3d49bf8405a76815534d9f876d5a715d0daee947a2cec",
+    "short-trades.csv": "8444ad89a44790763aa7205d2ca163a59e64e87c30ca03e66f7a91ee846081d0"
+   },
+   "L_r2": {
+    "long-coinday.csv": "974ad73001b3c34e2804569750f9009e3977489e9fd3956c14759a5c62aa1e17",
+    "long-daily.csv": "e5028347b82620ff6f967c65a30bb810b844634b753db0e9aa801b51eab8f46b",
+    "long-entryrej.csv": "8456a30114acb489568836cea2ccbb95ce9e9a06cc07811bd6b1bbaf1e1d826d",
+    "long-levels.csv": "db440c5dc4e2562609f560836b4d7fd5e7de92d54ab3401f6f037a3e6f55ce49",
+    "long-sigsx.csv": "895d46c651def483847b4db2c6c87adf12cddeb96060cabccfd30c12a8a2c12b",
+    "long-trades.csv": "fe799210cbbd447a914fba0414ad05554e61d5454ba69c435d884277696a20e8",
+    "meta.json": "8d2ef352c1631960d078cee645b9ee107d5c78c6121a087b219754c4601b572e",
+    "short-coinday.csv": "7d43079ae1bbd7933fe17351116896c3e2e4ef72e83a2020f43d936f39c38abf",
+    "short-daily.csv": "6f3d3195b6162e5fc6c9fdf2752c52914d72f7748852a1a70f24a99e34bd4a22",
+    "short-entryrej.csv": "26e614c3e81f6a177577b40bd81f6e57444ae3aac1158789c446903c3ed8420a",
+    "short-levels.csv": "ee9c4b2143d8a89213a6b953b6a68482231e2ae956c6133077e53a21b2356639",
+    "short-sigsx.csv": "37f69279b05c32893ad3d49bf8405a76815534d9f876d5a715d0daee947a2cec",
+    "short-trades.csv": "8444ad89a44790763aa7205d2ca163a59e64e87c30ca03e66f7a91ee846081d0"
+   },
+   "S_g5cut": {
+    "long-coinday.csv": "52a4d2cdf83234acf714ccb7d6c00306cda11c6693f0a5b07789435423f11ba0",
+    "long-daily.csv": "b3acc65f4e75452ed1d4a06e31ec78614b0b5f7811fce6de9dc38a8f65a41351",
+    "long-entryrej.csv": "1d153fd6f8c449d3be84ec5ffdedbc42a156bd71dda00584e19c137ae86d924c",
+    "long-levels.csv": "db440c5dc4e2562609f560836b4d7fd5e7de92d54ab3401f6f037a3e6f55ce49",
+    "long-sigsx.csv": "ef4a57ffcc0e2c8f772515ee6900323b89a57c80ae251d5bffbaff0686ee4bdd",
+    "long-trades.csv": "04c530e5e15f16ef6fa31254fafaaa0bafe7e8e557a97e7ae7636172c1977b45",
+    "meta.json": "ea0549b161f269192f98d63a7347b157d21207f6e4cd13dbe2afe64724cba2e3",
+    "short-coinday.csv": "8cadc62df6cb7cc3c6f8bef5b34cae938d8e6d64590c1ba644fdcd216a23d373",
+    "short-daily.csv": "0b8b7e94c458da444ad857a794052a37837eacd11dddf99d25abb5ee8bedaec5",
+    "short-entryrej.csv": "8456a30114acb489568836cea2ccbb95ce9e9a06cc07811bd6b1bbaf1e1d826d",
+    "short-levels.csv": "ee9c4b2143d8a89213a6b953b6a68482231e2ae956c6133077e53a21b2356639",
+    "short-sigsx.csv": "be516fb312df611482e8c1722c5b89b1b4c18c9820f635e21a20d9fa9b8b47cf",
+    "short-trades.csv": "d34fef1accfaaebddd25913478fbbff951833bcaf87b42246287af24baa3a534"
+   },
+   "S_g5pass": {
+    "long-coinday.csv": "52a4d2cdf83234acf714ccb7d6c00306cda11c6693f0a5b07789435423f11ba0",
+    "long-daily.csv": "b3acc65f4e75452ed1d4a06e31ec78614b0b5f7811fce6de9dc38a8f65a41351",
+    "long-entryrej.csv": "1d153fd6f8c449d3be84ec5ffdedbc42a156bd71dda00584e19c137ae86d924c",
+    "long-levels.csv": "db440c5dc4e2562609f560836b4d7fd5e7de92d54ab3401f6f037a3e6f55ce49",
+    "long-sigsx.csv": "ef4a57ffcc0e2c8f772515ee6900323b89a57c80ae251d5bffbaff0686ee4bdd",
+    "long-trades.csv": "04c530e5e15f16ef6fa31254fafaaa0bafe7e8e557a97e7ae7636172c1977b45",
+    "meta.json": "a33f8876965bb8e835a41cb515244ec674cbff60911c927b6df71e2e9bf3a298",
+    "short-coinday.csv": "75aa023d797e2354d1247d93efffb6979a3cb0767e63b6ee0079d195339aba0f",
+    "short-daily.csv": "3fb79dd38ce60e7a95700a7b3eca39fd72b0e7a32d1ba486c14995e44b3cd2fe",
+    "short-entryrej.csv": "a9c326e85e664e856ffd95f4b05575b4c677d592431fa7af2a5c4623f36685a4",
+    "short-levels.csv": "ee9c4b2143d8a89213a6b953b6a68482231e2ae956c6133077e53a21b2356639",
+    "short-sigsx.csv": "be516fb312df611482e8c1722c5b89b1b4c18c9820f635e21a20d9fa9b8b47cf",
+    "short-trades.csv": "3f877e8c389a91464df7908a3bf74595bd98e46ec761bf784f3efceaff7a1b07"
+   },
+   "S_r2": {
+    "long-coinday.csv": "52a4d2cdf83234acf714ccb7d6c00306cda11c6693f0a5b07789435423f11ba0",
+    "long-daily.csv": "b3acc65f4e75452ed1d4a06e31ec78614b0b5f7811fce6de9dc38a8f65a41351",
+    "long-entryrej.csv": "1d153fd6f8c449d3be84ec5ffdedbc42a156bd71dda00584e19c137ae86d924c",
+    "long-levels.csv": "db440c5dc4e2562609f560836b4d7fd5e7de92d54ab3401f6f037a3e6f55ce49",
+    "long-sigsx.csv": "ef4a57ffcc0e2c8f772515ee6900323b89a57c80ae251d5bffbaff0686ee4bdd",
+    "long-trades.csv": "04c530e5e15f16ef6fa31254fafaaa0bafe7e8e557a97e7ae7636172c1977b45",
+    "meta.json": "f03809773b56d05fe36ec602e224f1f16fa76ff3da386929bc68c79f595e5d3c",
+    "short-coinday.csv": "add62b911a4ba81d38b40c9f78d510e7f4491e2eed4c13e81e7b56dc30bd4eae",
+    "short-daily.csv": "20713b3f2483fc62959ac82d51584884cd369daf4fbf8a9feedd775a7e8b3ee6",
+    "short-entryrej.csv": "c61d9dd65d48ff9b2b2282ca4cb0bc56331417f7d190ab3631d4a9ce1b795280",
+    "short-levels.csv": "ee9c4b2143d8a89213a6b953b6a68482231e2ae956c6133077e53a21b2356639",
+    "short-sigsx.csv": "be516fb312df611482e8c1722c5b89b1b4c18c9820f635e21a20d9fa9b8b47cf",
+    "short-trades.csv": "d898fc0a010cd9a5250976f2f06e74e4ecf7181d96917ebce1c4ed8e98d5649a"
+   }
+  },
+  "wb": {
+   "L_g5cut": {
+    "long-coinday.csv": "8cadc62df6cb7cc3c6f8bef5b34cae938d8e6d64590c1ba644fdcd216a23d373",
+    "long-daily.csv": "0b8b7e94c458da444ad857a794052a37837eacd11dddf99d25abb5ee8bedaec5",
+    "long-entryrej.csv": "8456a30114acb489568836cea2ccbb95ce9e9a06cc07811bd6b1bbaf1e1d826d",
+    "long-levels.csv": "14021719d687d205d6e7e5b6fbb2dd32cec79042d415255f202d6aa7da90d891",
+    "long-sigsx.csv": "c9699c41cfe7b0b3ecf78dded798f33edcb12eab4b45e9ee23459cdfdc67f636",
+    "long-trades.csv": "d34fef1accfaaebddd25913478fbbff951833bcaf87b42246287af24baa3a534",
+    "meta.json": "a18bf1a6a1df6470b7f2172c0c722640d88f3ccd6ee9f47eefabf0fe405dab80",
+    "short-coinday.csv": "a0e65ea2747f08346407872887847fcce2d534dbd394405382105a0cf95cd76f",
+    "short-daily.csv": "84c0567113f21e41c0c31a655f62f84bd0cf2bad00e35b77a1f433d0ee3fbd78",
+    "short-entryrej.csv": "d7de8da5a7c6107554c6176fbb90c40815192c1b2f93d733db9cc5983cfcbe77",
+    "short-levels.csv": "3b4901fda756279aabe1588274993f88c020d894c0baa084c438aba980759f4d",
+    "short-sigsx.csv": "1d29785a6de3bde7503f5e0e37a56d5d55f6a4143ebcb26868290a36e09bd13d",
+    "short-trades.csv": "814cec9f3eb1c02b342e37be7c846308b0f643d9a70a689f97caae4633d7a7de"
+   },
+   "L_g5pass": {
+    "long-coinday.csv": "c323247c383c6f88cfaf79c8024cc270d2391dce6f5a4fda6f61145cab78f80d",
+    "long-daily.csv": "4b0e8b770a363321c7993abd3dc9004aec738afda884c97bdad936b548e4c3bd",
+    "long-entryrej.csv": "7be3cb2b0e0109c4beade6f2fbabb04c5a166a5474df55fcba86742d104994ed",
+    "long-levels.csv": "14021719d687d205d6e7e5b6fbb2dd32cec79042d415255f202d6aa7da90d891",
+    "long-sigsx.csv": "c9699c41cfe7b0b3ecf78dded798f33edcb12eab4b45e9ee23459cdfdc67f636",
+    "long-trades.csv": "5d577e93e4ef998061fbdc0d61574230ec1310fc58deaa594adb3da8112e331b",
+    "meta.json": "5be0e2dc469624e280126e7c2f0f90872cc6f982a920dfa919b14c3f70dc844a",
+    "short-coinday.csv": "a0e65ea2747f08346407872887847fcce2d534dbd394405382105a0cf95cd76f",
+    "short-daily.csv": "84c0567113f21e41c0c31a655f62f84bd0cf2bad00e35b77a1f433d0ee3fbd78",
+    "short-entryrej.csv": "d7de8da5a7c6107554c6176fbb90c40815192c1b2f93d733db9cc5983cfcbe77",
+    "short-levels.csv": "3b4901fda756279aabe1588274993f88c020d894c0baa084c438aba980759f4d",
+    "short-sigsx.csv": "1d29785a6de3bde7503f5e0e37a56d5d55f6a4143ebcb26868290a36e09bd13d",
+    "short-trades.csv": "814cec9f3eb1c02b342e37be7c846308b0f643d9a70a689f97caae4633d7a7de"
+   },
+   "L_r2": {
+    "long-coinday.csv": "1a284251e8a65f3f38ae2267335e903f8fa81761a79352cae43f2347ae81d178",
+    "long-daily.csv": "ab12e5f5ffc708e3fa10a04c35f45ad115bad10c5b0b95eeb9238d4d46975e4f",
+    "long-entryrej.csv": "8456a30114acb489568836cea2ccbb95ce9e9a06cc07811bd6b1bbaf1e1d826d",
+    "long-levels.csv": "14021719d687d205d6e7e5b6fbb2dd32cec79042d415255f202d6aa7da90d891",
+    "long-sigsx.csv": "c9699c41cfe7b0b3ecf78dded798f33edcb12eab4b45e9ee23459cdfdc67f636",
+    "long-trades.csv": "bd73305ec39437ee3069d3ed73159a650c50218e7c4059414dd1adb7d0d2a32e",
+    "meta.json": "07d48c959d70b4a3406cc97fdda654cb4ecd9d5af871ecb7780a90e4034d5e81",
+    "short-coinday.csv": "a0e65ea2747f08346407872887847fcce2d534dbd394405382105a0cf95cd76f",
+    "short-daily.csv": "84c0567113f21e41c0c31a655f62f84bd0cf2bad00e35b77a1f433d0ee3fbd78",
+    "short-entryrej.csv": "d7de8da5a7c6107554c6176fbb90c40815192c1b2f93d733db9cc5983cfcbe77",
+    "short-levels.csv": "3b4901fda756279aabe1588274993f88c020d894c0baa084c438aba980759f4d",
+    "short-sigsx.csv": "1d29785a6de3bde7503f5e0e37a56d5d55f6a4143ebcb26868290a36e09bd13d",
+    "short-trades.csv": "814cec9f3eb1c02b342e37be7c846308b0f643d9a70a689f97caae4633d7a7de"
+   },
+   "S_g5cut": {
+    "long-coinday.csv": "990eb218243f4d328733c65a756156b21955e0e9391bea55d0c6a3f5c8ff83cd",
+    "long-daily.csv": "8db7bdbbff73db4c9b11e5d982c6b0f6b8660a8d1ef0e72fab186bc05f475f0a",
+    "long-entryrej.csv": "dcbd5227efa43294d9eaf58e1395be8f326e98a605b27712552d8966843691fd",
+    "long-levels.csv": "14021719d687d205d6e7e5b6fbb2dd32cec79042d415255f202d6aa7da90d891",
+    "long-sigsx.csv": "7e0d4697daed2318289a40ecf91bcf43eeda730906662e83bf667a51a4e828d8",
+    "long-trades.csv": "58d127d9df66318be346b826ab850ba2c6d0633f12766e9075ea259a0d0faf7d",
+    "meta.json": "fdb7d88d87cda9ad89ffd705946d304fe8af1569e7102059b8a7d2ac0a86a8d2",
+    "short-coinday.csv": "8cadc62df6cb7cc3c6f8bef5b34cae938d8e6d64590c1ba644fdcd216a23d373",
+    "short-daily.csv": "0b8b7e94c458da444ad857a794052a37837eacd11dddf99d25abb5ee8bedaec5",
+    "short-entryrej.csv": "8456a30114acb489568836cea2ccbb95ce9e9a06cc07811bd6b1bbaf1e1d826d",
+    "short-levels.csv": "3b4901fda756279aabe1588274993f88c020d894c0baa084c438aba980759f4d",
+    "short-sigsx.csv": "0493a04c0bacf786d5535ae41b252b99032f54e4e411b0539309297d1781f8eb",
+    "short-trades.csv": "d34fef1accfaaebddd25913478fbbff951833bcaf87b42246287af24baa3a534"
+   },
+   "S_g5pass": {
+    "long-coinday.csv": "990eb218243f4d328733c65a756156b21955e0e9391bea55d0c6a3f5c8ff83cd",
+    "long-daily.csv": "8db7bdbbff73db4c9b11e5d982c6b0f6b8660a8d1ef0e72fab186bc05f475f0a",
+    "long-entryrej.csv": "dcbd5227efa43294d9eaf58e1395be8f326e98a605b27712552d8966843691fd",
+    "long-levels.csv": "14021719d687d205d6e7e5b6fbb2dd32cec79042d415255f202d6aa7da90d891",
+    "long-sigsx.csv": "7e0d4697daed2318289a40ecf91bcf43eeda730906662e83bf667a51a4e828d8",
+    "long-trades.csv": "58d127d9df66318be346b826ab850ba2c6d0633f12766e9075ea259a0d0faf7d",
+    "meta.json": "20e7e7d06f6cdef82c6a0119ed59cf3c75d837bea734232c15028b695fcb17cc",
+    "short-coinday.csv": "65174ebccb45a2d57295bedaf1feae78353c1c863483e531e325fe3239b30f1d",
+    "short-daily.csv": "9a969088097ab4706fd3e9c861ed4926c74befc1e89fd442a39c6998ee9583a1",
+    "short-entryrej.csv": "b1b73e3134481c1082da6429ef8f007db34935444bc0d45878d291c8d9cf256f",
+    "short-levels.csv": "3b4901fda756279aabe1588274993f88c020d894c0baa084c438aba980759f4d",
+    "short-sigsx.csv": "0493a04c0bacf786d5535ae41b252b99032f54e4e411b0539309297d1781f8eb",
+    "short-trades.csv": "8b0eae9c6951ecf83d690178555ad04e9561ca3c3eac24ed5b27367aff007d54"
+   },
+   "S_r2": {
+    "long-coinday.csv": "990eb218243f4d328733c65a756156b21955e0e9391bea55d0c6a3f5c8ff83cd",
+    "long-daily.csv": "8db7bdbbff73db4c9b11e5d982c6b0f6b8660a8d1ef0e72fab186bc05f475f0a",
+    "long-entryrej.csv": "dcbd5227efa43294d9eaf58e1395be8f326e98a605b27712552d8966843691fd",
+    "long-levels.csv": "14021719d687d205d6e7e5b6fbb2dd32cec79042d415255f202d6aa7da90d891",
+    "long-sigsx.csv": "7e0d4697daed2318289a40ecf91bcf43eeda730906662e83bf667a51a4e828d8",
+    "long-trades.csv": "58d127d9df66318be346b826ab850ba2c6d0633f12766e9075ea259a0d0faf7d",
+    "meta.json": "ebbcc970dc3f31b6e55d31c55273e8652f7c868af26e359316901dbb4ae6b9a1",
+    "short-coinday.csv": "2378837261b3373cbeea37c86f69290ae296cdebf26d01782d33169aa4de9175",
+    "short-daily.csv": "f8216a47c279c089eff828f76ab937d13acb81bcd45f98a9032a802b37b39024",
+    "short-entryrej.csv": "3d486357a9efba3801344ab885ed6be9927ff15e14a45451501586292c82597f",
+    "short-levels.csv": "3b4901fda756279aabe1588274993f88c020d894c0baa084c438aba980759f4d",
+    "short-sigsx.csv": "0493a04c0bacf786d5535ae41b252b99032f54e4e411b0539309297d1781f8eb",
+    "short-trades.csv": "1fab0ee9290ed74efada9c2c0e0655e55636cb7b2312fe6994a4cf7a92782384"
+   }
+  },
+  "wc": {
+   "L_g5cut": {
+    "long-coinday.csv": "8cadc62df6cb7cc3c6f8bef5b34cae938d8e6d64590c1ba644fdcd216a23d373",
+    "long-daily.csv": "0b8b7e94c458da444ad857a794052a37837eacd11dddf99d25abb5ee8bedaec5",
+    "long-entryrej.csv": "8456a30114acb489568836cea2ccbb95ce9e9a06cc07811bd6b1bbaf1e1d826d",
+    "long-levels.csv": "2a9b0cde9d2198c4525b12c50b23c81e95289fd460d8f7525baf09d5cbcccae2",
+    "long-sigsx.csv": "e9ac5c92c87fa2ad23173857caf53d9c2e4ad90e3d98a3361314b2dbe641d736",
+    "long-trades.csv": "d34fef1accfaaebddd25913478fbbff951833bcaf87b42246287af24baa3a534",
+    "meta.json": "a2464d2e88aeaa053987ddaca2ef913381e6b12beefa6df0f7ada821f7886f67",
+    "short-coinday.csv": "d4b3048e6e18399a886b0a6b7bf47ddb3ff788199afa7d6b7f95fda49062919f",
+    "short-daily.csv": "ed383689af734f491c2f98ed0687036cb9b5223d3e13b375f8ee4417061b7e33",
+    "short-entryrej.csv": "e835592932be9cb5c1886792f7d072c0a96a337a9da3bb88ad64416523e0a1d8",
+    "short-levels.csv": "3e5d03629faaca0b73ea68a896b47e0d200a6de2b5f6e55bed393635b6f414ad",
+    "short-sigsx.csv": "33f0f2054f64b6e50abc6d90ff34a42e88291d83f287007903973a0ddee09225",
+    "short-trades.csv": "ddecf3122421aa7df46606c721ffae40066ca3f333acfd429eed191541d3a020"
+   },
+   "L_g5pass": {
+    "long-coinday.csv": "20f31e00196cc67f9080a266dfb133bf629e1193022338ef72dc728cfd957e65",
+    "long-daily.csv": "4f0453cd4348ab8293773cd693aee00850b4fdfaed279c66c0389027f430d826",
+    "long-entryrej.csv": "5faf738df6d4d4168cdb3ba59a7b3dd43176df2c637688b8f8a64e5c83b01828",
+    "long-levels.csv": "2a9b0cde9d2198c4525b12c50b23c81e95289fd460d8f7525baf09d5cbcccae2",
+    "long-sigsx.csv": "e9ac5c92c87fa2ad23173857caf53d9c2e4ad90e3d98a3361314b2dbe641d736",
+    "long-trades.csv": "190b73ce7e965b69a2a3861bec95a9c48308943e4e09599ad06b3ca560a23c0a",
+    "meta.json": "9f5732d16866f508e6d3161cad7591df2663c85dd558c1a98e87971ccfe45233",
+    "short-coinday.csv": "d4b3048e6e18399a886b0a6b7bf47ddb3ff788199afa7d6b7f95fda49062919f",
+    "short-daily.csv": "ed383689af734f491c2f98ed0687036cb9b5223d3e13b375f8ee4417061b7e33",
+    "short-entryrej.csv": "e835592932be9cb5c1886792f7d072c0a96a337a9da3bb88ad64416523e0a1d8",
+    "short-levels.csv": "3e5d03629faaca0b73ea68a896b47e0d200a6de2b5f6e55bed393635b6f414ad",
+    "short-sigsx.csv": "33f0f2054f64b6e50abc6d90ff34a42e88291d83f287007903973a0ddee09225",
+    "short-trades.csv": "ddecf3122421aa7df46606c721ffae40066ca3f333acfd429eed191541d3a020"
+   },
+   "L_r2": {
+    "long-coinday.csv": "d05a71c8ddcbdbf9b0d8d789a5d8deffa5a32d4edfedfaeded7c85bf998d8288",
+    "long-daily.csv": "126f13c866c6535b25ebdd052291e668a4ef42b8851f4498ce504ca7a012344e",
+    "long-entryrej.csv": "36722b5c37afa5afed892f5ce1a60d0b785a2e5a30d50e4450041491c67de1d1",
+    "long-levels.csv": "2a9b0cde9d2198c4525b12c50b23c81e95289fd460d8f7525baf09d5cbcccae2",
+    "long-sigsx.csv": "e9ac5c92c87fa2ad23173857caf53d9c2e4ad90e3d98a3361314b2dbe641d736",
+    "long-trades.csv": "eeb77c50fe652d4b66de9ee9e2f5fd5a6ea02a63bc96d1ca13b71492464fc0a4",
+    "meta.json": "030b418e253e747b2f4f6b3d2d4195f3ed102532566fee86d03baf29e542a2c7",
+    "short-coinday.csv": "d4b3048e6e18399a886b0a6b7bf47ddb3ff788199afa7d6b7f95fda49062919f",
+    "short-daily.csv": "ed383689af734f491c2f98ed0687036cb9b5223d3e13b375f8ee4417061b7e33",
+    "short-entryrej.csv": "e835592932be9cb5c1886792f7d072c0a96a337a9da3bb88ad64416523e0a1d8",
+    "short-levels.csv": "3e5d03629faaca0b73ea68a896b47e0d200a6de2b5f6e55bed393635b6f414ad",
+    "short-sigsx.csv": "33f0f2054f64b6e50abc6d90ff34a42e88291d83f287007903973a0ddee09225",
+    "short-trades.csv": "ddecf3122421aa7df46606c721ffae40066ca3f333acfd429eed191541d3a020"
+   },
+   "S_g5cut": {
+    "long-coinday.csv": "3c921bd0cde9019a94fbb076f5cec95a050fceb305ed3241cab512a2351a5a39",
+    "long-daily.csv": "c9123cc234e950d6ce3569fbed5fae294d2682ad33d7d1e2183e0cf93b654449",
+    "long-entryrej.csv": "f7b71a9236d64860b496f62975647f3e7e04cbf2ed2bac1821b0e034ad2c4612",
+    "long-levels.csv": "2a9b0cde9d2198c4525b12c50b23c81e95289fd460d8f7525baf09d5cbcccae2",
+    "long-sigsx.csv": "2b93569a7e3625a18cadafda133b1cd0facc681d1838cbcbd25119a629b51ab3",
+    "long-trades.csv": "7bf50ac8c476285bad3d4518f62fbf3872b4c4e0ed4bb0244908ed29518a7b74",
+    "meta.json": "71c4b62b2395fb4f9e26ecd7ac52271f6d32e082086fe79036ceb8636efad8f0",
+    "short-coinday.csv": "8cadc62df6cb7cc3c6f8bef5b34cae938d8e6d64590c1ba644fdcd216a23d373",
+    "short-daily.csv": "0b8b7e94c458da444ad857a794052a37837eacd11dddf99d25abb5ee8bedaec5",
+    "short-entryrej.csv": "8456a30114acb489568836cea2ccbb95ce9e9a06cc07811bd6b1bbaf1e1d826d",
+    "short-levels.csv": "3e5d03629faaca0b73ea68a896b47e0d200a6de2b5f6e55bed393635b6f414ad",
+    "short-sigsx.csv": "75aa963be47aa9b9598e527e15be5a4fc4d5499b2ae88a6efb9c0a78c1fb405f",
+    "short-trades.csv": "d34fef1accfaaebddd25913478fbbff951833bcaf87b42246287af24baa3a534"
+   },
+   "S_g5pass": {
+    "long-coinday.csv": "3c921bd0cde9019a94fbb076f5cec95a050fceb305ed3241cab512a2351a5a39",
+    "long-daily.csv": "c9123cc234e950d6ce3569fbed5fae294d2682ad33d7d1e2183e0cf93b654449",
+    "long-entryrej.csv": "f7b71a9236d64860b496f62975647f3e7e04cbf2ed2bac1821b0e034ad2c4612",
+    "long-levels.csv": "2a9b0cde9d2198c4525b12c50b23c81e95289fd460d8f7525baf09d5cbcccae2",
+    "long-sigsx.csv": "2b93569a7e3625a18cadafda133b1cd0facc681d1838cbcbd25119a629b51ab3",
+    "long-trades.csv": "7bf50ac8c476285bad3d4518f62fbf3872b4c4e0ed4bb0244908ed29518a7b74",
+    "meta.json": "fad06b17d5b145313226f11049e58efe16c38591a7f4855e0760eb1675fa535e",
+    "short-coinday.csv": "2a4cbd3003cdf0278029b629d9d1e06baa5198df818813a369267a509dcd2948",
+    "short-daily.csv": "ce21a488a6cc0e7c1e8c9ead11a4cf7413d0b9eab4dfa7ed2f70b2e706656a67",
+    "short-entryrej.csv": "7609a2f47222017a7d814df3f27481cef2466162c0a8d30f318d4fa2e016c7bf",
+    "short-levels.csv": "3e5d03629faaca0b73ea68a896b47e0d200a6de2b5f6e55bed393635b6f414ad",
+    "short-sigsx.csv": "75aa963be47aa9b9598e527e15be5a4fc4d5499b2ae88a6efb9c0a78c1fb405f",
+    "short-trades.csv": "0c050245706aec9539753bc838ac2a0ed35b042e97a962b2aa00122756388544"
+   },
+   "S_r2": {
+    "long-coinday.csv": "3c921bd0cde9019a94fbb076f5cec95a050fceb305ed3241cab512a2351a5a39",
+    "long-daily.csv": "c9123cc234e950d6ce3569fbed5fae294d2682ad33d7d1e2183e0cf93b654449",
+    "long-entryrej.csv": "f7b71a9236d64860b496f62975647f3e7e04cbf2ed2bac1821b0e034ad2c4612",
+    "long-levels.csv": "2a9b0cde9d2198c4525b12c50b23c81e95289fd460d8f7525baf09d5cbcccae2",
+    "long-sigsx.csv": "2b93569a7e3625a18cadafda133b1cd0facc681d1838cbcbd25119a629b51ab3",
+    "long-trades.csv": "7bf50ac8c476285bad3d4518f62fbf3872b4c4e0ed4bb0244908ed29518a7b74",
+    "meta.json": "c0adb0ba1e23d279dc4eb7b11e9564ceb8ceded55b9180ed4ff684412031da6a",
+    "short-coinday.csv": "4925a9d9ed367d944eb82652bb0b8ef89eb51315cfbae5a9f7a5b36b2cd088fa",
+    "short-daily.csv": "93fee5639bcf6fe7cac87113f511839cfd641f66d4a7cd52de7f08e99dfa069f",
+    "short-entryrej.csv": "e3836ae3d6ae89c38ac7160d30f15e0247e2090fdef85cafd9bd78aea7ec1b57",
+    "short-levels.csv": "3e5d03629faaca0b73ea68a896b47e0d200a6de2b5f6e55bed393635b6f414ad",
+    "short-sigsx.csv": "75aa963be47aa9b9598e527e15be5a4fc4d5499b2ae88a6efb9c0a78c1fb405f",
+    "short-trades.csv": "84be6d636cbe55075eaeab2c299714fc09db62551210991c14adf3d7777cd04d"
+   }
+  }
+ },
+ "gates": {
+  "G8-L": {
+   "side": "L",
+   "variant": "L_r2",
+   "by_win": {
+    "wa": {
+     "win": "wa",
+     "variant": "L_r2",
+     "trades_total": 2,
+     "trades_aug_in_credit": 2,
+     "credit_days": [
+      0,
+      55
+     ]
+    },
+    "wb": {
+     "win": "wb",
+     "variant": "L_r2",
+     "trades_total": 31,
+     "trades_aug_in_credit": 0,
+     "credit_days": [
+      56,
+      93
+     ]
+    }
+   },
+   "trades_aug_total": 2
+  },
+  "G8-S": {
+   "side": "S",
+   "variant": "S_r2",
+   "by_win": {
+    "wa": {
+     "win": "wa",
+     "variant": "S_r2",
+     "trades_total": 68,
+     "trades_aug_in_credit": 18,
+     "credit_days": [
+      0,
+      55
+     ]
+    },
+    "wb": {
+     "win": "wb",
+     "variant": "S_r2",
+     "trades_total": 79,
+     "trades_aug_in_credit": 8,
+     "credit_days": [
+      56,
+      93
+     ]
+    }
+   },
+   "trades_aug_total": 26
+  },
+  "f12cmp-wa-L": {
+   "a": "/data/p42-tk610/work/cand-wa-L.parquet",
+   "b": "/data/p42-tk610/work-py/cand-wa-L.parquet",
+   "rows_a": 557,
+   "rows_b": 557,
+   "diff_columns": [],
+   "only_in_one": [],
+   "ok": true
+  },
+  "f12cmp-wa-S": {
+   "a": "/data/p42-tk610/work/cand-wa-S.parquet",
+   "b": "/data/p42-tk610/work-py/cand-wa-S.parquet",
+   "rows_a": 332,
+   "rows_b": 332,
+   "diff_columns": [],
+   "only_in_one": [],
+   "ok": true
+  },
+  "f12cmp-wb-L": {
+   "a": "/data/p42-tk610/work/cand-wb-L.parquet",
+   "b": "/data/p42-tk610/work-py/cand-wb-L.parquet",
+   "rows_a": 623,
+   "rows_b": 623,
+   "diff_columns": [],
+   "only_in_one": [],
+   "ok": true
+  },
+  "f12cmp-wb-S": {
+   "a": "/data/p42-tk610/work/cand-wb-S.parquet",
+   "b": "/data/p42-tk610/work-py/cand-wb-S.parquet",
+   "rows_a": 297,
+   "rows_b": 297,
+   "diff_columns": [],
+   "only_in_one": [],
+   "ok": true
+  },
+  "f12cmp-wc-L": {
+   "a": "/data/p42-tk610/work/cand-wc-L.parquet",
+   "b": "/data/p42-tk610/work-py/cand-wc-L.parquet",
+   "rows_a": 609,
+   "rows_b": 609,
+   "diff_columns": [],
+   "only_in_one": [],
+   "ok": true
+  },
+  "f12cmp-wc-S": {
+   "a": "/data/p42-tk610/work/cand-wc-S.parquet",
+   "b": "/data/p42-tk610/work-py/cand-wc-S.parquet",
+   "rows_a": 290,
+   "rows_b": 290,
+   "diff_columns": [],
+   "only_in_one": [],
+   "ok": true
+  },
+  "g1": {
+   "gate": "G1",
+   "windows": {
+    "wa": {
+     "equal": true
+    },
+    "wb": {
+     "equal": true
+    },
+    "wc": {
+     "equal": true
+    }
+   },
+   "runs": {
+    "/data/p42-tk610/out/wa-R0": {
+     "engine_md5": "a112684a495e61cf5219610e4eecff22",
+     "ok": true
+    },
+    "/data/p42-tk610/out/wa-R1": {
+     "engine_md5": "a112684a495e61cf5219610e4eecff22",
+     "ok": true
+    },
+    "/data/p42-tk610/out/wb-R0": {
+     "engine_md5": "a112684a495e61cf5219610e4eecff22",
+     "ok": true
+    },
+    "/data/p42-tk610/out/wb-R1": {
+     "engine_md5": "a112684a495e61cf5219610e4eecff22",
+     "ok": true
+    },
+    "/data/p42-tk610/out/wc-R0": {
+     "engine_md5": "a112684a495e61cf5219610e4eecff22",
+     "ok": true
+    },
+    "/data/p42-tk610/out/wc-R1": {
+     "engine_md5": "a112684a495e61cf5219610e4eecff22",
+     "ok": true
+    }
+   },
+   "engine_md5": "a112684a495e61cf5219610e4eecff22",
+   "engine_allowed": [
+    "a03c91df5a70c8eb32cbb7122943b8f9",
+    "a112684a495e61cf5219610e4eecff22"
+   ],
+   "engine_ok": true,
+   "symbols_sha256": "25c9ad8caab30af583b18f0678189f381282cce23b5d42c043471481bf0eaae0",
+   "symbols_ok": true,
+   "ok": true
+  },
+  "g2-wa-L": {
+   "gate": "G2",
+   "win": "wa",
+   "side": "L",
+   "ref": "/data/p42-tk599/out/wa/c53a116125b39",
+   "files": {
+    "trades": {
+     "a": "e2a6d25b46577cfba76ed61dc302b2d7",
+     "b": "e2a6d25b46577cfba76ed61dc302b2d7",
+     "equal": true
+    },
+    "daily": {
+     "a": "a3bf7131fd872922632d4d4220b82746",
+     "b": "a3bf7131fd872922632d4d4220b82746",
+     "equal": true
+    },
+    "coinday": {
+     "a": "9d253c020f2d4f9cbdf680eb0b69f2c5",
+     "b": "9d253c020f2d4f9cbdf680eb0b69f2c5",
+     "equal": true
+    },
+    "entryrej": {
+     "a": "4647f40ee200ff8eec214c9ecdf06a38",
+     "b": "4647f40ee200ff8eec214c9ecdf06a38",
+     "equal": true
+    },
+    "meta": {
+     "a": "1490dd0aaeb14d17486a7306e213a450",
+     "b": "bcd789317cb76112c3c2dd71ab751de5",
+     "equal": true
+    }
+   },
+   "ok": true
+  },
+  "g2-wa-S": {
+   "gate": "G2",
+   "win": "wa",
+   "side": "S",
+   "ref": "/data/p42-tk599/out/wa/c10fbba7be522",
+   "files": {
+    "trades": {
+     "a": "f1001b1703007ab2681bab22a10c74cc",
+     "b": "f1001b1703007ab2681bab22a10c74cc",
+     "equal": true
+    },
+    "daily": {
+     "a": "96a663c2eadd4e1ada87c129704c8051",
+     "b": "96a663c2eadd4e1ada87c129704c8051",
+     "equal": true
+    },
+    "coinday": {
+     "a": "bcbd654952caad62ac2eae08f4546b74",
+     "b": "bcbd654952caad62ac2eae08f4546b74",
+     "equal": true
+    },
+    "entryrej": {
+     "a": "a991a7f4f82d6d5161978e301f38c4db",
+     "b": "a991a7f4f82d6d5161978e301f38c4db",
+     "equal": true
+    },
+    "meta": {
+     "a": "5d225a1346578e616a117b5120a4af0c",
+     "b": "fb554761a90d7a2063cac30c5b71225e",
+     "equal": true
+    }
+   },
+   "ok": true
+  },
+  "g2-wb-L": {
+   "gate": "G2",
+   "win": "wb",
+   "side": "L",
+   "ref": "/data/p42-tk599/out/wb/c53a116125b39",
+   "files": {
+    "trades": {
+     "a": "0ea983f98bb51758bbc98e4839fe7a91",
+     "b": "0ea983f98bb51758bbc98e4839fe7a91",
+     "equal": true
+    },
+    "daily": {
+     "a": "550dfee65307031d0c9bb29671f9eec2",
+     "b": "550dfee65307031d0c9bb29671f9eec2",
+     "equal": true
+    },
+    "coinday": {
+     "a": "940194a50d6781f6397dda6646b9ac0a",
+     "b": "940194a50d6781f6397dda6646b9ac0a",
+     "equal": true
+    },
+    "entryrej": {
+     "a": "514929b36d03257a7931ef22013c0a72",
+     "b": "514929b36d03257a7931ef22013c0a72",
+     "equal": true
+    },
+    "meta": {
+     "a": "982451e95bcda16a35d2342569f44577",
+     "b": "6fceb53e600f77845dce5f0417b98047",
+     "equal": true
+    }
+   },
+   "ok": true
+  },
+  "g2-wb-S": {
+   "gate": "G2",
+   "win": "wb",
+   "side": "S",
+   "ref": "/data/p42-tk599/out/wb/c10fbba7be522",
+   "files": {
+    "trades": {
+     "a": "c2eba6c8ba27820e00af8abd2d6a0ba7",
+     "b": "c2eba6c8ba27820e00af8abd2d6a0ba7",
+     "equal": true
+    },
+    "daily": {
+     "a": "9495b957dbb0956250620bd525903a9d",
+     "b": "9495b957dbb0956250620bd525903a9d",
+     "equal": true
+    },
+    "coinday": {
+     "a": "c9617178f361275f8e4e6aba151b5c15",
+     "b": "c9617178f361275f8e4e6aba151b5c15",
+     "equal": true
+    },
+    "entryrej": {
+     "a": "97fffa02c5a63ce38e7b01fec14dc55b",
+     "b": "97fffa02c5a63ce38e7b01fec14dc55b",
+     "equal": true
+    },
+    "meta": {
+     "a": "699be0a09bf44f9837860a2e6050fa89",
+     "b": "e9b5db029f634413365c4949be1c993f",
+     "equal": true
+    }
+   },
+   "ok": true
+  },
+  "g2-wc-L": {
+   "gate": "G2",
+   "win": "wc",
+   "side": "L",
+   "ref": "/data/p42-tk599/out/wc/c53a116125b39",
+   "files": {
+    "trades": {
+     "a": "7e98273f57b56a61bc1c070d85596001",
+     "b": "7e98273f57b56a61bc1c070d85596001",
+     "equal": true
+    },
+    "daily": {
+     "a": "b1eee91bcd46169ab8476054652b60f3",
+     "b": "b1eee91bcd46169ab8476054652b60f3",
+     "equal": true
+    },
+    "coinday": {
+     "a": "c3bff921d94a2ded4ea39320a124c5e1",
+     "b": "c3bff921d94a2ded4ea39320a124c5e1",
+     "equal": true
+    },
+    "entryrej": {
+     "a": "682d9dbe1d580ee827da445c45207772",
+     "b": "682d9dbe1d580ee827da445c45207772",
+     "equal": true
+    },
+    "meta": {
+     "a": "5c8be49d18a4d34527f128dfc32257c4",
+     "b": "3d0d788dbf73813146c271e3815b31f0",
+     "equal": true
+    }
+   },
+   "ok": true
+  },
+  "g2-wc-S": {
+   "gate": "G2",
+   "win": "wc",
+   "side": "S",
+   "ref": "/data/p42-tk599/out/wc/c10fbba7be522",
+   "files": {
+    "trades": {
+     "a": "4845ed6b743c794a1d05804665e0e7f8",
+     "b": "4845ed6b743c794a1d05804665e0e7f8",
+     "equal": true
+    },
+    "daily": {
+     "a": "f5b0559862a9d9e4039e04407342db96",
+     "b": "f5b0559862a9d9e4039e04407342db96",
+     "equal": true
+    },
+    "coinday": {
+     "a": "427308a3b4651da44b108ff892b3187d",
+     "b": "427308a3b4651da44b108ff892b3187d",
+     "equal": true
+    },
+    "entryrej": {
+     "a": "3448ac1e2c72495a68c59d5a52831830",
+     "b": "3448ac1e2c72495a68c59d5a52831830",
+     "equal": true
+    },
+    "meta": {
+     "a": "402dcb3895f23a9986b4868cd0b37800",
+     "b": "6b3a9444b972c3d6c11f56cf734a81e7",
+     "equal": true
+    }
+   },
+   "ok": true
+  },
+  "g3-L": {
+   "gate": "G3",
+   "side": "L",
+   "runs": {
+    "wa-R0": {
+     "trades": 11975,
+     "first_day": 0,
+     "last_day": 59,
+     "in_credit": 11194,
+     "after_data_end": 0,
+     "ok": true
+    },
+    "wa-R1": {
+     "trades": 257,
+     "first_day": 0,
+     "last_day": 59,
+     "in_credit": 235,
+     "after_data_end": 0,
+     "ok": true
+    },
+    "wb-R0": {
+     "trades": 12504,
+     "first_day": 38,
+     "last_day": 97,
+     "in_credit": 8201,
+     "after_data_end": 0,
+     "ok": true
+    },
+    "wb-R1": {
+     "trades": 288,
+     "first_day": 38,
+     "last_day": 97,
+     "in_credit": 188,
+     "after_data_end": 0,
+     "ok": true
+    },
+    "wc-R0": {
+     "trades": 12018,
+     "first_day": 76,
+     "last_day": 135,
+     "in_credit": 8018,
+     "after_data_end": 0,
+     "ok": true
+    },
+    "wc-R1": {
+     "trades": 291,
+     "first_day": 76,
+     "last_day": 135,
+     "in_credit": 198,
+     "after_data_end": 0,
+     "ok": true
+    }
+   },
+   "ok": true
+  },
+  "g3-S": {
+   "gate": "G3",
+   "side": "S",
+   "runs": {
+    "wa-R0": {
+     "trades": 11868,
+     "first_day": 0,
+     "last_day": 59,
+     "in_credit": 11154,
+     "after_data_end": 0,
+     "ok": true
+    },
+    "wa-R1": {
+     "trades": 198,
+     "first_day": 0,
+     "last_day": 59,
+     "in_credit": 184,
+     "after_data_end": 0,
+     "ok": true
+    },
+    "wb-R0": {
+     "trades": 11419,
+     "first_day": 38,
+     "last_day": 97,
+     "in_credit": 7445,
+     "after_data_end": 0,
+     "ok": true
+    },
+    "wb-R1": {
+     "trades": 192,
+     "first_day": 38,
+     "last_day": 97,
+     "in_credit": 119,
+     "after_data_end": 0,
+     "ok": true
+    },
+    "wc-R0": {
+     "trades": 12046,
+     "first_day": 76,
+     "last_day": 135,
+     "in_credit": 8495,
+     "after_data_end": 0,
+     "ok": true
+    },
+    "wc-R1": {
+     "trades": 193,
+     "first_day": 76,
+     "last_day": 135,
+     "in_credit": 128,
+     "after_data_end": 0,
+     "ok": true
+    }
+   },
+   "ok": true
+  },
+  "g4-L-aug_u0": {
+   "gate": "G4",
+   "side": "long",
+   "common_keys": 40,
+   "min_keys": 200,
+   "tol": 1e-09,
+   "features": {
+    "pierce_ep": {
+     "n_common": 40,
+     "n_both_finite": 40,
+     "n_nan_mismatch": 0,
+     "n_mismatch": 0,
+     "max_abs_diff": 0.0
+    },
+    "spread_tau": {
+     "n_common": 40,
+     "n_both_finite": 40,
+     "n_nan_mismatch": 0,
+     "n_mismatch": 0,
+     "max_abs_diff": 0.0
+    },
+    "zv6h": {
+     "n_common": 40,
+     "n_both_finite": 40,
+     "n_nan_mismatch": 0,
+     "n_mismatch": 0,
+     "max_abs_diff": 0.0
+    },
+    "tpm60": {
+     "n_common": 40,
+     "n_both_finite": 40,
+     "n_nan_mismatch": 0,
+     "n_mismatch": 0,
+     "max_abs_diff": 0.0
+    },
+    "mv5": {
+     "n_common": 40,
+     "n_both_finite": 40,
+     "n_nan_mismatch": 0,
+     "n_mismatch": 0,
+     "max_abs_diff": 0.0
+    },
+    "cons60": {
+     "n_common": 40,
+     "n_both_finite": 40,
+     "n_nan_mismatch": 0,
+     "n_mismatch": 0,
+     "max_abs_diff": 0.0
+    },
+    "c5_btc_7d": {
+     "n_common": 40,
+     "n_both_finite": 40,
+     "n_nan_mismatch": 0,
+     "n_mismatch": 0,
+     "max_abs_diff": 0.0
+    },
+    "c5_eth_7d": {
+     "n_common": 40,
+     "n_both_finite": 40,
+     "n_nan_mismatch": 0,
+     "n_mismatch": 0,
+     "max_abs_diff": 0.0
+    },
+    "lturn24": {
+     "n_common": 40,
+     "n_both_finite": 40,
+     "n_nan_mismatch": 0,
+     "n_mismatch": 0,
+     "max_abs_diff": 0.0
+    },
+    "age_h": {
+     "n_common": 40,
+     "n_both_finite": 40,
+     "n_nan_mismatch": 0,
+     "n_mismatch": 0,
+     "max_abs_diff": 0.0
+    },
+    "natr_bp": {
+     "n_common": 40,
+     "n_both_finite": 40,
+     "n_nan_mismatch": 0,
+     "n_mismatch": 0,
+     "max_abs_diff": 0.0
+    },
+    "since_touch_prior_h": {
+     "n_common": 40,
+     "n_both_finite": 40,
+     "n_nan_mismatch": 0,
+     "n_mismatch": 0,
+     "max_abs_diff": 0.0
+    }
+   },
+   "ok": false,
+   "accepted": {
+    "by": "coordinator (decision 19.11) + critic thr_8fe3dw3a9t PASS @ee9465100",
+    "why": "40 keys < 200, 0 mismatches (aug_u0 has few keys; TK-598: 35)",
+    "critic_sha": "ee9465100c94c51b520acfc0d21007632b306da0"
+   }
+  },
+  "g4-L-ep_u0": {
+   "gate": "G4",
+   "side": "long",
+   "common_keys": 5661,
+   "min_keys": 200,
+   "tol": 1e-09,
+   "features": {
+    "pierce_ep": {
+     "n_common": 5661,
+     "n_both_finite": 5661,
+     "n_nan_mismatch": 0,
+     "n_mismatch": 0,
+     "max_abs_diff": 0.0
+    },
+    "spread_tau": {
+     "n_common": 5661,
+     "n_both_finite": 5661,
+     "n_nan_mismatch": 0,
+     "n_mismatch": 0,
+     "max_abs_diff": 0.0
+    },
+    "zv6h": {
+     "n_common": 5661,
+     "n_both_finite": 5661,
+     "n_nan_mismatch": 0,
+     "n_mismatch": 0,
+     "max_abs_diff": 0.0
+    },
+    "tpm60": {
+     "n_common": 5661,
+     "n_both_finite": 5661,
+     "n_nan_mismatch": 0,
+     "n_mismatch": 0,
+     "max_abs_diff": 0.0
+    },
+    "mv5": {
+     "n_common": 5661,
+     "n_both_finite": 5661,
+     "n_nan_mismatch": 0,
+     "n_mismatch": 0,
+     "max_abs_diff": 0.0
+    },
+    "cons60": {
+     "n_common": 5661,
+     "n_both_finite": 5661,
+     "n_nan_mismatch": 0,
+     "n_mismatch": 0,
+     "max_abs_diff": 0.0
+    },
+    "c5_btc_7d": {
+     "n_common": 5661,
+     "n_both_finite": 5637,
+     "n_nan_mismatch": 0,
+     "n_mismatch": 0,
+     "max_abs_diff": 0.0
+    },
+    "c5_eth_7d": {
+     "n_common": 5661,
+     "n_both_finite": 5643,
+     "n_nan_mismatch": 0,
+     "n_mismatch": 0,
+     "max_abs_diff": 0.0
+    },
+    "lturn24": {
+     "n_common": 5661,
+     "n_both_finite": 5661,
+     "n_nan_mismatch": 0,
+     "n_mismatch": 0,
+     "max_abs_diff": 0.0
+    },
+    "age_h": {
+     "n_common": 5661,
+     "n_both_finite": 5661,
+     "n_nan_mismatch": 0,
+     "n_mismatch": 1,
+     "max_abs_diff": 28.0
+    },
+    "natr_bp": {
+     "n_common": 5661,
+     "n_both_finite": 5661,
+     "n_nan_mismatch": 0,
+     "n_mismatch": 0,
+     "max_abs_diff": 0.0
+    },
+    "since_touch_prior_h": {
+     "n_common": 5661,
+     "n_both_finite": 5661,
+     "n_nan_mismatch": 0,
+     "n_mismatch": 0,
+     "max_abs_diff": 0.0
+    }
+   },
+   "ok": false,
+   "accepted": {
+    "by": "coordinator (decision 19.11) + critic thr_8fe3dw3a9t PASS @ee9465100",
+    "why": "XAGUSDT age_h 6.4 vs 34.4 h: level-config difference (one-coin rerun with reference config b0p0 gives 34.4), TK-598 precedent; 5661 keys, other 12 features equal",
+    "critic_sha": "ee9465100c94c51b520acfc0d21007632b306da0"
+   }
+  },
+  "g4-S-aug_u0": {
+   "gate": "G4",
+   "side": "short",
+   "common_keys": 0,
+   "min_keys": 200,
+   "tol": 1e-09,
+   "features": {
+    "pierce_ep": {
+     "n_common": 0,
+     "n_both_finite": 0,
+     "n_nan_mismatch": 0,
+     "n_mismatch": 0,
+     "max_abs_diff": 0.0
+    },
+    "spread_tau": {
+     "n_common": 0,
+     "n_both_finite": 0,
+     "n_nan_mismatch": 0,
+     "n_mismatch": 0,
+     "max_abs_diff": 0.0
+    },
+    "zv6h": {
+     "n_common": 0,
+     "n_both_finite": 0,
+     "n_nan_mismatch": 0,
+     "n_mismatch": 0,
+     "max_abs_diff": 0.0
+    },
+    "tpm60": {
+     "n_common": 0,
+     "n_both_finite": 0,
+     "n_nan_mismatch": 0,
+     "n_mismatch": 0,
+     "max_abs_diff": 0.0
+    },
+    "mv5": {
+     "n_common": 0,
+     "n_both_finite": 0,
+     "n_nan_mismatch": 0,
+     "n_mismatch": 0,
+     "max_abs_diff": 0.0
+    },
+    "cons60": {
+     "n_common": 0,
+     "n_both_finite": 0,
+     "n_nan_mismatch": 0,
+     "n_mismatch": 0,
+     "max_abs_diff": 0.0
+    },
+    "c5_btc_7d": {
+     "n_common": 0,
+     "n_both_finite": 0,
+     "n_nan_mismatch": 0,
+     "n_mismatch": 0,
+     "max_abs_diff": 0.0
+    },
+    "c5_eth_7d": {
+     "n_common": 0,
+     "n_both_finite": 0,
+     "n_nan_mismatch": 0,
+     "n_mismatch": 0,
+     "max_abs_diff": 0.0
+    },
+    "lturn24": {
+     "n_common": 0,
+     "n_both_finite": 0,
+     "n_nan_mismatch": 0,
+     "n_mismatch": 0,
+     "max_abs_diff": 0.0
+    },
+    "age_h": {
+     "n_common": 0,
+     "n_both_finite": 0,
+     "n_nan_mismatch": 0,
+     "n_mismatch": 0,
+     "max_abs_diff": 0.0
+    },
+    "natr_bp": {
+     "n_common": 0,
+     "n_both_finite": 0,
+     "n_nan_mismatch": 0,
+     "n_mismatch": 0,
+     "max_abs_diff": 0.0
+    },
+    "since_touch_prior_h": {
+     "n_common": 0,
+     "n_both_finite": 0,
+     "n_nan_mismatch": 0,
+     "n_mismatch": 0,
+     "max_abs_diff": 0.0
+    }
+   },
+   "ok": false,
+   "accepted": {
+    "by": "coordinator (decision 19.11) + critic thr_8fe3dw3a9t PASS @ee9465100",
+    "why": "0 common keys (TK-598: 0), red by key count only",
+    "critic_sha": "ee9465100c94c51b520acfc0d21007632b306da0"
+   }
+  },
+  "g4-S-ep_u0": {
+   "gate": "G4",
+   "side": "short",
+   "common_keys": 174,
+   "min_keys": 200,
+   "tol": 1e-09,
+   "features": {
+    "pierce_ep": {
+     "n_common": 174,
+     "n_both_finite": 174,
+     "n_nan_mismatch": 0,
+     "n_mismatch": 0,
+     "max_abs_diff": 0.0
+    },
+    "spread_tau": {
+     "n_common": 174,
+     "n_both_finite": 174,
+     "n_nan_mismatch": 0,
+     "n_mismatch": 0,
+     "max_abs_diff": 0.0
+    },
+    "zv6h": {
+     "n_common": 174,
+     "n_both_finite": 174,
+     "n_nan_mismatch": 0,
+     "n_mismatch": 0,
+     "max_abs_diff": 0.0
+    },
+    "tpm60": {
+     "n_common": 174,
+     "n_both_finite": 174,
+     "n_nan_mismatch": 0,
+     "n_mismatch": 0,
+     "max_abs_diff": 0.0
+    },
+    "mv5": {
+     "n_common": 174,
+     "n_both_finite": 174,
+     "n_nan_mismatch": 0,
+     "n_mismatch": 0,
+     "max_abs_diff": 0.0
+    },
+    "cons60": {
+     "n_common": 174,
+     "n_both_finite": 174,
+     "n_nan_mismatch": 0,
+     "n_mismatch": 0,
+     "max_abs_diff": 0.0
+    },
+    "c5_btc_7d": {
+     "n_common": 174,
+     "n_both_finite": 172,
+     "n_nan_mismatch": 0,
+     "n_mismatch": 0,
+     "max_abs_diff": 0.0
+    },
+    "c5_eth_7d": {
+     "n_common": 174,
+     "n_both_finite": 174,
+     "n_nan_mismatch": 0,
+     "n_mismatch": 0,
+     "max_abs_diff": 0.0
+    },
+    "lturn24": {
+     "n_common": 174,
+     "n_both_finite": 174,
+     "n_nan_mismatch": 0,
+     "n_mismatch": 0,
+     "max_abs_diff": 0.0
+    },
+    "age_h": {
+     "n_common": 174,
+     "n_both_finite": 174,
+     "n_nan_mismatch": 0,
+     "n_mismatch": 0,
+     "max_abs_diff": 0.0
+    },
+    "natr_bp": {
+     "n_common": 174,
+     "n_both_finite": 174,
+     "n_nan_mismatch": 0,
+     "n_mismatch": 0,
+     "max_abs_diff": 0.0
+    },
+    "since_touch_prior_h": {
+     "n_common": 174,
+     "n_both_finite": 174,
+     "n_nan_mismatch": 0,
+     "n_mismatch": 0,
+     "max_abs_diff": 0.0
+    }
+   },
+   "ok": false,
+   "accepted": {
+    "by": "coordinator (decision 19.11) + critic thr_8fe3dw3a9t PASS @ee9465100",
+    "why": "174 common keys < 200, 0 mismatches; S_base signal set differs from ep_u0 (TK-598: 175, accepted)",
+    "critic_sha": "ee9465100c94c51b520acfc0d21007632b306da0"
+   }
+  },
+  "g4nan-L": {
+   "gate": "G4",
+   "check": "nan_range",
+   "side": "long",
+   "rows": 22024,
+   "ref_rows": 21772,
+   "nan_slack": 0.05,
+   "tables": [
+    "train-wa-L.parquet",
+    "train-wb-L.parquet",
+    "train-wc-L.parquet",
+    "cand-wa-L.parquet",
+    "cand-wb-L.parquet",
+    "cand-wc-L.parquet"
+   ],
+   "features": {
+    "pierce_ep": {
+     "nan_share": 0.0,
+     "ref_nan_share": 0.0,
+     "range": [
+      0.0,
+      28.0
+     ],
+     "ref_range": [
+      0.0,
+      34.0
+     ],
+     "n_out_of_range": 0,
+     "out_of_range_by_table": {},
+     "ok": true
+    },
+    "spread_tau": {
+     "nan_share": 0.0,
+     "ref_nan_share": 0.0,
+     "range": [
+      0.0,
+      2.0
+     ],
+     "ref_range": [
+      0.0,
+      2.0
+     ],
+     "n_out_of_range": 0,
+     "out_of_range_by_table": {},
+     "ok": true
+    },
+    "zv6h": {
+     "nan_share": 0.0,
+     "ref_nan_share": 0.0,
+     "range": [
+      0.0,
+      0.9444444444444444
+     ],
+     "ref_range": [
+      0.0,
+      0.9472222222222222
+     ],
+     "n_out_of_range": 0,
+     "out_of_range_by_table": {},
+     "ok": true
+    },
+    "tpm60": {
+     "nan_share": 0.0,
+     "ref_nan_share": 0.0,
+     "range": [
+      0.06666666666666667,
+      7264.483333333334
+     ],
+     "ref_range": [
+      0.03333333333333333,
+      25364.55
+     ],
+     "n_out_of_range": 0,
+     "out_of_range_by_table": {},
+     "ok": true
+    },
+    "mv5": {
+     "nan_share": 0.0,
+     "ref_nan_share": 0.0005052360830424398,
+     "range": [
+      -23.3385954086448,
+      30.02692241160627
+     ],
+     "ref_range": [
+      -30.00276625504872,
+      30.040079474034258
+     ],
+     "n_out_of_range": 0,
+     "out_of_range_by_table": {},
+     "ok": true
+    },
+    "cons60": {
+     "nan_share": 0.0,
+     "ref_nan_share": 0.0,
+     "range": [
+      0.0,
+      60.0
+     ],
+     "ref_range": [
+      0.0,
+      60.0
+     ],
+     "n_out_of_range": 0,
+     "out_of_range_by_table": {},
+     "ok": true
+    },
+    "c5_btc_7d": {
+     "nan_share": 0.004041046131492917,
+     "ref_nan_share": 0.0032610692632739297,
+     "range": [
+      -0.6143070788491801,
+      0.9178542053128291
+     ],
+     "ref_range": [
+      -0.6148491961689178,
+      0.9178542053128291
+     ],
+     "n_out_of_range": 0,
+     "out_of_range_by_table": {},
+     "ok": true
+    },
+    "c5_eth_7d": {
+     "nan_share": 0.0037686160552124954,
+     "ref_nan_share": 0.0023883887562006247,
+     "range": [
+      -0.5883834554113928,
+      0.9276808493126397
+     ],
+     "ref_range": [
+      -0.5887971978190547,
+      0.9167317701080169
+     ],
+     "n_out_of_range": 2,
+     "out_of_range_by_table": {
+      "train-wa-L.parquet": 2
+     },
+     "ok": false
+    },
+    "lturn24": {
+     "nan_share": 0.0,
+     "ref_nan_share": 0.0,
+     "range": [
+      4.339904568522652,
+      10.320539661251797
+     ],
+     "ref_range": [
+      4.303704642451008,
+      10.341530392140836
+     ],
+     "n_out_of_range": 0,
+     "out_of_range_by_table": {},
+     "ok": true
+    },
+    "age_h": {
+     "nan_share": 0.0,
+     "ref_nan_share": 0.0,
+     "range": [
+      6.0,
+      195.98333333333332
+     ],
+     "ref_range": [
+      6.0,
+      273.1
+     ],
+     "n_out_of_range": 0,
+     "out_of_range_by_table": {},
+     "ok": true
+    },
+    "natr_bp": {
+     "nan_share": 0.0,
+     "ref_nan_share": 0.0,
+     "range": [
+      0.0386,
+      474.801
+     ],
+     "ref_range": [
+      0.0,
+      520.8601
+     ],
+     "n_out_of_range": 0,
+     "out_of_range_by_table": {},
+     "ok": true
+    },
+    "since_touch_prior_h": {
+     "nan_share": 0.0,
+     "ref_nan_share": 0.0,
+     "range": [
+      0.016666666666666666,
+      182.76666666666668
+     ],
+     "ref_range": [
+      0.016666666666666666,
+      213.9
+     ],
+     "n_out_of_range": 0,
+     "out_of_range_by_table": {},
+     "ok": true
+    }
+   },
+   "ok": false,
+   "accepted": {
+    "by": "coordinator (decision 19.11) + critic thr_8fe3dw3a9t PASS @ee9465100",
+    "why": "NaN green; range: c5_eth_7d 2 rows (0.9277 vs ep_u0 max 0.9167), real market values beyond the Sep-Nov reference",
+    "critic_sha": "ee9465100c94c51b520acfc0d21007632b306da0"
+   }
+  },
+  "g4nan-S": {
+   "gate": "G4",
+   "check": "nan_range",
+   "side": "short",
+   "rows": 21745,
+   "ref_rows": 24274,
+   "nan_slack": 0.05,
+   "tables": [
+    "train-wa-S.parquet",
+    "train-wb-S.parquet",
+    "train-wc-S.parquet",
+    "cand-wa-S.parquet",
+    "cand-wb-S.parquet",
+    "cand-wc-S.parquet"
+   ],
+   "features": {
+    "pierce_ep": {
+     "nan_share": 0.0,
+     "ref_nan_share": 0.0,
+     "range": [
+      0.0,
+      22.0
+     ],
+     "ref_range": [
+      0.0,
+      35.0
+     ],
+     "n_out_of_range": 0,
+     "out_of_range_by_table": {},
+     "ok": true
+    },
+    "spread_tau": {
+     "nan_share": 0.0,
+     "ref_nan_share": 0.0,
+     "range": [
+      0.0,
+      2.0
+     ],
+     "ref_range": [
+      0.0,
+      2.0
+     ],
+     "n_out_of_range": 0,
+     "out_of_range_by_table": {},
+     "ok": true
+    },
+    "zv6h": {
+     "nan_share": 0.0,
+     "ref_nan_share": 0.0,
+     "range": [
+      0.0,
+      0.8861111111111111
+     ],
+     "ref_range": [
+      0.0,
+      0.9
+     ],
+     "n_out_of_range": 0,
+     "out_of_range_by_table": {},
+     "ok": true
+    },
+    "tpm60": {
+     "nan_share": 0.0,
+     "ref_nan_share": 0.0,
+     "range": [
+      0.1,
+      10558.45
+     ],
+     "ref_range": [
+      0.016666666666666666,
+      8851.95
+     ],
+     "n_out_of_range": 1,
+     "out_of_range_by_table": {
+      "cand-wa-S.parquet": 1
+     },
+     "ok": false
+    },
+    "mv5": {
+     "nan_share": 0.0,
+     "ref_nan_share": 0.00037076707588366153,
+     "range": [
+      -30.001920122887867,
+      30.001880742899072
+     ],
+     "ref_range": [
+      -30.16166350019469,
+      30.02103273553452
+     ],
+     "n_out_of_range": 0,
+     "out_of_range_by_table": {},
+     "ok": true
+    },
+    "cons60": {
+     "nan_share": 0.0,
+     "ref_nan_share": 0.0,
+     "range": [
+      0.0,
+      60.0
+     ],
+     "ref_range": [
+      0.0,
+      60.0
+     ],
+     "n_out_of_range": 0,
+     "out_of_range_by_table": {},
+     "ok": true
+    },
+    "c5_btc_7d": {
+     "nan_share": 0.00409289491837204,
+     "ref_nan_share": 0.0037488671006014667,
+     "range": [
+      -0.6142459417415903,
+      0.9158871595842193
+     ],
+     "ref_range": [
+      -0.6144190082139828,
+      0.9184128975265379
+     ],
+     "n_out_of_range": 0,
+     "out_of_range_by_table": {},
+     "ok": true
+    },
+    "c5_eth_7d": {
+     "nan_share": 0.0035870315014945964,
+     "ref_nan_share": 0.003089725632363846,
+     "range": [
+      -0.5883458286398844,
+      0.917248531119421
+     ],
+     "ref_range": [
+      -0.5885531021420646,
+      0.919254936377159
+     ],
+     "n_out_of_range": 0,
+     "out_of_range_by_table": {},
+     "ok": true
+    },
+    "lturn24": {
+     "nan_share": 0.0,
+     "ref_nan_share": 0.0,
+     "range": [
+      4.594590248599522,
+      10.397771249985055
+     ],
+     "ref_range": [
+      4.540349365523267,
+      10.396387942961521
+     ],
+     "n_out_of_range": 1,
+     "out_of_range_by_table": {
+      "train-wc-S.parquet": 1
+     },
+     "ok": false
+    },
+    "age_h": {
+     "nan_share": 0.0,
+     "ref_nan_share": 0.0,
+     "range": [
+      6.0,
+      248.41666666666666
+     ],
+     "ref_range": [
+      6.0,
+      291.35
+     ],
+     "n_out_of_range": 0,
+     "out_of_range_by_table": {},
+     "ok": true
+    },
+    "natr_bp": {
+     "nan_share": 0.0,
+     "ref_nan_share": 0.0,
+     "range": [
+      0.0383,
+      547.3529
+     ],
+     "ref_range": [
+      0.0,
+      1310.6165
+     ],
+     "n_out_of_range": 0,
+     "out_of_range_by_table": {},
+     "ok": true
+    },
+    "since_touch_prior_h": {
+     "nan_share": 0.0,
+     "ref_nan_share": 0.0,
+     "range": [
+      0.016666666666666666,
+      165.71666666666667
+     ],
+     "ref_range": [
+      0.016666666666666666,
+      246.2
+     ],
+     "n_out_of_range": 0,
+     "out_of_range_by_table": {},
+     "ok": true
+    }
+   },
+   "ok": false,
+   "accepted": {
+    "by": "coordinator (decision 19.11) + critic thr_8fe3dw3a9t PASS @ee9465100",
+    "why": "NaN green; range: tpm60 1 row 10558.45 (same as TK-598), lturn24 1 row 10.3978 vs 10.3964",
+    "critic_sha": "ee9465100c94c51b520acfc0d21007632b306da0"
+   }
+  },
+  "g5-wa-L": {
+   "gate": "G5",
+   "win": "wa",
+   "side": "L",
+   "pass_vs_r1": {
+    "trades": {
+     "a": "e2a6d25b46577cfba76ed61dc302b2d7",
+     "b": "e2a6d25b46577cfba76ed61dc302b2d7",
+     "equal": true
+    },
+    "daily": {
+     "a": "a3bf7131fd872922632d4d4220b82746",
+     "b": "a3bf7131fd872922632d4d4220b82746",
+     "equal": true
+    },
+    "coinday": {
+     "a": "9d253c020f2d4f9cbdf680eb0b69f2c5",
+     "b": "9d253c020f2d4f9cbdf680eb0b69f2c5",
+     "equal": true
+    },
+    "entryrej": {
+     "a": "4647f40ee200ff8eec214c9ecdf06a38",
+     "b": "4647f40ee200ff8eec214c9ecdf06a38",
+     "equal": true
+    },
+    "meta": {
+     "a": "a6035a2a063bf66139ff231a62ce6afc",
+     "b": "1490dd0aaeb14d17486a7306e213a450",
+     "equal": false
+    }
+   },
+   "pass_csv_equal": true,
+   "cut_trades": 0,
+   "filter_counters": {
+    "g5pass": [
+     557,
+     0,
+     0,
+     0
+    ],
+    "g5cut": [
+     557,
+     557,
+     0,
+     0
+    ],
+    "r2": [
+     557,
+     555,
+     0,
+     0
+    ],
+    "r1": null
+   },
+   "no_key_zero": true,
+   "cands_equal_r1": true,
+   "ok": true
+  },
+  "g5-wa-S": {
+   "gate": "G5",
+   "win": "wa",
+   "side": "S",
+   "pass_vs_r1": {
+    "trades": {
+     "a": "f1001b1703007ab2681bab22a10c74cc",
+     "b": "f1001b1703007ab2681bab22a10c74cc",
+     "equal": true
+    },
+    "daily": {
+     "a": "96a663c2eadd4e1ada87c129704c8051",
+     "b": "96a663c2eadd4e1ada87c129704c8051",
+     "equal": true
+    },
+    "coinday": {
+     "a": "bcbd654952caad62ac2eae08f4546b74",
+     "b": "bcbd654952caad62ac2eae08f4546b74",
+     "equal": true
+    },
+    "entryrej": {
+     "a": "a991a7f4f82d6d5161978e301f38c4db",
+     "b": "a991a7f4f82d6d5161978e301f38c4db",
+     "equal": true
+    },
+    "meta": {
+     "a": "1900fef32a000e46d2d8f8a1d1e32c93",
+     "b": "5d225a1346578e616a117b5120a4af0c",
+     "equal": false
+    }
+   },
+   "pass_csv_equal": true,
+   "cut_trades": 0,
+   "filter_counters": {
+    "g5pass": [
+     332,
+     0,
+     0,
+     0
+    ],
+    "g5cut": [
+     332,
+     332,
+     0,
+     0
+    ],
+    "r2": [
+     332,
+     238,
+     0,
+     0
+    ],
+    "r1": null
+   },
+   "no_key_zero": true,
+   "cands_equal_r1": true,
+   "ok": true
+  },
+  "g5-wb-L": {
+   "gate": "G5",
+   "win": "wb",
+   "side": "L",
+   "pass_vs_r1": {
+    "trades": {
+     "a": "0ea983f98bb51758bbc98e4839fe7a91",
+     "b": "0ea983f98bb51758bbc98e4839fe7a91",
+     "equal": true
+    },
+    "daily": {
+     "a": "550dfee65307031d0c9bb29671f9eec2",
+     "b": "550dfee65307031d0c9bb29671f9eec2",
+     "equal": true
+    },
+    "coinday": {
+     "a": "940194a50d6781f6397dda6646b9ac0a",
+     "b": "940194a50d6781f6397dda6646b9ac0a",
+     "equal": true
+    },
+    "entryrej": {
+     "a": "514929b36d03257a7931ef22013c0a72",
+     "b": "514929b36d03257a7931ef22013c0a72",
+     "equal": true
+    },
+    "meta": {
+     "a": "fbdb200c3ec174d6a5caab5f47b7965a",
+     "b": "982451e95bcda16a35d2342569f44577",
+     "equal": false
+    }
+   },
+   "pass_csv_equal": true,
+   "cut_trades": 0,
+   "filter_counters": {
+    "g5pass": [
+     623,
+     0,
+     0,
+     0
+    ],
+    "g5cut": [
+     623,
+     623,
+     0,
+     0
+    ],
+    "r2": [
+     623,
+     568,
+     0,
+     0
+    ],
+    "r1": null
+   },
+   "no_key_zero": true,
+   "cands_equal_r1": true,
+   "ok": true
+  },
+  "g5-wb-S": {
+   "gate": "G5",
+   "win": "wb",
+   "side": "S",
+   "pass_vs_r1": {
+    "trades": {
+     "a": "c2eba6c8ba27820e00af8abd2d6a0ba7",
+     "b": "c2eba6c8ba27820e00af8abd2d6a0ba7",
+     "equal": true
+    },
+    "daily": {
+     "a": "9495b957dbb0956250620bd525903a9d",
+     "b": "9495b957dbb0956250620bd525903a9d",
+     "equal": true
+    },
+    "coinday": {
+     "a": "c9617178f361275f8e4e6aba151b5c15",
+     "b": "c9617178f361275f8e4e6aba151b5c15",
+     "equal": true
+    },
+    "entryrej": {
+     "a": "97fffa02c5a63ce38e7b01fec14dc55b",
+     "b": "97fffa02c5a63ce38e7b01fec14dc55b",
+     "equal": true
+    },
+    "meta": {
+     "a": "4c4b2b6fea458ddfc6725094380252bc",
+     "b": "699be0a09bf44f9837860a2e6050fa89",
+     "equal": false
+    }
+   },
+   "pass_csv_equal": true,
+   "cut_trades": 0,
+   "filter_counters": {
+    "g5pass": [
+     297,
+     0,
+     0,
+     0
+    ],
+    "g5cut": [
+     297,
+     297,
+     0,
+     0
+    ],
+    "r2": [
+     297,
+     187,
+     0,
+     0
+    ],
+    "r1": null
+   },
+   "no_key_zero": true,
+   "cands_equal_r1": true,
+   "ok": true
+  },
+  "g5-wc-L": {
+   "gate": "G5",
+   "win": "wc",
+   "side": "L",
+   "pass_vs_r1": {
+    "trades": {
+     "a": "7e98273f57b56a61bc1c070d85596001",
+     "b": "7e98273f57b56a61bc1c070d85596001",
+     "equal": true
+    },
+    "daily": {
+     "a": "b1eee91bcd46169ab8476054652b60f3",
+     "b": "b1eee91bcd46169ab8476054652b60f3",
+     "equal": true
+    },
+    "coinday": {
+     "a": "c3bff921d94a2ded4ea39320a124c5e1",
+     "b": "c3bff921d94a2ded4ea39320a124c5e1",
+     "equal": true
+    },
+    "entryrej": {
+     "a": "682d9dbe1d580ee827da445c45207772",
+     "b": "682d9dbe1d580ee827da445c45207772",
+     "equal": true
+    },
+    "meta": {
+     "a": "50413d64219dd124bcf1deead9dcc377",
+     "b": "5c8be49d18a4d34527f128dfc32257c4",
+     "equal": false
+    }
+   },
+   "pass_csv_equal": true,
+   "cut_trades": 0,
+   "filter_counters": {
+    "g5pass": [
+     609,
+     0,
+     0,
+     0
+    ],
+    "g5cut": [
+     609,
+     609,
+     0,
+     0
+    ],
+    "r2": [
+     609,
+     245,
+     0,
+     0
+    ],
+    "r1": null
+   },
+   "no_key_zero": true,
+   "cands_equal_r1": true,
+   "ok": true
+  },
+  "g5-wc-S": {
+   "gate": "G5",
+   "win": "wc",
+   "side": "S",
+   "pass_vs_r1": {
+    "trades": {
+     "a": "4845ed6b743c794a1d05804665e0e7f8",
+     "b": "4845ed6b743c794a1d05804665e0e7f8",
+     "equal": true
+    },
+    "daily": {
+     "a": "f5b0559862a9d9e4039e04407342db96",
+     "b": "f5b0559862a9d9e4039e04407342db96",
+     "equal": true
+    },
+    "coinday": {
+     "a": "427308a3b4651da44b108ff892b3187d",
+     "b": "427308a3b4651da44b108ff892b3187d",
+     "equal": true
+    },
+    "entryrej": {
+     "a": "3448ac1e2c72495a68c59d5a52831830",
+     "b": "3448ac1e2c72495a68c59d5a52831830",
+     "equal": true
+    },
+    "meta": {
+     "a": "51ab060a9d955da206adb99a4d2cb9ca",
+     "b": "402dcb3895f23a9986b4868cd0b37800",
+     "equal": false
+    }
+   },
+   "pass_csv_equal": true,
+   "cut_trades": 0,
+   "filter_counters": {
+    "g5pass": [
+     290,
+     0,
+     0,
+     0
+    ],
+    "g5cut": [
+     290,
+     290,
+     0,
+     0
+    ],
+    "r2": [
+     290,
+     209,
+     0,
+     0
+    ],
+    "r1": null
+   },
+   "no_key_zero": true,
+   "cands_equal_r1": true,
+   "ok": true
+  },
+  "g9": {
+   "gate": "G9",
+   "tables": {
+    "cand-wa-L.parquet.info.json": {
+     "rows": 557,
+     "gt_days": 0,
+     "share": 0.0
+    },
+    "cand-wa-S.parquet.info.json": {
+     "rows": 332,
+     "gt_days": 0,
+     "share": 0.0
+    },
+    "cand-wb-L.parquet.info.json": {
+     "rows": 623,
+     "gt_days": 0,
+     "share": 0.0
+    },
+    "cand-wb-S.parquet.info.json": {
+     "rows": 297,
+     "gt_days": 0,
+     "share": 0.0
+    },
+    "cand-wc-L.parquet.info.json": {
+     "rows": 609,
+     "gt_days": 0,
+     "share": 0.0
+    },
+    "cand-wc-S.parquet.info.json": {
+     "rows": 290,
+     "gt_days": 0,
+     "share": 0.0
+    },
+    "train-wa-L.parquet.info.json": {
+     "rows": 6086,
+     "gt_days": 0,
+     "share": 0.0
+    },
+    "train-wa-S.parquet.info.json": {
+     "rows": 6536,
+     "gt_days": 0,
+     "share": 0.0
+    },
+    "train-wb-L.parquet.info.json": {
+     "rows": 7026,
+     "gt_days": 0,
+     "share": 0.0
+    },
+    "train-wb-S.parquet.info.json": {
+     "rows": 6334,
+     "gt_days": 0,
+     "share": 0.0
+    },
+    "train-wc-L.parquet.info.json": {
+     "rows": 8018,
+     "gt_days": 0,
+     "share": 0.0
+    },
+    "train-wc-S.parquet.info.json": {
+     "rows": 8495,
+     "gt_days": 0,
+     "share": 0.0
+    }
+   },
+   "ok": true
+  },
+  "sigma-L": {
+   "side": "L",
+   "n": 490,
+   "mean": -0.2404038897959184,
+   "sigma": 8.302980898095777,
+   "n_by_win": {
+    "wa": 130,
+    "wb": 162,
+    "wc": 198
+   }
+  },
+  "sigma-S": {
+   "side": "S",
+   "n": 323,
+   "mean": 0.5624917708978329,
+   "sigma": 5.1392235284998415,
+   "n_by_win": {
+    "wa": 96,
+    "wb": 99,
+    "wc": 128
+   }
+  }
+ },
+ "gates_accepted": [
+  {
+   "gate": "g4-L-aug_u0",
+   "by": "coordinator (decision 19.11) + critic thr_8fe3dw3a9t PASS @ee9465100",
+   "why": "40 keys < 200, 0 mismatches (aug_u0 has few keys; TK-598: 35)",
+   "critic_sha": "ee9465100c94c51b520acfc0d21007632b306da0"
+  },
+  {
+   "gate": "g4-L-ep_u0",
+   "by": "coordinator (decision 19.11) + critic thr_8fe3dw3a9t PASS @ee9465100",
+   "why": "XAGUSDT age_h 6.4 vs 34.4 h: level-config difference (one-coin rerun with reference config b0p0 gives 34.4), TK-598 precedent; 5661 keys, other 12 features equal",
+   "critic_sha": "ee9465100c94c51b520acfc0d21007632b306da0"
+  },
+  {
+   "gate": "g4-S-aug_u0",
+   "by": "coordinator (decision 19.11) + critic thr_8fe3dw3a9t PASS @ee9465100",
+   "why": "0 common keys (TK-598: 0), red by key count only",
+   "critic_sha": "ee9465100c94c51b520acfc0d21007632b306da0"
+  },
+  {
+   "gate": "g4-S-ep_u0",
+   "by": "coordinator (decision 19.11) + critic thr_8fe3dw3a9t PASS @ee9465100",
+   "why": "174 common keys < 200, 0 mismatches; S_base signal set differs from ep_u0 (TK-598: 175, accepted)",
+   "critic_sha": "ee9465100c94c51b520acfc0d21007632b306da0"
+  },
+  {
+   "gate": "g4nan-L",
+   "by": "coordinator (decision 19.11) + critic thr_8fe3dw3a9t PASS @ee9465100",
+   "why": "NaN green; range: c5_eth_7d 2 rows (0.9277 vs ep_u0 max 0.9167), real market values beyond the Sep-Nov reference",
+   "critic_sha": "ee9465100c94c51b520acfc0d21007632b306da0"
+  },
+  {
+   "gate": "g4nan-S",
+   "by": "coordinator (decision 19.11) + critic thr_8fe3dw3a9t PASS @ee9465100",
+   "why": "NaN green; range: tpm60 1 row 10558.45 (same as TK-598), lturn24 1 row 10.3978 vs 10.3964",
+   "critic_sha": "ee9465100c94c51b520acfc0d21007632b306da0"
+  }
+ ],
+ "code_sha256": {
+  "retitr_cells.py": "54a29e7831de1b5185995dd76e6020d17847d4543a47d80f7c2ef6cb5a8cb7c0",
+  "retitr_ftab.py": "a7369ac59bcf6280b8e75f78114ffe02dfc414f610a535893579c03f41e815fe",
+  "retitr_full.py": "7de3814f2798e3c58764a5b5848138755e468e5be6bfce9565d3b5c0d022e7c9",
+  "tk598_agecheck.py": "05dd1cd3a7b3d4e25a20ba9558f27d271d2316cbb6229e33c733945e1ad22825",
+  "tk598_feat.py": "f2f461d3480c1bd4ea4798dbcdf24db41b93111bed5a56739923ff96ad4a7bb4",
+  "tk598_fit.py": "c2e7729f658a3ee80c588ae1af0726f5de75f369fc11ded69e2736224bd44153",
+  "tk598_gates.py": "2dc2e7b7acc3030bd4a4e9076307af479c803885433abd89d4ab87fa7a394e00",
+  "tk598_lib.py": "bc40540e5ea62b5eaec9805db64debd191912ac38e16879bbdda83ec9bb67044",
+  "tk598_path.py": "51a607c9d0ca1929e7c69bb7e186091c4b4b05031e6939a179bb96bc92706c9d",
+  "tk598_read.py": "6cf0abe50736985fede1bc91afd3e12e63c1e31996e18c3380a602dccbf3e59d",
+  "tk598_table.py": "903b4ebdb96422285f9d4c912bd7cbe85521bf17e33622a8e84580707910daa4",
+  "tk610_cmp_tables.py": "e76b30b25b5bfc28d09b798ace445404f0c6490ba3bbc719b3fc6814fee26472",
+  "tk610_data.py": "2b5f5b4f50b3be5d26344355a30f321196eb5cd8f895236f506326ddb6bec66d",
+  "tk610_fit.py": "912663eff32aa0539b0692d0533a011c64a86db145bb5fddf525969262bf485b",
+  "tk610_gates.py": "4ed92d916bfade2a838eef2e856277db81e6a714952aadecddb0804e448da9d2",
+  "tk610_lib.py": "dddc836751f41c02578698c4763bd37d1aa91a7a6c9256ee942944298459d2a9",
+  "tk610_read.py": "9fdd2d4207239c1f153762dcd813d7c87b5017355dba67cad5b61b7dc12f60f6"
+ }
+}

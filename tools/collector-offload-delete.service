@@ -1,0 +1,9 @@
+[Unit]
+Description=TK-608: удалить на srv сутки коллекторов, сверенные на Storage Box (оставить сутки с данными моложе 37 ч — окно arb-live 36 ч); владелец 18.11 «чтобы диск не забился»
+After=network-online.target
+
+[Service]
+Type=oneshot
+Nice=19
+IOSchedulingClass=idle
+ExecStart=/usr/bin/python3 /opt/day-upload/offload-delete.py --keep-hours 37 --sample 20 --go
