@@ -165,7 +165,7 @@ def gate_g4(cand, ref, ref_t0, side, min_keys=200, tol=1e-9):
 
     import pyarrow.parquet as pq
     import tk598_feat as TF
-    mine = pd.read_parquet(cand)
+    mine = pd.concat([pd.read_parquet(p) for p in ([cand] if isinstance(cand, str) else list(cand))], ignore_index=True)
     cols = ["sym", "sig_ms", "dist_e8", "lp_e8"] + [c for c in T.FEATS if c != "lturn24"] + ["turn24h"]
     r = pd.read_parquet(ref, columns=(["side"] if "side" in set(pq.ParquetFile(ref).schema.names) else []) + cols)
     if "side" in r:
@@ -179,6 +179,7 @@ def gate_g4(cand, ref, ref_t0, side, min_keys=200, tol=1e-9):
         df["a_sig"] = df["a_sig"].astype(np.int64)
         df["dist_e8"] = df["dist_e8"].astype(np.int64)
         df["lp_e8"] = df["lp_e8"].astype(np.int64)
+    mine = mine.drop_duplicates(key)      # одна и та же свеча-кандидат может лежать в нескольких таблицах (окна, обучение/кандидаты)
     n = r.groupby(key).size().rename("n_ref").reset_index()
     r1 = r.merge(n, on=key)
     r1 = r1[r1["n_ref"] == 1].drop(columns=["n_ref", "sig_ms"])
@@ -253,7 +254,7 @@ def main(argv=None):
     g3.add_argument("--side", required=True, choices=list(rf.SIDES))
     g3.add_argument("--out")
     g4 = sp.add_parser("g4")
-    g4.add_argument("--cand", required=True)
+    g4.add_argument("--cand", required=True, nargs="+")
     g4.add_argument("--ref", required=True)
     g4.add_argument("--ref-t0", required=True)
     g4.add_argument("--side", required=True, choices=["long", "short"])

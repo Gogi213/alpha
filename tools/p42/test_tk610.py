@@ -425,6 +425,13 @@ class MoreGateTests(unittest.TestCase):
             mine.to_parquet(mp_)
             self.assertFalse(GT.gate_g4(mp_, rp, "2026-09-01", "long")["ok"])
             self.assertFalse(GT.gate_g4(mp_, rp, "2026-09-01", "long", min_keys=1000)["ok"])
+            mine.loc[3, "zv6h"] -= 1.0
+            mine.to_parquet(mp_)
+            m2 = os.path.join(td, "mine2.parquet")
+            mine.iloc[:100].to_parquet(m2)                                 # те же ключи во второй таблице — не считаются дважды
+            g2 = GT.gate_g4([mp_, m2], rp, "2026-09-01", "long")
+            self.assertTrue(g2["ok"], g2)
+            self.assertEqual(g2["common_keys"], n)
 
     def test_g3(self):
         with tempfile.TemporaryDirectory() as td:
