@@ -325,10 +325,20 @@ def aug_compare(ser_a, ser_b, ncoins, nboot=rf.NBOOT):
     """Сторона: Δ = B − A за август. Возвращает {st, upper, robust, verdict, ...}; A — C* без фильтра (R1), B — с фильтром (R2)."""
     Sa, Na = aug_slice(ser_a)
     Sb, Nb = aug_slice(ser_b)
-    st = rf.delta_stat(Sb, Nb, Sa, Na, nboot)
-    up = delta_upper(Sb, Nb, Sa, Na, nboot)
     om = np.arange(AUG[0], AUG[1] + 1)
-    rob, dd, dc = rf.robust(ser_b, ser_a, om, ncoins)
+    try:
+        st = rf.delta_stat(Sb, Nb, Sa, Na, nboot)
+        up = delta_upper(Sb, Nb, Sa, Na, nboot)
+        rob, dd, dc = rf.robust(ser_b, ser_a, om, ncoins)
+    except GuardError:
+        # сделок B или A < 30 (п. 6, G8): вердикт «не определено» известен заранее, а бутстреп при такой малости может быть не определён (повторы без сделок) —
+        # чтение августа одноразовое, поэтому не падаем: печатаем описательные числа без интервала. При n ≥ 30 ошибка бутстрепа остаётся ошибкой.
+        if min(Na.sum(), Nb.sum()) >= MIN_TRADES_AUG:
+            raise
+        nan = float("nan")
+        st = rf.DStat(rf.ratio(Sb.sum(), Nb.sum()) - rf.ratio(Sa.sum(), Na.sum()), nan, nan, nan, float(Sb.sum() - Sa.sum()), nan,
+                      float(Sb.sum()), float(Sa.sum()), int(Nb.sum()), int(Na.sum()), len(Sb))
+        up, rob, dd, dc = nan, False, None, None
     return {"stat": st, "upper": up, "robust_ok": rob, "robust_days": dd, "robust_coins": dc, "verdict": aug_verdict(st, up, rob),
             "sum_a": float(Sa.sum()), "sum_b": float(Sb.sum()), "n_a": int(Na.sum()), "n_b": int(Nb.sum()),
             "mean_a": rf.ratio(Sa.sum(), Na.sum()), "mean_b": rf.ratio(Sb.sum(), Nb.sum()),

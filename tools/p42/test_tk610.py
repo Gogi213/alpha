@@ -305,6 +305,63 @@ def _tab(rows):
     return rf.table_from_rows([dict(sym=s, entry_ms=e, exit_ms=x, gross=g, fees=f, funding=0.0, net=g - f, kind="stop") for s, e, x, g, f in rows])
 
 
+class ReadEndToEndTests(unittest.TestCase):
+    """Репетиция `cmd_read` на синтетическом корне прогонов с настоящей раскладкой (`<окно>-R1`, `<окно>-R2-<S>`): чтение августа одноразовое, ошибка после маркера его сожжёт."""
+
+    @staticmethod
+    def _write_run(root, w, d, name, rows):
+        os.makedirs(d)
+        with open(os.path.join(d, name + "-trades.csv"), "w", encoding="utf-8", newline="") as f:
+            f.write("sym,entry_ms,exit_ms,gross,fees,funding,net,kind\n")
+            for s, e, x, g, fe in rows:
+                f.write("%s,%d,%d,%r,%r,0.0,%r,stop\n" % (s, e, x, g, fe, g - fe))
+
+    def _run(self, td, rows_a, rows_b, keep):
+        import argparse
+        coins = ["AAA", "BBB"]
+        sym = os.path.join(td, "symbols.txt")
+        open(sym, "w").write(",".join(coins))
+        root = os.path.join(td, "out")
+        for s in rf.SIDES:
+            name = rf.ENGINE_SIDE[s]
+            for w, rows in (("wa", rows_a), ("wb", rows_b)):
+                self._write_run(root, w, os.path.join(root, "%s-R1" % w, "eng", "%s_r1" % s), name, rows)
+                self._write_run(root, w, os.path.join(root, "%s-R2-%s" % (w, s), "eng", "%s_r2" % s), name, [r for k, r in enumerate(rows) if keep(k)])
+        fz = os.path.join(td, "frozen.json")
+        json.dump({"code_sha256": {}, "sides": {s: {"q": 0.1, "sigma_cstar_search": {"sigma": 5.0, "n": 100}} for s in rf.SIDES}}, open(fz, "w"))
+        out = os.path.join(td, "read")
+        a = argparse.Namespace(frozen=fz, frozen_sha256=T.sha256_file(fz), run_root=root, symbols=sym, out=out, shat_dir=None)
+        RD.cmd_read(a)
+        return a, json.load(open(os.path.join(out, "read-aug.json"), encoding="utf-8"))
+
+    def test_cmd_read_tiny_counts_not_defined_no_crash(self):
+        """n_B < 30 (G8: L 2 и S 26 сделок): бутстреп может быть не определён — чтение не падает, вердикт «не определено», маркер один."""
+        with tempfile.TemporaryDirectory() as td:
+            ra = [("AAA", 45 * DAY + 5, 45 * DAY + 50, 2.0, 0.1), ("BBB", 69 * DAY + 5, 69 * DAY + 50, 3.0, 0.1)]       # wa, август
+            rb = [("AAA", 32 * DAY + 5, 32 * DAY + 50, 6.0, 0.1), ("BBB", 37 * DAY + 5, 37 * DAY + 50, 7.0, 0.1)]       # wb, август
+            a, res = self._run(td, ra, rb, lambda k: k == 0)                                                           # R2 = первая сделка окна
+            for s in rf.SIDES:
+                r = res["sides"][s]
+                self.assertEqual((r["n_a"], r["n_b"], r["verdict"]), (4, 2, "не определено"))
+                self.assertAlmostEqual(r["sum_a"], 1.9 + 2.9 + 5.9 + 6.9, places=9)
+                self.assertAlmostEqual(r["sum_b"], 1.9 + 5.9, places=9)
+                self.assertAlmostEqual(r["delta"], (1.9 + 5.9) / 2 - (1.9 + 2.9 + 5.9 + 6.9) / 4, places=9)
+            self.assertTrue(os.path.exists(os.path.join(a.out, "READ-aug.started")))
+            with self.assertRaises(T.GuardError):
+                RD.cmd_read(a)                                                                                          # повтор — отказ
+
+    def test_cmd_read_enough_trades_defined(self):
+        with tempfile.TemporaryDirectory() as td:
+            rng = np.random.default_rng(3)
+            ra = [("AB"[k % 2] * 3, (45 + k % 25) * DAY + 5 + k, (45 + k % 25) * DAY + 50 + k, float(rng.normal(0.5, 2)), 0.1) for k in range(60)]
+            rb = [("AB"[k % 2] * 3, (32 + k % 6) * DAY + 5 + k, (32 + k % 6) * DAY + 50 + k, float(rng.normal(0.5, 2)), 0.1) for k in range(40)]
+            _, res = self._run(td, ra, rb, lambda k: k % 2 == 0)
+            r = res["sides"]["L"]
+            self.assertGreaterEqual(min(r["n_a"], r["n_b"]), 30)
+            self.assertIn(r["verdict"], ("подтверждено", "опровергнуто", "не ясно"))
+            self.assertTrue(np.isfinite(r["se"]) and np.isfinite(r["lower5"]))
+
+
 class SpliceAugTests(unittest.TestCase):
     def test_splice_picks_august_only(self):
         wa, wb = rf.WINDOWS[0], rf.WINDOWS[1]
