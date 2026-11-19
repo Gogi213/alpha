@@ -8,12 +8,14 @@
   TK-609  логи ворот /data/p42-tk609/ga*-<метка>*.log (конец «GAn rc=N»), юниты tk609*
   TK-611  /data/p42-tk611/ga.log (таблицы PASS/FAIL из 56), юнит tk611*
   TK-610  метки DONE этапов /data/p42-tk610 (репетиция R0/R1/cand, реальный счёт wa/wb/wc × R0/R1/R2), юнит tk610*
-  srv     нагрузка, свободное место на /
+  TK-614  сборки: бинари задач (путь, md5, время), очередь rbuild (/opt/rbuild, процессы run-srv.sh), место в Софии
+  srv     нагрузка, свободное место на /;  София — нагрузка и место на / по ssh (ключ только на команду чтения, см. sofia_probe)
 Использование: tk613_collect.py [выходной.json]. Корень данных — $TK613_DATA (по умолчанию /data). Ничего не падает от отсутствующих файлов:
 у задачи без данных состояние «нет данных».
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -21,7 +23,7 @@ import shutil
 import subprocess
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 ROOT = os.environ.get("TK613_DATA", "/data")
 OUT = sys.argv[1] if len(sys.argv) > 1 else os.environ.get("TK613_OUT", f"{ROOT}/pages/ml/data/tasks.json")
@@ -29,6 +31,11 @@ HIST = os.environ.get("TK613_HIST", f"{ROOT}/p42-tk613/hist.json")
 NB = " "
 FILL_TOTAL_FALLBACK = 84745
 GA_TOTAL = 56
+SOFIA = os.environ.get("TK613_SOFIA", "root@13.140.29.171")
+SOFIA_KEY = os.environ.get("TK613_SOFIA_KEY", "/root/.ssh/id_tk613_sofia")
+SOFIA_GUARD_GB = 23   # сторож места в Софии режет сборки при свободном ниже
+BINS = [("TK-599", "p42-tk599/bin/alpha-master"), ("TK-607", "p42-tk607/bin/alpha-fill"), ("TK-609", "p42-tk609/bin/alpha-feat-v3"),
+        ("TK-611", "p42-tk611/bin/alpha-feat-f12")]
 ST = {"run": "идёт", "pause": "пауза", "wait": "ждёт", "done": "готово", "fail": "ошибка", "nodata": "нет данных"}
 
 
@@ -70,6 +77,10 @@ def jload(path):
             return json.load(f)
     except (OSError, ValueError):
         return None
+
+
+def g4(ts):
+    return datetime.fromtimestamp(ts, timezone(timedelta(hours=4))).strftime("%H:%M")
 
 
 def n(v):
@@ -300,20 +311,39 @@ def tk599(units, hist, now):
 
 
 # ── TK-611: сверка таблиц признаков ────────────────────────────────────────────────────────────────────────────────────────────────────
-def tk611(units, hist, now, fill_state):
-    name = f"Сверка таблиц признаков с эталоном ({GA_TOTAL} таблиц)"
-    log = P("p42-tk611", "ga.log")
+def ga_tables(d):
+    """{таблица: (PASS|FAIL, причина)} по ga.log (последняя строка таблицы), затем по файлам ga/<имя>.gate и .json: JSON-итог сверки новее .gate
+    (повторный прогон без записи в ga.log) решает сам — так позднее PASS перекрывает прежний FAIL."""
     res = {}
-    why = {}
-    for ln in lines(log):
+    for ln in lines(f"{d}/ga.log"):
         m = re.match(r"(\S+) (PASS|FAIL)\b(.*)", ln)
         if m:
-            res[m[1]] = m[2]
-            why[m[1]] = m[3].split("|")[0].strip()[:90]
+            res[m[1]] = (m[2], m[3].split("|")[0].strip()[:90])
+    try:
+        names = {re.sub(r"\.(gate|json)$", "", f) for f in os.listdir(f"{d}/ga") if f.endswith((".gate", ".json"))}
+    except OSError:
+        names = set()
+    for nm in names:
+        gm, jm = mtime(f"{d}/ga/{nm}.gate"), mtime(f"{d}/ga/{nm}.json")
+        j = jload(f"{d}/ga/{nm}.json")
+        if isinstance(j, dict) and "total_diffs" in j and jm is not None and (gm is None or jm >= gm):
+            ok = j["total_diffs"] == 0 and j.get("keys_only_ref") == 0 and j.get("keys_only_new") == 0 and j.get("rows_ref") == j.get("rows_new")
+            res[nm] = ("PASS", "") if ok else ("FAIL", f"расхождений {j['total_diffs']}, ключей только в одной из сторон {j.get('keys_only_ref')}/{j.get('keys_only_new')}")
+        elif gm is not None and nm not in res:
+            g = lines(f"{d}/ga/{nm}.gate")
+            res[nm] = ("PASS", "") if any(x.startswith("GATE PASS") for x in g) else ("FAIL", (g[-1] if g else "")[:90])
+    return res
+
+
+def tk611(units, hist, now, fill_state):
+    name = f"Сверка таблиц признаков с эталоном ({GA_TOTAL} таблиц)"
+    d = P("p42-tk611")
+    log = f"{d}/ga.log"
+    res = ga_tables(d)
     if not res and mtime(log) is None:
         return row("TK-611", name, "nodata", "ga.log нет", total=GA_TOTAL)
-    ok = sum(1 for v in res.values() if v == "PASS")
-    bad = [k for k, v in res.items() if v == "FAIL"]
+    ok = sum(1 for v in res.values() if v[0] == "PASS")
+    bad = [k for k, v in res.items() if v[0] == "FAIL"]
     ru = running(units, "tk611")
     if ok >= GA_TOTAL:
         st = "done"
@@ -325,65 +355,62 @@ def tk611(units, hist, now, fill_state):
         st = "pause"
     parts = [f"{ok} PASS из {GA_TOTAL}", f"FAIL {len(bad)}"]
     if bad:
-        parts.append("последний FAIL: " + bad[-1] + (f" ({why[bad[-1]]})" if why.get(bad[-1]) else ""))
+        parts.append("последний FAIL: " + bad[-1] + (f" ({res[bad[-1]][1]})" if res[bad[-1]][1] else ""))
     if st == "pause":
         parts.append("юнитов нет; пауза до заполнения склада (TK-607)" if fill_state != "done" else "юнитов нет")
-    r = row("TK-611", name, st, " · ".join(parts), done=ok, total=GA_TOTAL, updated_ts=mtime(log), updated_src="ga.log")
+    upd = newest([log, f"{d}/ga"])
+    r = row("TK-611", name, st, " · ".join(parts), done=ok, total=GA_TOTAL, updated_ts=upd, updated_src="ga.log, ga/*.gate, ga/*.json")
     rate = hist_rate(hist, "TK-611", ok, now)
-    r = finish(r, now, rate, "таблиц/ч", "по росту числа PASS за последние ~2 ч", mul=3600)
-    return r
+    return finish(r, now, rate, "таблиц/ч", "по росту числа PASS за последние ~2 ч", mul=3600)
 
 
 # ── TK-609: ворота быстрого расчёта таблиц признаков ───────────────────────────────────────────────────────────────────────────────────
 def tk609(units, hist, now, fill_state):
-    name = "Быстрый расчёт таблиц признаков: ворота сверки G-A1…G-A3"
+    name = "Быстрый расчёт таблиц признаков: ворота сверки G-A1, G-A3"
     d = P("p42-tk609")
     ru = running(units, "tk609")
+    binf = f"{d}/bin/alpha-feat-v3"
+    bm = mtime(binf)
+    cur = md5_cached(hist, binf) if bm else None
     tags = []
     try:
         for f in os.listdir(d):
             m = re.fullmatch(r"ga1-(.+)\.log", f)
-            if m:
+            # ворота считаются, только если лог писал нынешний бинарь v3 (md5 в логе == md5 файла): логи прежних сборок (v2a, v3a «только LUT») не в счёт
+            if m and cur and cur in re.findall(r'"bin_md5": "([0-9a-f]{32})"', read(f"{d}/{f}") or ""):
                 tags.append((os.stat(f"{d}/{f}").st_mtime, m[1]))
     except OSError:
         return row("TK-609", name, "nodata", f"{d} нет")
+    gates = [("G-A1", "ga1"), ("G-A3", "ga3")]
+    binfo = f" · bin/alpha-feat-v3 в {g4(bm)} GMT+4" if bm else ""
     if not tags:
-        return row("TK-609", name, "pause" if not ru else "run", "логов ворот серии нет", total=6)
+        st = "run" if ru else "wait"
+        text = ("ворота идут (логов серии ещё нет)" if ru else "ждёт сборку v3" + (" и заполнение склада" if fill_state != "done" else "")) + ", ворота 0 из 2 (G-A1, G-A3)" + binfo
+        return finish(row("TK-609", name, st, text, done=0, total=2, updated_ts=bm, updated_src="сборка alpha-feat-v3",
+                          stages=[{"name": g[0], "st": "todo"} for g in gates]), now, None, None, stale_after=2400)
     tag = max(tags)[1]
-    gates = [("G-A1", f"ga1-{tag}.log"), ("G-A3", f"ga3-{tag}.log")] + [(f"G-A2 {w} {k}", f"ga2-{tag}-{w}-{k}.log") for k in ("deriv", "flow") for w in ("u0", "aug")]
     stages, ok_n, bad_n, cmp_n, diff_n, paths = [], 0, 0, 0, 0, []
-    for lbl, f in gates:
-        paths.append(f"{d}/{f}")
-        ls = lines(f"{d}/{f}")
+    for lbl, k in gates:
+        f = f"{d}/{k}-{tag}.log"
+        paths.append(f)
+        ls = lines(f)
         for ln in ls:
             m = re.search(r"rows ref=\d+ new=\d+ total_diffs=(\d+)", ln)
             if m:
                 cmp_n += 1
                 diff_n += int(m[1])
         end = re.fullmatch(r".*\brc=(\d+)", ls[-1]) if ls else None
-        if end:
-            s = "done" if end[1] == "0" else "fail"
-        elif ls:
-            s = "run" if ru else "pause"
-        else:
-            s = "todo"
-        ok_n += s == "done"
-        bad_n += s == "fail"
-        stages.append({"name": lbl, "st": s})
-    if ru:
-        st = "run"
-    elif bad_n:
-        st = "fail"
-    elif ok_n == len(gates):
-        st = "done"
-    else:
-        st = "pause"
-    text = f"серия {tag}: ворот закончено {ok_n} из {len(gates)} · сверок таблиц {cmp_n}, расхождений {diff_n}"
+        s_ = ("done" if end[1] == "0" else "fail") if end else (("run" if ru else "pause") if ls else "todo")
+        ok_n += s_ == "done"
+        bad_n += s_ == "fail"
+        stages.append({"name": lbl, "st": s_})
+    st = "run" if ru else "fail" if bad_n else "done" if ok_n == len(gates) else "pause" if fill_state == "done" else "wait"
+    text = f"серия {tag}: ворота {ok_n} из {len(gates)} (G-A1, G-A3) · сверок таблиц {cmp_n}, расхождений {diff_n}"
     if bad_n:
         text += f" · ворот с rc≠0: {bad_n}"
-    if st == "pause":
-        text += " · юнитов tk609* нет; пауза до заполнения склада (TK-607)" if fill_state != "done" else " · юнитов tk609* нет"
-    r = row("TK-609", name, st, text, done=ok_n, total=len(gates), updated_ts=newest(paths), updated_src=f"ga*-{tag}.log", stages=stages)
+    if st in ("wait", "pause"):
+        text += " · юнитов tk609* нет" + ("; ждёт заполнения склада (TK-607)" if fill_state != "done" else "")
+    r = row("TK-609", name, st, text + binfo, done=ok_n, total=len(gates), updated_ts=newest(paths), updated_src=f"ga1/ga3-{tag}.log", stages=stages)
     return finish(r, now, None, None, stale_after=2400)
 
 
@@ -449,7 +476,88 @@ def tk610(units, hist, now, frozen):
     return finish(r, now, None, None, stale_after=3600)
 
 
-def host(now):
+# ── TK-614: сборки — бинари, очередь, место в Софии ────────────────────────────────────────────────────────────────────────────────────
+def md5_cached(hist, path):
+    st = os.stat(path)
+    cache = hist.setdefault("_md5", {})
+    e = cache.get(path)
+    if e and e[0] == st.st_size and e[1] == st.st_mtime:
+        return e[2]
+    h = hashlib.md5()
+    with open(path, "rb") as f:
+        for ch in iter(lambda: f.read(1 << 20), b""):
+            h.update(ch)
+    cache[path] = [st.st_size, st.st_mtime, h.hexdigest()]
+    return h.hexdigest()
+
+
+def rbuild_state():
+    """(идёт ли сборка, [(архив запроса, mtime архива)]) по процессам: очередь rbuild — run-srv.sh <архив> <команда>, сборка — cargo/rustc из /opt/rbuild."""
+    reqs, building = [], False
+    try:
+        pids = [x for x in os.listdir("/proc") if x.isdigit()]
+    except OSError:
+        return None
+    for pid in pids:
+        try:
+            cmd = open(f"/proc/{pid}/cmdline", "rb").read().split(b"\0")
+        except OSError:
+            continue
+        if len(cmd) >= 3 and cmd[1].endswith(b"/run-srv.sh"):
+            arc = cmd[2].decode("utf-8", "replace")
+            reqs.append((os.path.basename(arc), mtime(arc)))
+        elif cmd and os.path.basename(cmd[0].decode("utf-8", "replace")) in ("cargo", "rustc") and any(b"/opt/rbuild/" in c for c in cmd):
+            building = True
+    return building, reqs
+
+
+def sofia_probe():
+    """Нагрузка и место на / в Софии: ssh ключом, который на Софии разрешён только на одну команду чтения (forced command в authorized_keys)."""
+    try:
+        r = subprocess.run(["ssh", "-i", SOFIA_KEY, "-o", "BatchMode=yes", "-o", "IdentitiesOnly=yes", "-o", "ConnectTimeout=5",
+                            "-o", "UserKnownHostsFile=/root/.ssh/known_hosts", SOFIA, "true"], capture_output=True, text=True, timeout=12, stdin=subprocess.DEVNULL)
+        out = r.stdout.strip().splitlines()
+        if r.returncode != 0 or len(out) < 3:
+            return {"ok": False, "err": (r.stderr.strip().splitlines() or ["пустой ответ"])[-1][:100]}
+        la = [float(x) for x in out[0].split()[:3]]
+        df = out[2].split()
+        total, avail = int(df[1]), int(df[3])
+        return {"ok": True, "load": la, "cpus": int(out[1]), "disk": {"free_gb": round(avail / 1e9, 1), "total_gb": round(total / 1e9, 1),
+                                                                      "used_pct": round(100 * (total - avail) / total, 1), "guard_gb": SOFIA_GUARD_GB}}
+    except (OSError, subprocess.SubprocessError, ValueError, IndexError) as e:
+        return {"ok": False, "err": f"{type(e).__name__}: {e}"[:100]}
+
+
+def tk614(units, hist, now, sofia):
+    name = "Сборки: бинари задач (путь, md5), очередь, место в Софии"
+    stages = []
+    for tid, rel in BINS:
+        path = P(rel)
+        try:
+            stages.append({"name": f"{tid} {rel.split('/', 1)[1]} · {md5_cached(hist, path)[:8]} · {g4(os.stat(path).st_mtime)}", "st": "info"})
+        except OSError:
+            stages.append({"name": f"{tid} {rel.split('/', 1)[1]} · нет файла", "st": "todo"})
+    keep = {P(r) for _, r in BINS}
+    hist["_md5"] = {k: v for k, v in hist.get("_md5", {}).items() if k in keep}
+    rb = rbuild_state()
+    if rb is None:
+        q, st = "очередь rbuild: не удалось прочитать процессы", "nodata"
+    else:
+        building, reqs = rb
+        waiting = max(0, len(reqs) - (1 if building else 0))
+        oldest = max((now - m for _, m in reqs if m), default=None)
+        q = (f"сборка идёт, в очереди ждут {waiting}" if building else f"сборок нет, запросов в очереди {len(reqs)}") + (f" (старейший запрос {int(oldest // 60)} мин)" if oldest else "")
+        st = "run" if (building or reqs) else "pause"
+    if sofia and sofia.get("ok"):
+        dk = sofia["disk"]
+        sf = f"место в Софии: свободно {dec(dk['free_gb'])} ГБ из {dec(dk['total_gb'], 0)}" + (
+            f" — НИЖЕ порога сторожа {SOFIA_GUARD_GB} ГБ" if dk["free_gb"] < SOFIA_GUARD_GB else f" (сторож режет сборки при < {SOFIA_GUARD_GB} ГБ)")
+    else:
+        sf = "место в Софии: нет данных" + (f" ({sofia['err']})" if sofia else "")
+    return row("TK-614", name, st, f"{q} · {sf}", noprog=True, updated_ts=now, updated_src="процессы srv, ssh на Софию", stages=stages)
+
+
+def host(now, sofia=None):
     try:
         l1, l5, l15 = os.getloadavg()
     except (OSError, AttributeError):
@@ -459,7 +567,7 @@ def host(now):
         disk = {"free_gb": round(du.free / 1e9, 1), "total_gb": round(du.total / 1e9, 1), "used_pct": round(100 * du.used / du.total, 1)}
     except OSError:
         disk = None
-    return {"load": [round(x, 2) for x in (l1, l5, l15)] if l1 is not None else None, "cpus": os.cpu_count(), "disk": disk}
+    return {"load": [round(x, 2) for x in (l1, l5, l15)] if l1 is not None else None, "cpus": os.cpu_count(), "disk": disk, "sofia": sofia}
 
 
 def safe(tid, name, fn):
@@ -475,14 +583,16 @@ def collect(now=None, units=None):
     hist = jload(HIST) or {}
     if not isinstance(hist, dict):
         hist = {}
+    sofia = sofia_probe()
     t607 = safe("TK-607", "Склад тиков", lambda: tk607(units, hist, now))
     fill = t607["state"]
     frozen = bool((read(P("p42-tk599", "frozen.commit"), 100) or "").strip())
     tasks = [safe("TK-599", "Подбор параметров пробоя", lambda: tk599(units, hist, now)), t607,
              safe("TK-609", "Быстрый расчёт таблиц признаков", lambda: tk609(units, hist, now, fill)),
              safe("TK-611", "Сверка таблиц признаков", lambda: tk611(units, hist, now, fill)),
-             safe("TK-610", "CatBoost на конфигурации TK-599", lambda: tk610(units, hist, now, frozen))]
-    return {"generated_ts": now, "host": host(now), "units_ok": units is not None, "tasks": tasks}, hist
+             safe("TK-610", "CatBoost на конфигурации TK-599", lambda: tk610(units, hist, now, frozen)),
+             safe("TK-614", "Сборки", lambda: tk614(units, hist, now, sofia))]
+    return {"generated_ts": now, "host": host(now, sofia), "units_ok": units is not None, "tasks": tasks}, hist
 
 
 def main():

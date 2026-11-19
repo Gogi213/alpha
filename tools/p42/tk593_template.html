@@ -193,7 +193,8 @@ section.ft-set{margin-top:22px;scroll-margin-top:118px}
 .ft tr.grp{display:block;padding:0;border:0;margin-top:6px}
 .ft tr.grp td{padding:6px 10px;border-radius:6px}
 }
-.lv-meta{display:flex;flex-wrap:wrap;gap:2px 18px;color:var(--mfg);font-size:12.5px;margin:4px 0 14px}
+.lv-meta{color:var(--mfg);font-size:12.5px;margin:4px 0 14px}
+.lv-hl{display:flex;flex-wrap:wrap;gap:2px 18px}
 .lv-warn{margin:0 0 12px;padding:8px 12px;border:1px solid var(--fg);border-radius:8px;font-size:13px;font-weight:600}
 .lv-head,.lv-row{display:grid;grid-template-columns:minmax(200px,1.5fr) 92px minmax(260px,2.2fr) 104px 130px 112px;gap:6px 18px;align-items:start}
 .lv-head{padding:0 16px 8px;color:var(--mfg);font-size:12px;font-weight:500}
@@ -205,6 +206,7 @@ section.ft-set{margin-top:22px;scroll-margin-top:118px}
 .lv-bar i{display:block;height:100%;background:var(--accent);border-radius:5px}
 .lv-bar.unk i{width:100%;background:repeating-linear-gradient(90deg,var(--z300) 0 6px,transparent 6px 12px)}
 .lv-txt{color:var(--z600);font-size:12.5px;margin-top:6px;word-break:break-word}
+.lv-txt.lv-first{margin-top:0}
 .lv-chips{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}
 .lv-chip{font-size:11px;border:1px solid var(--border);border-radius:5px;padding:1px 6px;color:var(--mfg);white-space:nowrap}
 .lv-chip.done{border-color:var(--accent);color:var(--accent)}
@@ -961,15 +963,15 @@ function dur(sec) {
   return hh < 48 ? hh + N + 'ч' + N + p2(m % 60) + N + 'мин' : Math.round(hh / 24) + N + 'сут';
 }
 const LV_BADGE = {run: 'run', done: 'ok', fail: 'fail', wait: 'wait', pause: '', nodata: ''};
-const LV_MARK = {done: '✓', run: '…', fail: '✗', todo: '–', pause: '–'};
+const LV_MARK = {done: '✓', run: '…', fail: '✗', todo: '–', pause: '–', info: ''};
 function lvRow(t, now) {
   const unk = t.pct == null;
   const age = t.updated_ts ? now - t.updated_ts : null;
   const bar = h('div', {class: 'lv-bar' + (unk ? ' unk' : '')}, h('i', {style: unk ? null : `width:${t.pct}%` + (t.pct > 0 ? ';min-width:3px' : '')}));
-  const prog = h('div', {class: 'lv-c lv-prog'}, [
+  const prog = h('div', {class: 'lv-c lv-prog'}, t.noprog ? [h('div', {class: 'lv-txt lv-first', 'data-f': 'text'}, t.text)] : [
     h('div', {class: 'lv-pct', 'data-f': 'pct'}, unk ? 'всего: неизвестно' : num(t.pct, 1) + ' %'), bar,
     h('div', {class: 'lv-txt', 'data-f': 'text'}, t.text)]);
-  if (t.stages) prog.append(h('div', {class: 'lv-chips'}, t.stages.map(s => h('span', {class: 'lv-chip ' + s.st}, `${LV_MARK[s.st] || '–'} ${s.name}`))));
+  if (t.stages) prog.append(h('div', {class: 'lv-chips'}, t.stages.map(s => h('span', {class: 'lv-chip ' + s.st}, (s.st in LV_MARK ? LV_MARK[s.st] : '–') + (LV_MARK[s.st] === '' ? '' : ' ') + s.name))));
   let eta = '—', etaSub = null;
   if (t.eta_ts) { eta = g4(t.eta_ts) + (t.eta_hi_ts ? '–' + g4(t.eta_hi_ts) : ''); etaSub = 'через ' + dur(t.eta_ts - now) + (t.eta_hi_ts ? ' … ' + dur(t.eta_hi_ts - now) : ''); }
   const rate = t.rate ? num(t.rate, t.rate < 10 ? 1 : 0) + ' ' + t.rate_unit : '—';
@@ -997,10 +999,12 @@ function renderLive() {
   if (d && d.units_ok === false) warn.push('Сборщик не смог прочитать список юнитов (systemctl) — состояния «идёт» могут быть неточны.');
   document.getElementById('lv-warn').replaceChildren(...warn.map(w => h('div', {class: 'lv-warn'}, w)));
   document.getElementById('lv-sub').textContent = d ? `данные от ${g4(d.generated_ts)} GMT+4 · ${dur(now - d.generated_ts)} назад · обновление раз в 60 с` : 'загрузка…';
-  const meta = document.getElementById('lv-meta'), ho = d && d.host;
-  meta.replaceChildren(...(ho ? [
-    ho.load ? h('span', {'data-f': 'load'}, `srv: загрузка ${ho.load.map(x => num(x, 1)).join(' / ')} (ядер ${ho.cpus})`) : null,
-    ho.disk ? h('span', {'data-f': 'disk'}, `на / свободно ${num(ho.disk.free_gb, 1)} ГБ из ${num(ho.disk.total_gb, 0)} (занято ${num(ho.disk.used_pct, 0)} %)`) : null].filter(Boolean) : []));
+  const meta = document.getElementById('lv-meta'), ho = d && d.host, so = ho && ho.sofia;
+  const hostLine = (lbl, x, f) => !x ? [] : [
+    x.load ? h('span', {'data-f': f + '-load'}, `${lbl}: загрузка ${x.load.map(v => num(v, 1)).join(' / ')} (ядер ${x.cpus})`) : null,
+    x.disk ? h('span', {'data-f': f + '-disk'}, `на / свободно ${num(x.disk.free_gb, 1)} ГБ из ${num(x.disk.total_gb, 0)} (занято ${num(x.disk.used_pct, 0)} %)`) : null].filter(Boolean);
+  meta.replaceChildren(...(ho ? [h('div', {class: 'lv-hl'}, hostLine('srv', ho, 'srv')),
+    h('div', {class: 'lv-hl'}, so && so.ok ? hostLine('София', so, 'sofia') : [h('span', {'data-f': 'sofia-load'}, 'София: нет данных' + (so && so.err ? ' (' + so.err + ')' : ''))])] : []));
   document.getElementById('lv-rows').replaceChildren(...(d ? d.tasks.map(t => lvRow(t, now)) : []));
 }
 async function loadLive() {

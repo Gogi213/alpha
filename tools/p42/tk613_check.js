@@ -36,7 +36,7 @@ function g4(ts, nowMs) {
   const rows = () => page.evaluate(() => [...document.querySelectorAll('#live .lv-row')].map(r => {
     const t = s => { const n = r.querySelector(s); return n ? n.innerText.replace(/\s+/g, ' ').trim() : null; };
     return {id: r.dataset.task, state: t('[data-f=state]'), pct: t('[data-f=pct]'), text: t('[data-f=text]'), rate: t('[data-f=rate]'), eta: t('[data-f=eta]'), upd: t('[data-f=upd]'),
-      bar: (r.querySelector('.lv-bar i') || {style: {}}).style.width || null, unk: !!r.querySelector('.lv-bar.unk'), chips: [...r.querySelectorAll('.lv-chip')].map(c => c.innerText)};
+      bar: (r.querySelector('.lv-bar i') || {style: {}}).style.width || null, unk: !!r.querySelector('.lv-bar.unk'), nobar: !r.querySelector('.lv-bar'), chips: [...r.querySelectorAll('.lv-chip')].map(c => c.innerText)};
   }));
   let J = null;   // первый ответ tasks.json, который получила сама страница (сверка именно с ним)
   page.on('response', async r => { if (!J && r.url().includes('data/tasks.json')) J = await r.json(); });
@@ -58,8 +58,8 @@ function g4(ts, nowMs) {
   J.tasks.forEach((t, i) => {
     const r = R[i], k = t.id;
     eq(`${k} состояние`, r.state, t.state_text);
-    eq(`${k} процент`, r.pct, t.pct == null ? 'всего: неизвестно' : ru(t.pct, 1) + ' %');
-    eq(`${k} полоса`, t.pct == null ? r.unk : r.bar, t.pct == null ? true : t.pct + '%');
+    eq(`${k} процент`, r.pct, t.noprog ? null : t.pct == null ? 'всего: неизвестно' : ru(t.pct, 1) + ' %');
+    eq(`${k} полоса`, t.noprog ? r.nobar : t.pct == null ? r.unk : r.bar, t.noprog ? true : t.pct == null ? true : t.pct + '%');
     eq(`${k} счётчик`, r.text, t.text.replace(/\s+/g, ' ').trim());
     eq(`${k} скорость`, r.rate, t.rate ? ru(t.rate, t.rate < 10 ? 1 : 0) + ' ' + t.rate_unit : '—');
     const etaHead = t.eta_ts ? g4(t.eta_ts, nowMs) + (t.eta_hi_ts ? '–' + g4(t.eta_hi_ts, nowMs) : '') : '—';
@@ -70,6 +70,7 @@ function g4(ts, nowMs) {
   const meta = await page.evaluate(() => document.getElementById('lv-meta').innerText.replace(/\s+/g, ' '));
   eq('нагрузка в строке srv', meta.includes('загрузка ' + J.host.load.map(x => ru(x, 1)).join(' / ')), true);
   eq('диск в строке srv', meta.includes('свободно ' + ru(J.host.disk.free_gb, 1) + ' ГБ'), true);
+  eq('строка Софии', J.host.sofia && J.host.sofia.ok ? meta.includes('София: загрузка ' + J.host.sofia.load.map(x => ru(x, 1)).join(' / ')) && meta.includes('свободно ' + ru(J.host.sofia.disk.free_gb, 1) + ' ГБ') : meta.includes('София: нет данных'), true);
   eq('подзаголовок: время сборки GMT+4', (await page.locator('#lv-sub').innerText()).includes(g4(J.generated_ts, nowMs)), true);
   eq('нет предупреждений при свежих данных', await page.locator('.lv-warn').count(), (nowMs / 1000 - J.generated_ts > 180) ? 1 : 0);
   C.overflowX = await overflow();
