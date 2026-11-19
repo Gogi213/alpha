@@ -51,6 +51,20 @@ cmpdirs() { # метка окно варианты A B список-файлов
   done < "$vars"
   [ "$d" = 0 ] && echo "GATE OK $label $w вариантов=$nv файлов=$n различий=0" >> "$SUM" || echo "GATE DIFF $label $w вариантов=$nv файлов=$n различий=$d" >> "$SUM"
 }
+tk599cmp() { # окно: выходы a112684a (ref) против готовых выходов TK-599 (a03c91df) на L_base, S_base — основание для guard.py equiv
+  local w="$1" n=0 d=0 pair nm vid side f a b
+  for pair in "L_base c53a116125b39" "S_base c10fbba7be522"; do
+    read -r nm vid <<< "$pair"
+    for side in long short; do
+      for f in trades.csv daily.csv coinday.csv entryrej.csv; do
+        a="$G/ref/$w/$nm/$side-$f"; b="$ROOT/out/$w/$vid/$side-$f"; n=$((n+1))
+        cmp -s "$a" "$b" || { d=$((d+1)); echo "  DIFF ref(a112684a) $nm $side-$f vs TK-599(a03c91df)" >> "$SUM"; }
+      done
+    done
+    n=$((n+1)); cmp -s "$G/ref/$w/$nm/meta.json" "$ROOT/out/$w/$vid/meta.json" || { d=$((d+1)); echo "  DIFF ref(a112684a) $nm meta.json vs TK-599(a03c91df)" >> "$SUM"; }
+  done
+  [ "$d" = 0 ] && echo "GATE OK a112684a-vs-a03c91df $w вариантов=2 файлов=$n различий=0" >> "$SUM" || echo "GATE DIFF a112684a-vs-a03c91df $w вариантов=2 файлов=$n различий=$d" >> "$SUM"
+}
 F0=(trades.csv daily.csv coinday.csv entryrej.csv detail.jsonl meta.json)
 FM=(trades.csv daily.csv coinday.csv entryrej.csv maker.json detail.jsonl)
 SCN=$G/sc-new0; SCM=$G/sc-mkc
@@ -58,6 +72,7 @@ for w in wa wb wc; do
   rm -rf "$SCN" "$SCM" "$G/sc-ref"
   echo "== $w $(date +%H:%M:%S)" >> "$SUM"
   run "$OLD" "$G/ref/$w" "$w" "$V0" "$G/sc-ref" || { echo "GATE FAIL ref $w" >> "$SUM"; continue; }
+  tk599cmp "$w"
   run "$NEW" "$G/new0c/$w" "$w" "$V0" "$SCN" && cmpdirs "mk0-cold" "$w" "$V0" "$G/new0c/$w" "$G/ref/$w" "${F0[@]}" || echo "GATE FAIL mk0-cold $w" >> "$SUM"
   run "$NEW" "$G/new0w/$w" "$w" "$V0" "$SCN" && cmpdirs "mk0-warm" "$w" "$V0" "$G/new0w/$w" "$G/ref/$w" "${F0[@]}" || echo "GATE FAIL mk0-warm $w" >> "$SUM"
   run "$NEW" "$G/mkc/$w" "$w" "$VM" "$SCM" || echo "GATE FAIL mk-cold $w" >> "$SUM"
