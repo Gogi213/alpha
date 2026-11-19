@@ -28,10 +28,12 @@ push)
 run)
   TH="${1:?потоков}"; shift; EXTRA="${*:-}"
   U="tk610-fit-$NAME-$SIDE"; OUT="$R/out/$NAME-$SIDE"
+  TRAIN=$(sofia "ls $R/in/$NAME/train-*-$SIDE.parquet | tr '
+' ' '")
   sofia "systemctl reset-failed $U 2>/dev/null; rm -rf $OUT; mkdir -p $OUT; cat > $R/run-$NAME-$SIDE.sh <<EOS
 #!/usr/bin/env bash
 cd $R/py-$NAME
-$R/venv/bin/python -W ignore tk610_fit.py fit --side $SIDE --train \$(ls $R/in/$NAME/train-*-$SIDE.parquet) --out $OUT --procs $TH $EXTRA > $OUT/fit.log 2>&1
+$R/venv/bin/python -W ignore tk610_fit.py fit --side $SIDE --train $TRAIN --out $OUT --procs $TH $EXTRA > $OUT/fit.log 2>&1
 rc=\\\$?
 ( cd $OUT && find fit-$SIDE.json models -type f -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS )
 echo \\\$rc > $OUT/DONE
