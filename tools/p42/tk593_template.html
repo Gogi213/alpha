@@ -193,12 +193,41 @@ section.ft-set{margin-top:22px;scroll-margin-top:118px}
 .ft tr.grp{display:block;padding:0;border:0;margin-top:6px}
 .ft tr.grp td{padding:6px 10px;border-radius:6px}
 }
+.lv-meta{display:flex;flex-wrap:wrap;gap:2px 18px;color:var(--mfg);font-size:12.5px;margin:4px 0 14px}
+.lv-warn{margin:0 0 12px;padding:8px 12px;border:1px solid var(--fg);border-radius:8px;font-size:13px;font-weight:600}
+.lv-head,.lv-row{display:grid;grid-template-columns:minmax(200px,1.5fr) 92px minmax(260px,2.2fr) 104px 130px 112px;gap:6px 18px;align-items:start}
+.lv-head{padding:0 16px 8px;color:var(--mfg);font-size:12px;font-weight:500}
+.lv-row{background:#fff;border:1px solid var(--border);border-radius:var(--r);box-shadow:0 1px 2px rgba(0,0,0,.04);padding:14px 16px;margin-bottom:10px}
+.lv-name b{display:block;font-size:13px;color:var(--z600)}
+.lv-name span{display:block;font-size:14.5px;font-weight:600;line-height:1.35}
+.lv-pct{font-weight:650;font-size:15px;margin-bottom:5px}
+.lv-bar{height:10px;border-radius:5px;background:var(--muted);overflow:hidden}
+.lv-bar i{display:block;height:100%;background:var(--accent);border-radius:5px}
+.lv-bar.unk i{width:100%;background:repeating-linear-gradient(90deg,var(--z300) 0 6px,transparent 6px 12px)}
+.lv-txt{color:var(--z600);font-size:12.5px;margin-top:6px;word-break:break-word}
+.lv-chips{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}
+.lv-chip{font-size:11px;border:1px solid var(--border);border-radius:5px;padding:1px 6px;color:var(--mfg);white-space:nowrap}
+.lv-chip.done{border-color:var(--accent);color:var(--accent)}
+.lv-chip.run{border:1px dashed var(--accent);color:var(--accent)}
+.lv-chip.fail{background:var(--fg);border-color:var(--fg);color:#fff}
+.lv-c small{display:block;color:var(--mfg);font-size:11.5px}
+.lv-c.warn small{color:var(--fg);font-weight:600}
+.badge.wait{border-style:dashed}
+.badge.fail{background:var(--fg);border-color:var(--fg);color:#fff}
+.lv-foot{margin:14px 0 0;color:var(--mfg);font-size:12.5px}
+@media(max-width:900px){
+.lv-head{display:none}
+.lv-row{grid-template-columns:1fr 1fr;gap:10px 14px}
+.lv-name,.lv-prog{grid-column:1/-1}
+.lv-c[data-l]::before{content:attr(data-l);display:block;color:var(--mfg);font-size:11px}
+}
 </style>
 </head>
 <body>
 <div class="toptabs"><div class="toptabs-in"><span class="brand">П-42 · CatBoost</span><div class="tabs" id="toptabs" role="tablist"></div></div></div>
 <div class="wrap">
-  <div class="pane" id="pane-progress"><div class="prog" id="progress"></div></div>
+  <div class="pane" id="pane-live" hidden><div class="prog" id="live"></div></div>
+  <div class="pane" id="pane-progress" hidden><div class="prog" id="progress"></div></div>
   <div class="pane" id="pane-targets" hidden><div class="prog" id="targets-box"></div></div>
   <div class="pane" id="pane-equity" hidden>
     <div class="prog" id="equity">
@@ -913,9 +942,89 @@ function renderFeatures() {
   root.append(h('p', {class: 'prog-foot', 'data-f': 'foot'}, FEAT.foot));
 }
 
-// ── вкладки верхнего уровня: хеш #progress | #targets | #equity[/short|long|both][/shape | /comp][/dep=N] | #features[/<набор>] | #model[/long|short]
-const TABS = [['progress', 'Ход работ'], ['targets', 'Цели TK-598'], ['equity', 'Эквити'], ['features', 'Признаки'], ['model', 'Модель TK-592']];
-const ST = {tab: 'progress', ft: null, eq: 'short', view: 'curve', model: 'long', cmp: false, dep: EQ_DEP0};
+// ── вкладка «Прогресс» (TK-613): живые счётчики srv. data/tasks.json пишет tk613_collect.py (таймер tk613-progress, раз в 60 с), страница перечитывает его раз в 60 с
+const LV = {timer: null, busy: false, data: null, okAt: 0, tryAt: 0, err: null};
+const LV_MS = 60000;
+const p2 = v => String(v).padStart(2, '0');
+function g4(ts) {   // epoch, с → «ЧЧ:ММ» по GMT+4 (с датой, если не сегодня)
+  const d = new Date(ts * 1000 + 4 * 3600e3), n = new Date(Date.now() + 4 * 3600e3);
+  const same = d.getUTCFullYear() === n.getUTCFullYear() && d.getUTCMonth() === n.getUTCMonth() && d.getUTCDate() === n.getUTCDate();
+  return (same ? '' : p2(d.getUTCDate()) + '.' + p2(d.getUTCMonth() + 1) + ' ') + p2(d.getUTCHours()) + ':' + p2(d.getUTCMinutes());
+}
+function dur(sec) {
+  sec = Math.max(0, Math.round(sec));
+  const N = ' ';   // неразрывный пробел: «2 ч 12 мин» не рвётся по строкам
+  if (sec < 90) return sec + N + 'с';
+  const m = Math.round(sec / 60);
+  if (m < 90) return m + N + 'мин';
+  const hh = Math.floor(m / 60);
+  return hh < 48 ? hh + N + 'ч' + N + p2(m % 60) + N + 'мин' : Math.round(hh / 24) + N + 'сут';
+}
+const LV_BADGE = {run: 'run', done: 'ok', fail: 'fail', wait: 'wait', pause: '', nodata: ''};
+const LV_MARK = {done: '✓', run: '…', fail: '✗', todo: '–', pause: '–'};
+function lvRow(t, now) {
+  const unk = t.pct == null;
+  const age = t.updated_ts ? now - t.updated_ts : null;
+  const bar = h('div', {class: 'lv-bar' + (unk ? ' unk' : '')}, h('i', {style: unk ? null : `width:${t.pct}%` + (t.pct > 0 ? ';min-width:3px' : '')}));
+  const prog = h('div', {class: 'lv-c lv-prog'}, [
+    h('div', {class: 'lv-pct', 'data-f': 'pct'}, unk ? 'всего: неизвестно' : num(t.pct, 1) + ' %'), bar,
+    h('div', {class: 'lv-txt', 'data-f': 'text'}, t.text)]);
+  if (t.stages) prog.append(h('div', {class: 'lv-chips'}, t.stages.map(s => h('span', {class: 'lv-chip ' + s.st}, `${LV_MARK[s.st] || '–'} ${s.name}`))));
+  let eta = '—', etaSub = null;
+  if (t.eta_ts) { eta = g4(t.eta_ts) + (t.eta_hi_ts ? '–' + g4(t.eta_hi_ts) : ''); etaSub = 'через ' + dur(t.eta_ts - now) + (t.eta_hi_ts ? ' … ' + dur(t.eta_hi_ts - now) : ''); }
+  const rate = t.rate ? num(t.rate, t.rate < 10 ? 1 : 0) + ' ' + t.rate_unit : '—';
+  const stale = t.stale_min != null;
+  return h('div', {class: 'lv-row', 'data-task': t.id, 'data-state': t.state}, [
+    h('div', {class: 'lv-c lv-name'}, [h('b', {}, t.id), h('span', {}, t.name)]),
+    h('div', {class: 'lv-c', 'data-l': 'Состояние'}, h('span', {class: 'badge ' + (LV_BADGE[t.state] || ''), 'data-f': 'state'}, t.state_text)),
+    prog,
+    h('div', {class: 'lv-c', 'data-l': 'Скорость', 'data-f': 'rate'}, rate),
+    h('div', {class: 'lv-c', 'data-l': 'Конец (GMT+4)', 'data-f': 'eta', title: t.eta_note || null}, [eta, etaSub ? h('small', {}, etaSub) : null]),
+    h('div', {class: 'lv-c' + (stale ? ' warn' : ''), 'data-l': 'Обновлено', 'data-f': 'upd', title: t.updated_src || null},
+      t.updated_ts ? [g4(t.updated_ts), h('small', {}, stale ? `не менялось ${dur(age)}` : dur(age) + ' назад')] : '—')]);
+}
+function renderLive() {
+  const root = document.getElementById('live');
+  if (!root.childElementCount) {
+    root.append(h('div', {class: 'prog-h'}, [h('h2', {}, 'Прогресс'), h('span', {class: 'muted small', id: 'lv-sub'})]),
+      h('div', {class: 'lv-meta', id: 'lv-meta'}), h('div', {id: 'lv-warn'}), h('div', {class: 'lv-head'}, ['Задача', 'Состояние', 'Прогресс', 'Скорость', 'Конец (GMT+4)', 'Обновлено'].map(x => h('span', {}, x))),
+      h('div', {id: 'lv-rows'}), h('p', {class: 'lv-foot'}, 'Счётчики и юниты srv, раз в минуту; страница перечитывает их сама. Время — GMT+4.'));
+  }
+  const d = LV.data, now = Date.now() / 1000;
+  const warn = [];
+  if (LV.err) warn.push(`Нет связи с сервером (попытка в ${g4(LV.tryAt / 1000)}): ${LV.err}.` + (d ? ` Показаны данные от ${g4(d.generated_ts)}.` : ''));
+  if (d && now - d.generated_ts > 180) warn.push(`Сборщик не обновлял данные ${dur(now - d.generated_ts)} — цифры ниже устарели.`);
+  if (d && d.units_ok === false) warn.push('Сборщик не смог прочитать список юнитов (systemctl) — состояния «идёт» могут быть неточны.');
+  document.getElementById('lv-warn').replaceChildren(...warn.map(w => h('div', {class: 'lv-warn'}, w)));
+  document.getElementById('lv-sub').textContent = d ? `данные от ${g4(d.generated_ts)} GMT+4 · ${dur(now - d.generated_ts)} назад · обновление раз в 60 с` : 'загрузка…';
+  const meta = document.getElementById('lv-meta'), ho = d && d.host;
+  meta.replaceChildren(...(ho ? [
+    ho.load ? h('span', {'data-f': 'load'}, `srv: загрузка ${ho.load.map(x => num(x, 1)).join(' / ')} (ядер ${ho.cpus})`) : null,
+    ho.disk ? h('span', {'data-f': 'disk'}, `на / свободно ${num(ho.disk.free_gb, 1)} ГБ из ${num(ho.disk.total_gb, 0)} (занято ${num(ho.disk.used_pct, 0)} %)`) : null].filter(Boolean) : []));
+  document.getElementById('lv-rows').replaceChildren(...(d ? d.tasks.map(t => lvRow(t, now)) : []));
+}
+async function loadLive() {
+  if (LV.busy) return;
+  LV.busy = true; LV.tryAt = Date.now();
+  try {
+    const r = await fetch('data/tasks.json?_=' + Date.now(), {cache: 'no-store'});
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    LV.data = await r.json(); LV.err = null; LV.okAt = Date.now();
+  } catch (e) { LV.err = String(e.message || e); }
+  LV.busy = false;
+  if (ST.tab === 'live') renderLive();
+}
+function liveStart() {
+  renderLive();
+  if (!LV.okAt || Date.now() - LV.okAt > 5000) loadLive();
+  if (!LV.timer) LV.timer = setInterval(() => { if (!document.hidden) loadLive(); }, LV_MS);
+}
+function liveStop() { clearInterval(LV.timer); LV.timer = null; }
+document.addEventListener('visibilitychange', () => { if (!document.hidden && ST.tab === 'live' && Date.now() - LV.tryAt > 50000) loadLive(); });
+
+// ── вкладки верхнего уровня: хеш #live | #progress | #targets | #equity[/short|long|both][/shape | /comp][/dep=N] | #features[/<набор>] | #model[/long|short]
+const TABS = [['live', 'Прогресс'], ['progress', 'Ход работ'], ['targets', 'Цели TK-598'], ['equity', 'Эквити'], ['features', 'Признаки'], ['model', 'Модель TK-592']];
+const ST = {tab: 'live', ft: null, eq: 'short', view: 'curve', model: 'long', cmp: false, dep: EQ_DEP0};
 function parseHash() {
   const [a, b, c, d] = location.hash.replace(/^#/, '').split('/');
   if (a === 'long' || a === 'short') { ST.tab = 'model'; ST.model = a; return; }
@@ -935,6 +1044,7 @@ function setHash() { history.replaceState(null, '', '#' + ST.tab + (ST.tab === '
 function route() {
   TABS.forEach(([k]) => { document.getElementById('pane-' + k).hidden = k !== ST.tab; });
   document.querySelectorAll('#toptabs button').forEach(b => b.setAttribute('aria-selected', b.dataset.tab === ST.tab));
+  if (ST.tab === 'live') liveStart(); else liveStop();
   if (ST.tab === 'equity') renderEquity();
   if (ST.tab === 'model') select(ST.model);
   if (ST.tab === 'features') { renderFeatures(); if (ST.ft) setTimeout(ftGo, 0); }

@@ -28,6 +28,7 @@ const base = url.split('#')[0];
   // ── верхние вкладки: по умолчанию «Ход работ», клик по каждой, хеш
   report.tabs.default = await state();
   report.tabs.labels = await page.evaluate(() => [...document.querySelectorAll('#toptabs button')].map(b => b.dataset.tab + '|' + b.innerText));
+  await page.click('#toptabs button[data-tab="progress"]'); await page.waitForTimeout(300);   // TK-613: по умолчанию теперь «Прогресс», «Ход работ» — второй
   await top('progress-top');
   await page.locator('#progress').screenshot({path: `${out}/progress-block.png`});
   const pdom = await page.evaluate(() => {
