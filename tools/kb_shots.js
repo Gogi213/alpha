@@ -47,7 +47,7 @@ const base = url.replace(/#.*$/, '').replace(/index\.html$/, '').replace(/\/?$/,
 
   await page.selectOption('#type', 'decision');
   r = await rows();
-  check('фильтр тип=decision → только В-161', r.length === 1 && r[0] === 'В-161', r);
+  check('фильтр тип=decision → 390 решений, В-161 среди них', r.length === 390 && r.includes('В-161'), r.length);
   check('хеш хранит фильтр', /type=decision/.test(await page.evaluate(() => location.hash)), await page.evaluate(() => location.hash));
   await page.selectOption('#type', '');
   await page.selectOption('#status', 'running');
