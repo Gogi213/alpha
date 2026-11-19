@@ -1,0 +1,8 @@
+{"ev": "hour", "t": 1794862800.0108044, "hour_utc": 1794859200, "n": 176384, "gt50": 5, "gt100": 1, "gt300": 0, "max_ms": 209.6}
+{"ev": "stall", "t": 1794863652.3539414, "over_ms": 236.2, "steal_jiffies": 135550}
+{"ev": "stall", "t": 1794863714.607903, "over_ms": 208.5, "steal_jiffies": 1711}
+{"ev": "stall", "t": 1794863721.8068, "over_ms": 101.0, "steal_jiffies": 60}
+{"ev": "stall", "t": 1794863790.7103639, "over_ms": 154.2, "steal_jiffies": 1440}
+{"ev": "stall", "t": 1794864074.8598552, "over_ms": 208.7, "steal_jiffies": 5944}
+{"ev": "hour", "t": 1794866400.0175014, "hour_utc": 1794862800, "n": 176211, "gt50": 14, "gt100": 5, "gt300": 0, "max_ms": 236.2}
+{"ev": "stall", "t": 1794866812.317746, "over_ms": 222.3, "steal_jiffies": 75599}

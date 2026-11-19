@@ -1,0 +1,15 @@
+22:18:00 book  1348 kB/s lagmax   0.1s rq 15kB | trade   131 kB/s lagmax   0.1s rq 0kB | mark   334 kB/s lagmax   0.2s rq 0kB
+22:18:20 book  1478 kB/s lagmax   0.1s rq 44kB | trade   114 kB/s lagmax   0.1s rq 0kB | mark   334 kB/s lagmax   0.2s rq 0kB
+22:18:40 book  1178 kB/s lagmax   0.1s rq 99kB | trade    88 kB/s lagmax   0.1s rq 0kB | mark   319 kB/s lagmax   0.2s rq 0kB
+22:19:00 book  1709 kB/s lagmax   0.1s rq 194kB | trade   197 kB/s lagmax   0.1s rq 5kB | mark   252 kB/s lagmax   0.2s rq 0kB
+22:19:20 book   465 kB/s lagmax   0.1s rq 4kB | trade   142 kB/s lagmax   0.8s rq 4kB | mark    33 kB/s lagmax   0.2s rq 0kB
+22:19:40 book   649 kB/s lagmax  14.0s rq 83kB | trade    90 kB/s lagmax   0.9s rq 1kB | mark    69 kB/s lagmax   0.5s rq 4kB
+22:20:00 book  1340 kB/s lagmax  36.2s rq 62kB | trade   139 kB/s lagmax   0.4s rq 2kB | mark   140 kB/s lagmax  39.3s rq 5kB
+22:20:20 book   826 kB/s lagmax  29.1s rq 72kB | trade   100 kB/s lagmax   0.2s rq 0kB | mark   334 kB/s lagmax  37.2s rq 0kB
+22:20:40 book   782 kB/s lagmax  32.8s rq 111kB | trade   104 kB/s lagmax   0.1s rq 0kB | mark   334 kB/s lagmax   0.2s rq 0kB
+22:21:00 book  1152 kB/s lagmax   5.2s rq 4kB | trade   140 kB/s lagmax   0.1s rq 0kB | mark   498 kB/s lagmax   0.2s rq 0kB
+22:21:20 book  1215 kB/s lagmax   0.1s rq 47kB | trade   133 kB/s lagmax   0.1s rq 0kB | mark   461 kB/s lagmax   0.2s rq 0kB
+22:21:40 book   859 kB/s lagmax   0.1s rq 2kB | trade    91 kB/s lagmax   0.1s rq 0kB | mark   334 kB/s lagmax   0.2s rq 0kB
+22:22:00 book  1072 kB/s lagmax   0.1s rq 9kB | trade   125 kB/s lagmax   0.1s rq 0kB | mark   334 kB/s lagmax   0.2s rq 0kB
+22:22:20 book   939 kB/s lagmax   0.1s rq 8kB | trade   133 kB/s lagmax   0.1s rq 1kB | mark   334 kB/s lagmax   0.2s rq 0kB
+22:22:40 book  1629 kB/s lagmax   0.1s rq 21kB | trade   162 kB/s lagmax   0.1s rq 0kB | mark   334 kB/s lagmax   0.2s rq 0kB

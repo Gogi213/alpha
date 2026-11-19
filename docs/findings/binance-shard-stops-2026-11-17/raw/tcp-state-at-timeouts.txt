@@ -1,0 +1,10 @@
+S1 {'book acked-but-silent(un=0)': 18, 'book blackhole(un>=1,bo>=1)': 16, 'mark acked-but-silent(un=0)': 3}
+S2 {'book blackhole(un>=1,bo>=1)': 7, 'book acked-but-silent(un=0)': 5, 'mark acked-but-silent(un=0)': 1}
+S3 {'book blackhole(un>=1,bo>=1)': 10, 'book acked-but-silent(un=0)': 3}
+E1-7 {'trade acked-but-silent(un=0)': 13, 'book acked-but-silent(un=0)': 30, 'book blackhole(un>=1,bo>=1)': 4, 'mark acked-but-silent(un=0)': 1, 'mark blackhole(un>=1,bo>=1)': 1, 'trade blackhole(un>=1,bo>=1)': 4}
+E2-7 {'trade acked-but-silent(un=0)': 18, 'book acked-but-silent(un=0)': 30, 'mark acked-but-silent(un=0)': 2, 'book blackhole(un>=1,bo>=1)': 1}
+E3 {'trade acked-but-silent(un=0)': 14, 'book acked-but-silent(un=0)': 27, 'book blackhole(un>=1,bo>=1)': 7, 'mark acked-but-silent(un=0)': 2, 'trade blackhole(un>=1,bo>=1)': 2}
+E4 {'trade acked-but-silent(un=0)': 15, 'book acked-but-silent(un=0)': 30, 'mark acked-but-silent(un=0)': 3, 'trade blackhole(un>=1,bo>=1)': 2}
+E5 {'trade acked-but-silent(un=0)': 17, 'trade blackhole(un>=1,bo>=1)': 1, 'book blackhole(un>=1,bo>=1)': 1, 'book acked-but-silent(un=0)': 31, 'mark acked-but-silent(un=0)': 1}
+E6 {'trade acked-but-silent(un=0)': 15, 'book acked-but-silent(un=0)': 36, 'book blackhole(un>=1,bo>=1)': 1, 'mark acked-but-silent(un=0)': 2}
+E7 {'trade acked-but-silent(un=0)': 14, 'book acked-but-silent(un=0)': 30, 'mark acked-but-silent(un=0)': 2}

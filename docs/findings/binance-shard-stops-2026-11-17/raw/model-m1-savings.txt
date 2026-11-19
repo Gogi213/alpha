@@ -1,0 +1,9 @@
+free-gap p90 / median by group (s): {'book': (15.0, 5.5), 'mark': (17.9, 4.6), 'trade': (14.6, 5.1)}
+window group n dark_s | blocked n dark_s | model saved s (cap = free p90 / free median)
+ALL   all   387   8080 | 256   7027 |  4337 (54%) /  5757 (71%)
+ALL   book  229   6068 | 152   5447 |  3758 (62%) /  4668 (77%)
+ALL   mark   39    578 |  29    509 |   255 (44%) /   382 (66%)
+ALL   trade 119   1434 |  75   1070 |   324 (23%) /   707 (49%)
+E     all   314   4293 | 191   3275 |  1231 (29%) /  2324 (54%)
+S     all    62   3689 |  62   3689 |  3080 (83%) /  3385 (92%)
+other all    11     98 |   3     63 |    26 (27%) /    47 (48%)

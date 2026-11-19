@@ -1,0 +1,39 @@
+mark00 21:05:50-21:06:58 67s | TL1+10(silent,ldr8.9,un0,bo0) DEGL1+10 TL0+13(silent,ldr13.0,un1,bo4) DEGL0+13 REJrttL0+23(308) REJrttL0+29(5382) REJrttL0+41(1340) REJrttL0+47(5661) REJrttL0+48(391) REJrttL0+53(4406) CAPL0+54(n6,w270s)
+mark00 21:12:02-21:12:06 4s | SW-12
+mark00 21:12:06-21:12:11 4s | SW-16 TL0+4(alive,ldr0.2,un0,bo0) DEGL0+4 RDEFL0+4
+mark00 21:12:17-21:12:21 4s | TL0-6(alive,ldr0.2,un0,bo0) DEGL0-6 RDEFL0-6
+mark00 21:12:21-21:12:24 3s | TL0-11(alive,ldr0.2,un0,bo0) DEGL0-11 RDEFL0-11
+mark00 21:15:04-21:15:42 37s | TL0+9(silent,ldr1.5,un0,bo0) DEGL0+9 RDEFL0+10 TL1+10(silent,ldr1.2,un0,bo0) DEGL1+10 REJrttL0+11(321) SABORTL0+12 SABORTL1+12 REJrttL0+13(1379) SHOLDL0+14 REJrttL1+17(6601)
+mark00 21:18:23-21:18:29 6s | 
+mark00 21:18:32-21:18:45 12s | 
+mark00 21:18:45-21:18:50 4s | TL1+4(alive,ldr0.1,un0,bo0) DEGL1+4 CONL1+6
+mark00 21:19:00-21:19:03 3s | TL1-11(alive,ldr0.1,un0,bo0) DEGL1-11 CONL1-9 SABORTL1-6 CONL1-4
+mark00 21:19:06-21:19:14 8s | TL1-18(alive,ldr0.1,un0,bo0) DEGL1-18 CONL1-16 SABORTL1-12 CONL1-10 TL1+5(silent,ldr0.2,un0,bo0) DEGL1+5 OKL1+5
+mark00 21:19:14-21:19:18 3s | SABORTL1-20 CONL1-18 TL1-3(silent,ldr0.2,un0,bo0) DEGL1-3 OKL1-3
+mark00 21:19:21-21:19:28 7s | TL1-9(silent,ldr0.2,un0,bo0) DEGL1-9 OKL1-9
+mark00 21:19:37-21:19:41 3s | SW-6 SHOLDL1-5 WS_ENDL1+5(fin_without_close_frame) ERRORL1+5(чтение:_WebSocket_protoc)
+mark00 21:19:41-21:19:45 4s | SW-10 SHOLDL1-9 WS_ENDL1+0(fin_without_close_frame) ERRORL1+0(чтение:_WebSocket_protoc) CONL1+3
+mark00 21:20:10-21:20:17 6s | CONL0+6
+mark00 21:25:23-21:25:56 32s | TL1+12(silent,ldr6.4,un0,bo0) DEGL1+12 RDEFL1+12 TL0+14(silent,ldr14.7,un0,bo0) DEGL0+14 SHOLDL1+14 REJrttL0+16(1472) REJrttL0+31(4374) CONL0+32
+mark00 21:34:06-21:34:24 17s | TL0+10(alive,ldr6.5,un0,bo0) DEGL0+10 TL1+10(alive,ldr8.0,un0,bo0) DEGL1+10 RDEFL0+11 REJrttL1+12(1276) SABORTL1+13 SABORTL0+13 REJrttL0+15(4337) CONL0+17
+mark00 21:34:24-21:34:39 15s | TL0-8(alive,ldr6.5,un0,bo0) DEGL0-8 TL1-7(alive,ldr8.0,un0,bo0) DEGL1-7 RDEFL0-7 REJrttL1-6(1276) SABORTL1-5 SABORTL0-5 REJrttL0-3(4337) CONL0-1 TL0+14(silent,ldr0.0,un0,bo0) DEGL0+14 OKL0+14 REJrttL1+16(1276)
+mark00 21:47:27-21:47:33 5s | 
+mark00 21:47:33-21:47:36 3s | TL1+3(alive,ldr0.7,un0,bo0) DEGL1+3 RDEFL1+3
+mark00 21:47:36-21:47:40 3s | TL1-1(alive,ldr0.7,un0,bo0) DEGL1-1 RDEFL1-1
+mark00 21:47:40-21:47:46 5s | TL1-4(alive,ldr0.7,un0,bo0) DEGL1-4 RDEFL1-4
+mark00 21:47:46-21:48:23 36s | TL1-10(alive,ldr0.7,un0,bo0) DEGL1-10 RDEFL1-10 TL0+7(silent,ldr4.6,un0,bo0) DEGL0+7 SHOLDL1+7 REJrttL0+11(4388) REJrttL0+17(5488) REJrttL0+19(1370) REJrttL0+20(370) REJrttL0+26(5349) ERRORL0+37(рукопожатие:_таймаут)
+mark00 21:48:27-21:48:32 4s | REJrttL0-16(5349) ERRORL0-5(рукопожатие:_таймаут) CONL0-2
+mark00 21:48:51-21:48:55 3s | REJL0-11(p50=10302.0) CAPL0-10(n6,w256s)
+mark00 21:49:27-21:49:32 4s | WS_ENDL1-18(fin_without_close_frame) ERRORL1-18(чтение:_WebSocket_protoc) CONL1-17 WS_ENDL0-6(fin_without_close_frame) ERRORL0-6(чтение:_WebSocket_protoc) CONL0-4 REJL1-1(p50=6585.0) CAPL1-1(n1,w217s)
+mark00 21:49:33-21:49:39 5s | WS_ENDL0-12(fin_without_close_frame) ERRORL0-12(чтение:_WebSocket_protoc) CONL0-10 REJL1-7(p50=6585.0) CAPL1-7(n1,w217s) OKL0+5 TL0+5(alive,ldr0.8,un0,bo0) DEGL0+5
+mark00 21:49:41-21:49:52 10s | WS_ENDL0-20(fin_without_close_frame) ERRORL0-20(чтение:_WebSocket_protoc) CONL0-18 REJL1-15(p50=6585.0) CAPL1-15(n1,w217s) OKL0-3 TL0-3(alive,ldr0.8,un0,bo0) DEGL0-3
+mark00 21:49:54-21:49:59 5s | OKL0-15 TL0-15(alive,ldr0.8,un0,bo0) DEGL0-15
+mark00 21:50:02-21:50:07 4s | 
+mark00 21:50:09-21:50:16 7s | 
+mark00 21:50:18-21:50:25 6s | 
+mark00 21:50:27-21:50:31 4s | 
+mark00 21:50:40-21:52:59 139s | CONL0+139
+mark00 22:03:41-22:04:13 32s | TL1+12(silent,ldr5.5,un0,bo0) DEGL1+12 RDEFL1+12 TL0+13(silent,ldr12.0,un0,bo0) DEGL0+13 RCAPL1+13 SABORTL0+14 REJrttL0+15(1366)
+mark00 22:15:44-22:16:17 33s | TL1+10(silent,ldr0.3,un0,bo0) DEGL1+10 TL0+13(silent,ldr11.8,un0,bo0) DEGL0+13 REJrttL1+14(371) SABORTL1+17 SABORTL0+17 REJrttL0+18(4358) REJrttL0+19(325) REJrttL0+20(321) REJrttL0+21(1269) REJrttL0+22(383) CAPL0+23(n4,w291s) CONL1+24
+mark00 22:19:18-22:19:25 6s | TL1+6(alive,ldr0.1,un0,bo0) DEGL1+6 CONL1+7 TL0+7(alive,ldr0.3,un0,bo0) DEGL0+7
+mark00 22:19:42-22:19:46 3s | TL1-18(alive,ldr0.1,un0,bo0) DEGL1-18 CONL1-17 TL0-17(alive,ldr0.3,un0,bo0) DEGL0-17 SABORTL1-4

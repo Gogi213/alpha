@@ -1,0 +1,6 @@
+('book', 'blocked') n=152 sum=5447s dur med 17.0 p90 114.2 max 227 | post-detect (n=96) med 10.1 p90 67.4
+('book', 'free') n=77 sum=620s dur med 5.5 p90 15.0 max 33 | post-detect (n=24) med 4.0 p90 14.0
+('mark', 'blocked') n=29 sum=509s dur med 6.9 p90 37.6 max 140 | post-detect (n=8) med 19.4 p90 54.1
+('mark', 'free') n=10 sum=68s dur med 4.6 p90 17.9 max 18 | post-detect (n=2) med 11.1 p90 15.2
+('trade', 'blocked') n=75 sum=1070s dur med 10.2 p90 29.9 max 65 | post-detect (n=62) med 5.3 p90 24.3
+('trade', 'free') n=44 sum=364s dur med 5.1 p90 14.6 max 36 | post-detect (n=3) med 5.5 p90 15.9
