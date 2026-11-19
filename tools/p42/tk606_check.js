@@ -51,7 +51,7 @@ const base = url.split('#')[0];
     eq(d.status, s.status, s.id + ' статус'); eq(d.badge, s.status_text, s.id + ' плашка'); eq(d.title, `${i + 1} · ${s.title}`, s.id + ' заголовок'); eq(d.meta, `${s.task} · ${n} признаков`, s.id + ' мета');
     eq(d.about, s.about, s.id + ' about'); eq(d.nums, s.numbers, s.id + ' цифры'); eq(d.nonum, s.numbers.length ? null : 'Цифр пока нет.', s.id + ' «цифр нет»');
     eq(d.reports, [...s.reports, s.protocol], s.id + ' отчёты/протокол'); eq(d.groups, s.groups.filter(g => g.title).map(g => g.title), s.id + ' группы');
-    eq(d.rows.map(r => r.name), feats.map(f => f.name), s.id + ' имена'); eq(d.rows.map(r => r.code), feats.map(f => f.name), s.id + ' код');
+    eq(d.rows.map(r => r.name), feats.map(f => f.name), s.id + ' имена'); eq(d.rows.map(r => r.code), feats.map(f => f.name.replace(/_bp$/, '')), s.id + ' код');
     eq(d.rows.map(r => r.what), feats.map(f => f.what), s.id + ' что измеряет'); eq(d.rows.map(r => r.src), feats.map(f => f.src.map(k => J.sources[k])), s.id + ' источники');
     eq(d.rows.map(r => r.mark), feats.map(f => f.mark || null), s.id + ' пометки');
     if (s.status === 'running' && s.numbers.length) fail(s.id + ': идёт, но цифры есть');

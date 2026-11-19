@@ -296,7 +296,7 @@ const STY = {CB3: {c: ACC, w: 2.25, d: null}, LOGIT: {c: '#52525b', w: 1.5, d: n
 const SHORT = {CB3: 'CB3', LOGIT: 'логистика', CB1: 'CB1', TURN: 'оборот'};
 const SIDE = {long: 'Лонг', short: 'Шорт'};
 const FNAME = {lturn24: 'turn24h (lg)'};
-const fn = f => FNAME[f] || f;
+const fn = f => FNAME[f] || f.replace(/_bp$/, '');   // имя признака на экране без суффикса единицы; ключ данных остаётся прежним
 
 const el = (t, a = {}, kids = []) => {
   const e = document.createElementNS(NS, t);
@@ -594,7 +594,7 @@ function strataFor(cell, kind) {
   if (kind !== 'day') {
     const q = v => (Math.abs(v) >= 100 ? v.toFixed(0) : Math.abs(v) >= 10 ? v.toFixed(1) : v.toFixed(2)).replace('.', ',');
     const money = v => { const x = Math.pow(10, v); return x >= 1e9 ? q(x / 1e9) + ' млрд' : x >= 1e6 ? q(x / 1e6) + ' млн' : q(x / 1e3) + ' тыс'; };
-    const f = {lturn24: money, natr_bp: v => q(v) + ' бп', age_h: v => q(v) + ' ч'}[kind];
+    const f = {lturn24: money, natr_bp: v => (v / 100).toFixed(3).replace('.', ',') + ' %', age_h: v => q(v) + ' ч'}[kind];
     items.forEach(s => { s.rangeLabel = s.label === 'L' ? '≤ ' + f(s.cut_lo) : s.label === 'M' ? f(s.cut_lo) + '…' + f(s.cut_hi) : '> ' + f(s.cut_hi); });
   }
   const wrap = h('div', {});
@@ -713,7 +713,7 @@ function renderProgress() {
 // ── эквити (TK-601): сделки баз U1 и «трети» целей TK-598; данные — equity.json (tk601_equity.py), вшиты при сборке
 const E = JSON.parse(document.getElementById('equity-data').textContent);
 const EQ_COL = {base: '#71717a', T1: '#2a78d6', T2: '#eb6834', T4: '#1baf7a', T5: '#6250d6', T6: '#008300', short: '#2a78d6', long: '#eb6834'};
-const EQ_NAME = {T1: 'T1 · прибыль, $', T2: 'T2 · прибыль, бп', T4: 'T4 · без жёсткого стопа', T5: 'T5 · MFE − MAE', T6: 'T6 · ранжирование', short: 'Шорт', long: 'Лонг'};
+const EQ_NAME = {T1: 'T1 · прибыль, $', T2: 'T2 · прибыль, % от номинала', T4: 'T4 · без жёсткого стопа', T5: 'T5 · MFE − MAE', T6: 'T6 · ранжирование', short: 'Шорт', long: 'Лонг'};
 const EQ_BASE = {short: 'Шорт: все сделки базы', long: 'Лонг: все сделки базы', both: 'Шорт + лонг: все сделки'};
 const EQ_SIDES = [['short', 'Шорт'], ['long', 'Лонг'], ['both', 'Шорт + лонг']];
 const EQ_DESC = {
@@ -1093,7 +1093,7 @@ const FEAT = JSON.parse(document.getElementById('features-data').textContent);
 const ftTotal = FEAT.sets.reduce((s, x) => s + x.groups.reduce((a, g) => a + g.features.length, 0), 0);
 function ftGo() { const e = ST.ft && document.getElementById('ft-' + ST.ft); if (e) e.scrollIntoView({behavior: 'smooth', block: 'start'}); }
 function ftRow(f) {
-  const nm = h('td', {class: 'nm', 'data-f': 'name'}, [h('code', {}, f.name)]);
+  const nm = h('td', {class: 'nm', 'data-f': 'name'}, [h('code', {}, f.name.replace(/_bp$/, ''))]);
   if (f.mark) nm.append(h('span', {class: 'badge mk', 'data-f': 'mark'}, f.mark));
   return h('tr', {'data-feature': f.name}, [nm, h('td', {class: 'what', 'data-f': 'what'}, f.what), h('td', {class: 'src', 'data-f': 'src'}, f.src.map(k => h('div', {}, FEAT.sources[k])))]);
 }
