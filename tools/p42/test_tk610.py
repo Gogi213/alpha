@@ -314,6 +314,19 @@ class GateTests(unittest.TestCase):
             os.rename(os.path.join(r2, "eng", "L_g5cut2"), os.path.join(r2, "eng", "L_g5cut"))
             self.assertFalse(GT.gate_g5("wc", r2, r1, "L")["ok"])           # «режет всех» оставил сделку
 
+    def test_g5_r1_without_filter(self):
+        # C* без фильтра: у R1 нет счётчиков фильтра — кандидатов сверяем со строками sigsx R1
+        with tempfile.TemporaryDirectory() as td:
+            r1, r2 = os.path.join(td, "r1"), os.path.join(td, "r2")
+            self._mk(os.path.join(r1, "eng", "L_r1"), meta={"long": {"trades": 5}})
+            open(os.path.join(r1, "eng", "L_r1", "long-sigsx.csv"), "w").write("h\n" + "x\n" * 10)
+            self._mk(os.path.join(r2, "eng", "L_g5pass"))
+            self._mk(os.path.join(r2, "eng", "L_g5cut"), trades="x\n")
+            self._mk(os.path.join(r2, "eng", "L_r2"))
+            self.assertTrue(GT.gate_g5("wc", r2, r1, "L")["cands_equal_r1"])
+            open(os.path.join(r1, "eng", "L_r1", "long-sigsx.csv"), "w").write("h\n" + "x\n" * 9)
+            self.assertFalse(GT.gate_g5("wc", r2, r1, "L")["cands_equal_r1"])
+
     def test_g5_no_key(self):
         with tempfile.TemporaryDirectory() as td:
             r1, r2 = os.path.join(td, "r1"), os.path.join(td, "r2")

@@ -89,7 +89,9 @@ def gate_g5(win, run, r1, side):
     counters = {v: meta_filter(os.path.join(d, "meta.json"), name) for v, d in (("g5pass", pd_), ("g5cut", cd), ("r2", r2d), ("r1", r1d))}
     no_key_ok = all(c is not None and c[2] == 0 for k, c in counters.items() if k != "r1")
     # кандидатов столько же, сколько у R1; «режет всех» — все кандидаты, кроме NaN, отброшены
-    cands_ok = all(counters[v] is not None and counters["r1"] is not None and counters[v][0] == counters["r1"][0] for v in ("g5pass", "g5cut", "r2"))
+    # C* без фильтра признака: у R1 счётчиков фильтра нет — кандидаты R1 = строки его `sigsx`
+    r1_cands = counters["r1"][0] if counters["r1"] is not None else csv_rows(os.path.join(r1d, "%s-sigsx.csv" % name))
+    cands_ok = all(counters[v] is not None and counters[v][0] == r1_cands for v in ("g5pass", "g5cut", "r2"))
     return {"gate": "G5", "win": win, "side": side, "pass_vs_r1": cmp_, "pass_csv_equal": bool(csv_ok), "cut_trades": cut_rows, "filter_counters": counters,
             "no_key_zero": bool(no_key_ok), "cands_equal_r1": bool(cands_ok), "ok": bool(csv_ok and cut_rows == 0 and no_key_ok and cands_ok)}
 
