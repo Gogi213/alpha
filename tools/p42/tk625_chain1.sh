@@ -4,7 +4,7 @@
 set -uo pipefail
 ROOT=/data/p42-tk625; cd "$ROOT/code"; mkdir -p "$ROOT/log" "$ROOT/rc"; rm -f "$ROOT/rc/chain1"
 LOG=$ROOT/log/chain1.log
-step() { local name=$1; shift; echo "$(date -u +%T) $name" >> "$LOG"; PYTHONUTF8=1 python3 tk625_run.py "$@" > "$ROOT/log/$name.log" 2>&1; local rc=$?; echo "$(date -u +%T) $name rc=$rc" >> "$LOG"; [ $rc -eq 0 ] || { echo "$name:$rc" > "$ROOT/rc/chain1"; exit 1; }; }
+step() { local name=$1; shift; [ -e "$ROOT/rc/step-$name" ] && return 0; echo "$(date -u +%T) $name" >> "$LOG"; PYTHONUTF8=1 python3 tk625_run.py "$@" > "$ROOT/log/$name.log" 2>&1; local rc=$?; echo "$(date -u +%T) $name rc=$rc" >> "$LOG"; [ $rc -eq 0 ] || { echo "$name:$rc" > "$ROOT/rc/chain1"; exit 1; }; touch "$ROOT/rc/step-$name"; }
 while systemctl is-active -q tk625-epall; do sleep 30; done
 for w in w0 wa wb wc; do [ -s "$ROOT/ev/$w.csv.stats.json" ] || { echo "нет событий o566 $w" >> "$LOG"; echo "ev-o566-$w:missing" > "$ROOT/rc/chain1"; exit 1; }; done
 if [ ! -e "$ROOT/h775/w0/READY" ]; then

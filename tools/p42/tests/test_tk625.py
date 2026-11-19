@@ -225,8 +225,25 @@ def test_isolation_refuses_late_dates():
     raises(st.GuardError, f5.splice_events, per)
 
 
+def test_stats_buckets_sharpe_answer():
+    import tk625_stats as s5
+    x = np.array([0, 1, 2, 3, 4, 9, np.nan])
+    assert s5.bucket_index(x).tolist() == [0, 1, 2, 2, 3, 3, 4]
+    assert s5.BUCKETS == ("0", "1", "2–3", "4+", "нет значения")
+    ds = np.zeros(st.NDAYS)
+    assert s5.sharpe_year(ds) != s5.sharpe_year(ds)                                 # нет разброса — nan
+    ds[:2] = [10.0, 20.0]
+    want = ds.mean() / ds.std(ddof=1) * np.sqrt(365)
+    assert abs(s5.sharpe_year(ds) - want) < 1e-12
+    sl = s5.slice_stats(np.array([0, 0, 1]), np.array([1.0, 3.0, -2.0]), nboot=200)
+    assert sl["n"] == 3 and sl["sum"] == 2.0 and abs(sl["mean"] - 2 / 3) < 1e-12 and sum(n for n, _ in sl["months"]) == 3 and sl["months"][0] == (3, 2.0)
+    assert s5.answer_line({"L": ("работает", ["c"]), "S": ("не ясно", [])}) == "работает (лонг)"
+    assert s5.answer_line({"L": ("не работает", []), "S": ("не работает", [])}) == "не работает"
+    assert s5.answer_line({"L": ("не работает", []), "S": ("не ясно", [])}) == "не ясно"
+
+
 def main():
-    tests = [(k, v) for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
+    tests =[(k, v) for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     fails = 0
     for name, fn in tests:
         try:
