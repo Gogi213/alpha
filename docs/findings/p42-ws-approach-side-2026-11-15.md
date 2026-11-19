@@ -92,4 +92,4 @@
 
 ## Файлы на srv и в репо
 - Результат: `/data/p42-t566/out/ws/<вариант>/{long,short}-{trades,daily,coinday}.csv, *-detail.jsonl, meta.json`, `/data/p42-t544/out/ws/…`; сводки `report-ws.json` и `ws-label.json` в тех же каталогах; тексты отчёта — `/data/p42-charts/ws-report-{544,566}.txt` (в них устойчивость §13.4 п. 7 по каждой клетке: без 2 лучших/худших суток и монет, «после первого дня ≥ $12 млн»), метки — `/data/p42-charts/ws-label-{544,566}.txt`.
-- Репо: `tools/p42/{runws.sh, ws_label.py, ws_report.py, diag_xec.py}`, протокол `docs/research/P-42-level-breakout.md` §13.13, передача дел — `docs/plan/P-42-ws-handoff-2026-11-15.md`.
+- Репо: `tools/p42/{runws.sh, ws_label.py, ws_report.py, diag_xec.py}`, протокол `docs/research/P-42-level-breakout.md` §13.13, передача дел — `docs/archive/P-42-ws-handoff-2026-11-15.md`.

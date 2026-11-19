@@ -1,6 +1,6 @@
 # G-023 arb-holding v5 — передача дел (TK-534 v5), 17.11.2026 ≈ 14:25 GMT+4
 
-Ветка `bb/tk-534-arb-holding-v5-thr_ba5pwg96p8` (база `781458b2` = v4). Контекст треда исчерпан (≥ 350 тыс.). Читать: этот файл → `docs/plan/G-023-arb-holding-v4-handoff-2026-11-17.md` (шаги 3–5 там ещё действуют) → `docs/findings/arb-holding-stay-protocol-2026-11-17.md` (ред. 2) → `docs/findings/arb-holding-stay-protocol-review-2026-11-17.md` (на ветке `bb/tk-534-stay-protocol-v1-thr_nj8qssrw58`, проверка + повторная проверка).
+Ветка `bb/tk-534-arb-holding-v5-thr_ba5pwg96p8` (база `781458b2` = v4). Контекст треда исчерпан (≥ 350 тыс.). Читать: этот файл → `docs/archive/G-023-arb-holding-v4-handoff-2026-11-17.md` (шаги 3–5 там ещё действуют) → `docs/findings/arb-holding-stay-protocol-2026-11-17.md` (ред. 2) → `docs/findings/arb-holding-stay-protocol-review-2026-11-17.md` (на ветке `bb/tk-534-stay-protocol-v1-thr_nj8qssrw58`, проверка + повторная проверка).
 
 Слова владельца (дословно): «да найди что держится да»; «то что держится больше 30 минут мне неинтересно»; «также нужно понять единичные ли это расхождения или несколько раз расходилось. и как отличить те кто разошелся надолго от тех кто расходится и сходится».
 
