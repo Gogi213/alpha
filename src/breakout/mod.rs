@@ -18,6 +18,7 @@
 
 pub mod cli;
 pub mod data;
+pub mod feat;
 pub mod ftab;
 pub mod levels;
 pub mod params;

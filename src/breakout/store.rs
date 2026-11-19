@@ -103,7 +103,24 @@ fn put(out: &mut Vec<u8>, mut v: u64) {
     out.push(v as u8);
 }
 
-fn get(b: &[u8], i: &mut usize) -> Option<u64> {
+/// Одно число varint. Значения в один и два байта (почти все в потоке сделок) — прямо в месте вызова, без ветвления по длине
+/// (курсор остаётся в регистре); остальное (три байта и больше, последний байт буфера) — `get_multi`.
+/// Результат и ошибки (`None`: обрыв, больше 10 байт) те же, что у цикла по байтам.
+#[inline(always)]
+pub(super) fn get(b: &[u8], i: &mut usize) -> Option<u64> {
+    let p = *i;
+    if let Some(&[c0, c1]) = b.get(p..p + 2) {
+        let one = c0 < 0x80;
+        if one || c1 < 0x80 {
+            *i = p + if one { 1 } else { 2 };
+            return Some(u64::from(c0 & 0x7f) | if one { 0 } else { u64::from(c1) << 7 });
+        }
+    }
+    get_multi(b, i)
+}
+
+#[inline(never)]
+fn get_multi(b: &[u8], i: &mut usize) -> Option<u64> {
     let (mut r, mut s) = (0u64, 0u32);
     loop {
         let c = *b.get(*i)?;
