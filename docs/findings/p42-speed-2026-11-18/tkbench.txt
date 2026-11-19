@@ -1,0 +1,6 @@
+BTCUSDT-aggTrades-2026-07-15.zip rows=1107089 csv=73.6MB store=2.50MB (2.26 B/row) | unzip 890 ns/row, parse 271 ns/row, encode 39 ns/row, DECODE 15.5 ns/row | roundtrip_identical=true
+SOLUSDT-aggTrades-2026-07-15.zip rows=224580 csv=14.3MB store=0.63MB (2.81 B/row) | unzip 717 ns/row, parse 263 ns/row, encode 31 ns/row, DECODE 16.1 ns/row | roundtrip_identical=true
+DOGEUSDT-aggTrades-2026-07-15.zip rows=108456 csv=7.3MB store=0.31MB (2.86 B/row) | unzip 743 ns/row, parse 280 ns/row, encode 30 ns/row, DECODE 18.1 ns/row | roundtrip_identical=true
+AAVEUSDT-aggTrades-2026-07-15.zip rows=106829 csv=6.4MB store=0.29MB (2.71 B/row) | unzip 1295 ns/row, parse 579 ns/row, encode 62 ns/row, DECODE 35.3 ns/row | roundtrip_identical=true
+ALGOUSDT-aggTrades-2026-07-15.zip rows=10814 csv=0.7MB store=0.04MB (3.26 B/row) | unzip 1897 ns/row, parse 523 ns/row, encode 51 ns/row, DECODE 30.7 ns/row | roundtrip_identical=true
+ 15:52:53 up 10 days, 19:15,  4 users,  load average: 15.62, 16.60, 20.74

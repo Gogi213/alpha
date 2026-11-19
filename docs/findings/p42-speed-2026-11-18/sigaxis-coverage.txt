@@ -1,0 +1,11 @@
+SIGMODE: p=100000 c=0 m=1000000 s_glob=1000000 ww=0 busy=0
+unmatched: 0
+всего ('L', False) 79
+всего ('L', True) 41
+всего ('S', False) 85
+всего ('S', True) 46
+e                L=26 L_sig=26 S=2 S_sig=6
+natr_min         L=8 L_sig=0 S=8 S_sig=0
+t1h              L=4 L_sig=0 S=4 S_sig=0
+t24              L=4 L_sig=0 S=4 S_sig=0
+(базовый сигнал) L=45 L_sig=15 S=67 S_sig=40

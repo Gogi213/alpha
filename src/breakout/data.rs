@@ -6,9 +6,11 @@
 //! v20 (TK-592, §13.18) продлил её на отложенные сутки — сутки без файлов минуток/сделок остаются пустыми (`open == 0`).
 
 use super::par_map;
+use super::tick::mul_div;
 use anyhow::{bail, Context, Result};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 
 pub const T0_MS: i64 = 1_788_220_800_000;
 const T0_DATE: (i32, u32, u32) = (2026, 9, 1);
@@ -297,7 +299,12 @@ pub struct Bars {
     pub ok: Vec<bool>,
 }
 
-fn build_bars(cols: &Cols, tfm: usize) -> Bars {
+pub fn build_bars(cols: &Cols, tfm: usize) -> Bars {
+    bars_of(&cols.o, &cols.h, &cols.l, &cols.c, tfm)
+}
+
+/// Бары таймфрейма `tfm` минут из рядов минуток (`Sym` держит ряды у себя и строит бары лениво).
+fn bars_of(co: &[i64], ch: &[i64], cl: &[i64], cc: &[i64], tfm: usize) -> Bars {
     let nb = N_MIN / tfm;
     let mut b = Bars {
         o: vec![0; nb],
@@ -309,19 +316,19 @@ fn build_bars(cols: &Cols, tfm: usize) -> Bars {
     for i in 0..nb {
         let mut first = true;
         for m in i * tfm..(i + 1) * tfm {
-            if cols.o[m] == 0 {
+            if co[m] == 0 {
                 continue;
             }
             if first {
-                b.o[i] = cols.o[m];
-                b.h[i] = cols.h[m];
-                b.l[i] = cols.l[m];
+                b.o[i] = co[m];
+                b.h[i] = ch[m];
+                b.l[i] = cl[m];
                 first = false;
             } else {
-                b.h[i] = b.h[i].max(cols.h[m]);
-                b.l[i] = b.l[i].min(cols.l[m]);
+                b.h[i] = b.h[i].max(ch[m]);
+                b.l[i] = b.l[i].min(cl[m]);
             }
-            b.c[i] = cols.c[m];
+            b.c[i] = cc[m];
             b.ok[i] = true;
         }
     }
@@ -331,6 +338,10 @@ fn build_bars(cols: &Cols, tfm: usize) -> Bars {
 /// NATR (ATR/close ×1e8) по `p` последним минутам сетки; простое среднее истинных диапазонов, закрытая минута
 /// включена. `-1` — нет значения (мало истории, дыра).
 pub fn natr_series(cols: &Cols, p: usize) -> Vec<i32> {
+    natr_of(&cols.o, &cols.h, &cols.l, &cols.c, p)
+}
+
+fn natr_of(co: &[i64], ch: &[i64], cl: &[i64], cc: &[i64], p: usize) -> Vec<i32> {
     let n = N_MIN;
     let mut trp = vec![0i64; n + 1];
     let mut cnt = vec![0u32; n + 1];
@@ -338,14 +349,12 @@ pub fn natr_series(cols: &Cols, p: usize) -> Vec<i32> {
     for t in 0..n {
         let mut tr = 0;
         let mut c = 0;
-        if cols.o[t] != 0 {
-            tr = cols.h[t] - cols.l[t];
+        if co[t] != 0 {
+            tr = ch[t] - cl[t];
             if prevc != 0 {
-                tr = tr
-                    .max((cols.h[t] - prevc).abs())
-                    .max((cols.l[t] - prevc).abs());
+                tr = tr.max((ch[t] - prevc).abs()).max((cl[t] - prevc).abs());
             }
-            prevc = cols.c[t];
+            prevc = cc[t];
             c = 1;
         }
         trp[t + 1] = trp[t] + tr;
@@ -353,15 +362,18 @@ pub fn natr_series(cols: &Cols, p: usize) -> Vec<i32> {
     }
     let mut out = vec![-1i32; n];
     for t in p - 1..n {
-        if cols.o[t] == 0 {
+        if co[t] == 0 {
             continue;
         }
         let k = cnt[t + 1] - cnt[t + 1 - p];
         if (k as usize) * 2 < p {
             continue;
         }
-        let sum = i128::from(trp[t + 1] - trp[t + 1 - p]);
-        let v = sum * i128::from(SCALE) / (i128::from(k) * i128::from(cols.c[t]));
+        let sum = trp[t + 1] - trp[t + 1 - p];
+        let v = match i64::from(k).checked_mul(cc[t]) {
+            Some(d) => mul_div(sum, SCALE, d),
+            None => i128::from(sum) * i128::from(SCALE) / (i128::from(k) * i128::from(cc[t])),
+        };
         out[t] = v.min(i128::from(i32::MAX)) as i32;
     }
     out
@@ -376,8 +388,9 @@ pub struct Sym {
     pub qv: Vec<i64>,
     /// Префиксные суммы оборота: оборот минут `[a, b)` = `pq[b] - pq[a]`.
     pub pq: Vec<i64>,
-    pub natr: [Vec<i32>; 3],
-    pub bars: [Bars; 3],
+    /// L4 (TK-607): NATR и бары считаются при первом обращении (сетки берут один период и один таймфрейм).
+    natr: [OnceLock<Vec<i32>>; 3],
+    bars: [OnceLock<Bars>; 3],
     pub fund: Vec<Fund>,
 }
 
@@ -387,16 +400,6 @@ impl Sym {
         for t in 0..N_MIN {
             pq[t + 1] = pq[t] + cols.qv[t];
         }
-        let natr = [
-            natr_series(&cols, NATR_PERIODS[0]),
-            natr_series(&cols, NATR_PERIODS[1]),
-            natr_series(&cols, NATR_PERIODS[2]),
-        ];
-        let bars = [
-            build_bars(&cols, TF_MINUTES[0]),
-            build_bars(&cols, TF_MINUTES[1]),
-            build_bars(&cols, TF_MINUTES[2]),
-        ];
         Sym {
             name: name.to_string(),
             o: cols.o,
@@ -405,8 +408,8 @@ impl Sym {
             c: cols.c,
             qv: cols.qv,
             pq,
-            natr,
-            bars,
+            natr: Default::default(),
+            bars: Default::default(),
             fund,
         }
     }
@@ -416,17 +419,17 @@ impl Sym {
     }
 
     pub fn natr_for(&self, period: usize) -> Option<&[i32]> {
-        NATR_PERIODS
-            .iter()
-            .position(|&p| p == period)
-            .map(|i| self.natr[i].as_slice())
+        NATR_PERIODS.iter().position(|&p| p == period).map(|i| {
+            self.natr[i]
+                .get_or_init(|| natr_of(&self.o, &self.h, &self.l, &self.c, NATR_PERIODS[i]))
+                .as_slice()
+        })
     }
 
     pub fn bars_for(&self, tf: usize) -> Option<&Bars> {
-        TF_MINUTES
-            .iter()
-            .position(|&p| p == tf)
-            .map(|i| &self.bars[i])
+        TF_MINUTES.iter().position(|&p| p == tf).map(|i| {
+            self.bars[i].get_or_init(|| bars_of(&self.o, &self.h, &self.l, &self.c, TF_MINUTES[i]))
+        })
     }
 }
 

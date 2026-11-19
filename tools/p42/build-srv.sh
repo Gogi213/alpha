@@ -22,7 +22,9 @@ case "$MODE" in
          CMD="cargo build --release --bin alpha --target-dir \$SLOT_TGT -j \$JOBS > /tmp/p42b-$$.log 2>&1; RC=\$?; grep -A14 -E '^(error|warning)' /tmp/p42b-$$.log | head -80; tail -2 /tmp/p42b-$$.log; [ \$RC -eq 0 ] && rb_install \$SLOT_TGT/release/alpha $BIN_OUT" ;;
   test)  PRIO=1; CMD="cargo test --release --target-dir \$SLOT_TGT -j \$JOBS $FILTER 2>&1 | grep -E '^test |test result|FAILED|panicked|^error|^warning' | tail -60" ;;
   all)   PRIO=2; CMD="cargo fmt --check 2>&1 | tail -10 && cargo clippy --release --target-dir \$SLOT_TGT -j \$JOBS --all-targets -- -D warnings 2>&1 | tail -15 && cargo test --release --target-dir \$SLOT_TGT -j \$JOBS $FILTER 2>&1 | grep -E 'test result|FAILED|panicked|^error' | tail -20" ;;
-  *) echo "mode: build|test|all"; exit 2 ;;
+  full)  PRIO=2; HELPER="$(cat tools/rbuild-install.sh)"
+         CMD="cargo fmt --check 2>&1 | tail -10; cargo build --release --bin alpha --target-dir \$SLOT_TGT -j \$JOBS > /tmp/p42b-$$.log 2>&1; RC=\$?; grep -A14 -E '^(error|warning)' /tmp/p42b-$$.log | head -60; tail -2 /tmp/p42b-$$.log; [ \$RC -eq 0 ] && rb_install \$SLOT_TGT/release/alpha $BIN_OUT; cargo test --release --target-dir \$SLOT_TGT -j \$JOBS $FILTER 2>&1 | grep -E 'test result|FAILED|panicked|^error' | tail -20; cargo clippy --release --target-dir \$SLOT_TGT -j \$JOBS --all-targets -- -D warnings 2>&1 | tail -15; exit \$RC" ;;
+  *) echo "mode: build|test|all|full"; exit 2 ;;
 esac
 ssh "${K[@]}" "$H" "cat > $CMDF" <<EOS
 export PATH=$RB/cargo/bin:\$PATH RUSTUP_HOME=$RB/rustup CARGO_HOME=$RB/cargo

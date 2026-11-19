@@ -6,7 +6,9 @@ use super::data::{self, Sym, HALF_DAYS, START_DAY};
 use super::levels::{build_levels, Level};
 use super::params::{parse_variant, LevelCfg, Params, SigCfg};
 use super::portfolio::{self, settle, PortResult};
+use super::sigcache::SigCacheOpts;
 use super::signals::{scan, sort_sigs, Sig, SigCtr};
+use super::store::StoreOpts;
 use super::trade::simulate;
 use super::{par_map, Side};
 use anyhow::{bail, Context, Result};
@@ -65,6 +67,43 @@ pub enum BreakoutCommand {
         /// §13.21: таблица признаков кандидатов `sym,sig_ms,<признак>,…` для фильтров `fa/fo/fv`.
         #[arg(long)]
         ftab: Option<PathBuf>,
+        /// TK-607 (L1): склад разобранных суток сделок (`<МОНЕТА>/<МОНЕТА>-<дата>.tk`): первое чтение суток пишет файл, дальше —
+        /// чтение без `unzip` и CSV. Без ключа — прежний путь.
+        #[arg(long)]
+        tick_store: Option<PathBuf>,
+        /// Потолок объёма склада, ГБ (при достижении склад только читается).
+        #[arg(long, default_value_t = 3)]
+        tick_store_cap_gb: u64,
+        /// Запись в склад прекращается, когда свободного места на его диске меньше, ГБ.
+        #[arg(long, default_value_t = 5)]
+        tick_store_min_free_gb: u64,
+        /// TK-607 (L2): кэш сигналов фазы 1 по `(SigCfg, сторона)`; запись и чтение — только при совпадении ключа (бинарь, сетка, монеты, `.b42`,
+        /// все суточные zip окна). Запись прекращается при свободном месте < `--tick-store-min-free-gb`.
+        #[arg(long)]
+        sig_cache: Option<PathBuf>,
+    },
+    /// TK-607: однократное заполнение склада суточных сделок по каталогам zip (разжатие в процессе с проверкой CRC32 zip, один разбор
+    /// движка, запись). `P42_T0` — не позже самой ранней даты. Лежащие файлы пропускаются.
+    StoreFill {
+        /// Каталог `<МОНЕТА>/<МОНЕТА>-aggTrades-<день>.zip`; ключ повторяется.
+        #[arg(long = "trades", required = true)]
+        trades: Vec<PathBuf>,
+        #[arg(long)]
+        store: PathBuf,
+        #[arg(long, default_value_t = 2)]
+        threads: usize,
+        /// Запись прекращается (прогон останавливается), когда свободного места на диске склада меньше, ГБ.
+        #[arg(long, default_value_t = 40)]
+        min_free_gb: u64,
+        /// Потолок объёма склада, ГБ.
+        #[arg(long, default_value_t = 1000)]
+        cap_gb: u64,
+        /// Каталог отчёта (`report.txt`, `errors.txt`).
+        #[arg(long)]
+        report: PathBuf,
+        /// Только первые N заданий (проверка на малом).
+        #[arg(long)]
+        limit: Option<usize>,
     },
     /// Одна сделка базы по монете со всеми шагами и арифметикой P&L.
     Hand {
@@ -116,6 +155,10 @@ pub fn dispatch(cmd: BreakoutCommand) -> Result<()> {
             symbols,
             cap_gb,
             ftab,
+            tick_store,
+            tick_store_cap_gb,
+            tick_store_min_free_gb,
+            sig_cache,
         } => super::tick_cli::run(
             &cache,
             &trades,
@@ -125,7 +168,35 @@ pub fn dispatch(cmd: BreakoutCommand) -> Result<()> {
             symbols,
             cap_gb,
             ftab.as_deref(),
+            tick_store.map(|dir| StoreOpts {
+                dir,
+                cap_gb: tick_store_cap_gb,
+                min_free_gb: tick_store_min_free_gb,
+            }),
+            sig_cache.map(|dir| SigCacheOpts {
+                dir,
+                min_free_gb: tick_store_min_free_gb,
+            }),
         ),
+        BreakoutCommand::StoreFill {
+            trades,
+            store,
+            threads,
+            min_free_gb,
+            cap_gb,
+            report,
+            limit,
+        } => super::store_fill::run(&super::store_fill::FillOpts {
+            roots: trades,
+            store: StoreOpts {
+                dir: store,
+                cap_gb,
+                min_free_gb,
+            },
+            threads,
+            report,
+            limit,
+        }),
         BreakoutCommand::Hand {
             cache,
             sym,
