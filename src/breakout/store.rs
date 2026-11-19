@@ -28,6 +28,9 @@ use std::process::Command;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::UNIX_EPOCH;
 
+mod fold;
+pub use fold::DayHead;
+
 /// Версия формата склада (входит в ключ кэша сигналов L2).
 pub const STORE_VERSION: u32 = 2;
 const MAGIC: [u8; 4] = *b"TK42";

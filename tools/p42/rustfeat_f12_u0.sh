@@ -4,10 +4,11 @@
 # sigsx — `/data/tk592/out/eng/b0p0/<side>-sigsx.csv`, строки отфильтрованы по ключам `(sym, level, sig_ms)` эталона (строки целиком, без пересчёта форматов);
 # сравнение по ключу `sym,level,sig_ms` и стороне. Решающее — все столбцы, кроме `ep_no`, `n_sig_ep`, `last_sig_ms`: они различаются по построению (`ep_u0` — маршрут `Worker`,
 # сигналы уровня слиты в эпизоды; порт — `CandWorker`, строка sigsx = эпизод; см. `rustfeat_f12_u0_classes.py`, он же проверяет, что на эпизодах из одного сигнала n_sig_ep/last_sig_ms совпадают).
+# Август (TK-609 v7, ворота `P42_F12_BIN`): REF=/data/tk594/aug_u0.parquet SX=/data/tk594/aug/out/eng/b0p0 CACHE=/data/tk594/aug/cache TR=/data/p42-past/aggtrades DAYS=80 BASE=2026-07-18.
 # `emp_coin` зависит от длины сетки: `--days 74` (TK-594), не 80.
 set -uo pipefail
 BIN=${BIN:?BIN}; OUT=${OUT:-/data/p42-tk611/u0}; PY=${PY:-/data/p42-tk611/py}; PROCS=${PROCS:-4}; BIN_ARGS=${BIN_ARGS:-}
-REF=${REF:-/data/tk594/ep_u0.parquet}; SX=${SX:-/data/tk592/out/eng/b0p0}; CACHE=${CACHE:-/data/p42-t566/cache}; DAYS=${DAYS:-74}; TR=${TR:-/data/aggtrades/binance}
+REF=${REF:-/data/tk594/ep_u0.parquet}; SX=${SX:-/data/tk592/out/eng/b0p0}; CACHE=${CACHE:-/data/p42-t566/cache}; DAYS=${DAYS:-74}; TR=${TR:-/data/aggtrades/binance}; BASE=${BASE:-2026-09-01}
 mkdir -p "$OUT"; rc=0
 MD5=$(md5sum "$BIN" | cut -d" " -f1); echo "F12-U0 bin=$BIN md5=$MD5 args=[$BIN_ARGS]"; echo "$MD5" > "$OUT/md5"
 python3 - "$REF" "$SX" "$OUT" <<'EOF'
@@ -31,7 +32,7 @@ EOF
 [ $? -eq 0 ] || exit 2
 for side in long short; do
   s0=$(date +%s.%N)
-  nice -n 19 "$BIN" f12 --sigsx "$OUT/$side-sigsx.csv" --side "$side" --out "$OUT/$side.csv" --cache "$CACHE" --trades "$TR" --base-date 2026-09-01 --days "$DAYS" --threads "$PROCS" $BIN_ARGS > "$OUT/$side.log" 2>&1 || { echo "$side: rust rc!=0"; rc=1; continue; }
+  nice -n 19 "$BIN" f12 --sigsx "$OUT/$side-sigsx.csv" --side "$side" --out "$OUT/$side.csv" --cache "$CACHE" --trades "$TR" --base-date "$BASE" --days "$DAYS" --threads "$PROCS" $BIN_ARGS > "$OUT/$side.log" 2>&1 || { echo "$side: rust rc!=0"; rc=1; continue; }
   s1=$(date +%s.%N)
   python3 "$PY/rustfeat_f12_gate.py" compare "$REF" "$OUT/$side.csv" --key sym,level,sig_ms --side "$side" --out "$OUT/$side.full.json" > "$OUT/$side.full.gate" 2>&1   # все столбцы, для справки
   if python3 "$PY/rustfeat_f12_gate.py" compare "$REF" "$OUT/$side.csv" --key sym,level,sig_ms --side "$side" --exclude ep_no,n_sig_ep,last_sig_ms --out "$OUT/$side.json" > "$OUT/$side.gate" 2>&1; then r=PASS; else rc=1; r=FAIL; fi

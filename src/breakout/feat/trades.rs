@@ -4,9 +4,10 @@
 //! количеством: декодер вместо `unzip` + разбора CSV; без правок признаков). Порядок записей — как в файле; при убывании времени — устойчивая сортировка
 //! (Python: `np.argsort(kind="stable")`). `price` и `quantity` — `f64` прямо из десятичной записи (pandas-конвертер), а не ×1e8.
 
+use super::flow::{hist_add_day, HistSink};
 use super::pdcompat::{date_str, parse_f64, parse_i64};
 use crate::breakout::store::{DayTrades as StoredDay, TickStore};
-use crate::breakout::tick::ZipSrc;
+use crate::breakout::tick::{Fold, ZipSrc};
 use anyhow::{bail, Context, Result};
 use std::io::{BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
@@ -28,9 +29,40 @@ pub struct DayTrades {
     pub unsorted: bool,
 }
 
+/// Что потребителю гистограммы нужно знать о сутках кроме самой гистограммы.
+#[derive(Debug, Clone, Copy)]
+pub struct HistDay {
+    /// В файле время убывало (записи пересортированы).
+    pub unsorted: bool,
+    /// Время первой записи, мс от 1970 (`None` — записей нет).
+    pub first_t: Option<i64>,
+}
+
 /// Источник суточных файлов сделок: `None` — файла нет.
 pub trait DaySrc: Sync {
     fn day(&self, sym: &str, abs_day: i64) -> Result<Option<DayTrades>>;
+
+    /// Сутки только в часовую гистограмму `log10 v` (`h` — `24·NB` нулей на входе); `None` — файла нет. Результат тот же, что у
+    /// `day` + `hist_add_day`; источник вправе обойтись без массивов записей.
+    fn day_hist(&self, sym: &str, abs_day: i64, h: &mut [i32]) -> Result<Option<HistDay>> {
+        day_hist_via_day(self, sym, abs_day, h)
+    }
+}
+
+/// `day_hist` через массивы суток.
+fn day_hist_via_day<S: DaySrc + ?Sized>(
+    src: &S,
+    sym: &str,
+    abs_day: i64,
+    h: &mut [i32],
+) -> Result<Option<HistDay>> {
+    Ok(src.day(sym, abs_day)?.map(|c| {
+        hist_add_day(h, abs_day, &c);
+        HistDay {
+            unsorted: c.unsorted,
+            first_t: c.t.first().copied(),
+        }
+    }))
 }
 
 /// `<корень>/<SYM>/<SYM>-aggTrades-<день>.zip`, корни — по порядку, берётся первый существующий файл.
@@ -78,6 +110,9 @@ pub struct StoreDaySrc {
     verify: bool,
     pub fallback: AtomicU64,
     pub mismatch: AtomicU64,
+    /// Сутки, свёрнутые в гистограмму (`day_hist`), и сутки, где свёртка не применена (нет файла zip, промах, отступления) — они идут путём массивов.
+    pub folded: AtomicU64,
+    pub fold_fallback: AtomicU64,
 }
 
 impl StoreDaySrc {
@@ -108,6 +143,8 @@ impl StoreDaySrc {
             verify,
             fallback: AtomicU64::new(0),
             mismatch: AtomicU64::new(0),
+            folded: AtomicU64::new(0),
+            fold_fallback: AtomicU64::new(0),
         })
     }
 }
@@ -155,6 +192,42 @@ fn same_day(a: &DayTrades, b: &DayTrades) -> bool {
 }
 
 impl DaySrc for StoreDaySrc {
+    /// Сутки со склада свёрткой в гистограмму (без массивов); сутки с отступлениями, промах и повреждение — как у `day`.
+    fn day_hist(&self, sym: &str, abs_day: i64, h: &mut [i32]) -> Result<Option<HistDay>> {
+        let idx = abs_day - self.day0;
+        if idx >= 0 && !self.verify {
+            for z in &self.srcs {
+                let base = abs_day * DAY_MS;
+                let got = z.fold_day(sym, idx as usize, |hd| {
+                    let exact = hd.flags == 0
+                        && hd.stat.out_of_day == 0
+                        && hd.stat.bad_rows == 0
+                        && usize::from(hd.qty_dec) < QTY_P10.len();
+                    let p10 = QTY_P10.get(usize::from(hd.qty_dec)).copied()?;
+                    let mut sink = HistSink::new(h);
+                    exact.then_some(move |off: u32, px: i64, _bm: bool, q: u64| {
+                        sink.add(off, (px as f64 / 1e8) * (q as f64 / p10));
+                    })
+                });
+                match got {
+                    Fold::NoZip => continue,
+                    Fold::Done(hd) => {
+                        self.folded.fetch_add(1, Ordering::Relaxed);
+                        return Ok(Some(HistDay {
+                            unsorted: hd.stat.unsorted_files > 0,
+                            first_t: hd.first_off.map(|o| base + i64::from(o)),
+                        }));
+                    }
+                    Fold::Miss => break,
+                }
+            }
+            // сутки не свёрнуты (промах, отступления, обрыв разбора): свёртка могла записать часть счётчиков
+            self.fold_fallback.fetch_add(1, Ordering::Relaxed);
+            h.fill(0);
+        }
+        day_hist_via_day(self, sym, abs_day, h)
+    }
+
     fn day(&self, sym: &str, abs_day: i64) -> Result<Option<DayTrades>> {
         let idx = abs_day - self.day0;
         if idx < 0 {

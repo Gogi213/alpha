@@ -227,3 +227,17 @@ def test_run_tk594_switch_to_rust_by_env(monkeypatch):
     assert c[1].endswith("rustfeat_run.py") and c[2:4] == ["e.parquet", "o.parquet"]
     assert c[c.index("--mode") + 1] == "deriv" and c[c.index("--base-date") + 1] == "2026-09-01"
     assert c[c.index("--procs") + 1] == "4" and c[c.index("--bin") + 1] == "/x/alpha-feat"
+
+
+def test_f12_bin_default_follows_feat_bin(monkeypatch):
+    """Эпизоды: P42_F12_BIN=<путь> — Rust; нет переменной — Rust бинарём P42_FEAT_BIN; `off`/пусто — Python; ни одной — Python (TK-609 v7)."""
+    monkeypatch.delenv("P42_F12_BIN", raising=False)
+    monkeypatch.delenv("P42_FEAT_BIN", raising=False)
+    assert rf.f12_bin() == ""
+    monkeypatch.setenv("P42_FEAT_BIN", "/x/alpha-feat")
+    assert rf.f12_bin() == "/x/alpha-feat"
+    monkeypatch.setenv("P42_F12_BIN", "/y/alpha-feat")
+    assert rf.f12_bin() == "/y/alpha-feat"
+    for off in ("off", "OFF", ""):
+        monkeypatch.setenv("P42_F12_BIN", off)
+        assert rf.f12_bin() == ""

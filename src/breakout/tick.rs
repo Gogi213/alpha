@@ -16,7 +16,7 @@ use super::data::{
 use super::levels::{build_levels_far, Level};
 use super::params::{ExitCfg, LevelCfg, PortCfg, SigCfg};
 use super::portfolio::Settled;
-use super::store::{DayTrades, QtyRaw, SrcMeta, TickStore};
+use super::store::{DayHead, DayTrades, QtyRaw, SrcMeta, TickStore};
 use super::trade::{frac, ExitKind, NOTIONAL_U};
 use super::Side;
 use crate::lob::costs::leg_fee_bps;
@@ -286,6 +286,13 @@ struct Lru {
     bytes: usize,
 }
 
+/// Итог `ZipSrc::fold_day`: нет файла zip / склад не дал сутки (промах, отступления, повреждение) / сутки свёрнуты.
+pub enum Fold {
+    NoZip,
+    Miss,
+    Done(DayHead),
+}
+
 /// Сутки из `<dir>/<МОНЕТА>/<МОНЕТА>-aggTrades-<день>.zip` (распаковка внешним `unzip -p`), с ограничением памяти.
 pub struct ZipSrc {
     dir: PathBuf,
@@ -387,6 +394,29 @@ impl ZipSrc {
     /// Сутки с количеством, без кэша (потребитель решает сам, что держать в памяти): со склада или из zip с записью в склад.
     pub fn read_day(&self, name: &str, day: usize) -> Result<Option<DayTrades>> {
         self.load_day(name, day, true)
+    }
+
+    /// TK-609 (v6): сутки со склада свёрткой (`TickStore::fold_day`) — без массивов и без записи в склад.
+    pub fn fold_day<F: FnMut(u32, i64, bool, u64)>(
+        &self,
+        name: &str,
+        day: usize,
+        start: impl FnOnce(&DayHead) -> Option<F>,
+    ) -> Fold {
+        let date = day_string(day);
+        let p = self
+            .dir
+            .join(name)
+            .join(format!("{name}-aggTrades-{date}.zip"));
+        let Ok(md) = fs::metadata(&p) else {
+            return Fold::NoZip;
+        };
+        match (&self.store, SrcMeta::of(&md)) {
+            (Some(store), Some(meta)) => store
+                .fold_day(name, &date, &meta, start)
+                .map_or(Fold::Miss, Fold::Done),
+            _ => Fold::Miss,
+        }
     }
 }
 

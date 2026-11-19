@@ -3,8 +3,8 @@
 
 use super::deriv::{deriv_features, Metrics, DERIV};
 use super::flow::{
-    edges, flow_coin, flow_features, hist_bin, q99_edge, vpin_value, Ep, Win, DAY_MS, HOUR_MS,
-    MIN_MS, NB,
+    edges, flow_coin, flow_features, hist_add_day, hist_bin, q99_edge, vpin_value, Ep, HistSink,
+    Win, DAY_MS, HOUR_MS, MIN_MS, NB,
 };
 use super::io::{read_eps, run, Cfg, Mode};
 use super::npcompat::{
@@ -426,6 +426,90 @@ fn from_store_equals_px_qty_formula() {
             }
         }
     }
+}
+
+/// Свёртка суток склада в гистограмму (`fold_day` + `HistSink`) равна пути через массивы (`from_store` + `hist_add_day`): счётчики всех
+/// часов и корзин, признак `unsorted`, время первой записи; обрезанный файл и устаревший исходник — `None` без вызовов на сделку.
+#[test]
+fn fold_day_hist_equals_arrays() {
+    let dir = tempfile::tempdir().expect("tmp");
+    let st = TickStore::open(&StoreOpts {
+        dir: dir.path().to_path_buf(),
+        cap_gb: 1,
+        min_free_gb: 0,
+    })
+    .expect("склад");
+    let meta = SrcMeta {
+        size: 1,
+        mtime_s: 1,
+        mtime_ns: 0,
+    };
+    let mut x = 0x9E37_79B9_7F4A_7C15u64;
+    let mut rnd = move || {
+        x ^= x << 13;
+        x ^= x >> 7;
+        x ^= x << 17;
+        x
+    };
+    let mut rows: Vec<(i64, String, String, &str)> = Vec::new();
+    for k in 0..4000i64 {
+        // оборот от 1e-5 до ~1e7: крайние корзины, ноль и значения у границ
+        let p = format!("{}.{:04}", 1 + rnd() % 70_000, rnd() % 10_000);
+        let q = match k % 5 {
+            0 => format!("{}", rnd() % 3),
+            1 => format!("0.{:03}", rnd() % 1000),
+            2 => format!("{}.{:06}", rnd() % 50, rnd() % 1_000_000),
+            3 => format!("{}", rnd() % 100_000),
+            _ => "0.001".to_string(),
+        };
+        let off = if k % 997 == 3 { 5 } else { k * 21_000 };
+        rows.push((off, p, q, if rnd() & 1 == 1 { "true" } else { "false" }));
+    }
+    let view: Vec<(i64, &str, &str, &str)> = rows
+        .iter()
+        .map(|(o, p, q, b)| (*o, p.as_str(), q.as_str(), *b))
+        .collect();
+    let (arrays, stored) = via_store(&day_csv(&view));
+    let arrays = arrays.expect("чистые сутки");
+    st.write("AAA", "2026-09-01", &meta, &stored);
+    let mut want = vec![0i32; 24 * NB];
+    hist_add_day(&mut want, T0_MS / DAY_MS, &arrays);
+    let mut got = vec![0i32; 24 * NB];
+    let p10 = |dec: u8| 10f64.powi(i32::from(dec));
+    let head = st
+        .fold_day("AAA", "2026-09-01", &meta, |hd| {
+            assert_eq!(hd.flags, 0);
+            let (mut sink, p) = (HistSink::new(&mut got), p10(hd.qty_dec));
+            Some(move |off: u32, px: i64, _bm: bool, q: u64| {
+                sink.add(off, (px as f64 / 1e8) * (q as f64 / p));
+            })
+        })
+        .expect("свёртка");
+    assert_eq!(got, want);
+    assert_eq!(got.iter().map(|&c| i64::from(c)).sum::<i64>(), 4000);
+    assert!(got.iter().any(|&c| c > 0));
+    assert_eq!(head.n, 4000);
+    assert_eq!(head.stat.unsorted_files > 0, arrays.unsorted);
+    assert_eq!(
+        head.first_off.map(|o| T0_MS + i64::from(o)),
+        arrays.t.first().copied()
+    );
+    assert_eq!(st.counters().hit, 1);
+    // устаревший исходник, нет файла, обрезанный файл — `None`, ни одного вызова на сделку, счётчики склада не меняются
+    let calls = std::cell::Cell::new(0u32);
+    let probe = |m: &SrcMeta, date: &str| {
+        st.fold_day("AAA", date, m, |_| {
+            Some(|_: u32, _: i64, _: bool, _: u64| calls.set(calls.get() + 1))
+        })
+    };
+    assert!(probe(&SrcMeta { size: 2, ..meta }, "2026-09-01").is_none());
+    assert!(probe(&meta, "2026-09-02").is_none());
+    let path = st.path("AAA", "2026-09-01");
+    let bytes = std::fs::read(&path).expect("файл");
+    std::fs::write(&path, &bytes[..bytes.len() - 3]).expect("обрезка");
+    assert!(probe(&meta, "2026-09-01").is_none());
+    assert_eq!(st.counters().hit, 1);
+    assert_eq!(calls.get(), 0);
 }
 
 #[test]
