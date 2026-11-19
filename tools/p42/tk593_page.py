@@ -8,6 +8,8 @@ TK-601: вкладка «Эквити» — данные из equity.json (по 
 TK-602: подвид «Форма» вкладки «Эквити» — данные из shape.json (по умолчанию <каталог>/data/shape.json; строит tk602_shape.py), вшиваются так же.
 TK-606: вкладка «Признаки» — данные из features.json (по умолчанию <каталог>/data/features.json; источник — tools/p42/ml_features.json, схема ml_features.schema.json,
 плюс проверки: ссылки src ∈ sources, имена признаков не повторяются, у набора «идёт» нет цифр), вшиваются так же.
+TK-624: блок «Где мы» (progress.json → where) и вид «Базы» вкладки «Эквити» — данные из bases.json (по умолчанию <каталог>/data/bases.json; строит tk624_table.py:
+суточные ряды L_base / S_base (TK-599) и S_mk1 (TK-616), $ при ставке 500 $); итоги ряда сверяются с принятыми отчётами, вшиваются так же.
 """
 from __future__ import annotations
 
@@ -23,6 +25,9 @@ progress_path = sys.argv[6] if len(sys.argv) > 6 else f"{out_dir}/data/progress.
 equity_path = sys.argv[7] if len(sys.argv) > 7 else f"{out_dir}/data/equity.json"
 shape_path = sys.argv[8] if len(sys.argv) > 8 else f"{out_dir}/data/shape.json"
 features_path = sys.argv[9] if len(sys.argv) > 9 else f"{out_dir}/data/features.json"
+bases_path = sys.argv[10] if len(sys.argv) > 10 else f"{out_dir}/data/bases.json"
+# итоги баз по принятым отчётам: (Σ $, сделок) — p42-maker-entry-2026-11-19.md (L_base, S_base, S_mk1) и p42-retitration-full-2026-11-19.md
+ACCEPTED_BASES = {"L_base": (7.06, 621), "S_base": (259.14, 431), "S_mk1": (248.05, 372)}
 BAR = 0.02
 DIRS = ("A->B", "B->A")
 SET = "f12"
@@ -39,6 +44,29 @@ def check_features(f):
     for s in f["sets"]:
         assert s["status"] == "done" or not s["numbers"], f"features.json: у набора {s['id']} со статусом «идёт» цифр быть не должно"
         assert s["numbers"] == [] or s["reports"], f"features.json: у набора {s['id']} есть цифры, но нет отчёта"
+
+
+def check_bases(b, progress):
+    """Смысловые проверки bases.json и связи с progress.json (TK-624)."""
+    assert b["days"] == 136 and sum(b["month_len"]) == 136 and len(b["month_names"]) == len(b["month_len"]), "bases.json: окно не 136 суток"
+    assert sorted(b["cells"]) == sorted(ACCEPTED_BASES), f"bases.json: клетки {sorted(b['cells'])}"
+    for k, (tot, n) in ACCEPTED_BASES.items():
+        c = b["cells"][k]
+        assert len(c["daily_sum"]) == 136 and len(c["daily_n"]) == 136, f"bases.json: {k} не 136 суток"
+        s = sum(c["daily_sum"])
+        assert abs(s - tot) < 0.006, f"bases.json: {k} Σ {s:.4f} ≠ принятого {tot}"
+        assert sum(c["daily_n"]) == n, f"bases.json: {k} сделок {sum(c['daily_n'])} ≠ принятого {n}"
+        assert abs(c["rows"][-1]["sum"] - s) < 1e-6 and c["rows"][-1]["trades"] == n, f"bases.json: {k} итоговая строка не равна ряду"
+    ids = [r["id"] for r in progress["where"]["rows"]]
+    assert len(ids) == len(set(ids)) and set(ids) <= set(b["cells"]), f"progress.json where.rows: {ids}"
+    seen, last = set(), None
+    for s_ in progress["stages"]:
+        g = s_.get("group")
+        if g != last:
+            assert g not in seen, f"progress.json: группа «{g}» повторяется не подряд"
+            seen.add(g)
+            last = g
+    assert len({s_["id"] for s_ in progress["stages"]}) == len(progress["stages"]), "progress.json: id этапа повторяется"
 
 
 def main():
@@ -90,10 +118,13 @@ def main():
     jsonschema.validate(features, json.load(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "ml_features.schema.json"), encoding="utf-8")))
     check_features(features)
     fblob = json.dumps(features, ensure_ascii=False, allow_nan=False, separators=(",", ":")).replace("</", "<\\/")
+    bases = json.load(open(bases_path, encoding="utf-8"))
+    check_bases(bases, progress)
+    bblob = json.dumps(bases, ensure_ascii=False, allow_nan=False, separators=(",", ":")).replace("</", "<\\/")
     pblob = json.dumps(progress, ensure_ascii=False, allow_nan=False, separators=(",", ":")).replace("</", "<\\/")
-    assert "/*__DATA__*/" in tpl and "/*__PROGRESS__*/" in tpl and "/*__EQUITY__*/" in tpl and "/*__SHAPE__*/" in tpl and "/*__FEATURES__*/" in tpl
+    assert "/*__DATA__*/" in tpl and "/*__PROGRESS__*/" in tpl and "/*__EQUITY__*/" in tpl and "/*__SHAPE__*/" in tpl and "/*__FEATURES__*/" in tpl and "/*__BASES__*/" in tpl
     os.makedirs(f"{out_dir}/data", exist_ok=True)
-    open(f"{out_dir}/index.html", "w", encoding="utf-8").write(tpl.replace("/*__DATA__*/", blob).replace("/*__PROGRESS__*/", pblob).replace("/*__EQUITY__*/", eblob).replace("/*__SHAPE__*/", sblob).replace("/*__FEATURES__*/", fblob))
+    open(f"{out_dir}/index.html", "w", encoding="utf-8").write(tpl.replace("/*__DATA__*/", blob).replace("/*__PROGRESS__*/", pblob).replace("/*__EQUITY__*/", eblob).replace("/*__SHAPE__*/", sblob).replace("/*__FEATURES__*/", fblob).replace("/*__BASES__*/", bblob))
     json.dump(data, open(f"{out_dir}/data/page_data.json", "w", encoding="utf-8"), ensure_ascii=False)
     print("index.html", len(tpl) + len(blob) + len(pblob) + len(eblob) + len(sblob) + len(fblob), "байт; ход работ", progress["updated"], f"({len(progress['stages'])} этапов); признаки", features["updated"], f"({len(features['sets'])} наборов); (а)", {s: data["sides"][s]["verdict"]["a"]["ok"] for s in data["sides"]}, flush=True)
 
