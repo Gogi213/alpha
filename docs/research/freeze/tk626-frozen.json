@@ -1,0 +1,239 @@
+{
+ "version": "tk626-frozen-1",
+ "protocol": "П-42 §13.28.1 (поправка к §13.28 п. 7–8)",
+ "supersedes": {
+  "file": "docs/research/freeze/tk616-frozen.json",
+  "commit": "96e302480",
+  "sha256": "78bf8b5ca2a02aeb58fd126196f44f74bdf60c3e0e0061ed8acf8584fd4ce99c",
+  "version": "tk616-frozen-1"
+ },
+ "binary": {
+  "md5": "396989e9d0ad34d19f9b512a659c8e8e",
+  "sha256": "470046d924392f0eab60ee730c43eb943c17913463857458e93b702127ac7fe0",
+  "path": "/data/p42-tk616/alpha-mk.396989e9"
+ },
+ "universe": {
+  "read": [
+   "all",
+   "crypto",
+   "tradfi"
+  ],
+  "decision": "all",
+  "base": {
+   "all": {
+    "sha256": "29a60d33be10c4e4cb0b86c28922edcbad5564013df00fbf93f3fb4aa3eb3c32",
+    "n": 775
+   },
+   "crypto": {
+    "sha256": "ac662b4076e44e834cdcbee1602e590c7a045cf9c2cb2fece24191715ff48750",
+    "n": 539
+   },
+   "tradfi": {
+    "sha256": "0932553b5225e40d0773e1a8219d9b8aa94d831dcd96ee7ace92c4a11bd1af59",
+    "n": 236
+   }
+  },
+  "contracts_sha256": "4b51e9aad05b4652c50bc6030ba11aaa1fa362ecf5e3b877b1bac735e514d328",
+  "contracts_files": {
+   "git": "docs/findings/p42-honest-universe-2026-11-19/contracts.csv",
+   "srv": "/data/p42-tk621/universe/contracts.csv"
+  },
+  "listing_after": "2026-11-13",
+  "t24": "12"
+ },
+ "cells": {
+  "S_base": {
+   "side": "S",
+   "keys": "lat=4 latx=4 pk=1 pb=1 fh=4 fk=120 fm=50 fb=0.5 ew=5 ex=0 tt=20 tb=0.1 rf=0.2 rs=2 bm=1 e=0.15 e2=0.05 t24=12",
+   "vid": "c8c06a7d70b92",
+   "family": true
+  },
+  "S_mk1": {
+   "side": "S",
+   "keys": "lat=4 latx=4 pk=1 pb=1 fh=4 fk=120 fm=50 fb=0.5 ew=5 ex=0 tt=20 tb=0.1 rf=0.2 rs=2 bm=1 e=0.15 e2=0.05 mk=1 t24=12",
+   "vid": "cd0838447e287",
+   "family": true
+  },
+  "L_base": {
+   "side": "L",
+   "keys": "lat=4 latx=4 pk=1 pb=1 fh=4 fk=120 fm=50 fb=0.5 ew=5 ex=0 rf=0.2 rs=20 t24=12",
+   "vid": "c3dacae86b422",
+   "family": true
+  }
+ },
+ "alpha": {
+  "S_base": 0.03,
+  "S_mk1": 0.01,
+  "L_base": 0.01
+ },
+ "point_shares": {
+  "L2": 0.04,
+  "L3": 0.1,
+  "L4": 0.2,
+  "L5": 0.66
+ },
+ "points": [
+  {
+   "id": "L1",
+   "d": "2026-11-30",
+   "entries_to": "2026-11-26",
+   "windows": [
+    "w1"
+   ],
+   "decision": false
+  },
+  {
+   "id": "L2",
+   "d": "2026-12-31",
+   "entries_to": "2026-12-27",
+   "windows": [
+    "w1",
+    "w2"
+   ],
+   "decision": true
+  },
+  {
+   "id": "L3",
+   "d": "2027-01-31",
+   "entries_to": "2027-01-27",
+   "windows": [
+    "w1",
+    "w2"
+   ],
+   "decision": true
+  },
+  {
+   "id": "L4",
+   "d": "2027-02-28",
+   "entries_to": "2027-02-24",
+   "windows": [
+    "w1",
+    "w2",
+    "w3"
+   ],
+   "decision": true
+  },
+  {
+   "id": "L5",
+   "d": "2027-03-31",
+   "entries_to": "2027-03-27",
+   "windows": [
+    "w1",
+    "w2",
+    "w3",
+    "w4"
+   ],
+   "decision": true
+  }
+ ],
+ "windows": [
+  {
+   "name": "w1",
+   "t0": "2026-10-16",
+   "lo": "2026-11-17",
+   "hi": "2026-12-24"
+  },
+  {
+   "name": "w2",
+   "t0": "2026-11-23",
+   "lo": "2026-12-25",
+   "hi": "2027-01-31"
+  },
+  {
+   "name": "w3",
+   "t0": "2026-12-31",
+   "lo": "2027-02-01",
+   "hi": "2027-03-10"
+  },
+  {
+   "name": "w4",
+   "t0": "2027-02-07",
+   "lo": "2027-03-11",
+   "hi": "2027-04-17"
+  },
+  {
+   "name": "w5",
+   "t0": "2027-03-17",
+   "lo": "2027-04-18",
+   "hi": "2027-05-25"
+  }
+ ],
+ "alpha_split_rule": "§13.28.1 п. 3: α(S_base) + α(S_mk1) + α(L_base) ≤ 0,05; кандидаты TK-618/620 (их нет) берут α только из доли α(S_base); S_mk1 не прошёл G-626c — его 0,01 переходит к α(S_base)",
+ "gates": {
+  "G-626a": {
+   "ok": true,
+   "files": 24,
+   "diff": [],
+   "bin_md5": "396989e9d0ad34d19f9b512a659c8e8e",
+   "ref": "/data/p42-tk621/out/all_t24",
+   "ref_bin": "a112684a495e61cf5219610e4eecff22",
+   "results_sha256": "9575ee85e5b480915f17da2ddf17b45262509e5b633d529e96b84528feed5fb6"
+  },
+  "G-626c": {
+   "smk1_passed": true,
+   "results_sha256": "333b1f708581d64d62193439cf1d5bc8c9522d8038d3af54bb2635d7552ef45e",
+   "cells": {
+    "L_mk1": {
+     "side": "L",
+     "sum": 160.14338399999997,
+     "n": 396,
+     "mean": 0.4044024848484848,
+     "p": 0.1000889991100089,
+     "holm_threshold": 0.05,
+     "holm_reject": false,
+     "positive_months": 4,
+     "counted_months": 5,
+     "g1": false,
+     "g2": true,
+     "g3": false,
+     "pass": false
+    },
+    "L_mk2": {
+     "side": "L",
+     "sum": 180.82829900000002,
+     "n": 327,
+     "mean": 0.5529917400611621,
+     "p": 0.005669943300566994,
+     "holm_threshold": 0.016666666666666666,
+     "holm_reject": true,
+     "positive_months": 5,
+     "counted_months": 5,
+     "g1": true,
+     "g2": true,
+     "g3": true,
+     "pass": true
+    },
+    "S_mk1": {
+     "side": "S",
+     "sum": 199.771587,
+     "n": 272,
+     "mean": 0.7344543639705883,
+     "p": 0.0025499745002549976,
+     "holm_threshold": 0.0125,
+     "holm_reject": true,
+     "positive_months": 5,
+     "counted_months": 5,
+     "g1": true,
+     "g2": true,
+     "g3": true,
+     "pass": true
+    },
+    "S_mk2": {
+     "side": "S",
+     "sum": 165.985592,
+     "n": 233,
+     "mean": 0.7123845150214592,
+     "p": 0.025729742702572975,
+     "holm_threshold": 0.025,
+     "holm_reject": false,
+     "positive_months": 4,
+     "counted_months": 5,
+     "g1": false,
+     "g2": true,
+     "g3": true,
+     "pass": false
+    }
+   }
+  }
+ }
+}

@@ -137,6 +137,13 @@ def sha256_file(path):
     return h.hexdigest()
 
 
+def sha256_lf(path):
+    """sha256 текстового файла по содержимому с переводами строк LF (CRLF → LF): один хеш для блоба git, копии с `autocrlf` и серверного файла.
+    Бинарные файлы (бинарь движка, склад тиков) — `sha256_file`."""
+    with open(path, "rb") as f:
+        return hashlib.sha256(f.read().replace(bytes([13, 10]), bytes([10]))).hexdigest()
+
+
 # ---- сделки окна, склейка ---------------------------------------------------------------------------------------------------
 
 @dataclasses.dataclass

@@ -1,0 +1,33 @@
+{
+ "bin": "/data/p42-tk616/alpha-mk.396989e9",
+ "md5": "396989e9d0ad34d19f9b512a659c8e8e",
+ "sha256": "470046d924392f0eab60ee730c43eb943c17913463857458e93b702127ac7fe0",
+ "symbols_sha256": "29a60d33be10c4e4cb0b86c28922edcbad5564013df00fbf93f3fb4aa3eb3c32",
+ "n_symbols": 775,
+ "cells": {
+  "L_base": {
+   "vid": "c3dacae86b422",
+   "keys": "lat=4 latx=4 pk=1 pb=1 fh=4 fk=120 fm=50 fb=0.5 ew=5 ex=0 rf=0.2 rs=20 t24=12"
+  },
+  "S_base": {
+   "vid": "c8c06a7d70b92",
+   "keys": "lat=4 latx=4 pk=1 pb=1 fh=4 fk=120 fm=50 fb=0.5 ew=5 ex=0 tt=20 tb=0.1 rf=0.2 rs=2 bm=1 e=0.15 e2=0.05 t24=12"
+  },
+  "L_mk1": {
+   "vid": "ce4086541d044",
+   "keys": "lat=4 latx=4 pk=1 pb=1 fh=4 fk=120 fm=50 fb=0.5 ew=5 ex=0 rf=0.2 rs=20 mk=1 t24=12"
+  },
+  "L_mk2": {
+   "vid": "cf280a1e8fc7c",
+   "keys": "lat=4 latx=4 pk=1 pb=1 fh=4 fk=120 fm=50 fb=0.5 ew=5 ex=0 rf=0.2 rs=20 mk=2 t24=12"
+  },
+  "S_mk1": {
+   "vid": "cd0838447e287",
+   "keys": "lat=4 latx=4 pk=1 pb=1 fh=4 fk=120 fm=50 fb=0.5 ew=5 ex=0 tt=20 tb=0.1 rf=0.2 rs=2 bm=1 e=0.15 e2=0.05 mk=1 t24=12"
+  },
+  "S_mk2": {
+   "vid": "cc865f187caa8",
+   "keys": "lat=4 latx=4 pk=1 pb=1 fh=4 fk=120 fm=50 fb=0.5 ew=5 ex=0 tt=20 tb=0.1 rf=0.2 rs=2 bm=1 e=0.15 e2=0.05 mk=2 t24=12"
+  }
+ }
+}

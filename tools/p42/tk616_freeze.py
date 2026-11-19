@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""TK-616 / П-42 §13.28 п. 8: сборка файла заморозки `docs/research/freeze/tk616-frozen.json` из `results.json` (исходы G_mk) и бинаря.
+"""[ЗАМЕНЕНО TK-626: `tk626_freeze.py` — заморозка `tk626-frozen-1`; этот сборщик — история заморозки 96e302480, `main` не пишет файл.]
+TK-616 / П-42 §13.28 п. 8: сборка файла заморозки `docs/research/freeze/tk616-frozen.json` из `results.json` (исходы G_mk) и бинаря.
 Геометрия — п. 7: окна w1…w5, точки L1…L5, доли α по точкам; α клеток — по числу прошедших G_mk. Результат проходит `tk616_forward.load_freeze`.
 
   python3 tk616_freeze.py --results <results.json> --bin <alpha-mk> --symbols <symbols.txt> --out docs/research/freeze/tk616-frozen.json
@@ -75,6 +76,11 @@ def build(results, results_sha256, bin_path, bin_md5, bin_sha256, symbols_sha256
 
 
 def main(argv=None):
+    print("заморозка 96e302480 заменена §13.28.1: используйте tk626_freeze.py", file=sys.stderr)
+    return 2
+
+
+def _main_history(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--results", required=True)
     ap.add_argument("--bin", required=True)

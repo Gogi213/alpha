@@ -8,6 +8,7 @@ import datetime as D
 import json
 import os
 import sys
+import urllib.parse
 import urllib.request
 
 HDR = "open_time,open,high,low,close,volume,close_time,quote_volume,count,taker_buy_volume,taker_buy_quote_volume,ignore\n"
@@ -15,7 +16,7 @@ HDR = "open_time,open,high,low,close,volume,close_time,quote_volume,count,taker_
 
 def rest_day(sym, day):
     t0 = int(D.datetime.fromisoformat(day).replace(tzinfo=D.timezone.utc).timestamp() * 1000)
-    url = f"https://fapi.binance.com/fapi/v1/klines?symbol={sym}&interval=1m&startTime={t0}&endTime={t0 + 86_400_000 - 1}&limit=1500"
+    url = f"https://fapi.binance.com/fapi/v1/klines?symbol={urllib.parse.quote(sym)}&interval=1m&startTime={t0}&endTime={t0 + 86_400_000 - 1}&limit=1500"
     rows = json.load(urllib.request.urlopen(url, timeout=60))
     return HDR + "".join(",".join(str(x) for x in r) + "\n" for r in rows), len(rows)
 

@@ -11,6 +11,7 @@ import sys
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 import zipfile
 from concurrent.futures import ThreadPoolExecutor
@@ -24,6 +25,7 @@ cnt = {"done": 0, "skipped": 0, "bytes": 0, "miss": 0, "total": 0}
 
 
 def get(url, tries=6):
+    url = urllib.parse.quote(url, safe=":/")                            # символы с иероглифами (哈基米USDT…): путь — в %-кодировке, ASCII не меняется
     for a in range(tries):
         try:
             with urllib.request.urlopen(url, timeout=120) as r:
