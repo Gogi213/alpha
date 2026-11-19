@@ -45,6 +45,8 @@ class FakeSrv:
 
     def __init__(self, world=None, fail=None, perturb=None):
         self.world, self.fail, self.perturb = world, fail, perturb
+        self.filter_perturb = None                                          # (dropped += 1) для проверки сверки счётчиков фильтра
+        self.episode_shift = False                                          # эпизодные столбцы зависят от потока (инцидент 19.11); по умолчанию — как раньше
         self.calls, self.base_dates, self.engine_variants = [], [], 0
 
     @staticmethod
@@ -71,7 +73,8 @@ class FakeSrv:
         names = [n for n, _ in rfx.FEATURES[side]]
         syms, ms = [r[0] for r in rows], np.array([int(r[2]) for r in rows], dtype=np.int64)
         os.makedirs(os.path.dirname(out), exist_ok=True)
-        rfx.write_ftab(out, syms, ms, names, [np.array([fval(n, s, int(m)) for s, m in zip(syms, ms)]) for n in names])
+        shift = int(hashlib.md5(os.path.basename(os.path.dirname(out)).encode()).hexdigest()[:4], 16) % 7 + 1 if self.episode_shift else 0   # §13.24.8: по vid потока
+        rfx.write_ftab(out, syms, ms, names, [np.array([fval(n, s, int(m)) + (0.0 if n in rfx.TK594_MODE else shift) for s, m in zip(syms, ms)]) for n in names])
         return 0
 
     def engine(self, cmd, env):
@@ -127,7 +130,14 @@ class FakeSrv:
                 for i, v in sorted(daily.items()):
                     f.write("%d,%.6f\n" % (i, v))
             if "fa=" in keys:
-                meta[side] = {"filter_[cands,dropped,no_key,no_value]": [100, 10, 0 if ftab and os.path.exists(ftab) else 100, 0]}
+                if ftab and os.path.exists(ftab):
+                    _plain, feats = rc.parse_keys(keys)
+                    tab = rfx.read_ftab(ftab)
+                    col, fv = tab[2][feats[0]["fa"]], float(feats[0]["fv"])
+                    drop = int(((~np.isnan(col)) & ((col > fv) if feats[0]["fo"] == "hi" else (col < fv))).sum())
+                    meta[side] = {"filter_[cands,dropped,no_key,no_value]": [len(col), drop + (1 if self.filter_perturb else 0), 0, int(np.isnan(col).sum())]}
+                else:
+                    meta[side] = {"filter_[cands,dropped,no_key,no_value]": [100, 10, 100, 0]}
             else:
                 meta[side] = {}
         with open(os.path.join(d, "meta.json"), "w", encoding="utf-8") as f:
@@ -247,7 +257,7 @@ def test_groups_split_and_chunks():
         r = [rf.Req("L", "s=%d" % i, False) for i in range(1, 6)]
         f = [rf.Req("L", "s=3 fa=maxmv1 fo=lo fv=1.0", False), rf.Req("S", "s=3 fa=tpm15 fo=lo fv=2.0", False), rf.Req("S", "s=4 fa=tpm15 fo=lo fv=2.0", False)]
         g = ctx.engine.groups(r + f)
-        assert [(s, len(p)) for s, p in g] == [(None, 2), (None, 2), (None, 1), ("L", 1), ("S", 2)]
+        assert [(s, len(p)) for s, p in g] == [(None, 2), (None, 2), (None, 1), ("L", 1), ("S", 1), ("S", 1)]          # §13.24.8: с фильтром — по потоку (s=3 и s=4 — разные потоки)
         assert rr.Engine.stream_need(f[0]) == rf.FtabNeed("L", "s=3") and rr.Engine.stream_need(f[1]).hash != rr.Engine.stream_need(f[0]).hash
         assert list(rr.chunks([1, 2, 3], 0)) == [[1, 2, 3]]
 
@@ -300,7 +310,76 @@ def test_merge_union():
         assert "столбцы" in raises(rr.GuardError, rr.merge_union, u, c)
 
 
-def test_ftab_store_build_union_base_date_and_ready():
+def test_merge_union_only_pure_columns():
+    """§13.24.8: общий файл — только чистые столбцы; эпизодные (зависят от потока) не сравниваются, расхождение чистого — стоп."""
+    with tempfile.TemporaryDirectory() as tmp:
+        u, a, b, c = (os.path.join(tmp, n) for n in ("u.csv", "a.csv", "b.csv", "c.csv"))
+        names = ("tpm15", "big1800")
+        _tab(a, [("X", 10, 69.4, 1.5), ("Y", 20, 3.0, 2.5)], names)
+        assert rr.merge_union(u, a, only=("big1800",)) == (2, 2)
+        _tab(b, [("X", 10, 69.3333, 1.5)], names)                                                   # тот же ключ, эпизодный столбец другой (инцидент 19.11) — не ошибка
+        assert rr.merge_union(u, b, only=("big1800",)) == (2, 0)
+        assert set(rfx.read_ftab(u)[2]) == {"big1800"}
+        _tab(c, [("X", 10, 69.4, 1.75)], names)                                                     # чистый столбец другой — стоп
+        assert "расходятся" in raises(rr.GuardError, rr.merge_union, u, c, ("big1800",))
+    assert rr.pure_cols("S") == ("big1800",) and rr.pure_cols("L") == ("oi_c24", "loi_turn")
+
+
+def test_stream_table_unique_key_guard():
+    with tempfile.TemporaryDirectory() as tmp:
+        t = os.path.join(tmp, "ftab.csv")
+        with open(t, "w", encoding="utf-8", newline="") as f:
+            f.write("sym,sig_ms,tpm15\nX,10,1.0\nY,10,2.0\nX,10,3.0\n")
+        assert "не уникален" in raises(rr.GuardError, rr.stream_table, t)
+        assert "нет таблицы потока" in raises(rr.GuardError, rr.stream_table, os.path.join(tmp, "нет.csv"))
+        _tab(t, [("X", 10, 1.0, 2.0), ("Y", 10, 2.0, 3.0)], ("tpm15", "cons60"))
+        assert rr.stream_table(t)[0] == ["X", "Y"]
+
+
+def test_filter_call_reads_own_stream_table_and_checks_counts():
+    """§13.24.8: `--ftab` каждого вызова = таблица ЕГО потока по vid, вызов на один поток; сверка счётчиков фильтра (no_key = 0, прошло = Python) до шага процедуры."""
+    with tempfile.TemporaryDirectory() as tmp:
+        ctx, srv = make(tmp, World(lambda k, s, d: 0.0))
+        k1 = rf.cfg_keys(SPEC, "S", {})
+        k2 = k1 + " natr_min=0.3"
+        reqs = [rf.Req("S", k1 + " fa=tpm15 fo=lo fv=40.0", False), rf.Req("S", k1 + " fa=cons60 fo=hi fv=60.0", False), rf.Req("S", k2 + " fa=tpm15 fo=lo fv=40.0", False)]
+        ctx.engine.launch(reqs)
+        needs = {rr.Engine.stream_need(r).vid: rr.Engine.stream_need(r) for r in reqs}
+        assert len(needs) == 2
+        fcalls = [(c, e) for c, e in srv.calls if "--ftab" in c]
+        assert len(fcalls) == 2 * len(rf.WINDOWS)                                                   # на окно — по вызову на поток (2 потока), не один общий
+        for c, e in fcalls:
+            win = next(w for w in rf.WINDOWS if w.t0 == e["P42_T0"])
+            vids = {ln.partition(" ")[0] for ln in open(srv.arg(c, "--variants"), encoding="utf-8").read().splitlines()}
+            streams = {rr.Engine.stream_need(r).vid for r in reqs if r.vid in vids}
+            assert len(streams) == 1 and vids == {r.vid for r in reqs if rr.Engine.stream_need(r).vid in streams}
+            assert srv.arg(c, "--ftab") == ctx.paths.need_tab(win.name, needs[next(iter(streams))])    # по vid потока, не «последняя таблица стороны»
+        assert not any(os.path.exists(ctx.paths.union(w.name, "S")) for w in rf.WINDOWS)
+        rows = [ln.split("\t") for ln in open(os.path.join(ctx.paths.log, "filtercheck.tsv"), encoding="utf-8").read().splitlines()]
+        assert len(rows) == len(reqs) * len(rf.WINDOWS) and all(r[-1] == "0" and r[-2] == r[-3] and r[5] == r[6] and r[7] == r[8] for r in rows)   # no_key 0; прошло движком = Python
+    with tempfile.TemporaryDirectory() as tmp:
+        ctx, srv = make(tmp, World(lambda k, s, d: 0.0))
+        srv.filter_perturb = True                                                                   # движок «отбросил» на одного больше, чем по таблице
+        r = rf.Req("S", rf.cfg_keys(SPEC, "S", {}) + " fa=tpm15 fo=lo fv=40.0", False)
+        assert "счётчики фильтра" in raises(rr.GuardError, ctx.engine.launch, [r])
+
+
+def test_stream_with_different_episode_columns_builds_without_stop():
+    """Инцидент 19.11: тот же ключ (sym, sig_ms) у двух потоков, эпизодные столбцы различаются — прежний union останавливал счёт, теперь сборка идёт."""
+    with tempfile.TemporaryDirectory() as tmp:
+        ctx, srv = make(tmp, World())
+        srv.episode_shift = True
+        n1, n2 = (rf.FtabNeed("S", rf.cfg_keys(SPEC, "S", {}) + x) for x in ("", " natr_min=0.3"))
+        ctx.store.build([n1, n2])
+        assert ctx.store.ready(n1) and ctx.store.ready(n2)
+        t1, t2 = ({(sy, int(m)): (a, b) for sy, m, a, b in zip(*rfx.read_ftab(ctx.paths.need_tab("wa", n))[:2], *(rfx.read_ftab(ctx.paths.need_tab("wa", n))[2][c] for c in ("tpm15", "big1800")))}
+                  for n in (n1, n2))
+        common = set(t1) & set(t2)
+        assert common and all(t1[k][0] != t2[k][0] for k in common)                                  # эпизодный столбец у потоков разный на тех же ключах
+        assert all(t1[k][1] == t2[k][1] or (t1[k][1] != t1[k][1] and t2[k][1] != t2[k][1]) for k in common)   # чистый — тот же
+
+
+def test_ftab_store_build_pure_guard_base_date_and_ready():
     with tempfile.TemporaryDirectory() as tmp:
         ctx, srv = make(tmp, World())
         need = rf.FtabNeed("L", rf.cfg_keys(SPEC, "L", {}))
@@ -313,14 +392,16 @@ def test_ftab_store_build_union_base_date_and_ready():
         sx = [(c, e) for c, e in srv.calls if e.get("P42_SIGSX_ONLY")]
         assert [e["P42_T0"] for _, e in sx] == [w.t0 for w in rf.WINDOWS] and all(e["P42_SIGSX"] == "14:73" for _, e in sx)
         for w in rf.WINDOWS:
-            syms, ms, cols = rfx.read_ftab(ctx.paths.union(w.name, "L"))
-            assert len(syms) == len(CAND_COINS) * (rf.TRADE_END + 1 - rf.GRID_START_DAY) * 2 and set(cols) == {n for n, _ in rfx.FEATURES["L"]}
+            syms, ms, cols = rfx.read_ftab(ctx.paths.pure(w.name, "L"))
+            assert len(syms) == len(CAND_COINS) * (rf.TRADE_END + 1 - rf.GRID_START_DAY) * 2 and set(cols) == set(rr.pure_cols("L")) == {"oi_c24", "loi_turn"}
+            assert not os.path.exists(ctx.paths.union(w.name, "L"))                                    # union больше не пишется (§13.24.8)
+            assert len(rfx.read_ftab(ctx.paths.need_tab(w.name, need))[2]) == len(rfx.FEATURES["L"])   # таблица потока — все столбцы
         n = len(srv.calls)
         ctx.store.build([need])
         assert len(srv.calls) == n                                                                 # готовое не собирается повторно
-        need2 = rf.FtabNeed("L", rf.cfg_keys(SPEC, "L", {}) + " natr_min=0.3")                    # другой поток: ключи новые, общие значения те же
+        need2 = rf.FtabNeed("L", rf.cfg_keys(SPEC, "L", {}) + " natr_min=0.3")                    # другой поток: ключи новые, общие чистые значения те же, эпизодные — другие
         ctx.store.build([need2])
-        syms, ms, _ = rfx.read_ftab(ctx.paths.union("wa", "L"))
+        syms, ms, _ = rfx.read_ftab(ctx.paths.pure("wa", "L"))
         assert len(syms) == len(CAND_COINS) * (rf.TRADE_END + 1 - rf.GRID_START_DAY) * 3
         days, cols = ctx.store.candidates(need)                                                    # зачётные диапазоны без перекрытий
         assert (np.bincount(days, minlength=rf.NDAYS) == len(CAND_COINS) * 2).all()                # каждые сутки 0…135 — ровно в одном окне
