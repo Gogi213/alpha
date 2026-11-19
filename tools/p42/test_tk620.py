@@ -3,6 +3,8 @@ import os
 import sys
 import tempfile
 
+import numpy as np
+
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import tk620_step0 as s0  # noqa: E402
 
@@ -60,14 +62,14 @@ def main():
     build(os.path.join(root, "2"), {"wa": [row(30, 1000, -1, 8, 8, dist_nat=1.2)] * 40, "wb": [], "wc": []})
     rr, _, _ = s0.curve(s0.load(os.path.join(root, "2"), "V", "long"), "lvl")
     assert [x[2] for x in rr[3:7]] == [0, 0, 40, 40], [x[2] for x in rr[:8]]
-    # край: 40 сигналов с проторговкой 95…99 (ширина 4 NATR), цена сигнала 99,9 (над краем на 4,9 NATR); r_k достигнуто для k ≤ 5, касаются 50 %
-    build(os.path.join(root, "3"), {"wa": [row(30, 1000 if i % 2 == 0 else -1, -1, 0, 6) for i in range(40)] + [row(30, 1000, -1, 0, 0, rng=None)] * 10, "wb": [], "wc": []})
+    # край: 40 сигналов с проторговкой 95…96+ (ширины 1,0…4,5 NATR), цена сигнала 99,9 (над краем на 4,9 NATR); r_k достигнуто для k ≤ 5, касаются 50 %
+    build(os.path.join(root, "3"), {"wa": [row(30, 1000 if i % 2 == 0 else -1, -1, 0, 6, rng=(95, 96 + 0.5 * (i // 5))) for i in range(40)] + [row(30, 1000, -1, 0, 0, rng=None)] * 10, "wb": [], "wc": []})
     n3 = s0.load(os.path.join(root, "3"), "V", "long")
     er, ep, en = s0.curve(n3, "edge")
     assert en == 40 and abs(ep - 0.5) < 1e-9, (en, ep)                       # без проторговки — вне базы кривой «край»
     assert er[0][2] == 40 and er[5][2] == 40 and er[6][2] == 0, [x[2] for x in er[:8]]
     wq, nw = s0.rule_width(n3)
-    assert nw == 40 and abs(wq[10] - 4.0) < 1e-9, (nw, wq)
+    assert nw == 40 and wq[10] == 1.0 and wq[90] == 4.5 and wq[10] < wq[25] < wq[75] < wq[90], (nw, wq)   # ширины 1,0…4,5 NATR по 5 сигналов
     test_rules()
     print("ok")
 
@@ -85,6 +87,29 @@ def test_rules():
     assert s0.rule_levels(thin, 0.8)["grid"] == [2.0, 3.5, 5.0]
     m = s0.rule_margin(rows, 0.8)
     assert m["grid"] == [1.5, 2.25], m
+    # краевые случаи (§13.31 п. 3): все сочетания X_h, X_q — три разных значения в (0, 5], середина строго между; M — два разных значения
+    steps = [0.25 * k for k in range(1, 21)]
+    for xh in steps:
+        for xq in [None] + [v for v in steps if v >= xh]:
+            g = s0.levels_grid(xh, xq)
+            assert len(set(g)) == 3 and g == sorted(g) and 1.0 <= g[0] and g[2] <= 5.0, (xh, xq, g)
+            assert all(abs(v * 4 - round(v * 4)) < 1e-9 for v in g), g
+    assert s0.levels_grid(4.0, 4.0) == [4.0, 4.25, 4.5], s0.levels_grid(4.0, 4.0)
+    assert s0.levels_grid(5.0, 5.0) == [4.5, 4.75, 5.0], s0.levels_grid(5.0, 5.0)          # X_h = 5 → X_h' = 4,5, X_q' = 5
+    assert s0.levels_grid(1.0, 2.75) == [1.0, 2.0, 2.75], s0.levels_grid(1.0, 2.75)         # середина 1,875 → вверх до 2,0
+    for mh in steps:
+        for mq in [None] + [v for v in steps if v >= mh]:
+            g = s0.margin_grid(mh, mq)
+            assert len(set(g)) == 2 and g[0] < g[1] <= 5.0 and g[0] >= 0.25, (mh, mq, g)
+    assert s0.margin_grid(5.0, 5.0) == [4.75, 5.0]
+    assert s0.q4(1.875) == 2.0 and s0.q4(2.125) == 2.25 and s0.q3(0.0005) == 0.001   # половина — вверх
+    # совпадение квантилей ширины → стоп
+    flat = {"width": np.full(100, 3.0), "nvalid_rng": np.ones(100, dtype=np.int64)}
+    try:
+        s0.rule_width(flat)
+        raise AssertionError("ожидали ValueError")
+    except ValueError:
+        pass
 
 
 if __name__ == "__main__":

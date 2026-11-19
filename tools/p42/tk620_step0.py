@@ -7,6 +7,7 @@ import argparse
 import csv
 import datetime
 import json
+import math
 import os
 import sys
 
@@ -96,36 +97,58 @@ def first_halving(rows, p0, frac, nmin=NMIN):
 
 
 def q4(x):
-    return round(x * 4) / 4.0
+    """Округление до 0,25 NATR, половина — вверх (детерминированно)."""
+    return math.floor(x * 4 + 0.5) / 4.0
 
 
-def rule_levels(rows, p0):
-    """§13.31 п. 3.1: значения `nx` и `sl` — {X_h', середина, X_q'}."""
-    xh = first_halving(rows, p0, 0.5)
-    xq = first_halving(rows, p0, 0.25)
+def q3(x):
+    """Округление до 0,001 NATR (разрешение ключей движка), половина — вверх."""
+    return math.floor(x * 1000 + 0.5) / 1000.0
+
+
+def levels_grid(xh, xq):
+    """§13.31 п. 3.1: значения `nx`/`sl` — {X_h', середина, X_q'}; X_q' − X_h' ≥ 0,5 ⇒ середина строго между концами (три разных значения)."""
     if xh is None:
-        return dict(xh=None, xq=None, grid=[2.0, 3.5, 5.0], note="p не упала до p0/2 при n ≥ 30 до 5 NATR")
+        return [2.0, 3.5, 5.0]
     xh1 = min(max(xh, 1.0), 4.5)
     xq1 = 5.0 if xq is None else min(max(xq, xh1 + 0.5), 5.0)
     mid = q4((xh1 + xq1) / 2.0)
-    return dict(xh=xh, xq=xq, grid=[xh1, mid, xq1], note="")
+    assert xh1 < mid < xq1, (xh, xq, xh1, mid, xq1)
+    return [xh1, mid, xq1]
+
+
+def margin_grid(mh, mq):
+    """§13.31 п. 3.2: значения `cm` — {M_h', M_q'}; M_h' ≤ 4,75, M_q' ≥ M_h' + 0,25 (два разных значения)."""
+    if mh is None:
+        return [0.5, 1.5]
+    mh1 = min(max(mh, 0.25), 4.75)
+    mq1 = 5.0 if mq is None else min(max(mq, mh1 + 0.25), 5.0)
+    assert mh1 < mq1, (mh, mq, mh1, mq1)
+    return [mh1, mq1]
+
+
+def rule_levels(rows, p0):
+    xh = first_halving(rows, p0, 0.5)
+    xq = first_halving(rows, p0, 0.25)
+    note = "" if xh is not None else "p не упала до p0/2 при n ≥ 30 до 5 NATR"
+    return dict(xh=xh, xq=xq, grid=levels_grid(xh, xq), note=note)
 
 
 def rule_margin(rows, p0):
-    """§13.31 п. 3.2: значения `cm` — {M_h, M_q} по кривой «край»; M ≥ 0,25."""
     mh = first_halving(rows, p0, 0.5)
     mq = first_halving(rows, p0, 0.25)
-    if mh is None:
-        return dict(mh=None, mq=None, grid=[0.5, 1.5], note="p не упала до p0/2 при n ≥ 30 до 5 NATR от края")
-    mh1 = max(mh, 0.25)
-    mq1 = 5.0 if mq is None else max(mq, mh1 + 0.25)
-    return dict(mh=mh, mq=mq, grid=[mh1, min(mq1, 5.0)], note="")
+    note = "" if mh is not None else "p не упала до p0/2 при n ≥ 30 до 5 NATR от края"
+    return dict(mh=mh, mq=mq, grid=margin_grid(mh, mq), note=note)
 
 
 def rule_width(num):
-    """§13.31 п. 3.3: квантили ширины проторговки в NATR по сигналам с проторговкой: q10, q25, q75, q90 (линейная интерполяция numpy)."""
+    """§13.31 п. 3.3: квантили ширины проторговки в NATR по сигналам с проторговкой: q10, q25, q75, q90 (`numpy.quantile`, линейная интерполяция), округление до 0,001.
+    Совпадение соседних квантилей (после округления) — стоп: клетки не строятся, решает координатор (число клеток m меняется)."""
     w = num["width"][num["nvalid_rng"] == 1]
-    return {q: float(np.quantile(w, q / 100.0)) for q in (10, 25, 75, 90)}, int(len(w))
+    q = {k: q3(float(np.quantile(w, k / 100.0))) for k in (10, 25, 75, 90)}
+    if not (q[10] < q[25] < q[75] < q[90]):
+        raise ValueError("совпадение квантилей ширины: %s — стоп (§13.31 п. 3.3)" % q)
+    return q, int(len(w))
 
 
 def fmt_curve(rows, title, p0):
