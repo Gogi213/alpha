@@ -1,0 +1,230 @@
+{
+ "root": "/data/turbo-probe/new2/new2-nfull-w2/data",
+ "t0_ms": 1794526410253,
+ "window_s": 180.0,
+ "shards": 25,
+ "shards_connected": 25,
+ "first_connected_s": {
+  "min": 0.7,
+  "median": 0.8,
+  "max": 0.8
+ },
+ "covered_by_s": {
+  "2": 25,
+  "5": 25,
+  "10": 25,
+  "15": 25,
+  "30": 25,
+  "60": 25,
+  "120": 25,
+  "180": 25
+ },
+ "uncovered_after_first_s_total": 0.0,
+ "uncovered_after_first_s_max": 0.0,
+ "events_total": {
+  "connected": 50,
+  "subscribed": 50
+ },
+ "per_shard": {
+  "book00": {
+   "first_connected_s": 0.7,
+   "uncovered_after_first_s": 0.0,
+   "events": {
+    "connected": 2,
+    "subscribed": 2
+   }
+  },
+  "book01": {
+   "first_connected_s": 0.7,
+   "uncovered_after_first_s": 0.0,
+   "events": {
+    "connected": 2,
+    "subscribed": 2
+   }
+  },
+  "book02": {
+   "first_connected_s": 0.7,
+   "uncovered_after_first_s": 0.0,
+   "events": {
+    "connected": 2,
+    "subscribed": 2
+   }
+  },
+  "book03": {
+   "first_connected_s": 0.7,
+   "uncovered_after_first_s": 0.0,
+   "events": {
+    "connected": 2,
+    "subscribed": 2
+   }
+  },
+  "book04": {
+   "first_connected_s": 0.7,
+   "uncovered_after_first_s": 0.0,
+   "events": {
+    "connected": 2,
+    "subscribed": 2
+   }
+  },
+  "book05": {
+   "first_connected_s": 0.8,
+   "uncovered_after_first_s": 0.0,
+   "events": {
+    "connected": 2,
+    "subscribed": 2
+   }
+  },
+  "book06": {
+   "first_connected_s": 0.8,
+   "uncovered_after_first_s": 0.0,
+   "events": {
+    "connected": 2,
+    "subscribed": 2
+   }
+  },
+  "book07": {
+   "first_connected_s": 0.8,
+   "uncovered_after_first_s": 0.0,
+   "events": {
+    "connected": 2,
+    "subscribed": 2
+   }
+  },
+  "book08": {
+   "first_connected_s": 0.8,
+   "uncovered_after_first_s": 0.0,
+   "events": {
+    "connected": 2,
+    "subscribed": 2
+   }
+  },
+  "book09": {
+   "first_connected_s": 0.8,
+   "uncovered_after_first_s": 0.0,
+   "events": {
+    "connected": 2,
+    "subscribed": 2
+   }
+  },
+  "book10": {
+   "first_connected_s": 0.8,
+   "uncovered_after_first_s": 0.0,
+   "events": {
+    "connected": 2,
+    "subscribed": 2
+   }
+  },
+  "book11": {
+   "first_connected_s": 0.8,
+   "uncovered_after_first_s": 0.0,
+   "events": {
+    "connected": 2,
+    "subscribed": 2
+   }
+  },
+  "book12": {
+   "first_connected_s": 0.8,
+   "uncovered_after_first_s": 0.0,
+   "events": {
+    "connected": 2,
+    "subscribed": 2
+   }
+  },
+  "book13": {
+   "first_connected_s": 0.8,
+   "uncovered_after_first_s": 0.0,
+   "events": {
+    "connected": 2,
+    "subscribed": 2
+   }
+  },
+  "book14": {
+   "first_connected_s": 0.8,
+   "uncovered_after_first_s": 0.0,
+   "events": {
+    "connected": 2,
+    "subscribed": 2
+   }
+  },
+  "book15": {
+   "first_connected_s": 0.8,
+   "uncovered_after_first_s": 0.0,
+   "events": {
+    "connected": 2,
+    "subscribed": 2
+   }
+  },
+  "mark00": {
+   "first_connected_s": 0.8,
+   "uncovered_after_first_s": 0.0,
+   "events": {
+    "connected": 2,
+    "subscribed": 2
+   }
+  },
+  "trade00": {
+   "first_connected_s": 0.8,
+   "uncovered_after_first_s": 0.0,
+   "events": {
+    "connected": 2,
+    "subscribed": 2
+   }
+  },
+  "trade01": {
+   "first_connected_s": 0.8,
+   "uncovered_after_first_s": 0.0,
+   "events": {
+    "connected": 2,
+    "subscribed": 2
+   }
+  },
+  "trade02": {
+   "first_connected_s": 0.8,
+   "uncovered_after_first_s": 0.0,
+   "events": {
+    "connected": 2,
+    "subscribed": 2
+   }
+  },
+  "trade03": {
+   "first_connected_s": 0.8,
+   "uncovered_after_first_s": 0.0,
+   "events": {
+    "connected": 2,
+    "subscribed": 2
+   }
+  },
+  "trade04": {
+   "first_connected_s": 0.8,
+   "uncovered_after_first_s": 0.0,
+   "events": {
+    "connected": 2,
+    "subscribed": 2
+   }
+  },
+  "trade05": {
+   "first_connected_s": 0.8,
+   "uncovered_after_first_s": 0.0,
+   "events": {
+    "connected": 2,
+    "subscribed": 2
+   }
+  },
+  "trade06": {
+   "first_connected_s": 0.8,
+   "uncovered_after_first_s": 0.0,
+   "events": {
+    "connected": 2,
+    "subscribed": 2
+   }
+  },
+  "trade07": {
+   "first_connected_s": 0.8,
+   "uncovered_after_first_s": 0.0,
+   "events": {
+    "connected": 2,
+    "subscribed": 2
+   }
+  }
+ }
+}

@@ -1,0 +1,333 @@
+{
+ "exchange": "binance",
+ "window_ms": [
+  1794526168611,
+  1794526348611
+ ],
+ "symbols": 25,
+ "total": {
+  "rest": 6847,
+  "file": 6831,
+  "missing_in_file": 16,
+  "extra_in_file": 0,
+  "mismatch": 0,
+  "rest_after_covered": 6800,
+  "missing_after_covered": 0
+ },
+ "per_symbol": {
+  "ARIAUSDT": {
+   "rest": 5381,
+   "file": 5371,
+   "missing_in_file": 10,
+   "extra_in_file": 0,
+   "mismatch": 0,
+   "rest_after_covered": 5365,
+   "missing_after_covered": 0,
+   "missing_examples": [
+    95436829,
+    95436830,
+    95436831,
+    95436832,
+    95436833
+   ],
+   "extra_examples": [],
+   "mismatch_examples": []
+  },
+  "CAPUSDT": {
+   "rest": 337,
+   "file": 332,
+   "missing_in_file": 5,
+   "extra_in_file": 0,
+   "mismatch": 0,
+   "rest_after_covered": 328,
+   "missing_after_covered": 0,
+   "missing_examples": [
+    31455030,
+    31455031,
+    31455032,
+    31455033,
+    31455034
+   ],
+   "extra_examples": [],
+   "mismatch_examples": []
+  },
+  "PROMUSDT": {
+   "rest": 186,
+   "file": 186,
+   "missing_in_file": 0,
+   "extra_in_file": 0,
+   "mismatch": 0,
+   "rest_after_covered": 183,
+   "missing_after_covered": 0,
+   "missing_examples": [],
+   "extra_examples": [],
+   "mismatch_examples": []
+  },
+  "AVAXUSDT": {
+   "rest": 133,
+   "file": 133,
+   "missing_in_file": 0,
+   "extra_in_file": 0,
+   "mismatch": 0,
+   "rest_after_covered": 127,
+   "missing_after_covered": 0,
+   "missing_examples": [],
+   "extra_examples": [],
+   "mismatch_examples": []
+  },
+  "\u725b\u6765USDT": {
+   "rest": 104,
+   "file": 104,
+   "missing_in_file": 0,
+   "extra_in_file": 0,
+   "mismatch": 0,
+   "rest_after_covered": 103,
+   "missing_after_covered": 0,
+   "missing_examples": [],
+   "extra_examples": [],
+   "mismatch_examples": []
+  },
+  "PLUMEUSDT": {
+   "rest": 88,
+   "file": 88,
+   "missing_in_file": 0,
+   "extra_in_file": 0,
+   "mismatch": 0,
+   "rest_after_covered": 87,
+   "missing_after_covered": 0,
+   "missing_examples": [],
+   "extra_examples": [],
+   "mismatch_examples": []
+  },
+  "GLMUSDT": {
+   "rest": 76,
+   "file": 75,
+   "missing_in_file": 1,
+   "extra_in_file": 0,
+   "mismatch": 0,
+   "rest_after_covered": 72,
+   "missing_after_covered": 0,
+   "missing_examples": [
+    91109121
+   ],
+   "extra_examples": [],
+   "mismatch_examples": []
+  },
+  "SXTUSDT": {
+   "rest": 64,
+   "file": 64,
+   "missing_in_file": 0,
+   "extra_in_file": 0,
+   "mismatch": 0,
+   "rest_after_covered": 63,
+   "missing_after_covered": 0,
+   "missing_examples": [],
+   "extra_examples": [],
+   "mismatch_examples": []
+  },
+  "RUNEUSDT": {
+   "rest": 56,
+   "file": 56,
+   "missing_in_file": 0,
+   "extra_in_file": 0,
+   "mismatch": 0,
+   "rest_after_covered": 55,
+   "missing_after_covered": 0,
+   "missing_examples": [],
+   "extra_examples": [],
+   "mismatch_examples": []
+  },
+  "AKTUSDT": {
+   "rest": 50,
+   "file": 50,
+   "missing_in_file": 0,
+   "extra_in_file": 0,
+   "mismatch": 0,
+   "rest_after_covered": 49,
+   "missing_after_covered": 0,
+   "missing_examples": [],
+   "extra_examples": [],
+   "mismatch_examples": []
+  },
+  "IRYSUSDT": {
+   "rest": 44,
+   "file": 44,
+   "missing_in_file": 0,
+   "extra_in_file": 0,
+   "mismatch": 0,
+   "rest_after_covered": 44,
+   "missing_after_covered": 0,
+   "missing_examples": [],
+   "extra_examples": [],
+   "mismatch_examples": []
+  },
+  "ARPAUSDT": {
+   "rest": 39,
+   "file": 39,
+   "missing_in_file": 0,
+   "extra_in_file": 0,
+   "mismatch": 0,
+   "rest_after_covered": 39,
+   "missing_after_covered": 0,
+   "missing_examples": [],
+   "extra_examples": [],
+   "mismatch_examples": []
+  },
+  "NEIROUSDT": {
+   "rest": 36,
+   "file": 36,
+   "missing_in_file": 0,
+   "extra_in_file": 0,
+   "mismatch": 0,
+   "rest_after_covered": 35,
+   "missing_after_covered": 0,
+   "missing_examples": [],
+   "extra_examples": [],
+   "mismatch_examples": []
+  },
+  "ZILUSDT": {
+   "rest": 34,
+   "file": 34,
+   "missing_in_file": 0,
+   "extra_in_file": 0,
+   "mismatch": 0,
+   "rest_after_covered": 34,
+   "missing_after_covered": 0,
+   "missing_examples": [],
+   "extra_examples": [],
+   "mismatch_examples": []
+  },
+  "0GUSDT": {
+   "rest": 30,
+   "file": 30,
+   "missing_in_file": 0,
+   "extra_in_file": 0,
+   "mismatch": 0,
+   "rest_after_covered": 30,
+   "missing_after_covered": 0,
+   "missing_examples": [],
+   "extra_examples": [],
+   "mismatch_examples": []
+  },
+  "YBUSDT": {
+   "rest": 28,
+   "file": 28,
+   "missing_in_file": 0,
+   "extra_in_file": 0,
+   "mismatch": 0,
+   "rest_after_covered": 28,
+   "missing_after_covered": 0,
+   "missing_examples": [],
+   "extra_examples": [],
+   "mismatch_examples": []
+  },
+  "BUSDT": {
+   "rest": 25,
+   "file": 25,
+   "missing_in_file": 0,
+   "extra_in_file": 0,
+   "mismatch": 0,
+   "rest_after_covered": 25,
+   "missing_after_covered": 0,
+   "missing_examples": [],
+   "extra_examples": [],
+   "mismatch_examples": []
+  },
+  "ROBOUSDT": {
+   "rest": 23,
+   "file": 23,
+   "missing_in_file": 0,
+   "extra_in_file": 0,
+   "mismatch": 0,
+   "rest_after_covered": 21,
+   "missing_after_covered": 0,
+   "missing_examples": [],
+   "extra_examples": [],
+   "mismatch_examples": []
+  },
+  "INUSDT": {
+   "rest": 21,
+   "file": 21,
+   "missing_in_file": 0,
+   "extra_in_file": 0,
+   "mismatch": 0,
+   "rest_after_covered": 21,
+   "missing_after_covered": 0,
+   "missing_examples": [],
+   "extra_examples": [],
+   "mismatch_examples": []
+  },
+  "HEMIUSDT": {
+   "rest": 19,
+   "file": 19,
+   "missing_in_file": 0,
+   "extra_in_file": 0,
+   "mismatch": 0,
+   "rest_after_covered": 18,
+   "missing_after_covered": 0,
+   "missing_examples": [],
+   "extra_examples": [],
+   "mismatch_examples": []
+  },
+  "STABLEUSDT": {
+   "rest": 18,
+   "file": 18,
+   "missing_in_file": 0,
+   "extra_in_file": 0,
+   "mismatch": 0,
+   "rest_after_covered": 18,
+   "missing_after_covered": 0,
+   "missing_examples": [],
+   "extra_examples": [],
+   "mismatch_examples": []
+  },
+  "1000SATSUSDT": {
+   "rest": 16,
+   "file": 16,
+   "missing_in_file": 0,
+   "extra_in_file": 0,
+   "mismatch": 0,
+   "rest_after_covered": 16,
+   "missing_after_covered": 0,
+   "missing_examples": [],
+   "extra_examples": [],
+   "mismatch_examples": []
+  },
+  "ZKCUSDT": {
+   "rest": 15,
+   "file": 15,
+   "missing_in_file": 0,
+   "extra_in_file": 0,
+   "mismatch": 0,
+   "rest_after_covered": 15,
+   "missing_after_covered": 0,
+   "missing_examples": [],
+   "extra_examples": [],
+   "mismatch_examples": []
+  },
+  "RAVEUSDT": {
+   "rest": 13,
+   "file": 13,
+   "missing_in_file": 0,
+   "extra_in_file": 0,
+   "mismatch": 0,
+   "rest_after_covered": 13,
+   "missing_after_covered": 0,
+   "missing_examples": [],
+   "extra_examples": [],
+   "mismatch_examples": []
+  },
+  "XVGUSDT": {
+   "rest": 11,
+   "file": 11,
+   "missing_in_file": 0,
+   "extra_in_file": 0,
+   "mismatch": 0,
+   "rest_after_covered": 11,
+   "missing_after_covered": 0,
+   "missing_examples": [],
+   "extra_examples": [],
+   "mismatch_examples": []
+  }
+ }
+}
