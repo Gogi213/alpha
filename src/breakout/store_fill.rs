@@ -79,7 +79,10 @@ fn secs(ns: u64) -> f64 {
     Duration::from_nanos(ns).as_secs_f64()
 }
 
-fn list_jobs(roots: &[PathBuf]) -> Result<(Vec<(String, String, PathBuf)>, Vec<String>)> {
+/// Задания `(монета, дата, zip)` и описания конфликтов источников.
+type JobList = (Vec<(String, String, PathBuf)>, Vec<String>);
+
+fn list_jobs(roots: &[PathBuf]) -> Result<JobList> {
     let mut map: BTreeMap<(String, String), PathBuf> = BTreeMap::new();
     let mut conflicts = Vec::new();
     for root in roots {
@@ -332,7 +335,7 @@ pub fn run(o: &FillOpts) -> Result<()> {
                     }
                     let n = get(&st.done) + 1;
                     add(&st.done, 1);
-                    if n % 2000 == 0 {
+                    if n.is_multiple_of(2000) {
                         let el = t_start.elapsed().as_secs_f64();
                         println!(
                             "store-fill: {n}/{total} за {el:.0} с ({:.1} файл/с, {:.2} млн строк/с), записано {}, пропущено {}, строк {}, ошибок {}, склад {:.2} ГБ; время потоков, с: чтение+разжатие {:.0}, разбор {:.0}, запись {:.0}",
