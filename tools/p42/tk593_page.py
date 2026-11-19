@@ -26,6 +26,7 @@ equity_path = sys.argv[7] if len(sys.argv) > 7 else f"{out_dir}/data/equity.json
 shape_path = sys.argv[8] if len(sys.argv) > 8 else f"{out_dir}/data/shape.json"
 features_path = sys.argv[9] if len(sys.argv) > 9 else f"{out_dir}/data/features.json"
 bases_path = sys.argv[10] if len(sys.argv) > 10 else f"{out_dir}/data/bases.json"
+universe_path = sys.argv[11] if len(sys.argv) > 11 else f"{out_dir}/data/universe.json"
 # итоги баз по принятым отчётам: (Σ $, сделок) — p42-maker-entry-2026-11-19.md (L_base, S_base, S_mk1) и p42-retitration-full-2026-11-19.md
 ACCEPTED_BASES = {"L_base": (7.06, 621), "S_base": (259.14, 431), "S_mk1": (248.05, 372)}
 BAR = 0.02
@@ -121,10 +122,18 @@ def main():
     bases = json.load(open(bases_path, encoding="utf-8"))
     check_bases(bases, progress)
     bblob = json.dumps(bases, ensure_ascii=False, allow_nan=False, separators=(",", ":")).replace("</", "<\\/")
+    uni = json.load(open(universe_path, encoding="utf-8"))
+    assert [u["id"] for u in uni["universes"]] == ["U0", "U1", "U2", "U3", "U4"] and uni["days"] == 136, "universe.json: вселенные/окно"
+    for side in ("long", "short"):
+        for u in uni["universes"]:
+            assert len(uni["sides"][side][u["id"]]["daily_sum"]) == 136 and len(uni["sides"][side][u["id"]]["rows"]) == 6, f"universe.json: {side} {u['id']}"
+    for side, base in (("long", "L_base"), ("short", "S_base")):   # U0 = базы TK-599
+        assert abs(sum(uni["sides"][side]["U0"]["daily_sum"]) - ACCEPTED_BASES[base][0]) < 0.006, f"universe.json: U0 {side} != база TK-599"
+    ublob = json.dumps(uni, ensure_ascii=False, allow_nan=False, separators=(",", ":")).replace("</", "<\\/")
     pblob = json.dumps(progress, ensure_ascii=False, allow_nan=False, separators=(",", ":")).replace("</", "<\\/")
-    assert "/*__DATA__*/" in tpl and "/*__PROGRESS__*/" in tpl and "/*__EQUITY__*/" in tpl and "/*__SHAPE__*/" in tpl and "/*__FEATURES__*/" in tpl and "/*__BASES__*/" in tpl
+    assert "/*__DATA__*/" in tpl and "/*__PROGRESS__*/" in tpl and "/*__EQUITY__*/" in tpl and "/*__SHAPE__*/" in tpl and "/*__FEATURES__*/" in tpl and "/*__BASES__*/" in tpl and "/*__UNIVERSE__*/" in tpl
     os.makedirs(f"{out_dir}/data", exist_ok=True)
-    open(f"{out_dir}/index.html", "w", encoding="utf-8").write(tpl.replace("/*__DATA__*/", blob).replace("/*__PROGRESS__*/", pblob).replace("/*__EQUITY__*/", eblob).replace("/*__SHAPE__*/", sblob).replace("/*__FEATURES__*/", fblob).replace("/*__BASES__*/", bblob))
+    open(f"{out_dir}/index.html", "w", encoding="utf-8").write(tpl.replace("/*__DATA__*/", blob).replace("/*__PROGRESS__*/", pblob).replace("/*__EQUITY__*/", eblob).replace("/*__SHAPE__*/", sblob).replace("/*__FEATURES__*/", fblob).replace("/*__BASES__*/", bblob).replace("/*__UNIVERSE__*/", ublob))
     json.dump(data, open(f"{out_dir}/data/page_data.json", "w", encoding="utf-8"), ensure_ascii=False)
     print("index.html", len(tpl) + len(blob) + len(pblob) + len(eblob) + len(sblob) + len(fblob), "байт; ход работ", progress["updated"], f"({len(progress['stages'])} этапов); признаки", features["updated"], f"({len(features['sets'])} наборов); (а)", {s: data["sides"][s]["verdict"]["a"]["ok"] for s in data["sides"]}, flush=True)
 

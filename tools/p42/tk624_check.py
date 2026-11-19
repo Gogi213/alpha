@@ -188,10 +188,10 @@ for s in P["stages"]:
     if not seq or "ids" not in seq[-1]:
         seq.append({"ids": []})
     seq[-1]["ids"].append(s["id"])
-eq("DOM группы и этапы по порядку", Wd["groups"], seq)
+eq("DOM группы и этапы по порядку", Wd["progress"]["groups"], seq)
 STAT = {"done": "готово", "running": "идёт", "waiting": "ждёт"}
-eq("DOM этапов", len(Wd["stages"]), len(P["stages"]))
-for s, d in zip(P["stages"], Wd["stages"]):
+eq("DOM этапов", len(Wd["progress"]["stages"]), len(P["stages"]))
+for s, d in zip(P["stages"], Wd["progress"]["stages"]):
     w = f"DOM этап {s['id']}"
     eq(w + " id", d["id"], s["id"])
     eq(w + " статус", (d["status"], d["badge"]), (s["status"], STAT[s["status"]]))
@@ -199,18 +199,52 @@ for s, d in zip(P["stages"], Wd["stages"]):
     eq(w + " цифры", "|".join(d["numbers"]), "|".join(s["numbers"]))
     eq(w + " дальше", d["next"], s["next"])
     eq(w + " вопрос", d["answers"], s["answers"])
-eq("DOM шапка хода работ", Wd["headline"], P["headline"])
-eq("этапы: ровно один идёт (TK-621)", [s["id"] for s in P["stages"] if s["status"] == "running"], ["TK-621"])
-eq("этапы: сегодняшние TK-615…623 на месте", [s["id"] for s in P["stages"] if s.get("group") == "Сделано сегодня, 19.11"], ["TK-599", "TK-615", "TK-616", "TK-617", "TK-618", "TK-619", "TK-620", "TK-622", "TK-623"])
+eq("DOM шапка хода работ", Wd["progress"]["headline"], P["headline"])
+eq("этапы: ровно один идёт (TK-625)", [s["id"] for s in P["stages"] if s["status"] == "running"], ["TK-625"])
+eq("этапы: сегодняшние TK-615…623 на месте", [s["id"] for s in P["stages"] if s.get("group") == "Сделано сегодня, 19.11"], ["TK-599", "TK-615", "TK-616", "TK-617", "TK-618", "TK-619", "TK-620", "TK-621", "TK-622", "TK-623"])
 eq("этапы: точки вперёд", [t["t"].split(" ")[0] for t in next(s for s in P["stages"] if s["id"] == "30.11–31.03")["steps"]], ["30.11", "31.12", "31.01", "28.02", "31.03.2027"])
 
 # ── 6. состояния, хеши, ошибки, переполнение
 eq("ошибок консоли и сети нет", R["errors"], [])
 eq("вкладка по умолчанию — «Прогресс»", R["default"]["selected"], ["live"])
-eq("«Ход работ»: состояние", (R["where"]["state"]["hash"], R["where"]["state"]["visible"]), ("#progress", ["pane-progress"]))
-eq("«Ход работ»: нет горизонтальной прокрутки страницы", R["where"]["overflowX"] <= 0, True)
-eq("«Где мы»: таблица не прокручивается", Wd["tableOverflow"] <= 0, True)
-eq("ссылка из «Где мы» ведёт в «Базы»", (R["where"]["link"]["hash"], R["where"]["link"]["view"], R["where"]["link"]["side"]), ("#equity/short/bases", "bases", "short"))
+eq("«Ход работ»: состояние", (R["where"]["progressState"]["hash"], R["where"]["progressState"]["visible"]), ("#progress", ["pane-progress"]))
+eq("«Ход работ»: нет горизонтальной прокрутки страницы", R["where"]["progressOverflowX"] <= 0, True)
+eq("«Ход работ»: нет денег — ни блока «Где мы», ни таблиц, ни кривых", R["where"]["progressMoney"], {"where": False, "tables": 0, "svg": 0})
+eq("«Ход работ»: строка-ссылка на «Эквити»", (Wd["progress"]["link"], Wd["progress"]["linkText"]), ("#equity/short/where", "Деньги, шарп и кривые — вкладка «Эквити», вид «Где мы»"))
+eq("«Эквити» · «Где мы»: состояние после ссылки", (R["where"]["link"]["hash"], R["where"]["link"]["view"], R["where"]["link"]["side"], R["where"]["link"]["visible"]), ("#equity/short/where", "where", "short", ["pane-equity"]))
+eq("«Где мы»: переключатель сторон скрыт", R["where"]["tabsHidden"], True)
+eq("«Где мы»: нет горизонтальной прокрутки страницы", R["where"]["overflowX"] <= 0, True)
+eq("«Где мы»: таблицы не прокручиваются", Wd["tableOverflow"] <= 0, True)
+# честная вселенная (TK-621): пересчёт по суточным рядам universe.json + сверка с принятым report.json TK-621 (если лежит рядом)
+UNI = emb("universe-data")
+eq("universe вшитый == файл", json.dumps(UNI, sort_keys=True), json.dumps(json.load(open(os.path.join(data_dir, "universe.json"), encoding="utf-8")), sort_keys=True))
+RJ = "/data/p42-tk621/report.json"
+RJ = json.load(open(RJ, encoding="utf-8")) if os.path.exists(RJ) else None
+eq("DOM вселенные: заголовок и примечание", (Wd["universe"]["title"], Wd["universe"]["note"]), (W["universe"]["title"], W["universe"]["note"]))
+eq("DOM вселенные: таблицы", [t["side"] for t in Wd["universe"]["tables"]], ["short", "long"])
+MK = ["jul", "aug", "sep", "oct", "nov"]
+for t in Wd["universe"]["tables"]:
+    eq(f"DOM вселенные {t['side']}: порядок", [r["id"] for r in t["rows"]], [u["id"] for u in UNI["universes"]])
+    for r, u in zip(t["rows"], UNI["universes"]):
+        sd = UNI["sides"][t["side"]][u["id"]]
+        st = stats(sd["daily_sum"], sd["daily_n"])
+        ms = [stats(sd["daily_sum"][ST[m]:ST[m + 1]], sd["daily_n"][ST[m]:ST[m + 1]]) for m in range(5)]
+        exp = {"sum": money(st["sum"]), "trades": ints(st["trades"]), "mean": money(st["mean"], 3), "sharpe": num(st["sharpe"], 2, True), "maxdd": num(st["maxdd"], 2)}
+        exp.update({f"m{i}": money(ms[i]["sum"]) for i in range(5)})
+        eq(f"DOM вселенные {t['side']} {u['id']}: ячейки", r["cells"], exp)
+        eq(f"DOM вселенные {t['side']} {u['id']}: название", r["name"], f"{u['id']} · {u['name']}")
+        eq(f"universe.json {t['side']} {u['id']}: итоговая строка", (round(sd["rows"][5]["sum"], 6), sd["rows"][5]["trades"]), (round(st["sum"], 6), st["trades"]), 1e-6)
+        if RJ:
+            q = RJ[u["tag"]][t["side"]]
+            eq(f"report.json TK-621 {t['side']} {u['id']}: итог", (round(st["sum"], 2), st["trades"]), (q["all"]["sum"], q["all"]["n"]), 0.0051)
+            for m in range(5):
+                eq(f"report.json TK-621 {t['side']} {u['id']} {MK[m]}", (round(ms[m]["sum"], 2), ms[m]["trades"]), (q[MK[m]]["sum"], q[MK[m]]["n"]), 0.0051)
+Fd = P["feature"]
+eq("DOM признак (TK-625): заголовок, статус, текст", (Wd["feature"]["title"], Wd["feature"]["badge"], Wd["feature"]["lead"], Wd["feature"]["box"], Wd["feature"]["text"], Wd["feature"]["tables"]),
+   (Fd["title"], "считается", Fd["lead"], Fd["current"]["title"], Fd["current"]["text"], 0))
+FD = R["features"]
+eq("«Признаки»: пояснение TK-604 на странице", all(n in FD["text"] for n in emb("features-data")["sets"][4]["numbers"]), True)
+eq("«Признаки»: нет горизонтальной прокрутки", FD["overflow"] <= 0, True)
 eq("вид «Кривая» цел", (R["bases"]["backCurve"]["view"], R["bases"]["backCurve"]["cards"], R["bases"]["backCurve"]["cmpHidden"], "по времени закрытия" in R["bases"]["backCurve"]["sub"]), ("curve", ["ja", "fit"], False, True))
 eq("вид «Форма» цел", (R["bases"]["backShape"]["view"], R["bases"]["backShape"]["cards"]), ("shape", ["ja", "fit"]))
 eq("возврат в «Базы»", R["bases"]["toBases"]["view"], "bases")
@@ -218,10 +252,11 @@ H = R["hash"]
 eq("хеш #equity/both/bases", (H["#equity/both/bases"]["view"], H["#equity/both/bases"]["side"], H["#equity/both/bases"]["bases"]), ("bases", "both", "both"))
 eq("хеш #equity/long/bases", (H["#equity/long/bases"]["view"], H["#equity/long/bases"]["side"], H["#equity/long/bases"]["bases"]), ("bases", "long", "long"))
 eq("хеш #equity/short — прежняя кривая", (H["#equity/short"]["view"], H["#equity/short"]["bases"]), ("curve", None))
-eq("хеш #progress", (H["#progress"]["selected"], H["#progress"]["where"]), (["progress"], True))
+eq("хеш #progress", (H["#progress"]["selected"], H["#progress"]["where"]), (["progress"], False))
+eq("хеш #equity/short/where", (H["#equity/short/where"]["view"], H["#equity/short/where"]["side"], H["#equity/short/where"]["where"] is False), ("where", "short", True))
 
 # ── 7. «бп» и базисные пункты в новом тексте
-txt = json.dumps([P["where"], [s for s in P["stages"] if s.get("group") != "Раньше (18.11 и раньше)"], Wd, Bd], ensure_ascii=False)
+txt = json.dumps([P["where"], P["feature"], [s for s in P["stages"] if s.get("group") != "Раньше (18.11 и раньше)"], Wd, Bd, FD["text"]], ensure_ascii=False)
 hit = re.findall(r"(?<![А-Яа-яA-Za-z])(?:бп|bp)(?![А-Яа-яA-Za-z])|базисн", txt)
 eq("в новом тексте нет «бп»", hit, [])
 

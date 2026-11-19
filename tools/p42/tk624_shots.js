@@ -31,45 +31,70 @@ const base = url.split('#')[0];
     return page.evaluate(() => { const t = document.getElementById('tip'); return {shown: t.style.display === 'block', text: t.innerText.replace(/\n/g, ' | ')}; });
   };
 
-  // ── блок «Где мы» на вкладке «Ход работ»
+  // ── «Ход работ»: только этапы и ссылка на «Эквити»
   await page.goto(base, {waitUntil: 'load'});
   R.default = await state();
   await page.click('#toptabs button[data-tab="progress"]');
-  await page.waitForSelector('#where .wh-box');
+  await page.waitForSelector('#progress .stage');
   await page.waitForTimeout(300);
-  R.where.state = await state();
-  R.where.overflowX = await overflow();
-  await top('where-top');
-  await page.locator('#where').screenshot({path: `${out}/where-block.png`});
+  R.where.progressState = await state();
+  R.where.progressOverflowX = await overflow();
+  R.where.progressMoney = await page.evaluate(() => ({where: !!document.querySelector('#progress #where'), tables: document.querySelectorAll('#progress table').length, svg: document.querySelectorAll('#progress svg').length}));
+  await top('progress-top');
   await page.locator('#progress').screenshot({path: `${out}/progress-groups.png`});
-  const wdom = await page.evaluate(() => {
+  const pdom = await page.evaluate(() => {
     const t = (r, s) => { const n = r.querySelector(s); return n ? n.textContent : null; };
-    const w = document.getElementById('where');
-    const lines = [...w.querySelectorAll('table[data-wtable] tbody tr')].map(r => ({id: r.dataset.wline, name: r.querySelector('td').textContent, cells: Object.fromEntries([...r.querySelectorAll('td[data-f]')].map(td => [td.dataset.f, td.textContent]))}));
-    const boxes = [...w.querySelectorAll('.wh-box')].map(b => ({k: b.dataset.wbox, title: t(b, 'h3'), items: [...b.querySelectorAll('li')].map(li => li.textContent)}));
-    const paths = [...w.querySelectorAll('svg path[data-chart]')].map(p => ({chart: p.dataset.chart, final: +p.dataset.final, stroke: p.getAttribute('stroke'), len: p.getAttribute('d').length}));
-    const tw = w.querySelector('table[data-wtable]').parentElement;
     const groups = [...document.querySelectorAll('#progress .stage-group, #progress .stages')].map(n => n.classList.contains('stage-group') ? {g: n.textContent} : {ids: [...n.querySelectorAll('.stage')].map(s => s.dataset.stage)});
-    return {title: t(w, '.card-h b'), lead: t(w, '.wh-lead'), table_title: t(w, '.wh-tt'), table_note: t(w, '.wh-tn'), lines, boxes, paths, tableOverflow: tw.scrollWidth - tw.clientWidth,
-      legend: [...w.querySelectorAll('.legend span')].map(s => s.textContent), link: w.querySelector('a[data-wlink]').getAttribute('href'), groups,
+    return {groups, link: document.querySelector('#progress a[data-wlink]').getAttribute('href'), linkText: document.querySelector('#progress [data-wlink-box]').textContent,
       stages: [...document.querySelectorAll('#progress .stage')].map(c => ({id: c.dataset.stage, status: c.dataset.status, badge: t(c, '.badge'), answers: t(c, '.stage-q'), next: t(c, '.stage-next'),
         steps: [...c.querySelectorAll('.steps li')].map(li => li.dataset.status), numbers: [...c.querySelectorAll('.nums li')].map(li => li.textContent)})),
       headline: t(document, '#progress .prog-head')};
+  });
+  // ── ссылка → «Эквити» · «Где мы»
+  await page.click('#progress a[data-wlink]');
+  await page.waitForSelector('#where .wh-box');
+  await page.waitForTimeout(300);
+  R.where.link = await state();
+  R.where.tabsHidden = await page.getAttribute('#eq-tabs', 'hidden') !== null;
+  R.where.overflowX = await overflow();
+  R.where.desc = await page.innerText('#eq-desc');
+  await top('where-top');
+  await page.locator('#where').screenshot({path: `${out}/where-block.png`});
+  await page.locator('#feature').screenshot({path: `${out}/feature-block.png`});
+  const wdom = await page.evaluate(() => {
+    const t = (r, s) => { const n = r.querySelector(s); return n ? n.textContent : null; };
+    const w = document.getElementById('where');
+    const row = r => ({id: r.dataset.wline || r.dataset.uni, name: r.querySelector('td').textContent, cells: Object.fromEntries([...r.querySelectorAll('td[data-f]')].map(td => [td.dataset.f, td.textContent]))});
+    const boxes = [...w.querySelectorAll('.wh-box')].map(b => ({k: b.dataset.wbox, title: t(b, 'h3'), items: [...b.querySelectorAll('li')].map(li => li.textContent)}));
+    const paths = [...w.querySelectorAll('svg path[data-chart]')].map(p => ({chart: p.dataset.chart, final: +p.dataset.final, stroke: p.getAttribute('stroke')}));
+    const wraps = [...w.querySelectorAll('table')].map(tb => tb.parentElement.scrollWidth - tb.parentElement.clientWidth);
+    const f = document.getElementById('feature');
+    return {title: t(w, '.card-h b'), lead: t(w, '.wh-lead'), table_title: t(w, '.wh-tt'), table_note: t(w, '.wh-tn'), lines: [...w.querySelectorAll('table[data-wtable] tbody tr')].map(row), boxes, paths, tableOverflow: Math.max(...wraps),
+      universe: {title: [...w.querySelectorAll('.wh-tt')][1] ? [...w.querySelectorAll('.wh-tt')][1].textContent : null, note: [...w.querySelectorAll('.wh-tn')][1] ? [...w.querySelectorAll('.wh-tn')][1].textContent : null,
+        tables: [...w.querySelectorAll('table[data-utable]')].map(tb => ({side: tb.dataset.utable, rows: [...tb.querySelectorAll('tbody tr')].map(row)}))},
+      legend: [...w.querySelectorAll('.legend span')].map(s => s.textContent), link: w.querySelector('a[data-wlink]').getAttribute('href'),
+      feature: {title: t(f, '.card-h b'), badge: t(f, '.badge'), lead: t(f, '.wh-lead'), box: t(f, '[data-fbox="current"] h3'), text: t(f, '[data-fbox="current"] .ft-st'), tables: f.querySelectorAll('table').length}};
   });
   R.where.hover = [];
   for (const f of [0.2, 0.55, 0.9]) R.where.hover.push(await tipAt('#where svg rect[data-chart="wh.hover"]', f));
   await page.screenshot({path: `${out}/where-hover.png`});
   await page.mouse.move(2, 2);
-  fs.writeFileSync(`${out}/dom_where.json`, JSON.stringify(wdom));
+  fs.writeFileSync(`${out}/dom_where.json`, JSON.stringify({...wdom, progress: pdom}));
 
-  // ── ссылка из блока → «Эквити» · «Базы»
-  await page.evaluate(() => window.scrollTo(0, 0));
-  await page.click('#where a[data-wlink]');
-  await page.waitForSelector('.eq-card[data-bases]');
-  R.where.link = await state();
+  // ── «Признаки» · «Пробиваемость монеты» (TK-604 простыми словами)
+  await page.goto(base + '#features/breakability', {waitUntil: 'load'});
+  await page.waitForSelector('#ft-breakability');
+  await page.waitForTimeout(400);
+  R.features = await page.evaluate(() => { const s = document.getElementById('ft-breakability'); return {text: s.innerText, overflow: document.documentElement.scrollWidth - innerWidth}; });
+  await page.locator('#ft-breakability').screenshot({path: `${out}/features-breakability.png`});
+  await page.goto(base + '#progress', {waitUntil: 'load'});
+  await page.click('#progress a[data-wlink]');
+  await page.waitForSelector('#where .wh-box');
 
   // ── вид «Базы»: три стороны
   const bdom = {};
+  await page.click('#eq-views button[data-view="bases"]');
+  await page.waitForSelector('.eq-card[data-bases]');
   for (const side of ['short', 'long', 'both']) {
     await page.click(`#eq-tabs button[data-side="${side}"]`);
     await page.waitForSelector(`.eq-card[data-bases="${side}"]`);
@@ -103,11 +128,12 @@ const base = url.split('#')[0];
   fs.writeFileSync(`${out}/dom_bases.json`, JSON.stringify(bdom));
 
   // ── хеши
-  for (const h of ['#equity/both/bases', '#equity/long/bases', '#equity/short', '#progress']) {
+  for (const h of ['#equity/both/bases', '#equity/long/bases', '#equity/short', '#equity/short/where', '#progress']) {
     await page.goto(base + h, {waitUntil: 'load'});
     if (h.endsWith('bases')) await page.waitForSelector('.eq-card[data-bases]');
-    if (h === '#progress') await page.waitForSelector('#where .wh-box');
-    R.hash[h] = {...(await state()), bases: await page.evaluate(() => { const c = document.querySelector('.eq-card[data-bases]'); return c ? c.dataset.bases : null; }), where: await page.evaluate(() => !!document.querySelector('#where .wh-box'))};
+    if (h.endsWith('where')) await page.waitForSelector('#where .wh-box');
+    if (h === '#progress') await page.waitForSelector('#progress .stage');
+    R.hash[h] = {...(await state()), bases: await page.evaluate(() => { const c = document.querySelector('.eq-card[data-bases]'); return c ? c.dataset.bases : null; }), where: await page.evaluate(() => !!document.querySelector('#progress #where'))};
   }
   R.errorsFinal = errs.slice();
   fs.writeFileSync(`${out}/report624.json`, JSON.stringify(R, null, 1));
