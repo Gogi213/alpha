@@ -61,6 +61,11 @@ const base = url.split('#')[0];
   await top('where-top');
   await page.locator('#where').screenshot({path: `${out}/where-block.png`});
   await page.locator('#feature').screenshot({path: `${out}/feature-block.png`});
+  await page.evaluate(() => document.querySelectorAll('#feature details').forEach(d => { d.open = true; }));
+  await page.waitForTimeout(150);
+  await page.locator('#feature').screenshot({path: `${out}/feature-block-open.png`});
+  R.where.featureOverflowOpen = await page.evaluate(() => ({page: document.documentElement.scrollWidth - innerWidth, tables: Math.max(0, ...[...document.querySelectorAll('#feature table')].map(tb => tb.parentElement.scrollWidth - tb.parentElement.clientWidth))}));
+  await page.evaluate(() => document.querySelectorAll('#feature details').forEach(d => { d.open = false; }));
   const wdom = await page.evaluate(() => {
     const t = (r, s) => { const n = r.querySelector(s); return n ? n.textContent : null; };
     const w = document.getElementById('where');
@@ -73,7 +78,12 @@ const base = url.split('#')[0];
       universe: {title: [...w.querySelectorAll('.wh-tt')][1] ? [...w.querySelectorAll('.wh-tt')][1].textContent : null, note: [...w.querySelectorAll('.wh-tn')][1] ? [...w.querySelectorAll('.wh-tn')][1].textContent : null,
         tables: [...w.querySelectorAll('table[data-utable]')].map(tb => ({side: tb.dataset.utable, rows: [...tb.querySelectorAll('tbody tr')].map(row)}))},
       legend: [...w.querySelectorAll('.legend span')].map(s => s.textContent), link: w.querySelector('a[data-wlink]').getAttribute('href'),
-      feature: {title: t(f, '.card-h b'), badge: t(f, '.badge'), lead: t(f, '.wh-lead'), box: t(f, '[data-fbox="current"] h3'), text: t(f, '[data-fbox="current"] .ft-st'), tables: f.querySelectorAll('table').length}};
+      feature: {title: t(f, '.card-h b'), badge: t(f, '.badge'), lead: t(f, '.wh-lead'), box: t(f, '[data-fbox="current"] h3'), text: t(f, '[data-fbox="current"] .ft-st'),
+        notes: [...f.querySelectorAll('.ft-notes li')].map(li => li.textContent), tables: f.querySelectorAll('table').length,
+        tableOverflow: Math.max(0, ...[...f.querySelectorAll('table')].map(tb => tb.parentElement.scrollWidth - tb.parentElement.clientWidth)),
+        sections: [...f.querySelectorAll('[data-fsec]')].map(sc => ({fold: sc.tagName === 'DETAILS', title: sc.tagName === 'DETAILS' ? sc.querySelector('summary').textContent : sc.querySelector('.wh-tt').textContent,
+          tables: [...sc.querySelectorAll('table[data-ftable]')].map(tb => ({title: tb.parentElement.querySelector('.cap').textContent, cols: [...tb.querySelectorAll('thead th')].map(th => th.textContent),
+            rows: [...tb.querySelectorAll('tbody tr')].map(tr => ({bold: tr.classList.contains('base'), cells: [...tr.children].map(td => td.textContent)}))}))}))}};
   });
   R.where.hover = [];
   for (const f of [0.2, 0.55, 0.9]) R.where.hover.push(await tipAt('#where svg rect[data-chart="wh.hover"]', f));

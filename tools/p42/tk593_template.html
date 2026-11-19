@@ -248,6 +248,8 @@ section.ft-set{margin-top:22px;scroll-margin-top:118px}
 .ft-card .card-b{padding:12px 20px 18px}
 .ft-st{margin:6px 0 0;font-size:13px}
 .ft-tbl{margin-top:10px}
+.ft-notes{margin:8px 0 0;padding-left:18px;font-size:13px}.ft-notes li{margin:4px 0}
+.ft-sec{margin-top:22px}.ft-fold{margin-top:22px}.ft-fold summary{cursor:pointer;font-weight:650;font-size:14px}
 .stage-group{margin:26px 0 10px;font-size:14px;font-weight:650;color:var(--z700)}
 .stage-group:first-of-type{margin-top:14px}
 @media(max-width:640px){.where-card .card-b{padding:10px 12px 14px}.wh-box{padding:10px 12px}}
@@ -1038,19 +1040,24 @@ function uniTable(side) {
   tb.append(body);
   return h('div', {style: 'overflow-x:auto;margin-top:12px'}, [h('div', {class: 'cap'}, side === 'short' ? 'Шорт (S_base)' : 'Лонг (L_base)'), tb]);
 }
+function ftTable(T, key) {
+  const tb = h('table', {class: 'eqt ft-tbl', 'data-ftable': key});
+  tb.append(h('thead', {}, h('tr', {}, T.cols.map((c, i) => h('th', {class: i ? 'num' : ''}, c)))));
+  tb.append(h('tbody', {}, T.rows.map((r, ri) => h('tr', {class: (T.bold || []).includes(ri) ? 'base' : ''}, r.map((c, i) => h('td', {class: i ? 'num' : '', 'data-lab': T.cols[i]}, c))))));
+  return h('div', {style: 'overflow-x:auto;margin-top:12px'}, [h('div', {class: 'cap'}, T.title), tb]);
+}
 function featureCard(F) {
-  const card = h('div', {class: 'card ft-card', id: 'feature'});
-  card.append(h('div', {class: 'card-h'}, [h('b', {}, F.title), h('span', {class: 'badge' + (F.current.status === 'done' ? ' ok' : ' run'), 'data-f': 'fstatus'}, F.current.status === 'done' ? 'готово' : 'считается')]));
+  const C = F.current, card = h('div', {class: 'card ft-card', id: 'feature'});
+  card.append(h('div', {class: 'card-h'}, [h('b', {}, F.title), h('span', {class: 'badge' + (C.status === 'done' ? ' ok' : ' run'), 'data-f': 'fstatus'}, C.status === 'done' ? 'готово' : 'считается')]));
   const b = h('div', {class: 'card-b'});
   b.append(h('p', {class: 'wh-lead'}, F.lead));
-  const cur = h('div', {class: 'wh-box wide', 'data-fbox': 'current'}, [h('h3', {}, F.current.title), h('p', {class: 'ft-st'}, F.current.text)]);
-  if (F.current.table) {
-    const tb = h('table', {class: 'eqt ft-tbl', 'data-ftable': '1'});
-    tb.append(h('thead', {}, h('tr', {}, F.current.table.cols.map((c, i) => h('th', {class: i ? 'num' : ''}, c)))));
-    tb.append(h('tbody', {}, F.current.table.rows.map(r => h('tr', {}, r.map((c, i) => h('td', {class: i ? 'num' : '', 'data-lab': F.current.table.cols[i]}, c))))));
-    cur.append(h('div', {style: 'overflow-x:auto'}, tb));
-  }
+  const cur = h('div', {class: 'wh-box wide', 'data-fbox': 'current'}, [h('h3', {}, C.title), h('p', {class: 'ft-st'}, C.text)]);
+  if (C.notes) cur.append(h('ul', {class: 'ft-notes'}, C.notes.map(t => h('li', {}, t))));
   b.append(cur);
+  (C.sections || []).forEach((S, si) => {
+    const body = [...(S.note ? [h('p', {class: 'wh-tn'}, S.note)] : []), ...S.tables.map((T, ti) => ftTable(T, si + '.' + ti))];
+    b.append(S.fold ? h('details', {class: 'ft-fold', 'data-fsec': si}, [h('summary', {}, S.title), ...body]) : h('div', {class: 'ft-sec', 'data-fsec': si}, [h('div', {class: 'wh-tt'}, S.title), ...body]));
+  });
   card.append(b);
   return card;
 }

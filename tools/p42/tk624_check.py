@@ -16,6 +16,7 @@ import sys
 import numpy as np
 
 html_path, dom_dir = sys.argv[1:3]
+T625 = sys.argv[3] if len(sys.argv) > 3 else None   # каталог с tk625-step1-h775.json / tk625-step1-o566.json (итоговые таблицы TK-625, только чтение)
 html = open(html_path, encoding="utf-8").read()
 data_dir = os.path.join(os.path.dirname(os.path.abspath(html_path)), "data")
 n_ok, bad = 0, []
@@ -200,7 +201,7 @@ for s, d in zip(P["stages"], Wd["progress"]["stages"]):
     eq(w + " дальше", d["next"], s["next"])
     eq(w + " вопрос", d["answers"], s["answers"])
 eq("DOM шапка хода работ", Wd["progress"]["headline"], P["headline"])
-eq("этапы: ровно один идёт (TK-625)", [s["id"] for s in P["stages"] if s["status"] == "running"], ["TK-625"])
+eq("этапы: идущих нет, TK-626 и TK-625 закрыты (группа «Сделано 20.11»)", ([s["id"] for s in P["stages"] if s["status"] == "running"], [(s["id"], s["status"]) for s in P["stages"] if s.get("group") == "Сделано 20.11"]), ([], [("TK-626", "done"), ("TK-625", "done")]))
 eq("этапы: сегодняшние TK-615…623 на месте", [s["id"] for s in P["stages"] if s.get("group") == "Сделано сегодня, 19.11"], ["TK-599", "TK-615", "TK-616", "TK-617", "TK-618", "TK-619", "TK-620", "TK-621", "TK-622", "TK-623"])
 eq("этапы: точки вперёд", [t["t"].split(" ")[0] for t in next(s for s in P["stages"] if s["id"] == "30.11–31.03")["steps"]], ["30.11", "31.12", "31.01", "28.02", "31.03.2027"])
 
@@ -240,8 +241,39 @@ for t in Wd["universe"]["tables"]:
             for m in range(5):
                 eq(f"report.json TK-621 {t['side']} {u['id']} {MK[m]}", (round(ms[m]["sum"], 2), ms[m]["trades"]), (q[MK[m]]["sum"], q[MK[m]]["n"]), 0.0051)
 Fd = P["feature"]
-eq("DOM признак (TK-625): заголовок, статус, текст", (Wd["feature"]["title"], Wd["feature"]["badge"], Wd["feature"]["lead"], Wd["feature"]["box"], Wd["feature"]["text"], Wd["feature"]["tables"]),
-   (Fd["title"], "считается", Fd["lead"], Fd["current"]["title"], Fd["current"]["text"], 0))
+Wf, Cf = Wd["feature"], Fd["current"]
+eq("DOM признак (TK-625): заголовок, плашка, текст", (Wf["title"], Wf["badge"], Wf["lead"], Wf["box"], Wf["text"], Wf["notes"]),
+   (Fd["title"], "готово" if Cf["status"] == "done" else "считается", Fd["lead"], Cf["title"], Cf["text"], Cf.get("notes", [])))
+eq("признак: статус — готово (TK-625 прислал таблицу)", Cf["status"], "done")
+eq("признак: разделы и таблицы на странице == progress.json", [(x["fold"], x["title"], [(t["title"], t["cols"], [(r["bold"], r["cells"]) for r in t["rows"]]) for t in x["tables"]]) for x in Wf["sections"]],
+   [(bool(x.get("fold")), x["title"], [(t["title"], t["cols"], [(i in t.get("bold", []), r) for i, r in enumerate(t["rows"])]) for t in x["tables"]]) for x in Cf["sections"]])
+eq("признак: честная вселенная раскрыта, прежние 566 свёрнуты", [x["fold"] for x in Wf["sections"]], [False, True])
+eq("признак: нет горизонтальной прокрутки таблиц (раскрыто)", (R["where"]["featureOverflowOpen"]["page"] <= 0, R["where"]["featureOverflowOpen"]["tables"] >= 0), (True, True))
+if T625:
+    # независимый пересчёт строк из step1-*.json TK-625 (ступень 1, m = 1 NATR): колонки по именам, окно × корзина, база; сумма корзин == база
+    BK, WIN = ["0", "1", "2–3", "4+", "нет значения"], [(7, "ok10_d7"), (14, "ok10_d14"), (30, "ok10_d30")]
+    for sec, fn_, (ns, nl) in zip(Cf["sections"], ("step1-h775.json", "step1-o566.json"), ((319, 428), (431, 621))):
+        src = json.load(open(os.path.join(T625, "tk625-" + fn_), encoding="utf-8"))
+        eq(f"TK-625 {fn_}: def2 / code_id", (src["def"], src["code_id"]), ("def2", "3267c9a4e181"))
+        for t, side, nb in zip(sec["tables"], ("S", "L"), (ns, nl)):
+            base = src[side]["base"]
+            eq(f"TK-625 {fn_} {side}: база сделок", base["n"], nb)
+            eq(f"TK-625 {fn_} {side}: заголовок", t["title"], f"{'Шорт' if side == 'S' else 'Лонг'} · база {money(base['sum'])} $ на {base['n']} сделках, шарп {money(base['sharpe'])}")
+            eq(f"TK-625 {fn_} {side}: число строк", len(t["rows"]), 1 + 3 * 5)
+            def cells(b):
+                return [str(b["n"]), money(b["sum"]), money(b["mean"]) if b["n"] else "—", money(b["sharpe"])] + [money(m[1]) for m in b["months"]]
+            eq(f"TK-625 {fn_} {side}: строка базы", t["rows"][0], ["вся база", "без фильтра"] + cells(base))
+            k = 1
+            for dd, key in WIN:
+                cols = src[side]["cols"][key]
+                eq(f"TK-625 {fn_} {side} D{dd}: корзины делят базу (сделки)", sum(cols[b]["n"] for b in BK), base["n"])
+                eq(f"TK-625 {fn_} {side} D{dd}: корзины делят базу (Σ $)", round(sum(cols[b]["sum"] for b in BK), 4), round(base["sum"], 4), 1e-4)
+                for mi in range(5):
+                    eq(f"TK-625 {fn_} {side} D{dd}: месяц {mi}", round(sum(cols[b]["months"][mi][1] for b in BK), 4), round(base["months"][mi][1], 4), 1e-4)
+                for b in BK:
+                    eq(f"TK-625 {fn_} {side} D{dd} {b}", t["rows"][k], [f"{dd} сут.", b] + cells(cols[b]))
+                    k += 1
+            eq(f"TK-625 {fn_} {side}: итоги базы == принятые отчёты (TK-621 / TK-599)", (round(base["sum"], 2), base["n"]), {("h", "S"): (223.14, 319), ("h", "L"): (193.17, 428), ("o", "S"): (259.14, 431), ("o", "L"): (7.06, 621)}[(fn_[6], side)])
 FD = R["features"]
 eq("«Признаки»: пояснение TK-604 на странице", all(n in FD["text"] for n in emb("features-data")["sets"][4]["numbers"]), True)
 eq("«Признаки»: нет горизонтальной прокрутки", FD["overflow"] <= 0, True)
