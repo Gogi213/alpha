@@ -1,0 +1,19 @@
+{
+ "tests_primary": 444,
+ "nominal_p05": 31,
+ "nominal_p05_stable": 17,
+ "holm_lt_05": 0,
+ "buckets": 65,
+ "reps": 20000,
+ "perms": 40000,
+ "n": {
+  "L": {
+   "sig": 640,
+   "base": 621
+  },
+  "S": {
+   "sig": 445,
+   "base": 431
+  }
+ }
+}
