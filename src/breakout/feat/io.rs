@@ -52,16 +52,16 @@ pub struct Summary {
     pub seconds: f64,
     pub missing_trade_days: u64,
     pub unsorted_days: u64,
-    /// Счётчики склада (`--store`): `(попаданий, промахов, записано, пропущено, повреждено, прежним путём, расхождений)`.
-    pub store: Option<[u64; 7]>,
+    /// Счётчики склада (`--store`): `(попаданий, промахов, записано, пропущено, повреждено, прежним путём, расхождений, свёрнуто, свёртка не подошла)`.
+    pub store: Option<[u64; 9]>,
 }
 
 impl Summary {
     pub fn json(&self) -> String {
         let store = self.store.map_or(String::new(), |c| {
             format!(
-                ",\"store\":{{\"hit\":{},\"miss\":{},\"written\":{},\"skipped\":{},\"bad\":{},\"fallback\":{},\"mismatch\":{}}}",
-                c[0], c[1], c[2], c[3], c[4], c[5], c[6]
+                ",\"store\":{{\"hit\":{},\"miss\":{},\"written\":{},\"skipped\":{},\"bad\":{},\"fallback\":{},\"mismatch\":{},\"folded\":{},\"fold_fallback\":{}}}",
+                c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7], c[8]
             )
         });
         format!(
@@ -265,6 +265,8 @@ pub fn run(cfg: &Cfg) -> Result<Summary> {
             c.bad,
             ss.fallback.load(Ordering::Relaxed),
             ss.mismatch.load(Ordering::Relaxed),
+            ss.folded.load(Ordering::Relaxed),
+            ss.fold_fallback.load(Ordering::Relaxed),
         ]
     });
     Ok(Summary {

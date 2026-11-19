@@ -110,6 +110,9 @@ pub struct StoreDaySrc {
     verify: bool,
     pub fallback: AtomicU64,
     pub mismatch: AtomicU64,
+    /// Сутки, свёрнутые в гистограмму (`day_hist`), и сутки, которым свёртка не подошла (ушли на массивы).
+    pub folded: AtomicU64,
+    pub fold_fallback: AtomicU64,
 }
 
 impl StoreDaySrc {
@@ -140,6 +143,8 @@ impl StoreDaySrc {
             verify,
             fallback: AtomicU64::new(0),
             mismatch: AtomicU64::new(0),
+            folded: AtomicU64::new(0),
+            fold_fallback: AtomicU64::new(0),
         })
     }
 }
@@ -207,6 +212,7 @@ impl DaySrc for StoreDaySrc {
                 match got {
                     Fold::NoZip => continue,
                     Fold::Done(hd) => {
+                        self.folded.fetch_add(1, Ordering::Relaxed);
                         return Ok(Some(HistDay {
                             unsorted: hd.stat.unsorted_files > 0,
                             first_t: hd.first_off.map(|o| base + i64::from(o)),
@@ -216,6 +222,7 @@ impl DaySrc for StoreDaySrc {
                 }
             }
             // сутки не свёрнуты (промах, отступления, обрыв разбора): свёртка могла записать часть счётчиков
+            self.fold_fallback.fetch_add(1, Ordering::Relaxed);
             h.fill(0);
         }
         day_hist_via_day(self, sym, abs_day, h)
