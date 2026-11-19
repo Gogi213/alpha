@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """П-42 §13.24 (TK-599): отчёт по-русски и файл заморозки из результатов автомата (`results.pkl` драйвера `retitr_full_run.py`).
 
-  python3 retitr_full_report.py <results.pkl> --md docs/findings/p42-retitration-full-2026-11-18.md --frozen docs/research/freeze/tk599-frozen.json [--commit <SHA кода>] [--npz /data/p42-tk599/npz]
+  python3 retitr_full_report.py <results.pkl> --md docs/findings/p42-retitration-full-2026-11-18.md --frozen docs/research/freeze/tk599-frozen.json [--commit <SHA кода>] [--npz /data/p42-tk599/npz] [--ftab /data/p42-tk599/ftab]
 
 Отчёт: область и отступления, ворота (G1–G3b, G5), шаг 0 (уровень баз и сборок C TK-595 по месяцам, измеренный σ сделки), по стороне — проход 1, проход 2, совместная сетка,
 заморозка, m; проверка вперёд (четыре свёртки, склейка 105 сут., охрана суммы, расхождение выборов, собственное среднее, «сторона выключена» — часть 1); исход заморозки.
@@ -25,6 +25,7 @@ import retitr_full as rf  # noqa: E402
 
 LEGACY_BIN_MD5 = "a03c91df5a70c8eb32cbb7122943b8f9"      # серия без поля `bin_md5` посчитана бинарём §13.24 (поле пишется со сменой бинаря, §13.24.6)
 NPZ_DEFAULT = "/data/p42-tk599/npz"
+FTAB_DEFAULT = "/data/p42-tk599/ftab"
 MONTH_RU = ("июль", "август", "сентябрь", "октябрь", "01–13.11")
 SIDE_RU = {"L": "лонг", "S": "шорт"}
 FROZEN_VERSION = "tk599-frozen-1"
@@ -190,6 +191,7 @@ def render_report(res, spec, meta=None):
            "Статус: счёт по §13.24 + §13.24.1 + §13.24.2 выполнен автоматом `tools/p42/retitr_full.py` (драйвер `retitr_full_run.py`), ручных решений после просмотра нет. "
            "Метрика везде — средний $ на сделку (gross − fees, без фандинга), Δ к эталону, блочный бутстреп по суткам (блок 4, %d повторов)." % res.get("nboot", rf.NBOOT),
            "Код: коммит `%s`; сетки sha256 `%s`; бинари движка md5 (по сериям кэша) %s." % (meta.get("commit", "?"), meta.get("grids_sha256", "?")[:16], bin_text(meta)),
+           "Таблицы признаков по сборщикам (python / alpha-feat md5; все три побайтно равны по воротам G-A3, §13.24.7): %s." % builders_text(meta),
            "**Чтение вперёд 17–30.11 здесь не сделано** — только после заморозки (отдельный коммит `docs/research/freeze/tk599-frozen.json`).", "",
            "## Область и отступления", "", "Отступления от плана (записаны в §13.24 / §13.24.2 до счёта):", ""]
     out += ["%d. %s" % (i, d) for i, d in enumerate(DEVIATIONS, 1)]
@@ -249,6 +251,42 @@ def engine_md5s(npz_dir):
     return out
 
 
+def ftab_builders(ftab_dir):
+    """({окно: {сборщик: число таблиц потоков}}, [окно/vid таблиц с чужой меткой]) по `ftab/<окно>/<vid>/ftab.csv` (§13.24.7–8, приказ координатора 19.11: смешанный набор — как собран).
+    Сборщик — по файлу признаков, который реально посчитал таблицу (`tk594-flow|deriv-<S|L>.parquet.info.json`): `engine` + `bin_md5` → `alpha-feat:<md5>`, иначе `python`.
+    Метка `built-by.json` (кто вызвал сборку) может отличаться: сборка переиспользует готовый файл признаков, — такие таблицы перечислены вторым значением."""
+    counts, relabeled = {}, []
+    for w in sorted(os.listdir(ftab_dir)):
+        wd = os.path.join(ftab_dir, w)
+        if not os.path.isdir(wd):
+            continue
+        for vid in sorted(os.listdir(wd)):
+            d = os.path.join(wd, vid)
+            if vid == "ready" or not os.path.exists(os.path.join(d, "ftab.csv")):
+                continue
+            who = "python"
+            for n in sorted(os.listdir(d)):
+                if n.startswith("tk594-") and n.endswith(".parquet.info.json"):
+                    info = json.load(open(os.path.join(d, n), encoding="utf-8"))
+                    if info.get("engine") == "alpha-feat":
+                        who = "alpha-feat:" + info["bin_md5"]
+            bb = os.path.join(d, "built-by.json")
+            if os.path.exists(bb) and "alpha-feat:" + json.load(open(bb, encoding="utf-8")).get("feat_bin_md5", "") != who:
+                relabeled.append("%s/%s" % (w, vid))
+            counts.setdefault(w, {})[who] = counts.get(w, {}).get(who, 0) + 1
+    return counts, relabeled
+
+
+def builders_text(meta):
+    """Сборщики таблиц признаков для строки отчёта: «окно: сборщик N, …; …»."""
+    b = meta.get("ftab_builders")
+    if not b:
+        return "?"
+    s = "; ".join("%s: %s" % (w, ", ".join("%s %d" % (k.replace("alpha-feat:", "alpha-feat ")[:24], b[w][k]) for k in sorted(b[w]))) for w in sorted(b))
+    rl = meta.get("ftab_relabeled") or []
+    return s + ("; таблиц с меткой сборщика, не равной посчитавшему файл признаков: %d (%s)" % (len(rl), ", ".join(rl)) if rl else "")
+
+
 def bin_text(meta):
     """Бинари движка для строки отчёта: «md5 (N серий), …»."""
     ser = meta.get("bin_md5_series")
@@ -282,6 +320,7 @@ def main(argv=None):
     ap.add_argument("--commit", default="?")
     ap.add_argument("--sens", default="", help="results/sens.json (§13.24.5): добавляет раздел «Чувствительность порога минимума сделок»; в файл заморозки не попадает")
     ap.add_argument("--npz", default=NPZ_DEFAULT, help="каталог кэша серий прогона: md5 бинарей движка в мете заморозки читаются из серий (`bin_md5`), не зашиты")
+    ap.add_argument("--ftab", default=FTAB_DEFAULT, help="каталог таблиц признаков прогона: сборщики таблиц по окнам пишутся в мету заморозки")
     ap.add_argument("--grids", default=os.path.join(HERE, "..", "..", "docs", "research", "freeze", "tk599-grids.json"))
     a = ap.parse_args(argv)
     res = pickle.load(open(a.results, "rb"))
@@ -292,8 +331,11 @@ def main(argv=None):
     ser = engine_md5s(a.npz)
     if not ser:
         raise SystemExit("в %s нет серий .npz — md5 бинаря движка не определить" % a.npz)
+    if not os.path.isdir(a.ftab):
+        raise SystemExit("нет каталога таблиц признаков %s: укажите --ftab — в мете заморозки обязаны быть сборщики таблиц по окнам" % a.ftab)
+    fb, relabeled = ftab_builders(a.ftab)
     meta = {"commit": a.commit, "grids_sha256": hashlib.sha256(open(a.grids, "rb").read()).hexdigest(), "bin_md5": sorted(ser), "bin_md5_series": ser,
-            "npz_dir": os.path.abspath(a.npz), "date": datetime.date.today().isoformat(), "nboot": res.get("nboot", rf.NBOOT)}
+            "ftab_builders": fb, "ftab_relabeled": relabeled, "npz_dir": os.path.abspath(a.npz), "date": datetime.date.today().isoformat(), "nboot": res.get("nboot", rf.NBOOT)}
     with open(a.md, "w", encoding="utf-8", newline="\n") as f:
         f.write(render_report(res, spec, dict(meta, sens=json.load(open(a.sens, encoding="utf-8")) if a.sens else None)))
     with open(a.frozen, "w", encoding="utf-8", newline="\n") as f:

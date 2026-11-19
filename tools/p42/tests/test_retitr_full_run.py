@@ -587,8 +587,21 @@ def test_end_to_end_run_all_report_and_frozen():
             np.savez(os.path.join(nz, "s%d.npz" % i), **({"bin_md5": np.array(new)} if new else {"val": np.zeros(1)}))
         open(os.path.join(nz, "x.tmp.npz"), "wb").write(b"oborvan")                              # оборванный — не считается
         assert rep.engine_md5s(nz) == {rep.LEGACY_BIN_MD5: 2, "a112684a" + "0" * 24: 3}
-        raises(SystemExit, rep.main, [pkl, "--md", md, "--frozen", fz, "--npz", os.path.join(tmp, "net")])
-        assert rep.main([pkl, "--md", md, "--frozen", fz, "--commit", "abc123", "--npz", nz]) == 0
+        ft = os.path.join(tmp, "ftab-for-report")                                                  # сборщики таблиц по окнам: python / alpha-feat md5 по файлу признаков; метка built-by может не совпасть
+        for w, vid, info, label in (("wa", "v1", None, None), ("wa", "v2", "aaaa", "aaaa"), ("wa", "v3", "aaaa", "bbbb"), ("wb", "v1", None, None), ("wb", "v4", "bbbb", "bbbb")):
+            d = os.path.join(ft, w, vid)
+            os.makedirs(d)
+            open(os.path.join(d, "ftab.csv"), "w").close()
+            if info:
+                json.dump({"engine": "alpha-feat", "bin_md5": info}, open(os.path.join(d, "tk594-flow-S.parquet.info.json"), "w"))
+            if label:
+                json.dump({"feat_bin_md5": label}, open(os.path.join(d, "built-by.json"), "w"))
+        os.makedirs(os.path.join(ft, "wa", "ready"))
+        os.makedirs(os.path.join(ft, "wa", "v5"))                                                  # каталог без ftab.csv (сборка не дошла) — не считается
+        assert rep.ftab_builders(ft) == ({"wa": {"python": 1, "alpha-feat:aaaa": 2}, "wb": {"python": 1, "alpha-feat:bbbb": 1}}, ["wa/v3"])
+        raises(SystemExit, rep.main, [pkl, "--md", md, "--frozen", fz, "--npz", os.path.join(tmp, "net"), "--ftab", ft])
+        raises(SystemExit, rep.main, [pkl, "--md", md, "--frozen", fz, "--npz", nz, "--ftab", os.path.join(tmp, "net")])
+        assert rep.main([pkl, "--md", md, "--frozen", fz, "--commit", "abc123", "--npz", nz, "--ftab", ft]) == 0
         text = open(md, encoding="utf-8").read()
         for s in ("# П-42 §13.24", "Ограничение области: сочетания двух и более признаков не проверялись", "## Шаг 0", "F_maxmv1_lo_", "Проход 1", "Совместная сетка",
                   "Проверка процедуры вперёд", "Исход заморозки", "abc123", "Чтение вперёд 17–30.11 здесь не сделано", "§13.24.2", "G5", "**снят**"):
@@ -596,6 +609,8 @@ def test_end_to_end_run_all_report_and_frozen():
         j = json.load(open(fz, encoding="utf-8"))
         assert j["scope"] == rep.SCOPE_LIMIT and j["version"] == rep.FROZEN_VERSION
         assert j["meta"]["bin_md5"] == sorted([rep.LEGACY_BIN_MD5, "a112684a" + "0" * 24]) and j["meta"]["bin_md5_series"][rep.LEGACY_BIN_MD5] == 2 and "a112684a" in text
+        assert j["meta"]["ftab_builders"] == {"wa": {"python": 1, "alpha-feat:aaaa": 2}, "wb": {"python": 1, "alpha-feat:bbbb": 1}} and j["meta"]["ftab_relabeled"] == ["wa/v3"]
+        assert "wa: alpha-feat aaaa 2, python 1; wb: alpha-feat bbbb 1, python 1" in text and "wa/v3" in text
         L, S = j["sides"]["L"], j["sides"]["S"]
         assert L["decision"] == "C*" and "rr=3" in L["keys"] and L["axes"]["rr"] == "rr_3" and L["axes"]["F"].startswith("F_maxmv1_lo_") and L["keys"].count("fa=") == 1
         assert S["decision"] == "база" and S["keys"] == S["base_keys"] and S["axes"] == {}
