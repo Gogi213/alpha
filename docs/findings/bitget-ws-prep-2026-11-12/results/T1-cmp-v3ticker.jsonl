@@ -1,0 +1,1 @@
+{"ref": "frames/T1-A-v3ticker.jsonl.zst", "other": "frames/T1-B-v3ticker.jsonl.zst", "ref_peer": "18.154.63.102", "other_peer": "18.154.63.102", "window_s": 84.7, "common": 3176, "only_ref": 4631, "only_other": 4633, "delta_ms_p1": -37.825575, "delta_ms_p50": 7.530641, "delta_ms_p99": 83.805264, "delta_ms_max": 164.27987, "delta_ms_min": -195.95866}

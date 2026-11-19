@@ -1,0 +1,7 @@
+t=   0.0s recs/s=    8432 lag p50=  868 max=  996
+t=   2.0s recs/s=   16200 lag p50=  217 max=  750
+t=   4.0s recs/s=   12980 lag p50=  153 max=  235
+t=   6.0s recs/s=   12934 lag p50=  186 max=  361
+t=   8.0s recs/s=   11156 lag p50=  154 max=  253
+t=  10.0s recs/s=    4329 lag p50=  147 max=  176
+end: {'closed': None, 'reason': None, 'sent': None, 'rx_ns': 1794489049776412295, 'after_s': 11.82}
