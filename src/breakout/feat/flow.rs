@@ -3,7 +3,7 @@
 //! Все суммы — `np_sum` (порядок numpy), накопления — `np_cumsum`, поиск — `searchsorted` слева/справа.
 
 use super::npcompat::{np_cumsum, np_mean, np_sum, ss_left_f64, ss_left_i64, ss_right_f64};
-use super::trades::{DaySrc, DayTrades};
+use super::trades::{DaySrc, DayTrades, HistDay};
 use anyhow::Result;
 use std::collections::BTreeMap;
 use std::sync::OnceLock;
@@ -239,6 +239,50 @@ pub(super) fn flow_features(w: &Win, sig: i64, s: i64, q99: Option<f64>, has24: 
     f
 }
 
+/// Накопитель часовой гистограммы `log10 v` одних суток: `h` — `24·NB` счётчиков (часы суток подряд).
+pub(super) struct HistSink<'a> {
+    h: &'a mut [i32],
+    lut: &'static [u16],
+    ed: &'static [f64],
+}
+
+impl<'a> HistSink<'a> {
+    pub(super) fn new(h: &'a mut [i32]) -> HistSink<'a> {
+        HistSink {
+            h,
+            lut: bin_lut(),
+            ed: edges(),
+        }
+    }
+
+    /// Запись внутри суток: `off` — мс от полуночи (`< DAY_MS`), `v` — оборот записи.
+    #[inline(always)]
+    pub(super) fn add(&mut self, off: u32, v: f64) {
+        let hr = (off / HOUR_MS as u32) as usize;
+        // NaN: `searchsorted` numpy кладёт его в конец → последняя корзина
+        let ix = if v.is_nan() {
+            NB - 1
+        } else {
+            hist_bin(self.lut, self.ed, v)
+        };
+        self.h[hr * NB + ix] += 1;
+    }
+}
+
+/// Сутки `d` (массивы записей) → часовая гистограмма; час — от полуночи суток, записи вне суток прижимаются к краям.
+pub(super) fn hist_add_day(h: &mut [i32], d: i64, c: &DayTrades) {
+    let (ed, lut) = (edges(), bin_lut());
+    for (&t, &v) in c.t.iter().zip(&c.v) {
+        let hr = (t.div_euclid(HOUR_MS) - d * 24).clamp(0, 23) as usize;
+        let ix = if v.is_nan() {
+            NB - 1
+        } else {
+            hist_bin(lut, ed, v)
+        };
+        h[hr * NB + ix] += 1;
+    }
+}
+
 /// Результат одной монеты: строки таблицы и число пропущенных суток файлов сделок.
 pub struct CoinFlow {
     pub rows: Vec<(usize, [f64; 16])>,
@@ -259,7 +303,6 @@ pub fn flow_coin(src: &dyn DaySrc, sym: &str, eps: &[Ep]) -> Result<CoinFlow> {
     for (i, &d) in days.iter().enumerate() {
         by_day.entry(d).or_default().push(i);
     }
-    let (ed, lut) = (edges(), bin_lut());
     let mut out = CoinFlow {
         rows: Vec::with_capacity(eps.len()),
         missing_trade_days: 0,
@@ -269,25 +312,32 @@ pub fn flow_coin(src: &dyn DaySrc, sym: &str, eps: &[Ep]) -> Result<CoinFlow> {
     let mut first_seen = false;
     let mut coin_first: Option<i64> = None;
     for d in (dmin - 8)..=dmax {
-        let cur = src.day(sym, d)?;
-        match &cur {
+        let hrow = ((d * 24 - h0) as usize) * NB;
+        // массивы суток нужны, если в них или в следующих сутках есть эпизод (окна 24 ч и «предыдущие сутки»); иначе суткам нужна одна гистограмма
+        let arrays = by_day.contains_key(&d) || by_day.contains_key(&(d + 1));
+        let (cur, seen): (Option<DayTrades>, Option<HistDay>) = if arrays {
+            let cur = src.day(sym, d)?;
+            if let Some(c) = &cur {
+                hist_add_day(&mut hist[hrow..hrow + 24 * NB], d, c);
+            }
+            let seen = cur.as_ref().map(|c| HistDay {
+                unsorted: c.unsorted,
+                first_t: c.t.first().copied(),
+            });
+            (cur, seen)
+        } else {
+            (
+                None,
+                src.day_hist(sym, d, &mut hist[hrow..hrow + 24 * NB])?,
+            )
+        };
+        match &seen {
             Some(c) => {
                 if !first_seen {
                     first_seen = true;
-                    coin_first = c.t.first().copied();
+                    coin_first = c.first_t;
                 }
                 out.unsorted_days += u64::from(c.unsorted);
-                let base = ((d * 24 - h0) as usize) * NB;
-                for (&t, &v) in c.t.iter().zip(&c.v) {
-                    let hr = (t.div_euclid(HOUR_MS) - d * 24).clamp(0, 23) as usize;
-                    // NaN: `searchsorted` numpy кладёт его в конец → последняя корзина
-                    let ix = if v.is_nan() {
-                        NB - 1
-                    } else {
-                        hist_bin(lut, ed, v)
-                    };
-                    hist[base + hr * NB + ix] += 1;
-                }
             }
             None => {
                 if first_seen && d >= dmin - 1 {
