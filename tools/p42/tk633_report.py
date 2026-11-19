@@ -32,9 +32,14 @@ def months(v):
     return " · ".join("%s (%d)" % (money(s), n) for n, s in v["months"])
 
 
+def ci(v):
+    lo, hi = v.get("lo90"), v.get("hi90")
+    return "[%s; %s]" % (per(lo), per(hi)) if lo is not None and hi is not None else "—"
+
+
 def row(name, v):
     mean = v["sum"] / v["n"] if v["n"] else float("nan")
-    return "| %s | %d | %s | %s | %s | %s |" % (name, v["n"], money(v["sum"]), per(mean), sharpe(v["sharpe"]), months(v))
+    return "| %s | %d | %s | %s | %s | %s | %s |" % (name, v["n"], money(v["sum"]), per(mean), ci(v), sharpe(v["sharpe"]), months(v))
 
 
 def step1_tables(root):
@@ -47,8 +52,8 @@ def step1_tables(root):
             out.append("**%s**, база без фильтра: %d сделок, Σ %s $, %s $/сделку, Sharpe %s.\n" % (NAMES[s], b["n"], money(b["sum"]), per(b["sum"] / b["n"]), sharpe(b["sharpe"])))
             for D in (7, 14, 30):
                 out.append("%s-сделки, D = %d сут., m = 1 NATR (%s: число успешных пробоев монеты другой стороны за D суток до сигнала):\n" % (NAMES[s], D, HIST[s]))
-                out.append("| %s | сделок | Σ $ | $/сделку | Sharpe | Σ $ (сделок) по месяцам: %s |" % (HIST[s], " · ".join(MONTHS)))
-                out.append("|---|---:|---:|---:|---:|---|")
+                out.append("| %s | сделок | Σ $ | $/сделку | 90 %% интервал $/сделку | Sharpe | Σ $ (сделок) по месяцам: %s |" % (HIST[s], " · ".join(MONTHS)))
+                out.append("|---|---:|---:|---:|---|---:|---|")
                 for name in BUCKETS:
                     out.append(row(name, d[s]["cross"]["xok10_d%d" % D][name]))
                 out.append(row("**все (база)**", d[s]["cross"]["xok10_d%d" % D]["все"]))
@@ -64,8 +69,8 @@ def fail_tables(root):
         for s in ("L", "S"):
             for D in (7, 14, 30):
                 out.append("%s-сделки, D = %d сут., m = 1 NATR (число НЕУДАЧНЫХ пробоев своей стороны — вернулись к уровню, не пройдя 1 NATR):\n" % (NAMES[s], D))
-                out.append("| неудачных пробоев | сделок | Σ $ | $/сделку | Sharpe | Σ $ (сделок) по месяцам: %s |" % " · ".join(MONTHS))
-                out.append("|---|---:|---:|---:|---:|---|")
+                out.append("| неудачных пробоев | сделок | Σ $ | $/сделку | 90 %% интервал $/сделку | Sharpe | Σ $ (сделок) по месяцам: %s |" % " · ".join(MONTHS))
+                out.append("|---|---:|---:|---:|---|---:|---|")
                 for name in FAIL_BUCKETS:
                     out.append(row(name, d[s]["fail"]["fail10_d%d" % D][name]))
                 out.append(row("**все (база)**", d[s]["fail"]["fail10_d%d" % D]["все"]))
