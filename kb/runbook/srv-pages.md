@@ -4,7 +4,7 @@ type: runbook
 status: running
 title: "Страницы на srv: каталог /data/pages/<имя>, юнит <имя>-page, порт"
 date: 2026-11-20
-links: [srv, TK-629, tools/p42/ml_page_update.sh]
+links: [srv, TK-629, tools/p42/ml_page_update.sh, page-8088-health, page-8090-ml, page-8091-kb]
 supersedes: []
 ---
 

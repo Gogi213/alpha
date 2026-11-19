@@ -40,6 +40,12 @@ supersedes: []          # id карточек, которые эта замен�
 4. **`python tools/kb.py check` перед коммитом.** Хук `.claude/hooks/kb_check.py` запускает его сам при `git commit`, если правился `kb/`; красный — коммит не проходит.
 5. Заменённая карточка — `status: superseded`, а заменяющая указывает её в `supersedes:`. Удалять карточки не нужно.
 
+## Решения и протоколы (TK-632)
+
+- Решения владельца — карточки `decision`: **В-N** из `.claude/decisions.md` ([[decisions-registry]]) и **S-N** из `docs/plan/SETTLED.md` ([[settled-registry]]). Номера двух реестров пересекаются (в `preferences.md`: «В-NNN» — decisions.md, «SETTLED В-NNN» — SETTLED.md), поэтому id разные: В-NNN (кириллическая «В») и S-NNN. «Заменяет: В-M» → `supersedes: [В-M]` + статус `superseded` у В-M; «Заменяет» с оговоркой («в части …») — только пометка «Частично заменена» на старой карточке.
+- Карточки решений собирает `python tools/kb_import_decisions.py` (идемпотентно; `--dry-run` — только счёт): слова владельца и текст записи дословно, `links:` — упомянутые решения / протоколы / задачи. Карточку без `source: kb_import_decisions` (руками, как В-161) скрипт не трогает.
+- Протоколы — по карточке `P-NN` на каждый `docs/research/P-<NN>-*.md` ([[research-protocols]]); задачи — `TK-NNN`; машины и страницы — `machine` / `runbook`.
+
 ## Публикация и тесты
 
 - Сайт на srv: `bash tools/kb_deploy.sh` (юнит `kb-page`, порт 8091, каталог `/data/pages/kb`; как устроены страницы — `kb/runbook/srv-pages.md`).
