@@ -48,7 +48,7 @@ pub struct SigCfg {
     pub fr_b_pm: i64,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub struct ExitCfg {
     pub natr_p: usize,
     pub n_tp: usize,
@@ -113,6 +113,68 @@ pub struct ExitCfg {
     /// без проскальзывания, исполняется сделкой «дошла или прошла» (по цене приказа и тогда, когда к приходу приказа цена уже за ним); 2 — то же, но приказ,
     /// пришедший при цене уже строго за ним, исполняется как рыночный выход v21. Стопы и безубыток остаются рыночными. Только `breakout tick`.
     pub tl: u8,
+    /// §13.31 (`nx`): выход «сценарий отменён» до касания — цена ушла от уровня против позиции на X·NATR (X ×1000; 0 — выкл.): пока не было сделки
+    /// `p ≥ L`, первая сделка `p ≤ L − X·NATR` (не выше `e − 1`) закрывает остаток; после касания не действует. Вид выхода `nt`, не «стоп».
+    /// Только `breakout tick`.
+    pub nx_m: i64,
+    /// §13.31 (`sl`): резиновый стоп от уровня — `L − k·NATR` (k ×1000; 0 — выкл.), не выше `e − 1`; жёсткий стоп `s` остаётся потолком убытка.
+    /// Только `breakout tick`.
+    pub sl_m: i64,
+    /// §13.31 (`cw`): стоп за проторговкой — окно W закрытых минут перед сигнальной (0 — выкл.).
+    pub cs_w: i64,
+    /// §13.31 (`cl`, `ch`): допустимая ширина проторговки в NATR ×1000 — `cl ≤ ширина ≤ ch`; вне диапазона — запасной стоп `sl`.
+    pub cs_lo_m: i64,
+    pub cs_hi_m: i64,
+    /// §13.31 (`cm`): отступ стопа за дальний край проторговки, NATR ×1000.
+    pub cs_m_m: i64,
+}
+
+/// Ручной `Debug`: при выключенных ключах §13.31 строка `params` в meta.json — та же, что у производного `Debug` до §13.31.
+impl std::fmt::Debug for ExitCfg {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut d = f.debug_struct("ExitCfg");
+        d.field("natr_p", &self.natr_p)
+            .field("n_tp", &self.n_tp)
+            .field("t_low_m", &self.t_low_m)
+            .field("t_high_m", &self.t_high_m)
+            .field("q_pct", &self.q_pct)
+            .field("be", &self.be)
+            .field("a_m", &self.a_m)
+            .field("r_m", &self.r_m)
+            .field("s_pm", &self.s_pm)
+            .field("slip_bps", &self.slip_bps)
+            .field("best_order", &self.best_order)
+            .field("lat_ms", &self.lat_ms)
+            .field("lat_exit_ms", &self.lat_exit_ms)
+            .field("tp_gamma_m", &self.tp_gamma_m)
+            .field("tp_kappa_m", &self.tp_kappa_m)
+            .field("natr_src", &self.natr_src)
+            .field("ent_w_ms", &self.ent_w_ms)
+            .field("ent_x_bp", &self.ent_x_bp)
+            .field("ls_m", &self.ls_m)
+            .field("tx_min", &self.tx_min)
+            .field("tx_x_pm", &self.tx_x_pm)
+            .field("rt_f_pm", &self.rt_f_pm)
+            .field("rt_s", &self.rt_s)
+            .field("be_mode", &self.be_mode)
+            .field("e2_pm", &self.e2_pm)
+            .field("sn_m", &self.sn_m)
+            .field("sg", &self.sg)
+            .field("sb_m", &self.sb_m)
+            .field("sr_m", &self.sr_m)
+            .field("sd_m", &self.sd_m)
+            .field("tj_m", &self.tj_m)
+            .field("tl", &self.tl);
+        if self.stop_redesign_opts() {
+            d.field("nx_m", &self.nx_m)
+                .field("sl_m", &self.sl_m)
+                .field("cs_w", &self.cs_w)
+                .field("cs_lo_m", &self.cs_lo_m)
+                .field("cs_hi_m", &self.cs_hi_m)
+                .field("cs_m_m", &self.cs_m_m);
+        }
+        d.finish()
+    }
 }
 
 /// §13.21: фильтр кандидатов по признаку (`fa=<имя> fo=lo|hi fv=<число>`): кандидат отбрасывается ДО портфеля, если значение признака
@@ -197,7 +259,21 @@ impl ExitCfg {
 
     /// Опции §13.19, зависящие от цены уровня (`ls`, `tt`, `rf`, `bm = 3`) включены — нужны `lp` и `P_far`.
     pub fn level_opts(&self) -> bool {
-        self.ls_m > 0 || self.tx_min > 0 || self.rt_f_pm > 0 || self.be_mode == 3
+        self.ls_m > 0
+            || self.tx_min > 0
+            || self.rt_f_pm > 0
+            || self.be_mode == 3
+            || self.stop_redesign_opts()
+    }
+
+    /// Опции §13.31 (`nx`, `sl`, `cw`, `cl`, `ch`, `cm`) включены — `breakout tick` only.
+    pub fn stop_redesign_opts(&self) -> bool {
+        self.nx_m != 0
+            || self.sl_m != 0
+            || self.cs_w != 0
+            || self.cs_lo_m != 0
+            || self.cs_hi_m != 0
+            || self.cs_m_m != 0
     }
 
     /// Любая опция §13.19 включена (`breakout tick` only).
@@ -285,6 +361,12 @@ impl Params {
                 sd_m: 0,
                 tj_m: 0,
                 tl: 0,
+                nx_m: 0,
+                sl_m: 0,
+                cs_w: 0,
+                cs_lo_m: 0,
+                cs_hi_m: 0,
+                cs_m_m: 0,
             },
             port: PortCfg {
                 cool_min: 5,
@@ -379,6 +461,12 @@ impl Params {
             "sd" => self.exit.sd_m = pm(f),
             "tj" => self.exit.tj_m = pm(f),
             "tl" => self.exit.tl = u.min(255) as u8,
+            "nx" => self.exit.nx_m = pm(f),
+            "sl" => self.exit.sl_m = pm(f),
+            "cw" => self.exit.cs_w = f.round() as i64,
+            "cl" => self.exit.cs_lo_m = pm(f),
+            "ch" => self.exit.cs_hi_m = pm(f),
+            "cm" => self.exit.cs_m_m = pm(f),
             "fv" => self.filt.v = Some(f),
             "c" => self.port.cool_min = u,
             "m" => self.port.m_stops = u,
@@ -445,8 +533,25 @@ impl Params {
             bail!("reentry ∈ {{0, 1, 2}}");
         }
         self.validate_v21()?;
+        self.validate_stops()?;
         if self.exit.n_tp < 2 || self.port.p == 0 || self.sig.lv.k == 0 || self.sig.lv.n == 0 {
             bail!("n_tp ≥ 2, p ≥ 1, k ≥ 1, n_bounce ≥ 1");
+        }
+        Ok(())
+    }
+
+    /// §13.31: `nx`, `sl`, `cw/cl/ch/cm` ≥ 0; ключи проторговки заданы только вместе с `cw` (ключ без `cw` — опечатка, а не «выкл.»); `cl < ch`.
+    fn validate_stops(&self) -> Result<()> {
+        let e = &self.exit;
+        if e.nx_m < 0 || e.sl_m < 0 || e.cs_w < 0 || e.cs_lo_m < 0 || e.cs_hi_m < 0 || e.cs_m_m < 0
+        {
+            bail!("nx, sl, cw, cl, ch, cm ≥ 0");
+        }
+        if e.cs_w == 0 && (e.cs_lo_m != 0 || e.cs_hi_m != 0 || e.cs_m_m != 0) {
+            bail!("cl/ch/cm требуют cw > 0 (проторговка)");
+        }
+        if e.cs_w > 0 && e.cs_lo_m >= e.cs_hi_m {
+            bail!("cw требует ch > cl (допустимая ширина проторговки)");
         }
         Ok(())
     }

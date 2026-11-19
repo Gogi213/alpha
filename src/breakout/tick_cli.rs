@@ -2,7 +2,7 @@
 //! у `breakout run` (`<out>/<id>/<side>-{trades,daily,coinday}.csv`, `meta.json`, `<out>/summary.csv`); в
 //! `trades.csv` в конце добавлены `sig_ms,entry_ms,exit_ms` (мс от 01.09 00:00 UTC).
 
-use super::data::{self, Sym, HALF_DAYS, MIN_MS, START_DAY};
+use super::data::{self, Sym, HALF_DAYS, MIN_MS, SCALE, START_DAY};
 use super::ftab::{filter_sigs, FeatTab};
 use super::levels::build_levels_tracked;
 use super::params::ExitCfg;
@@ -10,8 +10,8 @@ use super::params::{parse_variant, Params, SigCfg};
 use super::sigcache::{SigCache, SigCacheOpts};
 use super::store::{StoreOpts, TickStore};
 use super::tick::{
-    old_entry, run_tick_mk, signals_for_coin, sort_tsigs, tape_last_side, EntryRej, TSig, TickCtr,
-    TickResult, TradeSrc, ZipSrc, DAY_MS,
+    cons_range, exit_natr, old_entry, run_tick_mk, signals_for_coin, sort_tsigs, tape_last_side,
+    Cursor, EntryRej, TSig, TickCtr, TickResult, TradeSrc, ZipSrc, DAY_MS,
 };
 use super::{par_map, Side};
 use anyhow::{bail, Context, Result};
@@ -204,6 +204,115 @@ fn write_sigsx(
         );
     }
     fs::write(dir.join(format!("{}-sigsx.csv", side.name())), t)?;
+    Ok(())
+}
+
+/// Ступеней отклонения в `P42_EXC` (шаг 0.25 NATR, 0.25 … 5.0).
+const EXC_STEPS: usize = 20;
+
+/// `P42_EXC=<горизонт, мин>:<окно проторговки W, мин>` (§13.31 шаг 0, описательно, P&L нет): по каждому сигналу задания — `<side>-exc.csv`: первые моменты
+/// (мс от сигнала, −1 — не было за горизонт) касания уровня (`p ≥ L`), «продолжения» (`p ≥ L + 1·NATR`), ухода цены против позиции на `k·0.25·NATR` ниже уровня
+/// (`l1…l20`) и ниже дальнего края проторговки (`r0…r20`, `r0` — на краю и ниже); сделки — строго после `сигнал + lat`, после касания и продолжения просмотр идёт
+/// только пока не найдено продолжение. Единица `u = |L|·NATR` (NATR выхода на сигнале, как у `Pos`).
+#[allow(clippy::too_many_arguments)]
+fn write_exc(
+    dir: &Path,
+    syms: &[Sym],
+    side: Side,
+    sigs: &[TSig],
+    ex: &ExitCfg,
+    src: &dyn TradeSrc,
+    hz_min: i64,
+    w: usize,
+) -> Result<()> {
+    let s = side.s();
+    let mut t = String::from(
+        "sym,level,sig_ms,sig_min,dist_e8,lp_e8,natr_e8,nvalid_rng,rlo_e8,rhi_e8,touch,up1",
+    );
+    for k in 1..=EXC_STEPS {
+        let _ = write!(t, ",l{k}");
+    }
+    for k in 0..=EXC_STEPS {
+        let _ = write!(t, ",r{k}");
+    }
+    t.push('\n');
+    for sg in sigs {
+        let sym = &syms[sg.sym as usize];
+        let natr = exit_natr(sym, ex, sg.t as usize);
+        if natr <= 0 {
+            continue;
+        }
+        let u = (i128::from(sg.lp.abs()) * i128::from(natr) / i128::from(SCALE)) as i64;
+        if u <= 0 {
+            continue;
+        }
+        let rng = cons_range(sym, s, sg.t as usize, w);
+        let t0 = sg.ms + ex.lat_ms;
+        let end = sg.ms + hz_min * 60_000;
+        let mut cur = Cursor::new(src, &sym.name, usize::from(sg.day), sg.idx as usize + 1);
+        let (mut touch, mut up1) = (-1i64, -1i64);
+        let mut l = [-1i64; EXC_STEPS];
+        let mut r = [-1i64; EXC_STEPS + 1];
+        let (mut nl, mut nr) = (0usize, 0usize);
+        while let Some((ms, px, _)) = cur.next_tick() {
+            if ms > end {
+                break;
+            }
+            if ms <= t0 {
+                continue;
+            }
+            let rel = ms - sg.ms;
+            let p = s * px;
+            if touch < 0 {
+                if p >= sg.lp {
+                    touch = rel;
+                } else {
+                    let d = ((sg.lp - p) as i128 * 4 / i128::from(u)) as usize;
+                    while nl < d.min(EXC_STEPS) {
+                        l[nl] = rel;
+                        nl += 1;
+                    }
+                    if let Some((rlo, _)) = rng {
+                        if p <= rlo {
+                            let d = 1 + ((rlo - p) as i128 * 4 / i128::from(u)) as usize;
+                            while nr < d.min(EXC_STEPS + 1) {
+                                r[nr] = rel;
+                                nr += 1;
+                            }
+                        }
+                    }
+                }
+            }
+            if touch >= 0 && up1 < 0 && p >= sg.lp + u {
+                up1 = rel;
+            }
+            if touch >= 0 && up1 >= 0 {
+                break;
+            }
+        }
+        let (rlo, rhi, nv) = rng.map_or((String::new(), String::new(), 0), |(a, b)| {
+            ((s * a).to_string(), (s * b).to_string(), 1)
+        });
+        let _ = write!(
+            t,
+            "{},{},{},{},{},{},{},{nv},{rlo},{rhi},{touch},{up1}",
+            sym.name,
+            sg.level,
+            sg.ms,
+            sg.t,
+            sg.dist,
+            s * sg.lp,
+            natr
+        );
+        for v in l {
+            let _ = write!(t, ",{v}");
+        }
+        for v in r {
+            let _ = write!(t, ",{v}");
+        }
+        t.push('\n');
+    }
+    fs::write(dir.join(format!("{}-exc.csv", side.name())), t)?;
     Ok(())
 }
 
@@ -534,6 +643,22 @@ pub fn run(
                 let (a, b) = v.split_once(':').context("P42_SIGSX=<от>:<до>")?;
                 let days = (a.parse::<usize>()?, b.parse::<usize>()?);
                 write_sigsx(&dir, &syms, side, p, &sigs[j], days)?;
+            }
+            if let Some(v) = std::env::var_os("P42_EXC") {
+                let v = v.to_string_lossy().into_owned();
+                let (a, b) = v
+                    .split_once(':')
+                    .context("P42_EXC=<горизонт, мин>:<окно W, мин>")?;
+                write_exc(
+                    &dir,
+                    &syms,
+                    side,
+                    &sigs[j],
+                    &p.exit,
+                    &src,
+                    a.parse()?,
+                    b.parse()?,
+                )?;
             }
             if std::env::var_os("P42_LEVELS").is_some() {
                 write_levels(&dir, &syms, side, p)?;

@@ -866,6 +866,40 @@ pub fn exit_natr(sym: &Sym, ex: &ExitCfg, t: usize) -> i64 {
 pub struct LevelCtx {
     pub lp: i64,
     pub far: i64,
+    /// §13.31 (`cw`): диапазон (минимум low, максимум high; длинная рама) закрытых минут `t−W … t−1` до сигнальной; `None` — не включено или данных меньше половины окна.
+    pub rng: Option<(i64, i64)>,
+}
+
+/// §13.31: диапазон проторговки — минимум low и максимум high (длинная рама, `s` — сторона) закрытых минут `t−w … t−1` с данными; минуты без данных пропускаются;
+/// диапазона нет (`None`), если минут с данными меньше `⌈w/2⌉` или `w = 0`. Причинно: сигнальная минута `t` и позже не читаются.
+pub fn cons_range(sym: &Sym, s: i64, t: usize, w: usize) -> Option<(i64, i64)> {
+    if w == 0 {
+        return None;
+    }
+    let (mut lo, mut hi, mut n) = (i64::MAX, i64::MIN, 0usize);
+    for m in t.saturating_sub(w)..t {
+        if sym.o[m] == 0 {
+            continue;
+        }
+        let (h, l) = if s > 0 {
+            (sym.h[m], sym.l[m])
+        } else {
+            (-sym.l[m], -sym.h[m])
+        };
+        hi = hi.max(h);
+        lo = lo.min(l);
+        n += 1;
+    }
+    (n > 0 && 2 * n >= w).then_some((lo, hi))
+}
+
+/// Контекст уровня сигнала для выходов от уровня (§13.19, §13.31).
+pub fn level_ctx(sym: &Sym, side: Side, sg: &TSig, ex: &ExitCfg) -> LevelCtx {
+    LevelCtx {
+        lp: sg.lp,
+        far: sg.far,
+        rng: cons_range(sym, side.s(), sg.t as usize, ex.cs_w as usize),
+    }
 }
 
 const NONE_MS: i64 = i64::MIN;
@@ -949,6 +983,8 @@ struct Pos {
     touched_ms: i64,
     broke: bool,
     below_since: i64,
+    /// §13.31 (`nx`): до касания цена ≤ этого порога (рама) — выход «сценарий отменён»; `i64::MIN` — выкл.
+    nx_lvl: i64,
     /// §13.21: NATR-стоп (`sn`) и шаг лестницы тейков (`tj`); `None` — выкл.
     natr_stop: Option<NatrStop>,
     step: Option<StepLadder>,
@@ -980,12 +1016,26 @@ impl Pos {
             if ex.ls_m > 0 {
                 stop_base = stop_base.max(e.min(l.far) - nat(ex.ls_m));
             }
+            // §13.31: стоп за проторговкой (`cw`) — если ширина диапазона в допуске `[cl, ch]` NATR; иначе запасной резиновый стоп от уровня (`sl`)
+            let mut cons_ok = false;
+            if ex.cs_w > 0 {
+                if let Some((rlo, rhi)) = l.rng {
+                    let w = rhi - rlo;
+                    if w >= nat(ex.cs_lo_m) && w <= nat(ex.cs_hi_m) {
+                        stop_base = stop_base.max((rlo - nat(ex.cs_m_m)).min(e - 1));
+                        cons_ok = true;
+                    }
+                }
+            }
+            if !cons_ok && ex.sl_m > 0 {
+                stop_base = stop_base.max((l.lp - nat(ex.sl_m)).min(e - 1));
+            }
             if ex.be_mode == 3 {
                 let kb = if ex.ls_m > 0 { ex.ls_m } else { 500 };
                 be_lvl = Some(e.min(l.far) - nat(kb));
             }
         }
-        let rules = lc.is_some() && (ex.tx_min > 0 || ex.rt_f_pm > 0);
+        let rules = lc.is_some() && (ex.tx_min > 0 || ex.rt_f_pm > 0 || ex.nx_m > 0);
         let lp = lc.map_or(0, |l| l.lp);
         let dist = |x_pm: i64| (i128::from(lp.abs()) * i128::from(x_pm) / 100_000) as i64;
         let unit = i128::from(ea) * i128::from(natr_e8);
@@ -1032,6 +1082,11 @@ impl Pos {
             touched_ms: NONE_MS,
             broke: false,
             below_since: NONE_MS,
+            nx_lvl: if ex.nx_m > 0 {
+                (lp - nat(ex.nx_m)).min(e - 1)
+            } else {
+                i64::MIN
+            },
             natr_stop,
             step,
             lim: false,
@@ -1129,7 +1184,8 @@ impl Pos {
             self.touched_ms = ms;
         }
         if self.touched_ms == NONE_MS {
-            return None;
+            // §13.31 (`nx`): до касания цена ушла от уровня против позиции на X·NATR — сценарий отменён
+            return (p <= self.nx_lvl).then_some(ExitKind::NoTouch);
         }
         if !self.broke && p >= self.lp + self.tx_x {
             self.broke = true;
@@ -1452,10 +1508,7 @@ pub fn simulate_tick(
             break (ms, side.s() * px);
         }
     };
-    let lc = LevelCtx {
-        lp: sig.lp,
-        far: sig.far,
-    };
+    let lc = level_ctx(sym, side, sig, ex);
     Some(sim_tail(
         &mut next,
         entry_ms,
@@ -2200,10 +2253,7 @@ pub fn run_tick_mk(
         let natr = exit_natr(sym, ex, sg.t as usize);
         let mut dec = EntryDec::Next;
         let mut tr2: Option<TickOut> = None;
-        let lc = LevelCtx {
-            lp: sg.lp,
-            far: sg.far,
-        };
+        let lc = level_ctx(sym, side, sg, ex);
         let split = ex.e2_pm > 0;
         let lot_n = if split { NOTIONAL_U / 2 } else { NOTIONAL_U };
         let tr = if natr > 0 {
