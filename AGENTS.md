@@ -26,6 +26,7 @@ Rust + Python. Исследование и инфраструктура данн
   оба только грепом по номеру. `docs/plan/BUSINESS-TASK.md` — не редактировать.
 - Исследование: скилл `.claude/skills/alpha-research/` (обязателен перед любым торговым выводом), протоколы
   `docs/research/P-<NN>-*.md`, журнал `docs/research/JOURNAL.md`, проверки `docs/research/reviews/`, реестр `docs/plan/EXPERIMENTS.md`.
+- **База знаний `kb/`** (TK-629, сайт http://5.231.25.224:8091/): результат треда — карточка, статус и «Дальше» — в карточке задачи, не в новых handoff-файлах; перед коммитом `python tools/kb.py check`; правила — `kb/README.md`.
 - Разборы и замеры — `docs/findings/<тема>-<YYYY-MM-DD>.md`; сырое и промежуточное — `data/` (gitignored).
 - `docs/ARCHITECTURE.md` (A1–A9), `docs/COMMANDS.md` (команды, грабли, ранбуки машин).
 

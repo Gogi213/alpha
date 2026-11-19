@@ -1,0 +1,7 @@
+# Настройки базы знаний (tools/kb.py). Простое подмножество TOML: строки, списки строк, [секции].
+title = "alpha · база знаний"
+types = ["decision", "task", "finding", "protocol", "runbook", "rule", "machine"]
+statuses = ["open", "running", "done", "dropped", "superseded"]
+
+[check]
+orphans = "error"   # карточка без единой связи: error — блокирует коммит, warn — только предупреждение
