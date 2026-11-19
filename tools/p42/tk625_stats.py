@@ -128,7 +128,7 @@ def gates_one(side, cell, om, row, ds):
 
 
 def evaluate(sides, om, nboot=st.NBOOT):
-    """Ворота G_625 на Ω (h775): строки всех клеток; Холм по пробным допущенным клеткам обеих сторон (g1); плато (g5) по соседям m = 0,5 и 2; прошла = g1…g5.
+    """Ворота G_625 на Ω (h775): строки всех клеток; Холм по всем пробным клеткам без дублей обеих сторон (g1; m — из п. 11, недопущенные входят с p = 1); плато (g5) по соседям m = 0,5 и 2; прошла = g1…g5.
     sides: {"L": SideCells, "S": SideCells}. Возвращает dict(rows={side: {cid: row}}, holm=dict(m, ps), passed=[(side, cid)])."""
     om = np.asarray(om)
     rows = {}
@@ -137,11 +137,11 @@ def evaluate(sides, om, nboot=st.NBOOT):
         for c in sd.cells:
             if c.series is not None:
                 rows[s][c.cid] = cell_row(sd, c, om, nboot)
-    trial = [(s, c.cid) for s, sd in sides.items() for c in sd.cells if c.trial and c.series is not None and rows[s][c.cid]["admitted"]]
-    ps = [rows[s][cid]["p"] for s, cid in trial]
+    trial = [(s, c.cid) for s, sd in sides.items() for c in sd.cells if c.trial and c.series is not None]       # m = пробные клетки без дублей (п. 11), в том числе недопущенные
+    ps = [rows[s][cid]["p"] if rows[s][cid]["admitted"] else 1.0 for s, cid in trial]                      # недопущенная клетка в Холм входит с p = 1 (g1 не проходит)
     rej = st.holm_reject(ps, 0.05) if ps else []
     for (s, cid), r in zip(trial, rej):
-        rows[s][cid]["g1"] = bool(r and rows[s][cid]["d"] > 0)
+        rows[s][cid]["g1"] = bool(r and rows[s][cid]["admitted"] and rows[s][cid]["d"] > 0)
     passed = []
     for s, sd in sides.items():
         by = {c.cid: c for c in sd.cells}

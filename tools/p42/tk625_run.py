@@ -10,6 +10,7 @@ import argparse
 import csv
 import dataclasses
 import datetime
+import hashlib
 import json
 import os
 import sys
@@ -39,6 +40,19 @@ TICK_STORE = ["--tick-store", "/data/p42-tk599/tick-store", "--tick-store-cap-gb
 M_TRIAL = "10"                                  # главное m = 1 NATR (первый тейк T_low); 05 и 20 — соседи для плато
 CELL_Q = (0.15, 0.30)                           # доли исключённых среди сделок со значением, из которых берётся порог c (п. 4 протокола)
 _C = {}
+
+
+def code_id():
+    """Отпечаток кода счёта: sha256 содержимого tk625_{events,feat,stats,run}.py (первые 12 знаков) — печатается рядом с каждым числом отчёта; коммит — тот, где эти блобы совпадают."""
+    h = hashlib.sha256()
+    for n in ("tk625_events.py", "tk625_feat.py", "tk625_run.py", "tk625_stats.py"):
+        h.update(open(os.path.join(HERE, n), "rb").read())
+    return h.hexdigest()[:12]
+
+
+def stamp(d):
+    d["def"], d["code_id"] = f5.DEF_TAG, code_id()
+    return d
 
 
 def q(*a):
@@ -461,7 +475,11 @@ def cmd_counts(a):
             say("ftab %s %s-%s: %d строк (дамп %d)" % (u.name, w.name, side, n, len(s_)))
         day, sym, key, x, f = trade_feats(u, side)
         mon = st.MONTH_OF_DAY[day]
-        r = dict(n_trades=int(len(day)), coverage={}, dist={}, cells=[], fail_alongside={})
+        r = dict(n_trades=int(len(day)), coverage={}, dist={}, cells=[], fail_alongside={}, empty={})
+        for d in f5.DS:                                    # пусто по причинам (определение def2: возраст листинга — отдельная причина)
+            rs = history(u, side).reason(sym, key, d)
+            r["empty"][d] = {name: int((rs == i).sum()) for i, name in enumerate(f5.REASONS)}
+            say("   D=%d: сделок %d, значение определено %d; пусто: %s" % (d, len(rs), int((rs == 0).sum()), {k: v for k, v in r["empty"][d].items() if k != f5.REASONS[0]}))
         for m in f5.MS_NAMES:
             for d in f5.DS:
                 col = f5.col_name(m, d)
@@ -482,7 +500,7 @@ def cmd_counts(a):
                                    f_cov=round(c["E"] / cov, 3) if cov else None, f_all=round(c["E"] / len(day), 3)))
         jm = np.array([[st.jaccard(a_["mask"], b_["mask"]) for b_ in cells if b_["cid"] in ids] for a_ in cells if a_["cid"] in ids])
         r["jaccard_ids"], r["jaccard"] = ids, np.round(jm, 3).tolist()
-        write_json(q("res", "counts-%s-%s.json" % (u.name, side)), r)
+        write_json(q("res", "counts-%s-%s.json" % (u.name, side)), stamp(r))
         say("== %s %s: сделок базы %d" % (u.name, side, len(day)))
         for col, cv in r["coverage"].items():
             d_ = r["dist"][col]
@@ -547,7 +565,8 @@ def cmd_step1(a):
                 for name, v in r["cols"][col].items():
                     say("   %-9s %-12s: сделок %6d, Σ %9.0f $, %7.2f $/сделку, Sharpe %6.2f, по месяцам %s" % (
                         col, name, v["n"], v["sum"], v["mean"] if v["n"] else float("nan"), v["sharpe"], [(n_, round(s_)) for n_, s_ in v["months"]]))
-    write_json(q("res", "step1-%s.json" % u.name), jsonable(res))
+    write_json(q("res", "step1-%s.json" % u.name), stamp(jsonable(res)))
+    say("метка: def %s, код %s" % (f5.DEF_TAG, code_id()))
     say("ступень 1 %s готова" % u.name)
 
 
@@ -566,8 +585,10 @@ def cmd_cells(a):
         out = os.path.join(ROOT, u.sub("cells"), "%s-%s" % (w.name, side))
         if os.path.exists(out + "/DONE"):
             continue
-        tick(u, w, cell_variants(u, side), out, {}, q("log", "cells-%s-%s-%s.log" % (u.name, w.name, side)), ftab=q(u.sub("ftab"), "%s-%s.csv" % (w.name, side)))
-        open(out + "/DONE", "w").close()
+        ft = q(u.sub("ftab"), "%s-%s.csv" % (w.name, side))
+        tick(u, w, cell_variants(u, side), out, {}, q("log", "cells-%s-%s-%s.log" % (u.name, w.name, side)), ftab=ft)
+        with open(out + "/DONE", "w", encoding="utf-8") as f:
+            f.write("%s %s %s" % (f5.DEF_TAG, code_id(), sha256(ft)))
     say("cells %s %s готово" % (u.name, w.name))
 
 
@@ -613,7 +634,21 @@ def cmd_g8(a):
         sys.exit(1)
 
 
+def check_inputs(u, side):
+    """Охрана (критик 20.11): читаются только счётные входы текущего определения — `counts` с меткой `def`, прогоны клеток с `DONE` = `def2 <код> <sha256 --ftab>` для нынешнего --ftab; всё иное (в т. ч. `void/`) — отказ."""
+    c = json.load(open(q("res", "counts-%s-%s.json" % (u.name, side)), encoding="utf-8"))
+    if c.get("def") != f5.DEF_TAG:
+        raise GuardError("counts %s %s: определение %r ≠ %r — вход отвергнут" % (u.name, side, c.get("def"), f5.DEF_TAG))
+    for w in st.TRADE_WINDOWS:
+        done = os.path.join(ROOT, u.sub("cells"), "%s-%s" % (w.name, side), "DONE")
+        got = open(done, encoding="utf-8").read().split() if os.path.exists(done) else []
+        want = sha256(q(u.sub("ftab"), "%s-%s.csv" % (w.name, side)))
+        if len(got) != 3 or got[0] != f5.DEF_TAG or got[2] != want:
+            raise GuardError("клетки %s %s-%s: DONE %s ≠ (%s, …, %s) — вход отвергнут" % (u.name, w.name, side, got, f5.DEF_TAG, want[:12]))
+
+
 def build_side(u, side):
+    check_inputs(u, side)
     base = load_series(u, side, "base")
     x = base_feats(u, side, base)
     cells = []
@@ -667,7 +702,8 @@ def cmd_select(a):
         say("ИСХОД %s: %s %s" % (s, *outcomes[s]))
     say("ОТВЕТ: %s" % ans)
     out = dict(answer=ans, outcomes={s: list(v) for s, v in outcomes.items()}, holm=ev["holm"], passed=ev["passed"], rows=ev["rows"], repl={"%s/%s" % k: v for k, v in repl.items()}, rows_o566=rows_o)
-    write_json(q("res", "select.json"), jsonable(out))
+    write_json(q("res", "select.json"), stamp(jsonable(out)))
+    say("метка: def %s, код %s" % (f5.DEF_TAG, code_id()))
     try:
         rates = st.load_funding_rates("/data/p42-metrics/funding", h.coins())
         for s in SIDES:

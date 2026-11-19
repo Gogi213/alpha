@@ -26,6 +26,8 @@ L_MS = L_MIN * MIN_MS
 BIG = tf.BIG
 MS_NAMES = ("05", "10", "20")                 # m = 0,5 / 1 / 2 NATR
 DS = (7, 14, 30)
+DEF_TAG = "def2"                                # версия определения признака (§13.32 п. 2, правка критика 20.11: возраст листинга); результаты других версий читать запрещено
+REASONS = ("определено", "окно до 24.06", "нет данных монеты", "возраст листинга (< D суток собственной истории)", "пропущены сутки сделок")
 EPOCH = datetime.datetime(1970, 1, 1, tzinfo=datetime.timezone.utc)
 HIST_START_MS = int(datetime.datetime(2026, 6, 24, tzinfo=datetime.timezone.utc).timestamp() * 1000)
 
@@ -159,19 +161,20 @@ class History:
                 self.cnt[(m, cls)] = Counter(ev_side.sym[k], ev_side.cross[k], ev_side.tres[m][k], names)
         self.coin_days = coin_days            # {монета: булев массив по индексу суток от 2026-06-17} (есть ли файл сделок)
 
-    def valid(self, sym, t_ms, d_days):
-        """Окно [t − D, t] целиком в накопленной истории и без пропущенных суток монеты."""
+    def reason(self, sym, t_ms, d_days):
+        """Почему значение определено / пусто (порядок проверки — по номеру): 0 — определено; 1 — окно `[t − D, t]` начинается до 24.06 (`HIST_START`); 2 — нет суточных файлов монеты;
+        3 — **возраст листинга**: окно начинается раньше первых полных суток монеты (у монеты нет полных D суток собственной истории — первые сутки торгов неполные); 4 — в окне пропущены сутки сделок монеты."""
         sym = np.asarray(sym, dtype=object)
         t = np.asarray(t_ms, dtype=np.int64)
         ws = t - d_days * DAY_MS
-        ok = ws >= HIST_START_MS
-        out = np.zeros(len(t), dtype=bool)
+        out = np.ones(len(t), dtype=np.int8)
         for s in np.unique(sym):
-            sel = np.nonzero((sym == s) & ok)[0]
+            sel = np.nonzero((sym == s) & (ws >= HIST_START_MS))[0]
             if not len(sel):
                 continue
             pres = self.coin_days.get(s)
             if pres is None:
+                out[sel] = 2
                 continue
             cum = np.concatenate([[0], np.cumsum(pres)])
             d_lo = day_index(ws[sel]) - D17
@@ -179,9 +182,13 @@ class History:
             good = (d_lo >= 0) & (d_hi < len(pres))
             need = np.where(good, d_hi - d_lo + 1, 1)
             have = np.where(good, cum[np.clip(d_hi + 1, 0, len(pres))] - cum[np.clip(d_lo, 0, len(pres))], 0)
-            first_full = int(np.argmax(pres)) + 1 if pres.any() else len(pres)         # первые сутки торгов монеты — неполные: окно начинается после них
-            out[sel] = good & (have == need) & (d_lo >= first_full)
+            first_full = int(np.argmax(pres)) + 1 if pres.any() else len(pres)         # первые сутки торгов монеты — неполные: окно начинается не раньше следующих суток
+            out[sel] = np.where(d_lo < first_full, 3, np.where(good & (have == need), 0, 4))
         return out
+
+    def valid(self, sym, t_ms, d_days):
+        """Значение определено: окно целиком в накопленной истории (≥ 24.06), у монеты полные D суток собственной истории после первых неполных суток, без пропущенных суток."""
+        return self.reason(sym, t_ms, d_days) == 0
 
     def counts(self, sym, t_ms, d_days, m):
         return (self.cnt[(m, "o")].count(sym, t_ms, d_days), self.cnt[(m, "f")].count(sym, t_ms, d_days), self.cnt[(m, "s")].count(sym, t_ms, d_days))

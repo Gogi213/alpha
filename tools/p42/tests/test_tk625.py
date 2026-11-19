@@ -225,6 +225,45 @@ def test_isolation_refuses_late_dates():
     raises(st.GuardError, f5.splice_events, per)
 
 
+def test_valid_listing_age_and_reasons():
+    pres = np.ones(150, dtype=bool)
+    pres[:40] = False                                                              # торги монеты с 27.07 (индекс 40, неполные сутки); первые полные — 28.07
+    h = hist_for([], names=("AAA",), days={"AAA": pres})
+    s = np.array(["AAA"], dtype=object)
+    r = lambda t, d: int(h.reason(s, np.array([ms(t)]), d)[0])                     # noqa: E731
+    assert r("2026-07-30", 7) == 3 and r("2026-08-20", 30) == 3                    # монете 3 суток / 24 суток: нет полных D суток собственной истории → пусто (не «нет успехов»)
+    assert r("2026-08-03", 7) == 3                                                 # окно начинается в неполные сутки 27.07
+    assert r("2026-08-04", 7) == 0 and r("2026-08-27", 30) == 0                    # окно начинается в первые полные сутки — определено
+    assert r("2026-06-30", 30) == 1                                                # окно до 24.06
+    assert int(h.reason(np.array(["QQQ"], dtype=object), np.array([ms("2026-08-27")]), 30)[0]) == 2
+    assert bool(h.valid(s, np.array([ms("2026-08-27")]), 30)[0]) and not bool(h.valid(s, np.array([ms("2026-08-20")]), 30)[0])
+    gap = np.ones(150, dtype=bool)
+    gap[70] = False                                                                # пропуск суток внутри окна у «старой» монеты
+    hg = hist_for([], names=("GGG",), days={"GGG": gap})
+    assert int(hg.reason(np.array(["GGG"], dtype=object), np.array([ms("2026-08-30")]), 14)[0]) == 4
+
+
+def test_holm_m_is_all_trial_cells_without_dups():
+    import tk625_stats as s5
+    rng = np.random.default_rng(1)
+    n = 3 * st.NDAYS
+    day = np.repeat(np.arange(st.NDAYS), 3)
+    sym = np.arange(n) % 12
+    names = ["C%d" % i for i in range(12)]
+    base = st.make_series(day, sym, rng.normal(0.0, 5.0, n), np.arange(n, dtype=np.int64), [names[i] for i in sym], np.zeros(n, dtype=np.int64), np.zeros(n, dtype=np.int64), np.zeros(n))
+
+    def cell(cid, excl_n, dup_of=None):
+        ex = np.zeros(n, dtype=bool)
+        ex[:excl_n * 3:3] = True                                                    # исключено по одной сделке из троек подряд — по всем месяцам
+        ser = None if dup_of else st.make_series(day[~ex], sym[~ex], base.val[~ex], base.key_ms[~ex], [names[i] for i in sym[~ex]], np.zeros(int((~ex).sum()), dtype=np.int64),
+                                                  np.zeros(int((~ex).sum()), dtype=np.int64), np.zeros(int((~ex).sum())))
+        return s5.Cell(cid, "10", 7, 0.15, 1, True, dup_of, ser, ex)
+    side = lambda: s5.SideCells(base, [cell("a", 120), cell("a2", 120, dup_of="a"), cell("b", 5)], 12)             # noqa: E731
+    ev = s5.evaluate({"L": side(), "S": side()}, np.arange(st.NDAYS), nboot=200)
+    assert ev["holm"]["m"] == 4 and len(ev["holm"]["ps"]) == 4                                                    # a и b на каждой стороне (дубль a2 не считается), недопущенная b входит
+    assert ev["rows"]["L"]["b"]["admitted"] is False and ev["holm"]["ps"].count(1.0) == 2 and not ev["rows"]["L"]["b"]["g1"]
+
+
 def test_stats_buckets_sharpe_answer():
     import tk625_stats as s5
     x = np.array([0, 1, 2, 3, 4, 9, np.nan])
