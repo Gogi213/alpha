@@ -61,7 +61,7 @@ tk599cmp() { # окно: выходы a112684a (ref) против готовых
         cmp -s "$a" "$b" || { d=$((d+1)); echo "  DIFF ref(a112684a) $nm $side-$f vs TK-599(a03c91df)" >> "$SUM"; }
       done
     done
-    n=$((n+1)); cmp -s "$G/ref/$w/$nm/meta.json" "$ROOT/out/$w/$vid/meta.json" || { d=$((d+1)); echo "  DIFF ref(a112684a) $nm meta.json vs TK-599(a03c91df)" >> "$SUM"; }
+    n=$((n+1)); cmp -s <(grep -v '^  "id":' "$G/ref/$w/$nm/meta.json") <(grep -v '^  "id":' "$ROOT/out/$w/$vid/meta.json") || { d=$((d+1)); echo "  DIFF ref(a112684a) $nm meta.json vs TK-599(a03c91df)" >> "$SUM"; }   # строка id — имя варианта (L_base против хэша), остальное побайтно
   done
   [ "$d" = 0 ] && echo "GATE OK a112684a-vs-a03c91df $w вариантов=2 файлов=$n различий=0" >> "$SUM" || echo "GATE DIFF a112684a-vs-a03c91df $w вариантов=2 файлов=$n различий=$d" >> "$SUM"
 }
@@ -73,6 +73,7 @@ for w in wa wb wc; do
   echo "== $w $(date +%H:%M:%S)" >> "$SUM"
   run "$OLD" "$G/ref/$w" "$w" "$V0" "$G/sc-ref" || { echo "GATE FAIL ref $w" >> "$SUM"; continue; }
   tk599cmp "$w"
+  [ "${ONLY_EQUIV:-0}" = 1 ] && { rm -rf "$G/ref/$w" "$G/sc-ref"; continue; }   # ONLY_EQUIV=1 — только сверка a112684a с готовыми выходами TK-599
   run "$NEW" "$G/new0c/$w" "$w" "$V0" "$SCN" && cmpdirs "mk0-cold" "$w" "$V0" "$G/new0c/$w" "$G/ref/$w" "${F0[@]}" || echo "GATE FAIL mk0-cold $w" >> "$SUM"
   run "$NEW" "$G/new0w/$w" "$w" "$V0" "$SCN" && cmpdirs "mk0-warm" "$w" "$V0" "$G/new0w/$w" "$G/ref/$w" "${F0[@]}" || echo "GATE FAIL mk0-warm $w" >> "$SUM"
   run "$NEW" "$G/mkc/$w" "$w" "$VM" "$SCM" || echo "GATE FAIL mk-cold $w" >> "$SUM"
