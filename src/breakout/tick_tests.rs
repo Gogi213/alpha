@@ -1594,6 +1594,7 @@ fn run_lc(
     let lc = LevelCtx {
         lp: s * px(lp),
         far: s * px(far),
+        rng: None,
     };
     sim_fill_lc(
         &mut stream(ticks),
@@ -3661,4 +3662,245 @@ fn tl_trail_leg_pays_maker_fee_and_no_slippage_in_settle() {
         "вход тейкер, выход мейкер: {} против {want}",
         st.fees
     );
+}
+
+// ───────────────────────── §13.31: выход «сценарий отменён» (`nx`), стоп от уровня (`sl`), стоп за проторговкой (`cw`) ─────────────────────────
+
+use super::tick::cons_range;
+
+/// `run_lc` с диапазоном проторговки `rng` = (low, high) в настоящих ценах (рама — по стороне).
+fn run_rng(
+    ticks: Vec<(i64, f64, bool)>,
+    side: Side,
+    ex: &super::params::ExitCfg,
+    lp: f64,
+    rng: Option<(f64, f64)>,
+) -> TickOut {
+    let s = side.s();
+    // рама: нижний край диапазона = s·(low для лонга | high для шорта)
+    let rng = rng.map(|(lo, hi)| {
+        if s > 0 {
+            (px(lo), px(hi))
+        } else {
+            (-px(hi), -px(lo))
+        }
+    });
+    let lc = LevelCtx {
+        lp: s * px(lp),
+        far: s * px(lp),
+        rng,
+    };
+    sim_fill_lc(
+        &mut stream(ticks),
+        1000,
+        s * px(100.0),
+        side,
+        NATR,
+        ex,
+        Some(lc),
+        NOTIONAL_U,
+    )
+}
+
+#[test]
+fn stop_redesign_keys_parse_validate_default_off_and_keep_the_params_debug_string() {
+    use super::params::parse_variant;
+    let (_, p0) = parse_variant("x ew=5").expect("разбор");
+    let e = &p0.exit;
+    assert_eq!(
+        (e.nx_m, e.sl_m, e.cs_w, e.cs_lo_m, e.cs_hi_m, e.cs_m_m),
+        (0, 0, 0, 0, 0, 0)
+    );
+    assert!(!e.stop_redesign_opts() && !e.lvl_exit_opts());
+    // выключено — `Debug` ExitCfg как у производного до §13.31 (meta.json байт в байт)
+    assert_eq!(
+        format!("{e:?}"),
+        "ExitCfg { natr_p: 30, n_tp: 8, t_low_m: 1000, t_high_m: 5000, q_pct: 50, be: true, a_m: 2000, r_m: 2000, s_pm: 5000, slip_bps: 1, \
+         best_order: false, lat_ms: 0, lat_exit_ms: 0, tp_gamma_m: 1000, tp_kappa_m: 0, natr_src: 0, ent_w_ms: 5, ent_x_bp: 0, ls_m: 0, \
+         tx_min: 0, tx_x_pm: 0, rt_f_pm: 0, rt_s: 0, be_mode: 0, e2_pm: 0, sn_m: 0, sg: 0, sb_m: 0, sr_m: 0, sd_m: 0, tj_m: 0, tl: 0 }"
+    );
+    let (_, p) = parse_variant("x nx=1.5 sl=2 cw=60 cl=2 ch=6 cm=0.5").expect("разбор");
+    let e = &p.exit;
+    assert_eq!(
+        (e.nx_m, e.sl_m, e.cs_w, e.cs_lo_m, e.cs_hi_m, e.cs_m_m),
+        (1500, 2000, 60, 2000, 6000, 500)
+    );
+    assert!(e.stop_redesign_opts() && e.level_opts() && e.lvl_exit_opts());
+    let d = format!("{e:?}");
+    assert!(d.ends_with(
+        "tl: 0, nx_m: 1500, sl_m: 2000, cs_w: 60, cs_lo_m: 2000, cs_hi_m: 6000, cs_m_m: 500 }"
+    ));
+    // валидация: ключи проторговки только вместе с cw, cl < ch, неотрицательность
+    assert!(parse_variant("x cl=2 ch=6").is_err());
+    assert!(parse_variant("x cm=1").is_err());
+    assert!(parse_variant("x cw=60 cl=6 ch=2").is_err());
+    assert!(parse_variant("x cw=60").is_err(), "ch > cl обязателен");
+    assert!(parse_variant("x nx=-1").is_err());
+    assert!(parse_variant("x sl=-1").is_err());
+    // минутный движок отвергает
+    for line in ["x nx=1", "x sl=1", "x cw=60 cl=1 ch=3"] {
+        let (_, p) = parse_variant(line).expect("разбор");
+        assert!(super::cli::reject_tick_only(&p, line).is_err(), "{line}");
+    }
+}
+
+#[test]
+fn nx_exits_before_touch_when_price_is_x_natr_below_the_level_and_not_after() {
+    let mut ex = ex_test();
+    ex.nx_m = 1000; // 1 NATR = 0,5 при входе 100; уровень 100,3 → порог 99,8
+    let t = vec![
+        (1100, 99.85, true),
+        (1200, 99.81, true),
+        (1300, 99.8, true),
+        (1400, 90.0, true),
+    ];
+    let out = run_lc(t, Side::Long, &ex, 100.3, 99.9);
+    assert_eq!((out.kind, out.exit_ms), (ExitKind::NoTouch, 1300));
+    assert_eq!(out.kind.name(), "nt");
+    assert_eq!(out.legs.last().map(|l| l.px), Some(px(99.8)));
+    // после касания (сделка ≥ уровня) правило не действует: падение до 99,0 — не NoTouch (жёсткий стоп 5 % = 95)
+    let t = vec![
+        (1100, 100.0, false),
+        (1200, 100.3, false),
+        (1300, 99.0, true),
+        (1400, 98.0, true),
+    ];
+    let out = run_lc(t, Side::Long, &ex, 100.3, 99.9);
+    assert_eq!(out.kind, ExitKind::Forced);
+    // выключено — выхода нет
+    ex.nx_m = 0;
+    let t = vec![(1100, 99.0, true), (1200, 98.0, true)];
+    let out = run_lc(t, Side::Long, &ex, 100.3, 99.9);
+    assert_eq!(out.kind, ExitKind::Forced);
+    // порог не выше входа: X = 0,25 NATR → 100,3 − 0,125 = 100,175 > e − 1 → порог = цена входа − 1 (e8)
+    ex.nx_m = 250;
+    let t = vec![(1100, 100.0, false), (1200, 99.99, true)];
+    let out = run_lc(t, Side::Long, &ex, 100.3, 99.9);
+    assert_eq!((out.kind, out.exit_ms), (ExitKind::NoTouch, 1200));
+    // шорт зеркально: уровень 99,7 (пол), вход 100,0; порог = 99,7 + 0,5 = 100,2
+    ex.nx_m = 1000;
+    let t = vec![
+        (1100, 100.1, false),
+        (1200, 100.2, false),
+        (1300, 101.0, false),
+    ];
+    let out = run_lc(t, Side::Short, &ex, 99.7, 99.8);
+    assert_eq!((out.kind, out.exit_ms), (ExitKind::NoTouch, 1200));
+}
+
+#[test]
+fn sl_is_level_minus_k_natr_capped_by_hard_stop_and_works_after_touch() {
+    let mut ex = ex_test();
+    ex.sl_m = 1500; // 1,5 NATR = 0,75: уровень 100,3 → стоп 99,55
+    let t = vec![
+        (1100, 99.6, true),
+        (1200, 99.56, true),
+        (1300, 99.55, true),
+        (1400, 90.0, true),
+    ];
+    let out = run_lc(t, Side::Long, &ex, 100.3, 99.9);
+    assert_eq!((out.kind, out.exit_ms), (ExitKind::HardStop, 1300));
+    assert_eq!(out.legs.last().map(|l| l.px), Some(px(99.55)));
+    // стоп действует и после касания уровня
+    let t = vec![
+        (1100, 100.0, false),
+        (1200, 100.3, false),
+        (1300, 99.6, true),
+        (1400, 99.5, true),
+    ];
+    let out = run_lc(t, Side::Long, &ex, 100.3, 99.9);
+    assert_eq!((out.kind, out.exit_ms), (ExitKind::HardStop, 1400));
+    // жёсткий стоп 5 % остаётся потолком: k = 40 NATR → 20 → стоп 80,3, но не ниже 95
+    ex.sl_m = 40_000;
+    let t = vec![(1100, 95.01, true), (1200, 95.0, true)];
+    let out = run_lc(t, Side::Long, &ex, 100.3, 99.9);
+    assert_eq!((out.kind, out.exit_ms), (ExitKind::HardStop, 1200));
+    // стоп не выше входа − 1: k = 0,25 → 100,3 − 0,125 = 100,175 → стоп = e − 1
+    ex.sl_m = 250;
+    let t = vec![(1100, 100.0, false), (1200, 99.99, true)];
+    let out = run_lc(t, Side::Long, &ex, 100.3, 99.9);
+    assert_eq!((out.kind, out.exit_ms), (ExitKind::HardStop, 1200));
+    // шорт зеркально: уровень 99,7, k = 1,5 → стоп 99,7 + 0,75 = 100,45
+    ex.sl_m = 1500;
+    let t = vec![(1100, 100.4, false), (1200, 100.45, false)];
+    let out = run_lc(t, Side::Short, &ex, 99.7, 99.8);
+    assert_eq!((out.kind, out.exit_ms), (ExitKind::HardStop, 1200));
+    assert_eq!(out.legs.last().map(|l| l.px), Some(px(100.45)));
+    // выключен — жёсткий стоп 5 % (в тесте выход только по данным потока: Forced)
+    ex.sl_m = 0;
+    let t = vec![(1100, 99.0, true), (1200, 98.0, true)];
+    let out = run_lc(t, Side::Long, &ex, 100.3, 99.9);
+    assert_eq!(out.kind, ExitKind::Forced);
+}
+
+#[test]
+fn cs_stop_is_beyond_range_low_when_width_in_band_else_falls_back_to_sl() {
+    let mut ex = ex_test();
+    ex.cs_w = 60;
+    ex.cs_lo_m = 1000; // ширина ≥ 1 NATR = 0,5
+    ex.cs_hi_m = 3000; // ≤ 3 NATR = 1,5
+    ex.cs_m_m = 500; // отступ 0,5 NATR = 0,25
+    ex.sl_m = 2000; // запасной стоп 100,3 − 1,0 = 99,3
+                    // диапазон 99,4–100,0 (ширина 0,6 ∈ [0,5; 1,5]) → стоп 99,4 − 0,25 = 99,15
+    let t = vec![(1100, 99.2, true), (1200, 99.16, true), (1300, 99.15, true)];
+    let out = run_rng(t, Side::Long, &ex, 100.3, Some((99.4, 100.0)));
+    assert_eq!((out.kind, out.exit_ms), (ExitKind::HardStop, 1300));
+    assert_eq!(out.legs.last().map(|l| l.px), Some(px(99.15)));
+    // узкий диапазон (ширина 0,2 < 0,5) → запасной стоп 99,3
+    let t = vec![(1100, 99.31, true), (1200, 99.3, true)];
+    let out = run_rng(t, Side::Long, &ex, 100.3, Some((99.8, 100.0)));
+    assert_eq!((out.kind, out.exit_ms), (ExitKind::HardStop, 1200));
+    // широкий диапазон (ширина 2,0 > 1,5) → запасной стоп
+    let t = vec![(1100, 99.31, true), (1200, 99.3, true)];
+    let out = run_rng(t, Side::Long, &ex, 100.3, Some((98.0, 100.0)));
+    assert_eq!((out.kind, out.exit_ms), (ExitKind::HardStop, 1200));
+    // диапазона нет (мало данных) → запасной стоп
+    let t = vec![(1100, 99.31, true), (1200, 99.3, true)];
+    let out = run_rng(t, Side::Long, &ex, 100.3, None);
+    assert_eq!((out.kind, out.exit_ms), (ExitKind::HardStop, 1200));
+    // границы допуска включены: ширина ровно 0,5 и ровно 1,5
+    for (lo, hi) in [(99.5, 100.0), (98.5, 100.0)] {
+        let stop = lo - 0.25;
+        let t = vec![(1100, stop + 0.01, true), (1200, stop, true)];
+        let out = run_rng(t, Side::Long, &ex, 100.3, Some((lo, hi)));
+        assert_eq!((out.kind, out.exit_ms), (ExitKind::HardStop, 1200), "{lo}");
+    }
+    // стоп за краем не выше входа − 1: край выше входа (цена вышла из диапазона вниз) → стоп = e − 1
+    let t = vec![(1100, 100.0, false), (1200, 99.99, true)];
+    let out = run_rng(t, Side::Long, &ex, 100.3, Some((100.3, 100.8)));
+    assert_eq!((out.kind, out.exit_ms), (ExitKind::HardStop, 1200));
+    // шорт зеркально: диапазон 100,0–100,6 (рама: нижний край = −100,6), стоп = 100,6 + 0,25 = 100,85
+    let t = vec![(1100, 100.8, false), (1200, 100.85, false)];
+    let out = run_rng(t, Side::Short, &ex, 99.7, Some((100.0, 100.6)));
+    assert_eq!((out.kind, out.exit_ms), (ExitKind::HardStop, 1200));
+    assert_eq!(out.legs.last().map(|l| l.px), Some(px(100.85)));
+}
+
+#[test]
+fn cons_range_is_causal_skips_holes_and_needs_half_the_window() {
+    let mut c = flat(5000, 100.0);
+    for m in 4000..4060 {
+        set(&mut c, m, 100.0, 100.2, 99.8, 100.0);
+    }
+    set(&mut c, 4010, 100.0, 100.5, 99.5, 100.0);
+    set(&mut c, 4060, 100.0, 120.0, 80.0, 100.0); // сигнальная минута — не читается
+    let s = sym(c);
+    let (lo, hi) = cons_range(&s, 1, 4060, 60).expect("диапазон");
+    assert_eq!((lo, hi), (px(99.5), px(100.5)));
+    // шорт: рама — отрицательные цены, lo = −max(high), hi = −min(low)
+    let (lo, hi) = cons_range(&s, -1, 4060, 60).expect("диапазон");
+    assert_eq!((lo, hi), (-px(100.5), -px(99.5)));
+    // окно короче: минуты 4040…4059 — без выброса 4010
+    let (lo, hi) = cons_range(&s, 1, 4060, 20).expect("диапазон");
+    assert_eq!((lo, hi), (px(99.8), px(100.2)));
+    // дыры: 29 из 60 минут с данными — диапазона нет; 30 — есть
+    let mut c = Cols::new();
+    for m in 4000..4029 {
+        set(&mut c, m, 100.0, 100.2, 99.8, 100.0);
+    }
+    assert!(cons_range(&sym(c.clone()), 1, 4060, 60).is_none());
+    set(&mut c, 4029, 100.0, 100.2, 99.8, 100.0);
+    assert!(cons_range(&sym(c), 1, 4060, 60).is_some());
+    // выключено
+    assert!(cons_range(&s, 1, 4060, 0).is_none());
 }
