@@ -1,0 +1,43 @@
+{
+ "protocol": "docs/research/P-42-level-breakout.md §13.26",
+ "frozen_at": "2026-11-18 19:27:01Z",
+ "code_sha": "d8882fb0556f9c9554054bfcfe16662604f07d56",
+ "bin_sha256": "f4a0d5a348757e23ec231f09796e9d2ca414eaaa08a9731ca6f356a3084cebca",
+ "symbols_sha256": "25c9ad8caab30af583b18f0678189f381282cce23b5d42c043471481bf0eaae0",
+ "grid": {
+  "K": [
+   20,
+   40,
+   60
+  ],
+  "tau": [
+   0.02,
+   0.035,
+   0.05
+  ]
+ },
+ "sides": {
+  "L": {
+   "cell": null,
+   "keys": null,
+   "base_keys": "lat=4 latx=4 pk=1 pb=1 fh=4 fk=120 fm=50 fb=0.5 ew=5 ex=0 rf=0.2 rs=20",
+   "verdict_p7": "не ясно — процедура не выбрала фильтр",
+   "ftab_sha256": {
+    "wa": "4e72f5034e3afeb7b51c1b5cbeeefa3b08e6cdcd6e20f72dadd106c3fb39b29d",
+    "wb": "f60d283efb91eca3d535cefee5518b7ce44ec398f3a49af2a04ae165079e9aac",
+    "wc": "f29edd1cb6c0d7df61f8b1c7004b980483bb84800b608d60f1bd7dca12c0b1fb"
+   }
+  },
+  "S": {
+   "cell": null,
+   "keys": null,
+   "base_keys": "lat=4 latx=4 pk=1 pb=1 fh=4 fk=120 fm=50 fb=0.5 ew=5 ex=0 tt=20 tb=0.1 rf=0.2 rs=2 bm=1 e=0.15 e2=0.05",
+   "verdict_p7": "не ясно — процедура не выбрала фильтр",
+   "ftab_sha256": {
+    "wa": "3bb526c5137fb5db9a21557ab0a8da30ccb2baa08fdd56eb71d21c1b47c31b8a",
+    "wb": "8042b7aee07e89e0b7df91106e7416fee774677657f84e266d3c24f2d91d106f",
+    "wc": "ff702bbdf949b0ec64e4d2a55fb67bf56989c99d4e2700072b48e0cc5ef764ee"
+   }
+  }
+ }
+}

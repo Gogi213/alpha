@@ -1,0 +1,35 @@
+{
+ "res": {
+  "wa/L": {
+   "equal": true,
+   "trades": 235,
+   "diff": 0
+  },
+  "wa/S": {
+   "equal": true,
+   "trades": 184,
+   "diff": 0
+  },
+  "wb/L": {
+   "equal": true,
+   "trades": 188,
+   "diff": 0
+  },
+  "wb/S": {
+   "equal": true,
+   "trades": 119,
+   "diff": 0
+  },
+  "wc/L": {
+   "equal": true,
+   "trades": 198,
+   "diff": 0
+  },
+  "wc/S": {
+   "equal": true,
+   "trades": 128,
+   "diff": 0
+  }
+ },
+ "bad": []
+}

@@ -1,0 +1,19 @@
+{
+ "picks": 117,
+ "near_seams": {
+  "01.07": {
+   "long": 10,
+   "short": 10
+  },
+  "26.08": {
+   "long": 15,
+   "short": 10
+  },
+  "03.10": {
+   "long": 10,
+   "short": 11
+  }
+ },
+ "mismatches": 0,
+ "sample": []
+}
