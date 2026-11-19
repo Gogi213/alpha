@@ -337,6 +337,26 @@ class GateTests(unittest.TestCase):
             self.assertFalse(GT.gate_g5("wc", r2, r1, "L")["no_key_zero"])
 
 
+class F12RecordTests(unittest.TestCase):
+    def _w(self, d, name, rec):
+        json.dump({"rows": 1, **({"f12": rec} if rec is not None else {})}, open(os.path.join(d, name + ".info.json"), "w"))
+
+    def test_f12_record(self):
+        with tempfile.TemporaryDirectory() as td:
+            rust = {"impl": "rust", "bin_md5": "ab", "days": 80, "store": "/s", "summary": "x"}
+            self._w(td, "a", rust)
+            self._w(td, "b", dict(rust, summary="y"))
+            r = RD.f12_record([td])
+            self.assertEqual((r["impl"], r["bin_md5"], r["tables"]), ("rust", "ab", 2))
+            self._w(td, "c", {"impl": "python", "bin_md5": None})
+            with self.assertRaises(T.GuardError):
+                RD.f12_record([td])                      # смесь реализаций
+            os.remove(os.path.join(td, "c.info.json"))
+            self._w(td, "d", None)
+            with self.assertRaises(T.GuardError):
+                RD.f12_record([td])                      # старая таблица без записи f12
+
+
 class MoreGateTests(unittest.TestCase):
     def test_g1(self):
         with tempfile.TemporaryDirectory() as td:

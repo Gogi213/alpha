@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import argparse
+import glob
 import json
 import os
 import re
@@ -76,7 +77,24 @@ def load_gates(gates_dir):
     return g
 
 
-def build_freeze(tk599_frozen, tk599_commit, fit_dir, score_dir, gates_dir, r2_root, extra=None):
+def f12_record(work_dirs):
+    """Чем посчитан f12 (`f12` из `*.info.json` таблиц обучения и кандидатов): одна реализация на все таблицы, иначе — ошибка заморозки."""
+    recs = []
+    for d in work_dirs:
+        for fn in sorted(glob.glob(os.path.join(d, "*.info.json"))):
+            with open(fn, encoding="utf-8") as f:
+                r = json.load(f).get("f12")
+            if r is None:
+                raise T.GuardError("в %s нет записи f12 (таблица посчитана старым кодом)" % fn)
+            recs.append({k: r.get(k) for k in ("impl", "bin_md5", "days", "store")})
+    if not recs:
+        raise T.GuardError("нет .info.json таблиц признаков в %s" % list(work_dirs))
+    if any(r != recs[0] for r in recs):
+        raise T.GuardError("f12 посчитан разными реализациями: %s" % json.dumps(recs, ensure_ascii=False)[:300])
+    return dict(recs[0], tables=len(recs))
+
+
+def build_freeze(tk599_frozen, tk599_commit, fit_dir, score_dir, gates_dir, r2_root, extra=None, work_dirs=()):
     """Содержимое `tk610-frozen.json` (п. 4 §13.27)."""
     gates = load_gates(gates_dir)
     with open(tk599_frozen, encoding="utf-8") as f:
@@ -100,6 +118,7 @@ def build_freeze(tk599_frozen, tk599_commit, fit_dir, score_dir, gates_dir, r2_r
     g1 = next((v for k, v in gates.items() if k.upper().startswith("G1")), {})
     fr["engine"] = {"md5": g1.get("engine_md5"), "bin": "/data/p42-tk607/bin/alpha-l1 (turbo TK-607, §13.24.6)", "tick_store": True, "sig_cache": True,
                     "allowed": g1.get("engine_allowed"), "deviation": "§13.27 п. 11.10: движок a112684a (TK-607) вместо a03c91df"}
+    fr["f12"] = f12_record(work_dirs)
     fr["r2_outputs_sha256"] = r2_outputs_sha(r2_root)
     fr["gates"] = gates
     fr["code_sha256"] = T.code_sha256()
@@ -109,7 +128,7 @@ def build_freeze(tk599_frozen, tk599_commit, fit_dir, score_dir, gates_dir, r2_r
 
 
 def cmd_freeze(a):
-    fr = build_freeze(a.tk599_frozen, a.tk599_commit, a.fit_dir, a.score_dir, a.gates_dir, a.r2_root)
+    fr = build_freeze(a.tk599_frozen, a.tk599_commit, a.fit_dir, a.score_dir, a.gates_dir, a.r2_root, work_dirs=a.work)
     with open(a.out, "w", encoding="utf-8") as f:
         json.dump(fr, f, ensure_ascii=False, indent=1, default=_jd)
     print("заморозка записана:", a.out, "sha256", T.sha256_file(a.out))
@@ -219,6 +238,7 @@ def main(argv=None):
     z.add_argument("--score-dir", required=True)
     z.add_argument("--gates-dir", required=True)
     z.add_argument("--r2-root", required=True)
+    z.add_argument("--work", required=True, nargs="+", help="каталоги таблиц train-*/cand-* (+ .info.json) — для записи реализации f12")
     z.add_argument("--out", required=True)
     r = sp.add_parser("read")
     r.add_argument("--frozen", required=True)

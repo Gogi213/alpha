@@ -6,6 +6,7 @@
       строки обучения окна: сделки `<S>_r0` в зачётном диапазоне окна и в блоках поиска (август не читается — отбрасывается при чтении кусками), метки, f12 → `<work>/train-<окно>-<S>.parquet`.
   python3 tk610_data.py cand --win … --run <out/<окно>-R1> --side L|S --prod … --work … [--procs 2]
       признаки f12 на ВСЕХ кандидатах потока R1 (`<S>_r1-sigsx`): `<work>/cand-<окно>-<S>.parquet` — ключ, сутки от 01.07, f12.
+  f12: при `TK610_F12_BIN=<alpha-feat-f12d с md5 в имени>` — Rust TK-611 (md5 проверяется, склад `/data/p42-tk599/tick-store` на чтение), иначе производственный Python; реализация пишется в `.info.json`.
   python3 tk610_data.py count --win … --run <out/<окно>-R2> --variant <id> --side L|S
       счётчики сделок по суткам августа (читается ТОЛЬКО столбец `entry_ms` — метки и P&L не открываются).
 """
@@ -14,6 +15,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import subprocess
 import sys
 
 import numpy as np
@@ -105,12 +107,41 @@ def read_rows(trades_csv, detail_jsonl, win, keys):
     return tr
 
 
-def episode_features(side, sigsx_csv, work, tag, procs):
-    """f12 по сигналам `sigsx_csv` производственным кодом (`retitr_ftab.build_episodes`, маршрут U0): таблица KEY + tick_ok + FEATS (lturn24 = log10(turn24h.clip(1)))."""
+F12_RUST_MD5 = "65519d8ff44e5be924f662609f9d54f7"     # TK-611 `alpha-feat-f12d` (коммит 465874417): побитовое совпадение с CandWorker на 111 таблицах TK-599 и `ep_u0`
+F12_REC = {"impl": "python", "bin_md5": None}        # чем посчитан f12 в этом процессе — пишется в `.info.json`, затем в заморозку
+F12_STORE = "/data/p42-tk599/tick-store"
+
+
+def _f12_rust(side, sigsx_csv, ep_csv, procs, ctx):
+    """f12 Rust-бинарём TK-611 (`TK610_F12_BIN` — путь с md5 в имени); склад суток — только чтение. Возвращает таблицу как `build_episodes`."""
+    binp = os.environ["TK610_F12_BIN"]
+    md5 = T.md5_file(binp)
+    if md5 != F12_RUST_MD5:
+        raise T.GuardError("md5 f12-бинаря %s ≠ принятого %s" % (md5, F12_RUST_MD5))
+    cache, trades, t0 = ctx
+    cmd = [binp, "f12", "--sigsx", sigsx_csv, "--side", side, "--out", ep_csv, "--cache", cache, "--trades", trades, "--base-date", str(t0),
+           "--days", "80", "--threads", str(procs), "--store", F12_STORE, "--store-cap-gb", "0"]
+    r = subprocess.run(cmd, capture_output=True, text=True)
+    if r.returncode != 0:
+        raise T.GuardError("f12-бинарь rc=%d: %s" % (r.returncode, r.stderr[-400:]))
+    F12_REC.update({"impl": "rust", "bin_md5": md5, "days": 80, "store": F12_STORE, "summary": r.stdout.strip().splitlines()[-1][:400] if r.stdout.strip() else ""})
+    ep = pd.read_csv(ep_csv, dtype={"sym": str}, float_precision="round_trip")   # быстрый разбор pandas даёт ±ULP — нужен точный
+    for c in ("tick_ok",):
+        if ep[c].dtype != bool:
+            ep[c] = ep[c].astype(str).str.lower().isin(["true", "1"])
+    return ep
+
+
+def episode_features(side, sigsx_csv, work, tag, procs, ctx=None):
+    """f12 по сигналам `sigsx_csv`: Rust-бинарь TK-611 (`TK610_F12_BIN` задан и есть `ctx` = (кэш, aggTrades, T0)) или производственный Python (`retitr_ftab.build_episodes`, маршрут U0):
+    таблица KEY + tick_ok + FEATS (lturn24 = log10(turn24h.clip(1)))."""
     os.makedirs(work, exist_ok=True)
-    ep_path = os.path.join(work, "eps-%s.parquet" % tag)
-    rfx.build_episodes(side, sigsx_csv, ep_path, procs)
-    ep = pd.read_parquet(ep_path)
+    if os.environ.get("TK610_F12_BIN") and ctx is not None:
+        ep = _f12_rust(side, sigsx_csv, os.path.join(work, "eps-%s.csv" % tag), procs, ctx)
+    else:
+        ep_path = os.path.join(work, "eps-%s.parquet" % tag)
+        rfx.build_episodes(side, sigsx_csv, ep_path, procs)
+        ep = pd.read_parquet(ep_path)
     ep["level"] = ep["level"].astype(np.int64)
     ep["sig_ms"] = ep["sig_ms"].astype(np.int64)
     if "tick_ok" not in ep:
@@ -143,7 +174,7 @@ def cmd_r0(a):
     os.makedirs(a.work, exist_ok=True)
     flt = os.path.join(a.work, "sigsx-%s-%s-r0.csv" % (a.win, a.side))
     m.to_csv(flt, index=False)
-    ft = episode_features(side, flt, a.work, "%s-%s-r0" % (a.win, a.side), a.procs)
+    ft = episode_features(side, flt, a.work, "%s-%s-r0" % (a.win, a.side), a.procs, (cache, trades, t0))
     tr = read_rows(os.path.join(d, side + "-trades.csv"), os.path.join(d, side + "-detail.jsonl"), win, keys)
     tr = L598.add_labels(tr)
     tab = tr.merge(ft, on=T.KEY, how="left", validate="one_to_one")
@@ -159,7 +190,7 @@ def cmd_r0(a):
     info = {"win": a.win, "side": a.side, "rows": int(len(tab)), "rows_without_feature_row": n_nofeat, "tick_ok": int(tab["tick_ok"].sum()),
             "zone_rows": int(T.zone_hit(tab["a_entry"], tab["a_exit"]).sum()), "age_censor": T.age_censor(tab["age_h"].to_numpy(float)),
             "rows_per_block": [int((T.block_of_abs(tab["aday"].to_numpy()) == k).sum()) for k in range(len(T.BLOCKS))],
-            "nan_share": {c: float(tab[c].isna().mean()) for c in T.FEATS}}
+            "nan_share": {c: float(tab[c].isna().mean()) for c in T.FEATS}, "f12": dict(F12_REC)}
     out = os.path.join(a.work, "train-%s-%s.parquet" % (a.win, a.side))
     tab.to_parquet(out)
     with open(out + ".info.json", "w", encoding="utf-8") as f:
@@ -176,7 +207,7 @@ def cmd_cand(a):
     d = os.path.join(a.run, "eng", "%s_r1" % a.side)
     rfx.load_prod(a.prod, cache, trades, days=80, base_date=t0)
     sigsx = os.path.join(d, side + "-sigsx.csv")
-    ft = episode_features(side, sigsx, a.work, "%s-%s-r1" % (a.win, a.side), a.procs)
+    ft = episode_features(side, sigsx, a.work, "%s-%s-r1" % (a.win, a.side), a.procs, (cache, trades, t0))
     sig = rfx._SR.read_sigsx(sigsx)
     if sig.duplicated(["sym", "sig_ms"]).any():
         raise T.GuardError("в потоке sigsx дубль ключа (sym, sig_ms)")
@@ -192,7 +223,7 @@ def cmd_cand(a):
     info = {"win": a.win, "side": a.side, "rows": int(len(ft)), "tick_ok": int(ft["tick_ok"].sum()),
             "days_min": int(ft["aday"].min()), "days_max": int(ft["aday"].max()), "credit_days": [lo, hi],
             "in_credit": int(((ft["aday"] >= lo) & (ft["aday"] <= hi)).sum()), "in_aug": int(T.is_aug(ft["aday"]).sum()),
-            "age_censor": T.age_censor(ft["age_h"].to_numpy(float)), "nan_share": {c: float(ft[c].isna().mean()) for c in T.FEATS}}
+            "age_censor": T.age_censor(ft["age_h"].to_numpy(float)), "nan_share": {c: float(ft[c].isna().mean()) for c in T.FEATS}, "f12": dict(F12_REC)}
     with open(out + ".info.json", "w", encoding="utf-8") as f:
         json.dump(info, f, ensure_ascii=False, indent=1)
     print(json.dumps(info, ensure_ascii=False))
