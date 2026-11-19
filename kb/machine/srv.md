@@ -4,7 +4,7 @@ type: machine
 status: running
 title: "srv 5.231.25.224 — счёт, закачка, коллекторы G-022, сборки, страницы"
 date: 2026-11-20
-links: [srv-pages, srv-no-pkill, docs/COMMANDS.md]
+links: [srv-pages, srv-no-pkill, docs/COMMANDS.md, sofia, storage-box, srv-offload, G-022, page-8088-health, page-8090-ml, page-8091-kb]
 supersedes: []
 ---
 
