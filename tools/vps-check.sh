@@ -9,12 +9,28 @@
 # (= /opt/rbuild/run-srv.sh), одна сборка за раз, общий тёплый target-srv, пока идёт счёт G0 П-40 (p40-*) — 2 ядра,
 # nice 19; красное — все ^error/^warning. CHECK_HOST=vps — запасной (София: сторож места режет сборки при свободном < 23 ГБ,
 # отказ rc 76 при свободном < VPS_MIN_GB=28). calc (89.163.242.211) больше не наш — CHECK_HOST=calc отказывает.
+# TK-614 (приказ владельца 19.11 «нагрузим под 90 % софию»): хост по умолчанию — София (vps) для всего, кроме bin (бинарь остаётся на
+# машине счёта) и build: build идёт на srv, а при занятом раннере srv (сборка/очередь) и свободной Софии — на Софии. Явный CHECK_HOST выше.
+# srv-раннер выкладывается версией /opt/rbuild/run-srv.<md5>.sh (общий run-srv.sh не перезаписывается); очередь с приоритетом
+# RBUILD_PRIO (0 бинарь критического пути, 1 по умолчанию, 2 all/gate), отмена: bash /opt/rbuild/cancel.sh <id>; bin ставит бинарь
+# по содержимому: $BIN_OUT-plain.<md5> + ссылка $BIN_OUT-plain (tools/rbuild-install.sh).
 set -euo pipefail
 TREE="${1:?рабочее дерево}"
 WHAT="${2:-all}"
 FILTER="${3:-}"
 KEY=(-i /c/Users/Георгий/.ssh/id_rsa -o UserKnownHostsFile=/c/Users/Георгий/.ssh/known_hosts -o ConnectTimeout=15 -o ServerAliveInterval=30)
-CHECK_HOST="${CHECK_HOST:-srv}"
+RB="${RBUILD_DIR:-/opt/rbuild}"
+if [ -z "${CHECK_HOST:-}" ]; then
+  case "$WHAT" in
+    bin) CHECK_HOST=srv ;;
+    build) CHECK_HOST=srv
+      # перелив на Софию: раннер srv занят (идёт сборка или есть очередь), на Софии замок свободен и места ≥ VPS_MIN_GB
+      if ssh "${KEY[@]}" root@5.231.25.224 "[ -n \"\$(find $RB/queue $RB/running -type f 2>/dev/null | head -1)\" ] || ! flock -n $RB/build.lock true" 2>/dev/null \n         && ssh "${KEY[@]}" root@13.140.29.171 "flock -n /opt/alpha-compute/.build.lock true && [ \"\$(df --output=avail -BG /opt/alpha-compute | tail -1 | tr -dc 0-9)\" -ge ${VPS_MIN_GB:-28} ]" 2>/dev/null; then
+        CHECK_HOST=vps; echo "vps-check: srv занят, build — на Софии"
+      fi ;;
+    *) CHECK_HOST=vps ;;
+  esac
+fi
 case "$CHECK_HOST" in srv) HOST=root@5.231.25.224 ;; vps) HOST=root@13.140.29.171 ;; *) echo "CHECK_HOST: srv|vps (calc больше не наш, В-102)"; exit 2 ;; esac
 TAG="${VPS_TAG:-}"   # непустой тег — свой каталог исходников и target: параллельные вызовы не затирают друг друга
 SRC=/opt/alpha-compute/wave2-src$TAG-$$   # TK-169: свой каталог на вызов — ожидающий замка не теряет исходники из-за чужого rm -rf
@@ -30,7 +46,7 @@ J=3; TL10="$(tl 10)"; TL15="$(tl 15)"; TL25="$(tl 25)"; TL5="| tail -5"
 GREP_T="| grep -E \"^test result|FAILED|panicked|^error|^warning: unused\" | tail -40"
 if [ "$CHECK_HOST" = srv ]; then   # фильтры на раннере (при красном — все error/warning), target и ядра — из его окружения
   TGT='$SLOT_TGT'; J='$JOBS'; TL10=; TL15=; TL25=; TL5=; GREP_T=
-  ARCR=/opt/rbuild/in/wave2$TAG-$$.tgz
+  ARCR=$RB/in/wave2$TAG-$$.tgz
 fi
 TMPD="${TEMP:-/tmp}"; command -v cygpath >/dev/null && TMPD="$(cygpath -u "$TMPD")"
 ARC="$TMPD/wave2-$$.tgz"
@@ -66,7 +82,9 @@ case "$WHAT" in
   # TK-160: бинарники для гейта прямо на машине сборки, без копирования: без фич и r2 → $BIN_OUT-plain / $BIN_OUT-r2 + md5
   bin)    : "${BIN_OUT:?BIN_OUT — путь на машине сборки, например /data/tk0160/alpha-tk160}"
           B1="cargo build --release --target-dir $TGT -j $J"
-          CMD="set -o pipefail; rm -f $BIN_OUT-plain $BIN_OUT-r2 && $B1 2>&1 | tail -3 && install -D $TGT/release/alpha $BIN_OUT-plain && $B1 --features r2 2>&1 | tail -3 && install -D $TGT/release/alpha $BIN_OUT-r2 && md5sum $BIN_OUT-plain $BIN_OUT-r2" ;;
+          # TK-614: по содержимому — $BIN_OUT-plain.<md5> / $BIN_OUT-r2.<md5> + ссылки $BIN_OUT-plain / $BIN_OUT-r2 (прежний rm -f оставлял путь пустым на время сборки)
+          CMD="$(cat "$(dirname "$0")/rbuild-install.sh")
+set -o pipefail; $B1 2>&1 | tail -3 && rb_install $TGT/release/alpha $BIN_OUT-plain && $B1 --features r2 2>&1 | tail -3 && rb_install $TGT/release/alpha $BIN_OUT-r2" ;;
   lintw)  CMD="LINT_SHOW='${FILTER:?regexp пути}' bash tools/lint-gate.sh $TGT-lint 2>&1 | head -150" ;;   # срабатывания бюджета по пути (TK-328)
   all)    CMD="$(all_cmd "$FEAT")" ;;
   # TK-132 С-02: гейт R2 — второй бинарник (feature r2) гоняет 14+4 R2-теста, которые `all` без фич не видит:
@@ -80,17 +98,20 @@ esac
 # shellcheck disable=SC2029
 set +e
 if [ "$CHECK_HOST" = srv ]; then
-  # раннер выкладывается с деревом (версии не расходятся); команда — файлом: без кавычек bash -c; ядра и target даёт раннер
-  ssh "${KEY[@]}" "$HOST" "mkdir -p /opt/rbuild/in && cat > /opt/rbuild/run-srv.sh.$$ && mv /opt/rbuild/run-srv.sh.$$ /opt/rbuild/run-srv.sh" < "$(dirname "$0")/srv-build-run.sh"
-  ssh "${KEY[@]}" "$HOST" "cat > /opt/rbuild/in/cmd-$$.sh" <<EOS
-export PATH=/opt/rbuild/cargo/bin:\$PATH RUSTUP_HOME=/opt/rbuild/rustup CARGO_HOME=/opt/rbuild/cargo
+  # раннер выкладывается версией по хешу (TK-614: общий run-srv.sh не перезаписываем — старое дерево не откатывает раннер для всех);
+  # команда — файлом: без кавычек bash -c; ядра и target даёт раннер
+  RSH="$(dirname "$0")/srv-build-run.sh"; RUNR=$RB/run-srv.$(md5sum < "$RSH" | cut -c1-8).sh
+  ssh "${KEY[@]}" "$HOST" "mkdir -p $RB/in && { [ -s $RUNR ] || { cat > $RUNR.$$ && mv $RUNR.$$ $RUNR; }; }" < "$RSH"
+  ssh "${KEY[@]}" "$HOST" "cat > $RB/in/cmd-$$.sh" <<EOS
+export PATH=$RB/cargo/bin:\$PATH RUSTUP_HOME=$RB/rustup CARGO_HOME=$RB/cargo
 set -o pipefail
 $CMD
 EOS
-  ssh "${KEY[@]}" "$HOST" "bash /opt/rbuild/run-srv.sh $ARCR /opt/rbuild/in/cmd-$$.sh"
+  case "$WHAT" in all|gate) PRIO=2 ;; *) PRIO=1 ;; esac
+  ssh "${KEY[@]}" "$HOST" "RBUILD_ID=$$ RBUILD_PRIO=${RBUILD_PRIO:-$PRIO} RBUILD_DIR=$RB bash $RUNR $ARCR $RB/in/cmd-$$.sh"
   RC=$?
 else
-ssh "${KEY[@]}" "$HOST" "set -o pipefail; rm -rf $SRC && mkdir -p $SRC && tar -xzf $ARCR -C $SRC   && cd $SRC && export PATH=\$HOME/.cargo/bin:\$PATH && flock -w 7200 /opt/alpha-compute/.build.lock env ALPHA_TICKET=$LABEL nice -n 5 /opt/alpha-compute/sweep.sh run $TGT bash -c '$CMD'"
+ssh "${KEY[@]}" "$HOST" "export RBUILD_T0=\$(date +%s.%N); set -o pipefail; rm -rf $SRC && mkdir -p $SRC && tar -xzf $ARCR -C $SRC   && cd $SRC && export PATH=\$HOME/.cargo/bin:\$PATH && flock -w 7200 /opt/alpha-compute/.build.lock env ALPHA_TICKET=$LABEL nice -n 5 /opt/alpha-compute/sweep.sh run $TGT bash -c '$CMD'; RC=\$?; rm -rf $SRC; exit \$RC"   # TK-614: свой каталог исходников (≈160 МБ) убираем сами — таймер sweep на Софии не идёт, остатки копились (6 шт. = 1 ГБ)
 RC=$?
 fi
 set -e
