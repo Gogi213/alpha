@@ -22,7 +22,7 @@ import maker  # noqa: E402
 import maker_run  # noqa: E402
 import outlier  # noqa: E402
 from arb_live import symmap_for  # noqa: E402
-from common import EXCHANGES, load_pool, norm  # noqa: E402
+from common import EXCHANGES, load_pool, norm, unit_of  # noqa: E402
 
 G = {}
 H_LO, H_N = -400, 800        # гистограмма: шаг 1 bps на [−400; 400)
@@ -107,7 +107,7 @@ def work_coin(coin):
     g = G
     books, trades, info = {}, {}, {}
     for ex, (sym, mult, _) in g["coins"][coin].items():
-        unit = float((g["meta"][ex].get(sym) or {}).get("ctVal") or 1.0) if ex == "okx" else 1.0
+        unit = unit_of(ex, g["meta"][ex].get(sym))
         a = maker_run.load_book(g["bwork"], ex, sym, mult, unit)
         if a is None or len(a["e"]) < 20:
             continue

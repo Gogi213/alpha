@@ -23,7 +23,7 @@ CLOSES = ("full", "half")
 
 def prep_tt(A, B, t0, t1):
     """Ряд пары (A, B) и центр. A, B — книги (dict e, bid, ask, dbid, dask; core.clean)."""
-    T, S, Bu, ia, ib = core.pair_series(A, B, t1)
+    T, S, Bu, ia, ib = core.pair_series(A, B, t1, stale_ms=None)
     if len(T) < 50:
         return None
     mins, _, sb, bb = core.minute_bars(T, S, Bu)

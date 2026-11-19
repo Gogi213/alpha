@@ -11,8 +11,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 import parse_trades  # noqa: E402
-from arb_live import MINRUN, START_MS, days_between, symmap_for  # noqa: E402
-from common import EXCHANGES, ROOTS  # noqa: E402
+from arb_live import START_MS, days_between, symmap_for  # noqa: E402
+from common import EXCHANGES, ROOTS, minrun  # noqa: E402
 
 TRADE = re.compile(r"trade\d+-(\d+)\.tsv\.zst$")
 WANT = {}
@@ -31,7 +31,7 @@ def main(work, par=3, start_ms=START_MS - 5 * 60_000):
         for day in days:
             for f in glob.glob(f"{ROOTS[ex]}/{day}/trade*.tsv.zst"):
                 m = TRADE.search(f)
-                if m and int(m.group(1)) >= MINRUN:
+                if m and int(m.group(1)) >= minrun(ex):
                     jobs.append((ex, day, f, os.path.getsize(f)))
     jobs.sort(key=lambda j: -j[3])
     for day in days:

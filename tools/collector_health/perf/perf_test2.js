@@ -34,7 +34,7 @@ const med = a => { const s = [...a].sort((x, y) => x - y); return s[Math.floor(s
     };
     await t('скрыть пустые (вкл)', '#ctl button[data-hide]'); await t('скрыть пустые (выкл)', '#ctl button[data-hide]');
     await t('счёт: выбросы', '#ctl button[data-m="out"]'); await t('счёт: медиана', '#ctl button[data-m="med"]');
-    await t('пара: Binance→BingX', '#flt button:nth-child(2)'); await t('пара: Bybit→OKX', '#flt button:nth-child(5)'); await t('пара: Все', '#flt button:nth-child(1)');
+    await t('биржи: без Binance', '#ex button:nth-child(1)'); await t('биржи: все', '#ex button:nth-child(1)'); await t('биржи: без Bybit', '#ex button:nth-child(2)'); await t('биржи: все (2)', '#ex button:nth-child(2)');
     for (const [n, k] of [['монета', 'c'], ['пара', 'p'], ['расхождение', 'size'], ['за 1 ч', 'n0'], ['за 4 ч', 'n1'], ['за 1 сут', 'n3'], ['схождение', 'tau'], ['после комиссий', 'net']]) await t('сорт: ' + n, '#tab th[data-k="' + k + '"]');
     // график: холодный (без наведения) и после наведения 250 мс; конец — холст нарисован (#ld скрыт)
     const chart = async (name, rowSel, hover) => {

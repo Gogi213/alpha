@@ -1,0 +1,29 @@
+# Плотная вкладка «Арбитраж», v2: передача дел, 15.11.2026 ~20:10 GMT+4
+
+Ветка `bb/g-022-arb-dense-v2-thr_6zrt96bu39` (worktree `thr_6zrt96bu39-1`), родитель `thr_ty6ae9r46y`. Дочерние треды — английский, итог — `bb thread tell thr_ty6ae9r46y`. Разбор, числа, runbook — `docs/findings/arb-dense-deploy-2026-11-15.md` (читать первым). **Не выложено, ждёт «да» владельца на финальный макет.**
+
+## Готово
+- Макет: «расхождение» — одна доля, пустого места слева нет; `Downloads/alpha-arb-dense-mockup{.html,-table.png,-chart.png,-columns.png,-health.png}`; клик-тесты 1180/1280/1440 зелёные (77 действий + 50 переключений «Столбцов», сдвиг 0).
+- Исключение пар: живой счёт уже исключает 5 из 8 (ANTHROPIC, BB ×2, ON ×2 — `arb_daemon.pair_ok`), тест на реальных серединах; BARD — один актив (по минутам 0,998), в basis-split — артефакт разной покрытости; пары BARD оставлены (решение за координатором/владельцем).
+- Выкладка подготовлена и проверена: `arb_turnover.py` + 4 теста (мутации ловятся), сверка на srv с проверенным оборотом — 2158 (биржа, символ), расхождений 0; `arb_api.py` (v, vwin), `serve.py` (/fonts), шрифты Geist, `arb-turnover.service`, `deploy_dense.sh` (репетиция на двойниках, порт 8090 — результат в отчёте), `turnover_compare.py`, `turnover_verify.py`.
+
+## Как пересобрать макет и тесты
+- Рабочий каталог `C:\Users\Георгий\AppData\Local\Temp\dense2\` (`work\build.sh` собирает `work\dense.html` из `tools/collector_health/page-dense.html`; `data\` — снимок arb.json / chart.jsonl / v3.json / turnover.json; `fonts\`; `tools\shot.js <url> <префикс> 1440 1.5`, `tools\popshot2.js`). Нет каталога — взять из `Temp\dense\`.
+- Клик-тесты: `node tools/collector_health/perf/layout_test_{shadcn,cols}.js file:///…/dense.html <ширина>`. Питон: `cd tools/arb_stats && python -m pytest -q test_daemon.py test_inc.py test_live.py test_parse_trades.py test_turnover.py`, `cd tools/collector_health && python -m pytest -q test_health.py` (2 старых теста падают до правок — см. отчёт).
+
+## Если владелец сказал «да»
+`bash tools/collector_health/deploy_dense.sh deploy --yes` (≈ 7–8 мин; отчёт о проверке — в выводе), откат — `rollback`. Перед запуском — `status` и убедиться, что нет `/data/perf/HOLD`. После — `LAYOUT=1 bash deploy_dense.sh verify` (клик-тесты с ПК на живой странице).
+
+## Открыто
+- «да» на макет; решение по BARD; два старых теста `test_health.py`.
+- На srv остались песочницы репетиции (`/data/arb-shadcn/rh`, `/data/arb-shadcn/code`, `/data/arb-shadcn/turn-live`) и юнит-двойник `rh-page-8090` — удалить после приёмки (`systemctl stop rh-page-8090 arb-turnover-rh`).
+
+## Gate (5-я биржа) — задание координатора 15.11 ~20:20, слово владельца: «а че гейт не выведен? он собирается уже нет?» — в коде НЕ начато, разведка сделана
+Нужно: Gate в живой счёт (все пары с Binance / Bybit / OKX / BingX, «… → Gate» в фильтрах), столбцы оборота, проверка «разные активы» (pair_ok уже общая), макет с Gate; выкладка — только после «да». В отчёте — число пар Gate и что данные с 05:49 UTC (короче истории других бирж; на странице не писать, пока владелец не спросит).
+Что выяснено (srv, 15.11 15:48 UTC):
+- Данные: `/data/collect/gate/data/<день>/{book,trade,mark}NN-<метка>.tsv.zst` (+ `.ok`), 3 линии, пул `pool-<день>.json` (285 символов, имена `AAOI_USDT`, три не из ASCII; `meta[символ].quanto_multiplier` — строка, монет в контракте, как `ctVal` у OKX). Запуск постоянного коллектора — метка 1794721764 (15.11 05:49:24 UTC); короткий пробный 1794721649 (05:47:29, ≈ 2 мин, закрыт) — пропускать: нужен `MINRUN` по биржам (у Gate 1794721764; сейчас общий `arb_live.MINRUN = 1794656000`).
+- Формат записей **тот же, что у OKX**: `b dns lag 0 sym id bid bsz ask asz`, `t dns lag ET sym id p q 0 id m` (индексы x[6..9] / x[6], x[7], x[10] — `parse_inc.consume` и `parse_trades.consume` читают без правок); размеры и количество сделок — в контрактах → умножать на `quanto_multiplier` (глубина в `coin_map`, оборот в `arb_turnover.units`). Записи `m` (mark) в отдельных файлах `mark*` — счёт арбитража их не читает.
+- Что править: `common.py` (`EXCHANGES += "gate"` — последним, чтобы пары были «… → Gate»; `ROOTS["gate"]`; `norm`: `removesuffix("_USDT")`; общая функция «размер контракта»: okx `ctVal`, gate `quanto_multiplier`), `arb_live.py` (`NAMES["gate"]="Gate"`, `MINRUN` по биржам в `discover`), `arb_daemon.coin_map` и `analyze.py:40` (unit), `arb_turnover.py` (`units()` читает пулы okx — добавить gate, `discover` — `MINRUN` по биржам), `turnover_verify.py` / `turnover_check.py` (тикер Gate: `https://fx-api.gateio.ws/api/v4/futures/usdt/tickers`, `volume_24h_quote` в $), `tools/collector_health/roots.json`, тесты (`test_daemon.Env`, `test_turnover.Env`, `test_inc` — пулы и ROOTS для gate; новый тест: монета с Gate даёт пары «→ Gate», юнит × quanto). Страница ничего не требует: фильтры и названия — из данных (`A.names`, пары из строк).
+- Пары начинаются с первой минуты записей Gate (`advance_pair`: `k0 = T[0] // 60000`), центр — через 30 минут; «сутки» считаются за то, что есть (как уже у новых пар).
+- **Выкладка Gate потребует рестарта `arb-live`** (в старом процессе `EXCHANGES` без Gate): рестарт с `state.pkl` заново читает открытые файлы книг с начала до сохранённых позиций (минуты процессора на 4 биржи; Gate — файлы с 0, ≈ 9 открытых, ≈ 450 МБ сжатых). Сказать координатору заранее — это единственная выкладка, где arb-live трогается.
+- Как получить числа и данные макета без боя: скопировать `/data/arb-tab/live` (state.pkl + parsed + state) в `/data/arb-shadcn/gate-live`, запустить новый код `arb_daemon.py once /data/arb-shadcn/gate-live` из `/data/arb-shadcn/code` (systemd-run, `CPUQuota=400%`, `Nice=15`) → `arb.json` + `chart-*.jsonl` с парами Gate; число пар Gate — по строкам `a`/`b` = gate; снимок + оборот (`arb_turnover.py boot`, Gate) → `build_shadcn_mockup.py` → Downloads.

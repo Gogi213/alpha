@@ -12,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 import maker  # noqa: E402
 import maker_run  # noqa: E402
 from arb_live import symmap_for  # noqa: E402
-from common import EXCHANGES, load_pool  # noqa: E402
+from common import EXCHANGES, load_pool, unit_of  # noqa: E402
 
 
 def main(bdir, tdir, t0, t1, coin, m_, h_, ti=0, lat=300, var="tt", n=8):
@@ -23,7 +23,7 @@ def main(bdir, tdir, t0, t1, coin, m_, h_, ti=0, lat=300, var="tt", n=8):
     books, trades = {}, {}
     for ex in (m_, h_):
         sym, mult = next((s, c[1]) for s, c in sm[ex].items() if c[0] == coin)
-        unit = float((meta[ex].get(sym) or {}).get("ctVal") or 1.0) if ex == "okx" else 1.0
+        unit = unit_of(ex, meta[ex].get(sym))
         books[ex] = maker_run.load_book(str(Path(bdir, "parsed")), ex, sym, mult, unit)
         trades[ex] = maker_run.load_trades(str(Path(tdir, "parsed")), ex, sym, mult)
     P = maker.prep(books[m_], books[h_], trades[m_][0], trades[m_][1], t0, t1)

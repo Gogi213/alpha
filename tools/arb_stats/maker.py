@@ -48,7 +48,7 @@ def tick_of(*arrs):
 def prep(M, H, tr_e, tr_p, t0, t1, d_ms=D_MS):
     """Всё, что не зависит от θ, L и варианта. M, H — книги (dict e, bid, ask, dbid, dask; core.clean), tr_e/tr_p — сделки M (по E).
     -> dict или None (нет пары, центра или сделок)."""
-    T, S, Bu, ia, ib = core.pair_series(M, H, t1)
+    T, S, Bu, ia, ib = core.pair_series(M, H, t1, stale_ms=None)
     if len(T) < 50:
         return None
     mins, _, sb, bb = core.minute_bars(T, S, Bu)

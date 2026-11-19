@@ -16,7 +16,7 @@ import arb_live  # noqa: E402
 
 def diff(a, b):
     out = []
-    for k in ("cnt", "big"):
+    for k in ("cnt", "big", "z", "x"):
         if a[k] != b[k]:
             out.append((k, a[k], b[k]))
     for k in ("n", "pk", "tau", "net"):
