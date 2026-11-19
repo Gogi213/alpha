@@ -10,8 +10,12 @@
                     mo60 — сырой маркаут через 60 мин, бп, среднее; gf — P&L сделки базы, $, среднее на сделку (комиссия движка, без фандинга).
   вторичные (без Холма): mo1, mo5, mo15 — маркаут 1/5/15 мин, бп.
 Эффект корзины = среднее в корзине − среднее вне корзины (той же стороны, того же ряда). Статистика — круговой блочный бутстреп по суткам
-(блок 4, B повторов, общие индексы для всех тестов): интервал — перцентильный; p — по z = D / SE_бутстрепа (двусторонний, нормальный хвост);
-Холм — по всем первичным тестам. Устойчивость по месяцам: знак эффекта в месяце совпал со знаком общего эффекта, учитываются месяцы с ≥ 3
+(блок 4, B повторов, общие индексы для всех тестов): интервал D — перцентильный (при доле 0/100 % в корзине оптимистичен). p — тест со случайным
+сдвигом часов: у каждых суток все сигналы сдвигаются по кругу на своё случайное смещение 0…24 ч (суточные эффекты и внутрисуточные
+кластеры сохраняются, привязка к часам рвётся), P = 40 000 сдвигов, двусторонний около среднего сдвигов; для схемы «день недели» сдвиг
+суток не меняет метку, там p — по z = D / SE_бутстрепа. Холм — по всем первичным тестам.
+[Правка 19.11 после первого прогона: бутстреп-p вырождался при доле 100 % в корзине (SE → 0) и давал ложные «значимые» корзины по 8–43
+сигнала; первый прогон `run1` отброшен, набор корзин и порог n ≥ 8 не менялись.] Устойчивость по месяцам: знак эффекта в месяце совпал со знаком общего эффекта, учитываются месяцы с ≥ 3
 наблюдений в корзине и вне её; «стабильно» = совпало в ≥ 4 из ≥ 4 учтённых месяцев. Медиан по P&L нет.
 """
 import argparse
@@ -79,7 +83,7 @@ def dsum(sel, day, x=None):
     return np.bincount(day[sel], weights=None if x is None else x[sel], minlength=NDAYS)[:NDAYS].astype(float)
 
 
-def effect(mask, v, valid, day, mon, ix):
+def effect(mask, v, valid, day, mon, ix, dperm=None):
     """Эффект корзины: среднее внутри − вне; интервал, p, месячные эффекты."""
     a, o = mask & valid, (~mask) & valid
     ni, no = int(a.sum()), int(o.sum())
@@ -94,6 +98,11 @@ def effect(mask, v, valid, day, mon, ix):
     D = mi - mo
     se = float(Ds.std(ddof=1))
     z = D / se if se > 0 else 0.0
+    p = erfc(abs(z) / sqrt(2))
+    if dperm is not None:
+        dp = dperm[~np.isnan(dperm)]
+        c = float(dp.mean())
+        p = (1 + int((np.abs(dp - c) >= abs(D - c) - 1e-12).sum())) / (1 + len(dp))
     ms = []
     for k in range(5):
         ak, ok_ = a & (mon == k), o & (mon == k)
@@ -101,7 +110,7 @@ def effect(mask, v, valid, day, mon, ix):
     el = [x for x in ms if x == x]
     agree = sum(1 for x in el if np.sign(x) == np.sign(D))
     r.update(mean_in=mi, mean_out=mo, D=D, lo=float(np.percentile(Ds, 2.5)), hi=float(np.percentile(Ds, 97.5)), se=se, z=z,
-             p=erfc(abs(z) / sqrt(2)), sum_in=float(v[a].sum()), months=ms, m_elig=len(el), m_agree=agree,
+             p=p, sum_in=float(v[a].sum()), months=ms, m_elig=len(el), m_agree=agree,
              stable=bool(len(el) >= 4 and agree >= 4))
     return r
 
@@ -127,6 +136,32 @@ def drop2(mask, v, valid, key, D_sign):
     return float(v[aa].mean() - v[oo].mean()) if aa.sum() >= 3 and oo.sum() >= 3 else np.nan
 
 
+def perm_dist(df, vals, nperm, rng, pb=500):
+    """Распределение эффекта корзин при случайном сдвиге часов по суткам: {(схема, метка, метрика): массив nperm}."""
+    ts = df["t_sig"].values.astype(np.int64)
+    day = df["abs_day"].values.astype(int)
+    tod = ts % DAY_MS
+    dstart = ts - tod
+    tot = {m: (float((v * valid).sum()), float(valid.sum())) for m, (v, valid) in vals.items()}
+    out = {}
+    for b0 in range(0, nperm, pb):
+        off = rng.integers(0, DAY_MS, size=(pb, NDAYS))
+        tsh = dstart[None, :] + (tod[None, :] + off[:, day]) % DAY_MS
+        for scheme, lab, mk in buckets(tsh):
+            if scheme.startswith("день недели"):
+                continue
+            mf = mk.astype(float)
+            for met, (v, valid) in vals.items():
+                n_in = mf @ valid.astype(float)
+                s_in = mf @ (v * valid)
+                St, Nt = tot[met]
+                with np.errstate(divide="ignore", invalid="ignore"):
+                    D = s_in / n_in - (St - s_in) / (Nt - n_in)
+                D[(n_in < 1) | (Nt - n_in < 1)] = np.nan
+                out.setdefault((scheme, lab, met), np.empty(nperm))[b0:b0 + pb] = D
+    return out
+
+
 def holm(ps):
     ps = np.asarray(ps, float)
     order = np.argsort(ps)
@@ -145,6 +180,7 @@ def main():
     ap.add_argument("--out", required=True)
     ap.add_argument("--reps", type=int, default=20000)
     ap.add_argument("--seed", type=int, default=622)
+    ap.add_argument("--perms", type=int, default=40000)
     a = ap.parse_args()
     os.makedirs(a.out, exist_ok=True)
     T = pd.read_parquet(a.feat)
@@ -169,9 +205,10 @@ def main():
                     vals["mo%d" % c] = (np.nan_to_num(x), ~np.isnan(x))
             else:
                 vals["gf"] = (df["gf"].values.astype(float), np.ones(len(df), bool))
+            PD = perm_dist(df, vals, a.perms, np.random.default_rng(a.seed + 1 + 10 * len(zones) + len(zones[side])))
             for scheme, lab, mask in buckets(ts):
                 for met, (v, valid) in vals.items():
-                    r = effect(mask, v, valid, day, mon, ix)
+                    r = effect(mask, v, valid, day, mon, ix, PD.get((scheme, lab, met)))
                     r.update(side=side, scheme=scheme, bucket=lab, metric=met, primary=met in PRIMARY)
                     if "D" in r and r["primary"] and r["stable"] and r["p"] < 0.05:
                         sg_ = np.sign(r["D"])
@@ -186,7 +223,7 @@ def main():
     R["months"] = R["months"].apply(lambda x: json.dumps([None if y != y else round(y, 3) for y in x]) if isinstance(x, list) else None)
     R.to_csv(a.out + "/results.csv", index=False)
     info = {"tests_primary": int(len(P)), "nominal_p05": int((P["p"] < 0.05).sum()), "nominal_p05_stable": int(((P["p"] < 0.05) & P["stable"].astype(bool)).sum()),
-            "holm_lt_05": int((P["p_holm"] < 0.05).sum()), "buckets": int(R.groupby(["scheme", "bucket"]).ngroups), "reps": a.reps, "n": zones}
+            "holm_lt_05": int((P["p_holm"] < 0.05).sum()), "buckets": int(R.groupby(["scheme", "bucket"]).ngroups), "reps": a.reps, "perms": a.perms, "n": zones}
     json.dump(info, open(a.out + "/info.json", "w"), ensure_ascii=False, indent=1)
     print(json.dumps(info, ensure_ascii=False))
 
