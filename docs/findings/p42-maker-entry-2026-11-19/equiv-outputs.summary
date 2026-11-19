@@ -1,0 +1,10 @@
+== wa 10:07:47
+  rc=0 за 9 с: alpha-l1 wa wa
+GATE OK a112684a-vs-a03c91df wa вариантов=2 файлов=18 различий=0
+== wb 10:07:56
+  rc=0 за 8 с: alpha-l1 wb wb
+GATE OK a112684a-vs-a03c91df wb вариантов=2 файлов=18 различий=0
+== wc 10:08:04
+  rc=0 за 8 с: alpha-l1 wc wc
+GATE OK a112684a-vs-a03c91df wc вариантов=2 файлов=18 различий=0
+== done 10:08:12

@@ -1244,6 +1244,32 @@ pub fn sim_fill_lc(
     lc: Option<LevelCtx>,
     notional: i64,
 ) -> TickOut {
+    sim_fill_lc_e(
+        next,
+        entry_ms,
+        p0,
+        side,
+        natr_e8,
+        ex,
+        lc,
+        notional,
+        ex.slip_bps,
+    )
+}
+
+/// `sim_fill_lc` с проскальзыванием входа `entry_slip_bps` (§13.28: лимитный вход — 0).
+#[allow(clippy::too_many_arguments)]
+pub fn sim_fill_lc_e(
+    next: &mut dyn FnMut() -> Option<(i64, i64, bool)>,
+    entry_ms: i64,
+    p0: i64,
+    side: Side,
+    natr_e8: i64,
+    ex: &ExitCfg,
+    lc: Option<LevelCtx>,
+    notional: i64,
+    entry_slip_bps: i64,
+) -> TickOut {
     let mut after = || -> Option<(i64, i64, bool)> {
         loop {
             let t = next()?;
@@ -1252,7 +1278,17 @@ pub fn sim_fill_lc(
             }
         }
     };
-    sim_tail(&mut after, entry_ms, p0, side, natr_e8, ex, lc, notional)
+    sim_tail_e(
+        &mut after,
+        entry_ms,
+        p0,
+        side,
+        natr_e8,
+        ex,
+        lc,
+        notional,
+        entry_slip_bps,
+    )
 }
 
 /// Позиция после входа: цена входа `p0` (рама) ± проскальзывание, тейки, стоп, трейл по потоку `next` (сделки после входа).
@@ -1267,8 +1303,34 @@ fn sim_tail(
     lc: Option<LevelCtx>,
     notional: i64,
 ) -> TickOut {
+    sim_tail_e(
+        next,
+        entry_ms,
+        p0,
+        side,
+        natr_e8,
+        ex,
+        lc,
+        notional,
+        ex.slip_bps,
+    )
+}
+
+/// `sim_tail` с проскальзыванием входа `entry_slip_bps` (§13.28: у лимитного входа 0; проскальзывание выходов — `ex.slip_bps`).
+#[allow(clippy::too_many_arguments)]
+fn sim_tail_e(
+    next: &mut dyn FnMut() -> Option<(i64, i64, bool)>,
+    entry_ms: i64,
+    p0: i64,
+    side: Side,
+    natr_e8: i64,
+    ex: &ExitCfg,
+    lc: Option<LevelCtx>,
+    notional: i64,
+    entry_slip_bps: i64,
+) -> TickOut {
     let s = side.s();
-    let e = p0 + frac(p0.abs(), ex.slip_bps, 10_000);
+    let e = p0 + frac(p0.abs(), entry_slip_bps, 10_000);
     let mut pos = Pos::new(s, e, p0, entry_ms, natr_e8, ex, lc, notional);
     let mut cur_day = (entry_ms / DAY_MS) as usize;
     let mut marks: Vec<(usize, i64)> = Vec::new();
@@ -1413,6 +1475,12 @@ pub enum EntryRej {
     Beyond,
     /// Нет сделки стороны входа со временем ≤ `сигнал + lat` не старше W мс.
     Stale,
+    /// §13.28 (`mk`): заявка мейкера не заполнилась до конца минуты.
+    Unfilled,
+    /// §13.28 (`mk = 1`): до заполнения сделка дошла до уровня — заявка снята.
+    Touched,
+    /// §13.28 (`mk`): тик монеты нигде не определён (нет окна из ≥ 100 сделок).
+    NoTick,
 }
 
 /// Решение о входе для сигнала (§13.16).
@@ -1580,6 +1648,266 @@ pub fn lot2_decision(
     Lot2Dec::Cancel
 }
 
+// ───────────────────────────── §13.28: вход лимиткой (мейкер), опция `mk` ─────────────────────────────
+
+/// §13.28: минимум сделок окна для определения тика.
+pub const MK_MIN_TRADES: usize = 100;
+
+/// §13.28: окно тика — столько календарных суток до суток `T` плюс сутки `T` до `T`.
+pub const MK_TICK_DAYS: usize = 7;
+
+fn gcd(mut a: i64, mut b: i64) -> i64 {
+    while b != 0 {
+        (a, b) = (b, a % b);
+    }
+    a
+}
+
+/// §13.28: цены набора сделок для тика — НОД разностей к первой цене, первая цена, число сделок (`n = 0` — набор пуст).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct PxGcd {
+    pub g: i64,
+    pub p0: i64,
+    pub n: usize,
+}
+
+impl PxGcd {
+    pub fn of(ticks: &[Tick]) -> PxGcd {
+        let Some(first) = ticks.first() else {
+            return PxGcd::default();
+        };
+        let mut g = 0;
+        for t in ticks {
+            if g != 1 {
+                g = gcd(g, (t.px - first.px).abs());
+            }
+        }
+        PxGcd {
+            g,
+            p0: first.px,
+            n: ticks.len(),
+        }
+    }
+
+    /// Объединение двух наборов: НОД всех разностей цен обоих наборов.
+    pub fn merge(self, o: PxGcd) -> PxGcd {
+        if self.n == 0 {
+            return o;
+        }
+        if o.n == 0 {
+            return self;
+        }
+        PxGcd {
+            g: gcd(gcd(self.g, o.g), (o.p0 - self.p0).abs()),
+            p0: self.p0,
+            n: self.n + o.n,
+        }
+    }
+
+    fn tick(self) -> Option<i64> {
+        (self.n >= MK_MIN_TRADES && self.g > 0).then_some(self.g)
+    }
+}
+
+/// §13.28: тик монеты на момент `t` — НОД разностей цен сделок строго до `t` за предыдущие `MK_TICK_DAYS` суток и сутки `t` до `t`;
+/// окно меньше `MK_MIN_TRADES` сделок — последнее более раннее окно (то же правило, закончившееся сутками раньше), в котором тик определён.
+/// Сделок позже `t` не читает. `cache` — НОД полных суток монеты (ключ — номер монеты и сутки).
+pub fn tick_at(
+    src: &dyn TradeSrc,
+    name: &str,
+    sym_i: u16,
+    t: i64,
+    cache: &mut HashMap<(u16, usize), PxGcd>,
+) -> Option<i64> {
+    let day = t.div_euclid(DAY_MS) as usize;
+    let mut full = |d: usize| -> PxGcd {
+        *cache
+            .entry((sym_i, d))
+            .or_insert_with(|| src.day(name, d).map_or(PxGcd::default(), |v| PxGcd::of(&v)))
+    };
+    let part = src.day(name, day).map_or(PxGcd::default(), |v| {
+        let off = t - day as i64 * DAY_MS;
+        PxGcd::of(&v[..v.partition_point(|x| i64::from(x.off) < off)])
+    });
+    let mut w = part;
+    for d in day.saturating_sub(MK_TICK_DAYS)..day {
+        w = full(d).merge(w);
+    }
+    if let Some(g) = w.tick() {
+        return Some(g);
+    }
+    for e in (0..day).rev() {
+        let mut w = PxGcd::default();
+        for d in e.saturating_sub(MK_TICK_DAYS)..=e {
+            w = w.merge(full(d));
+        }
+        if let Some(g) = w.tick() {
+            return Some(g);
+        }
+    }
+    None
+}
+
+/// Конец минуты, содержащей `t` (мс).
+fn minute_end(t: i64) -> i64 {
+    (t.div_euclid(MIN_MS) + 1) * MIN_MS
+}
+
+/// §13.28: заявка мейкера на вход, выставляемая в момент `t` (мс от 01.09) при цене уровня `lp` (рама); живёт до `until` (мс, не включая).
+/// Допуск по ленте — как у тейкера (`entry_at`: `Stale` / `Beyond`). Цена-заменитель `p` — последняя сделка стороны ≤ `t`; тик — `tick_of(t)`.
+/// `mode = 1` (mk1): лимит `p − тик` (рама); снимается сделкой `≥ lp` (`Touched`); заполняет первая сделка после `t` строго ниже лимита.
+/// `mode = 2` (mk2): лимит — цена уровня, округлённая вниз на сетку заменителя (`p + ⌊(lp − p)/тик⌋·тик`); заявка рабочая после пробоя —
+/// первой сделки после `t` с ценой `≥ lp` плюс `lat`; заполняет первая сделка строго после этого момента строго ниже лимита.
+/// Заполнение — по цене лимита, время — время сквозной сделки. `from` — (сутки, индекс) первой сделки курсора после сигнальной.
+#[allow(clippy::too_many_arguments)]
+pub fn mk_order(
+    src: &dyn TradeSrc,
+    sym: &Sym,
+    side: Side,
+    from: (usize, usize),
+    day: usize,
+    t: i64,
+    lp: i64,
+    ex: &ExitCfg,
+    mode: u8,
+    until: i64,
+    tick_of: &mut dyn FnMut(i64) -> Option<i64>,
+) -> EntryDec {
+    let p_sur = match entry_at(src, sym, side, day, t, lp, ex) {
+        EntryDec::Fill { p0, .. } => p0,
+        other => return other,
+    };
+    let Some(tick) = tick_of(t) else {
+        return EntryDec::Reject(EntryRej::NoTick);
+    };
+    let s = side.s();
+    let limit = if mode == 1 {
+        p_sur - tick
+    } else {
+        p_sur + (lp - p_sur).div_euclid(tick) * tick
+    };
+    let mut live_from = if mode == 1 { t } else { NONE_MS };
+    let mut cur = Cursor::new(src, &sym.name, from.0, from.1);
+    while let Some((ms, px, _)) = cur.next_tick() {
+        if ms <= t {
+            continue;
+        }
+        if ms >= until {
+            break;
+        }
+        let p = s * px;
+        if mode == 1 {
+            if p >= lp {
+                return EntryDec::Reject(EntryRej::Touched);
+            }
+        } else if live_from == NONE_MS {
+            if p >= lp {
+                live_from = ms + ex.lat_ms;
+            }
+            continue;
+        }
+        if ms > live_from && p < limit {
+            return EntryDec::Fill { ms, p0: limit };
+        }
+    }
+    EntryDec::Reject(EntryRej::Unfilled)
+}
+
+/// §13.28: решение о входе лимиткой для сигнала (лот 1): заявка в `сигнал + lat`, жизнь — до конца минуты этого момента.
+pub fn mk_decision(
+    src: &dyn TradeSrc,
+    sym: &Sym,
+    side: Side,
+    sig: &TSig,
+    ex: &ExitCfg,
+    mode: u8,
+    tick_of: &mut dyn FnMut(i64) -> Option<i64>,
+) -> EntryDec {
+    let t = sig.ms + ex.lat_ms;
+    mk_order(
+        src,
+        sym,
+        side,
+        (usize::from(sig.day), sig.idx as usize + 1),
+        usize::from(sig.day),
+        t,
+        sig.lp,
+        ex,
+        mode,
+        minute_end(t),
+        tick_of,
+    )
+}
+
+/// Второй лот лимиткой (§13.28): как `lot2_decision`, но заявка подхода (`t2 = ms + lat`) — мейкер mk1, живёт до конца минуты `t2` и не дольше
+/// выхода лота 1; не заполнилась / уровень сорван — `Cancel`; у mk2 лот 2 заполняется тем же событием и по той же цене, что лот 1.
+#[allow(clippy::too_many_arguments)]
+pub fn lot2_decision_mk(
+    src: &dyn TradeSrc,
+    sym: &Sym,
+    side: Side,
+    sig: &TSig,
+    ex: &ExitCfg,
+    lot1: (i64, i64),
+    lot1_exit_ms: i64,
+    mode: u8,
+    tick_of: &mut dyn FnMut(i64) -> Option<i64>,
+) -> Lot2Dec {
+    let (ms1, p1) = lot1;
+    let d = (i128::from(sig.lp.abs()) * i128::from(ex.e2_pm) / 100_000) as i64;
+    if mode == 2 || p1 >= sig.lp - d {
+        return Lot2Dec::Fill {
+            ms: ms1,
+            p0: p1,
+            immediate: true,
+        };
+    }
+    let s = side.s();
+    let mut cur = Cursor::new(src, &sym.name, usize::from(sig.day), sig.idx as usize + 1);
+    while let Some((ms, px, _)) = cur.next_tick() {
+        if ms <= ms1 {
+            continue;
+        }
+        if ms >= lot1_exit_ms {
+            return Lot2Dec::Cancel;
+        }
+        let p = s * px;
+        if p >= sig.lp {
+            return Lot2Dec::Cancel;
+        }
+        if p >= sig.lp - d {
+            let t2 = ms + ex.lat_ms;
+            if t2 >= lot1_exit_ms {
+                return Lot2Dec::Cancel;
+            }
+            let until = minute_end(t2).min(lot1_exit_ms);
+            let dec = mk_order(
+                src,
+                sym,
+                side,
+                (usize::from(sig.day), sig.idx as usize + 1),
+                (t2 / DAY_MS) as usize,
+                t2,
+                sig.lp,
+                ex,
+                1,
+                until,
+                tick_of,
+            );
+            return match dec {
+                EntryDec::Fill { ms, p0 } => Lot2Dec::Fill {
+                    ms,
+                    p0,
+                    immediate: false,
+                },
+                EntryDec::Reject(EntryRej::Unfilled | EntryRej::Touched) => Lot2Dec::Cancel,
+                _ => Lot2Dec::Reject,
+            };
+        }
+    }
+    Lot2Dec::Cancel
+}
+
 /// Вход прежней модели для сигнала (§13.2 п. 2): (время, цена ×1e8 без проскальзывания) первой сделки стороны со временем
 /// ≥ `сигнал + lat` после сигнальной; справочно для сравнения с §13.16.
 pub fn old_entry(
@@ -1612,11 +1940,22 @@ pub fn settle_tick(sym: &Sym, side: Side, tr: &TickOut) -> Settled {
 
 /// `settle_tick` для лота размера `notional` (мкУЕ): §13.19 — два входа по 50 %.
 pub fn settle_tick_n(sym: &Sym, side: Side, tr: &TickOut, notional: i64) -> Settled {
+    settle_tick_mk(sym, side, tr, notional, true)
+}
+
+/// `settle_tick_n` с видом комиссии входа: `entry_taker = false` — лимитный вход (§13.28, мейкер).
+pub fn settle_tick_mk(
+    sym: &Sym,
+    side: Side,
+    tr: &TickOut,
+    notional: i64,
+    entry_taker: bool,
+) -> Settled {
     let s = side.s() as f64;
     let e = tr.entry_px as f64;
     let n0 = notional as f64 / 1e6;
     let mut flows: Vec<(i64, f64)> = Vec::new();
-    let entry_fee = n0 * leg_fee_bps(true) / 1e4;
+    let entry_fee = n0 * leg_fee_bps(entry_taker) / 1e4;
     flows.push((tr.entry_ms, -entry_fee));
     let mut gross = 0.0;
     let mut fees = entry_fee;
@@ -1731,6 +2070,8 @@ pub struct TickResult {
     pub rej: [u64; 6],
     /// §13.19 (`e2`): лот 2 — вошёл сразу (цена лота 1 уже в пределах d), вошёл позже, отменён (лот 1 закрыт / цена пересекла уровень), отказ (за уровнем / нет ленты).
     pub lot2: [u64; 4],
+    /// §13.28 (`mk > 0`): заявки лота 1 — заполнено, не заполнено, снято уровнем (число отказов `notick` — в `entry_rej`).
+    pub mk: [u64; 3],
 }
 
 impl TickResult {
@@ -1743,6 +2084,7 @@ impl TickResult {
             coinday: BTreeMap::new(),
             rej: [0; 6],
             lot2: [0; 4],
+            mk: [0; 3],
         }
     }
 }
@@ -1763,6 +2105,19 @@ pub fn run_tick(
     pc: &PortCfg,
     src: &dyn TradeSrc,
 ) -> TickResult {
+    run_tick_mk(syms, sigs, side, ex, pc, src, 0)
+}
+
+/// `run_tick` с входом лимиткой (§13.28): `mk = 0` — прежний путь тейкера; 1 — mk1; 2 — mk2 (требует `ew > 0`).
+pub fn run_tick_mk(
+    syms: &[Sym],
+    sigs: &[TSig],
+    side: Side,
+    ex: &ExitCfg,
+    pc: &PortCfg,
+    src: &dyn TradeSrc,
+    mk: u8,
+) -> TickResult {
     let ns = syms.len();
     let mut res = TickResult {
         trades: Vec::new(),
@@ -1771,7 +2126,11 @@ pub fn run_tick(
         coinday: BTreeMap::new(),
         rej: [0; 6],
         lot2: [0; 4],
+        mk: [0; 3],
     };
+    let maker = mk > 0;
+    let entry_slip = if maker { 0 } else { ex.slip_bps };
+    let mut tick_cache: HashMap<(u16, usize), PxGcd> = HashMap::new();
     let mut busy = vec![false; ns];
     let mut cool_until = vec![0i64; ns];
     let mut cpause_until = vec![0i64; ns];
@@ -1848,13 +2207,18 @@ pub fn run_tick(
         let split = ex.e2_pm > 0;
         let lot_n = if split { NOTIONAL_U / 2 } else { NOTIONAL_U };
         let tr = if natr > 0 {
-            dec = entry_decision(src, sym, side, sg, ex);
+            dec = if maker {
+                let mut tick_of = |t: i64| tick_at(src, &sym.name, sg.sym, t, &mut tick_cache);
+                mk_decision(src, sym, side, sg, ex, mk, &mut tick_of)
+            } else {
+                entry_decision(src, sym, side, sg, ex)
+            };
             match dec {
                 EntryDec::Next => simulate_tick(src, sym, side, sg, natr, ex),
                 EntryDec::Fill { ms, p0 } => {
                     let mut cur =
                         Cursor::new(src, &sym.name, usize::from(sg.day), sg.idx as usize + 1);
-                    let t1 = sim_fill_lc(
+                    let t1 = sim_fill_lc_e(
                         &mut || cur.next_tick(),
                         ms,
                         p0,
@@ -1863,9 +2227,30 @@ pub fn run_tick(
                         ex,
                         Some(lc),
                         lot_n,
+                        entry_slip,
                     );
+                    if maker {
+                        res.mk[0] += 1;
+                    }
                     if split {
-                        match lot2_decision(src, sym, side, sg, ex, (ms, p0), t1.exit_ms) {
+                        let l2 = if maker {
+                            let mut tick_of =
+                                |t: i64| tick_at(src, &sym.name, sg.sym, t, &mut tick_cache);
+                            lot2_decision_mk(
+                                src,
+                                sym,
+                                side,
+                                sg,
+                                ex,
+                                (ms, p0),
+                                t1.exit_ms,
+                                mk,
+                                &mut tick_of,
+                            )
+                        } else {
+                            lot2_decision(src, sym, side, sg, ex, (ms, p0), t1.exit_ms)
+                        };
+                        match l2 {
                             Lot2Dec::Fill {
                                 ms: m2,
                                 p0: q0,
@@ -1878,7 +2263,7 @@ pub fn run_tick(
                                     usize::from(sg.day),
                                     sg.idx as usize + 1,
                                 );
-                                tr2 = Some(sim_fill_lc(
+                                tr2 = Some(sim_fill_lc_e(
                                     &mut || cur2.next_tick(),
                                     m2,
                                     q0,
@@ -1887,6 +2272,7 @@ pub fn run_tick(
                                     ex,
                                     Some(lc),
                                     lot_n,
+                                    entry_slip,
                                 ));
                             }
                             Lot2Dec::Cancel => res.lot2[2] += 1,
@@ -1896,6 +2282,11 @@ pub fn run_tick(
                     Some(t1)
                 }
                 EntryDec::Reject(why) => {
+                    match why {
+                        EntryRej::Unfilled => res.mk[1] += 1,
+                        EntryRej::Touched => res.mk[2] += 1,
+                        _ => {}
+                    }
                     res.entry_rej.push((sg.sym, sg.level, sg.ms, why));
                     None
                 }
@@ -1932,9 +2323,9 @@ pub fn run_tick(
             kind: kind_all,
         });
         open.sort_by_key(|o| o.exit_ms);
-        let mut st = settle_tick_n(sym, side, &tr, lot_n);
+        let mut st = settle_tick_mk(sym, side, &tr, lot_n, !maker);
         if let Some(t2) = &tr2 {
-            let s2 = settle_tick_n(sym, side, t2, lot_n);
+            let s2 = settle_tick_mk(sym, side, t2, lot_n, !maker);
             st.gross += s2.gross;
             st.fees += s2.fees;
             st.funding += s2.funding;

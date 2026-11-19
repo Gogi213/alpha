@@ -345,6 +345,9 @@ pub(super) fn reject_tick_only(p: &Params, line: &str) -> Result<()> {
     if p.filt.on() {
         bail!("fa/fo/fv (§13.21, фильтр признаков) считает только `breakout tick`: {line}");
     }
+    if p.mk != 0 {
+        bail!("mk (§13.28, вход лимиткой) считает только `breakout tick`: {line}");
+    }
     Ok(())
 }
 
