@@ -326,10 +326,7 @@ pub fn flow_coin(src: &dyn DaySrc, sym: &str, eps: &[Ep]) -> Result<CoinFlow> {
             });
             (cur, seen)
         } else {
-            (
-                None,
-                src.day_hist(sym, d, &mut hist[hrow..hrow + 24 * NB])?,
-            )
+            (None, src.day_hist(sym, d, &mut hist[hrow..hrow + 24 * NB])?)
         };
         match &seen {
             Some(c) => {
