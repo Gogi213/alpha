@@ -7,6 +7,7 @@ pub mod binlog;
 pub mod book;
 pub mod breakout;
 pub mod bybit;
+pub mod collector;
 pub mod commands;
 pub mod feed;
 pub mod lob;

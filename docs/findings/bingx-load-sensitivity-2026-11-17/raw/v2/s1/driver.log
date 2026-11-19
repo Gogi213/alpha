@@ -1,0 +1,8 @@
+23:50:59 start label=s1 first=old phases=[W:120 Q:900 L:2100 Q:900] load_nice=19 total=4020s copies=1
+23:53:19 phase 1 W 120s done
+00:08:21 phase 2 Q 900s done
+00:08:22 phase 3 L: load started nice=19, MemAvailable 57 GB
+00:43:23 phase 3 L: load stopped; scan.log tail: 安人生 3s pairs 3 我踏马来了 0s pairs 1 牛来 4s pairs 3 龙虾 2s pairs 3 ZRO 15s pairs 10 BTW 1730s pairs 10 
+00:43:23 phase 3 L 2100s done
+00:58:26 phase 4 Q 900s done
+00:58:59 done

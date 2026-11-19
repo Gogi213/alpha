@@ -1,0 +1,1248 @@
+{
+ "window_ms": [
+  1794490044317,
+  1794490225258
+ ],
+ "dials": 118,
+ "dials_5min_max": 118,
+ "events": {
+  "connect_wait": 90,
+  "path_slow_accepted": 51,
+  "connected": 118,
+  "subscribed": 118,
+  "switch_failed": 11,
+  "path_rejected": 29,
+  "path_ok": 45,
+  "timeout": 4,
+  "ping_degraded": 4,
+  "gap": 6,
+  "path_switch": 28,
+  "error": 8
+ },
+ "events_detail": {
+  "connect_wait": [
+   {
+    "shard": "trade00",
+    "ts_ms": 1794490137568
+   },
+   {
+    "shard": "trade00",
+    "ts_ms": 1794490148505
+   },
+   {
+    "shard": "trade00",
+    "ts_ms": 1794490149334
+   },
+   {
+    "shard": "trade00",
+    "ts_ms": 1794490158002
+   },
+   {
+    "shard": "book08",
+    "ts_ms": 1794490135114
+   },
+   {
+    "shard": "book08",
+    "ts_ms": 1794490135515
+   },
+   {
+    "shard": "book08",
+    "ts_ms": 1794490149274
+   },
+   {
+    "shard": "book08",
+    "ts_ms": 1794490149401
+   },
+   {
+    "shard": "book08",
+    "ts_ms": 1794490158703
+   },
+   {
+    "shard": "book14",
+    "ts_ms": 1794490133813
+   },
+   {
+    "shard": "book14",
+    "ts_ms": 1794490135056
+   },
+   {
+    "shard": "book14",
+    "ts_ms": 1794490146789
+   },
+   {
+    "shard": "book14",
+    "ts_ms": 1794490154151
+   },
+   {
+    "shard": "book14",
+    "ts_ms": 1794490158960
+   },
+   {
+    "shard": "book11",
+    "ts_ms": 1794490135114
+   },
+   {
+    "shard": "book11",
+    "ts_ms": 1794490135372
+   },
+   {
+    "shard": "book11",
+    "ts_ms": 1794490148562
+   },
+   {
+    "shard": "trade02",
+    "ts_ms": 1794490144169
+   },
+   {
+    "shard": "trade02",
+    "ts_ms": 1794490148207
+   },
+   {
+    "shard": "trade02",
+    "ts_ms": 1794490182803
+   }
+  ],
+  "path_slow_accepted": [
+   {
+    "shard": "trade00",
+    "ts_ms": 1794490137937
+   },
+   {
+    "shard": "trade00",
+    "ts_ms": 1794490149714
+   },
+   {
+    "shard": "trade00",
+    "ts_ms": 1794490158379
+   },
+   {
+    "shard": "trade00",
+    "ts_ms": 1794490183190
+   },
+   {
+    "shard": "book08",
+    "ts_ms": 1794490135447
+   },
+   {
+    "shard": "book08",
+    "ts_ms": 1794490135875
+   },
+   {
+    "shard": "book08",
+    "ts_ms": 1794490160084
+   },
+   {
+    "shard": "book08",
+    "ts_ms": 1794490177393
+   },
+   {
+    "shard": "book14",
+    "ts_ms": 1794490135389
+   },
+   {
+    "shard": "book11",
+    "ts_ms": 1794490135476
+   },
+   {
+    "shard": "book09",
+    "ts_ms": 1794490136488
+   },
+   {
+    "shard": "book09",
+    "ts_ms": 1794490138423
+   },
+   {
+    "shard": "book04",
+    "ts_ms": 1794490134363
+   },
+   {
+    "shard": "book04",
+    "ts_ms": 1794490158430
+   },
+   {
+    "shard": "book04",
+    "ts_ms": 1794490175313
+   },
+   {
+    "shard": "book04",
+    "ts_ms": 1794490192332
+   },
+   {
+    "shard": "book04",
+    "ts_ms": 1794490209187
+   },
+   {
+    "shard": "book15",
+    "ts_ms": 1794490138480
+   },
+   {
+    "shard": "book15",
+    "ts_ms": 1794490146568
+   },
+   {
+    "shard": "book13",
+    "ts_ms": 1794490149602
+   }
+  ],
+  "switch_failed": [
+   {
+    "shard": "trade00",
+    "ts_ms": 1794490151788
+   },
+   {
+    "shard": "book11",
+    "ts_ms": 1794490059085
+   },
+   {
+    "shard": "trade02",
+    "ts_ms": 1794490056592
+   },
+   {
+    "shard": "trade02",
+    "ts_ms": 1794490152111
+   },
+   {
+    "shard": "mark00",
+    "ts_ms": 1794490153350
+   },
+   {
+    "shard": "trade01",
+    "ts_ms": 1794490150311
+   },
+   {
+    "shard": "trade05",
+    "ts_ms": 1794490060479
+   },
+   {
+    "shard": "book06",
+    "ts_ms": 1794490056711
+   },
+   {
+    "shard": "book06",
+    "ts_ms": 1794490151343
+   },
+   {
+    "shard": "trade07",
+    "ts_ms": 1794490147559
+   },
+   {
+    "shard": "trade06",
+    "ts_ms": 1794490152307
+   }
+  ],
+  "path_rejected": [
+   {
+    "shard": "trade00",
+    "ts_ms": 1794490153849
+   },
+   {
+    "shard": "trade00",
+    "ts_ms": 1794490174354
+   },
+   {
+    "shard": "trade00",
+    "ts_ms": 1794490199194
+   },
+   {
+    "shard": "book08",
+    "ts_ms": 1794490151846
+   },
+   {
+    "shard": "book08",
+    "ts_ms": 1794490176514
+   },
+   {
+    "shard": "book08",
+    "ts_ms": 1794490193505
+   },
+   {
+    "shard": "book14",
+    "ts_ms": 1794490151326
+   },
+   {
+    "shard": "book04",
+    "ts_ms": 1794490150388
+   },
+   {
+    "shard": "book04",
+    "ts_ms": 1794490154626
+   },
+   {
+    "shard": "book04",
+    "ts_ms": 1794490174412
+   },
+   {
+    "shard": "book04",
+    "ts_ms": 1794490191450
+   },
+   {
+    "shard": "book04",
+    "ts_ms": 1794490208275
+   },
+   {
+    "shard": "book15",
+    "ts_ms": 1794490156002
+   },
+   {
+    "shard": "mark00",
+    "ts_ms": 1794490150494
+   },
+   {
+    "shard": "book10",
+    "ts_ms": 1794490154210
+   },
+   {
+    "shard": "book10",
+    "ts_ms": 1794490176199
+   },
+   {
+    "shard": "trade01",
+    "ts_ms": 1794490149878
+   },
+   {
+    "shard": "trade01",
+    "ts_ms": 1794490199176
+   },
+   {
+    "shard": "book00",
+    "ts_ms": 1794490154450
+   },
+   {
+    "shard": "trade05",
+    "ts_ms": 1794490186234
+   }
+  ],
+  "path_ok": [
+   {
+    "shard": "trade00",
+    "ts_ms": 1794490190901
+   },
+   {
+    "shard": "trade00",
+    "ts_ms": 1794490215844
+   },
+   {
+    "shard": "book08",
+    "ts_ms": 1794490165343
+   },
+   {
+    "shard": "book08",
+    "ts_ms": 1794490210044
+   },
+   {
+    "shard": "book14",
+    "ts_ms": 1794490170106
+   },
+   {
+    "shard": "book14",
+    "ts_ms": 1794490174968
+   },
+   {
+    "shard": "book11",
+    "ts_ms": 1794490151301
+   },
+   {
+    "shard": "book11",
+    "ts_ms": 1794490164547
+   },
+   {
+    "shard": "trade02",
+    "ts_ms": 1794490198800
+   },
+   {
+    "shard": "trade02",
+    "ts_ms": 1794490198801
+   },
+   {
+    "shard": "book09",
+    "ts_ms": 1794490164717
+   },
+   {
+    "shard": "book09",
+    "ts_ms": 1794490185313
+   },
+   {
+    "shard": "book12",
+    "ts_ms": 1794490151495
+   },
+   {
+    "shard": "book12",
+    "ts_ms": 1794490183625
+   },
+   {
+    "shard": "book04",
+    "ts_ms": 1794490172840
+   },
+   {
+    "shard": "book15",
+    "ts_ms": 1794490152054
+   },
+   {
+    "shard": "book15",
+    "ts_ms": 1794490174353
+   },
+   {
+    "shard": "book13",
+    "ts_ms": 1794490150374
+   },
+   {
+    "shard": "book13",
+    "ts_ms": 1794490154404
+   },
+   {
+    "shard": "trade03",
+    "ts_ms": 1794490149506
+   }
+  ],
+  "timeout": [
+   {
+    "shard": "book08",
+    "ts_ms": 1794490193505,
+    "what": "ping"
+   },
+   {
+    "shard": "book15",
+    "ts_ms": 1794490156002,
+    "what": "ping"
+   },
+   {
+    "shard": "book01",
+    "ts_ms": 1794490164550,
+    "what": "ping"
+   },
+   {
+    "shard": "book01",
+    "ts_ms": 1794490183134,
+    "what": "ping"
+   }
+  ],
+  "ping_degraded": [
+   {
+    "shard": "book08",
+    "ts_ms": 1794490193505
+   },
+   {
+    "shard": "book15",
+    "ts_ms": 1794490156002
+   },
+   {
+    "shard": "book01",
+    "ts_ms": 1794490164550
+   },
+   {
+    "shard": "book01",
+    "ts_ms": 1794490183134
+   }
+  ],
+  "gap": [
+   {
+    "shard": "book14",
+    "ts_ms": 1794490134586
+   },
+   {
+    "shard": "book14",
+    "ts_ms": 1794490155107
+   },
+   {
+    "shard": "book04",
+    "ts_ms": 1794490135095
+   },
+   {
+    "shard": "book15",
+    "ts_ms": 1794490137048
+   },
+   {
+    "shard": "mark00",
+    "ts_ms": 1794490052582
+   },
+   {
+    "shard": "book01",
+    "ts_ms": 1794490136906
+   }
+  ],
+  "path_switch": [
+   {
+    "shard": "book14",
+    "ts_ms": 1794490147750
+   },
+   {
+    "shard": "book11",
+    "ts_ms": 1794490171375
+   },
+   {
+    "shard": "trade02",
+    "ts_ms": 1794490218849
+   },
+   {
+    "shard": "trade02",
+    "ts_ms": 1794490218977
+   },
+   {
+    "shard": "book09",
+    "ts_ms": 1794490137408
+   },
+   {
+    "shard": "book09",
+    "ts_ms": 1794490205414
+   },
+   {
+    "shard": "book12",
+    "ts_ms": 1794490171641
+   },
+   {
+    "shard": "book12",
+    "ts_ms": 1794490203727
+   },
+   {
+    "shard": "book04",
+    "ts_ms": 1794490145538
+   },
+   {
+    "shard": "book15",
+    "ts_ms": 1794490148863
+   },
+   {
+    "shard": "book13",
+    "ts_ms": 1794490146136
+   },
+   {
+    "shard": "trade03",
+    "ts_ms": 1794490169519
+   },
+   {
+    "shard": "trade03",
+    "ts_ms": 1794490200550
+   },
+   {
+    "shard": "mark00",
+    "ts_ms": 1794490138341
+   },
+   {
+    "shard": "book10",
+    "ts_ms": 1794490136305
+   },
+   {
+    "shard": "trade01",
+    "ts_ms": 1794490204714
+   },
+   {
+    "shard": "book00",
+    "ts_ms": 1794490149988
+   },
+   {
+    "shard": "trade04",
+    "ts_ms": 1794490170218
+   },
+   {
+    "shard": "trade04",
+    "ts_ms": 1794490204808
+   },
+   {
+    "shard": "trade05",
+    "ts_ms": 1794490222771
+   }
+  ],
+  "error": [
+   {
+    "shard": "book09",
+    "ts_ms": 1794490111451,
+    "err": "\u0447\u0442\u0435\u043d\u0438\u0435: WebSocket protocol error: Connection reset without closing handshake"
+   },
+   {
+    "shard": "book04",
+    "ts_ms": 1794490095830,
+    "err": "\u0447\u0442\u0435\u043d\u0438\u0435: WebSocket protocol error: Connection reset without closing handshake"
+   },
+   {
+    "shard": "mark00",
+    "ts_ms": 1794490059109,
+    "err": "\u0447\u0442\u0435\u043d\u0438\u0435: WebSocket protocol error: Connection reset without closing handshake"
+   },
+   {
+    "shard": "book10",
+    "ts_ms": 1794490091436,
+    "err": "\u0447\u0442\u0435\u043d\u0438\u0435: WebSocket protocol error: Connection reset without closing handshake"
+   },
+   {
+    "shard": "book05",
+    "ts_ms": 1794490075907,
+    "err": "\u0447\u0442\u0435\u043d\u0438\u0435: WebSocket protocol error: Connection reset without closing handshake"
+   },
+   {
+    "shard": "book01",
+    "ts_ms": 1794490080982,
+    "err": "\u0447\u0442\u0435\u043d\u0438\u0435: WebSocket protocol error: Connection reset without closing handshake"
+   },
+   {
+    "shard": "book07",
+    "ts_ms": 1794490049513,
+    "err": "\u0447\u0442\u0435\u043d\u0438\u0435: WebSocket protocol error: Connection reset without closing handshake"
+   },
+   {
+    "shard": "book07",
+    "ts_ms": 1794490071313,
+    "err": "\u0447\u0442\u0435\u043d\u0438\u0435: WebSocket protocol error: Connection reset without closing handshake"
+   }
+  ]
+ },
+ "disk_stream": {
+  "b": {
+   "n": 501659,
+   "lag_ms": {
+    "p50": 188,
+    "p99": 66794,
+    "max": 76906
+   },
+   "lag_p50_10s_max": 35999,
+   "max_pause_ms": 566
+  },
+  "t": {
+   "n": 85915,
+   "lag_ms": {
+    "p50": 185,
+    "p99": 10072,
+    "max": 14956
+   },
+   "lag_p50_10s_max": 680,
+   "max_pause_ms": 280
+  },
+  "m": {
+   "n": 88722,
+   "lag_ms": {
+    "p50": 217,
+    "p99": 31034,
+    "max": 31093
+   },
+   "lag_p50_10s_max": 30162,
+   "max_pause_ms": 78898
+  }
+ },
+ "shards": {
+  "trade01": {
+   "windows": 18,
+   "msgs": 19330,
+   "max_gap_ms": 818,
+   "lag_p50_ms_median": 182.3,
+   "lag_p50_ms_max": 239.6,
+   "lag_p99_ms_max": 10879.0,
+   "cpu_frac_max": 0.031
+  },
+  "book12": {
+   "windows": 18,
+   "msgs": 41138,
+   "max_gap_ms": 431,
+   "lag_p50_ms_median": 174.1,
+   "lag_p50_ms_max": 235.5,
+   "lag_p99_ms_max": 11141.1,
+   "cpu_frac_max": 0.062
+  },
+  "book15": {
+   "windows": 18,
+   "msgs": 56864,
+   "max_gap_ms": 94366,
+   "lag_p50_ms_median": 157.7,
+   "lag_p50_ms_max": 19660.8,
+   "lag_p99_ms_max": 20709.4,
+   "cpu_frac_max": 0.083
+  },
+  "trade02": {
+   "windows": 18,
+   "msgs": 18530,
+   "max_gap_ms": 392,
+   "lag_p50_ms_median": 182.3,
+   "lag_p50_ms_max": 323.6,
+   "lag_p99_ms_max": 19660.8,
+   "cpu_frac_max": 0.038
+  },
+  "mark00": {
+   "windows": 18,
+   "msgs": 382,
+   "max_gap_ms": 3611,
+   "lag_p50_ms_median": 307.2,
+   "lag_p50_ms_max": 30146.6,
+   "lag_p99_ms_max": 31195.1,
+   "cpu_frac_max": 0.024
+  },
+  "book05": {
+   "windows": 18,
+   "msgs": 74385,
+   "max_gap_ms": 1243,
+   "lag_p50_ms_median": 231.4,
+   "lag_p50_ms_max": 40370.2,
+   "lag_p99_ms_max": 46661.6,
+   "cpu_frac_max": 0.092
+  },
+  "trade05": {
+   "windows": 18,
+   "msgs": 21833,
+   "max_gap_ms": 294,
+   "lag_p50_ms_median": 182.3,
+   "lag_p50_ms_max": 247.8,
+   "lag_p99_ms_max": 10616.8,
+   "cpu_frac_max": 0.029
+  },
+  "book01": {
+   "windows": 18,
+   "msgs": 29696,
+   "max_gap_ms": 55924,
+   "lag_p50_ms_median": 4653.1,
+   "lag_p50_ms_max": 50855.9,
+   "lag_p99_ms_max": 52953.1,
+   "cpu_frac_max": 0.054
+  },
+  "book13": {
+   "windows": 18,
+   "msgs": 60640,
+   "max_gap_ms": 239,
+   "lag_p50_ms_median": 165.9,
+   "lag_p50_ms_max": 16646.1,
+   "lag_p99_ms_max": 20185.1,
+   "cpu_frac_max": 0.084
+  },
+  "book09": {
+   "windows": 18,
+   "msgs": 49546,
+   "max_gap_ms": 465,
+   "lag_p50_ms_median": 174.1,
+   "lag_p50_ms_max": 307.2,
+   "lag_p99_ms_max": 16384.0,
+   "cpu_frac_max": 0.071
+  },
+  "book08": {
+   "windows": 18,
+   "msgs": 46661,
+   "max_gap_ms": 663,
+   "lag_p50_ms_median": 149.5,
+   "lag_p50_ms_max": 4522.0,
+   "lag_p99_ms_max": 9306.1,
+   "cpu_frac_max": 0.09
+  },
+  "book03": {
+   "windows": 18,
+   "msgs": 21401,
+   "max_gap_ms": 441,
+   "lag_p50_ms_median": 137.2,
+   "lag_p50_ms_max": 186.4,
+   "lag_p99_ms_max": 647.2,
+   "cpu_frac_max": 0.045
+  },
+  "book10": {
+   "windows": 18,
+   "msgs": 69478,
+   "max_gap_ms": 1487,
+   "lag_p50_ms_median": 243.7,
+   "lag_p50_ms_max": 61341.7,
+   "lag_p99_ms_max": 65536.0,
+   "cpu_frac_max": 0.11
+  },
+  "book02": {
+   "windows": 18,
+   "msgs": 73152,
+   "max_gap_ms": 355,
+   "lag_p50_ms_median": 186.4,
+   "lag_p50_ms_max": 251.9,
+   "lag_p99_ms_max": 11403.3,
+   "cpu_frac_max": 0.066
+  },
+  "trade04": {
+   "windows": 18,
+   "msgs": 22855,
+   "max_gap_ms": 429,
+   "lag_p50_ms_median": 170.0,
+   "lag_p50_ms_max": 235.5,
+   "lag_p99_ms_max": 11141.1,
+   "cpu_frac_max": 0.027
+  },
+  "book00": {
+   "windows": 18,
+   "msgs": 59591,
+   "max_gap_ms": 915,
+   "lag_p50_ms_median": 165.9,
+   "lag_p50_ms_max": 17563.6,
+   "lag_p99_ms_max": 20185.1,
+   "cpu_frac_max": 0.111
+  },
+  "trade00": {
+   "windows": 18,
+   "msgs": 25687,
+   "max_gap_ms": 185,
+   "lag_p50_ms_median": 174.1,
+   "lag_p50_ms_max": 299.0,
+   "lag_p99_ms_max": 20185.1,
+   "cpu_frac_max": 0.05
+  },
+  "book06": {
+   "windows": 18,
+   "msgs": 53420,
+   "max_gap_ms": 664,
+   "lag_p50_ms_median": 1007.6,
+   "lag_p50_ms_max": 14811.1,
+   "lag_p99_ms_max": 31719.4,
+   "cpu_frac_max": 0.048
+  },
+  "book07": {
+   "windows": 18,
+   "msgs": 84220,
+   "max_gap_ms": 654,
+   "lag_p50_ms_median": 153.6,
+   "lag_p50_ms_max": 20185.1,
+   "lag_p99_ms_max": 21233.7,
+   "cpu_frac_max": 0.106
+  },
+  "book04": {
+   "windows": 18,
+   "msgs": 34359,
+   "max_gap_ms": 39266,
+   "lag_p50_ms_median": 2719.7,
+   "lag_p50_ms_max": 63438.8,
+   "lag_p99_ms_max": 66584.6,
+   "cpu_frac_max": 0.05
+  },
+  "trade06": {
+   "windows": 18,
+   "msgs": 14495,
+   "max_gap_ms": 412,
+   "lag_p50_ms_median": 186.4,
+   "lag_p50_ms_max": 247.8,
+   "lag_p99_ms_max": 11141.1,
+   "cpu_frac_max": 0.035
+  },
+  "book11": {
+   "windows": 18,
+   "msgs": 45865,
+   "max_gap_ms": 1549,
+   "lag_p50_ms_median": 39321.6,
+   "lag_p50_ms_max": 65536.0,
+   "lag_p99_ms_max": 76546.0,
+   "cpu_frac_max": 0.053
+  },
+  "book14": {
+   "windows": 18,
+   "msgs": 43075,
+   "max_gap_ms": 91623,
+   "lag_p50_ms_median": 274.4,
+   "lag_p50_ms_max": 15335.4,
+   "lag_p99_ms_max": 20185.1,
+   "cpu_frac_max": 0.079
+  },
+  "trade03": {
+   "windows": 18,
+   "msgs": 46847,
+   "max_gap_ms": 1024,
+   "lag_p50_ms_median": 1294.3,
+   "lag_p50_ms_max": 5177.3,
+   "lag_p99_ms_max": 19660.8,
+   "cpu_frac_max": 0.033
+  },
+  "trade07": {
+   "windows": 18,
+   "msgs": 21361,
+   "max_gap_ms": 358,
+   "lag_p50_ms_median": 178.2,
+   "lag_p50_ms_max": 239.6,
+   "lag_p99_ms_max": 10616.8,
+   "cpu_frac_max": 0.026
+  }
+ },
+ "records": {
+  "b": 501659,
+  "t": 85915,
+  "m": 88722,
+  "g": 692,
+  "c": 331,
+  "r": 175
+ },
+ "sequence_checks": {
+  "book_u_not_increasing": 988,
+  "trade_a_not_increasing": 1,
+  "trade_a_gaps": 1,
+  "trade_a_gap_ids": 10,
+  "mark_E_not_increasing": 954
+ },
+ "ping_ms": {
+  "n": 692,
+  "p50": 348.677,
+  "p99": 3301.157,
+  "max": 9686.685
+ },
+ "raw_samples": [
+  "{\"result\":null,\"id\":1}",
+  "{\"result\":null,\"id\":1}",
+  "{\"result\":null,\"id\":1}",
+  "{\"result\":null,\"id\":1}",
+  "{\"result\":null,\"id\":1}"
+ ],
+ "disk_bytes": 59034777,
+ "health": {
+  "backpressure": {
+   "queue_lag_ms": {
+    "p50": 0.1,
+    "p99": 26.9,
+    "window_s": 60
+   },
+   "reader": {
+    "busy_max_us": 6971,
+    "handoff_max_us": 6971
+   },
+   "recv_q": {
+    "behind_pct": 23.208,
+    "max_bytes": 132963,
+    "samples": 9962
+   },
+   "ring": {
+    "blocked_ms_total": 0,
+    "cap": 32768,
+    "depth_max": 458,
+    "full_events_total": 0,
+    "full_events_window": 0
+   },
+   "sink": {
+    "cap": 64,
+    "depth_max": 1,
+    "write_max_ms": 9.1
+   },
+   "window_s": 10
+  },
+  "exchange": "binance",
+  "fresh": {
+   "kinds": {
+    "book": {
+     "late_1h": 232622,
+     "late_24h": 232622,
+     "max_1h_ms": 76906,
+     "max_24h_ms": 76906
+    },
+    "mark": {
+     "late_1h": 28857,
+     "late_24h": 28857,
+     "max_1h_ms": 31093,
+     "max_24h_ms": 31093
+    },
+    "raw": {
+     "late_1h": 30,
+     "late_24h": 30,
+     "max_1h_ms": 31094,
+     "max_24h_ms": 31094
+    },
+    "trade": {
+     "late_1h": 36727,
+     "late_24h": 36727,
+     "max_1h_ms": 32423,
+     "max_24h_ms": 32423
+    }
+   },
+   "late_ms": 2000
+  },
+  "lag_in_by_kind_ms": {
+   "book": {
+    "p50": 223.2,
+    "p99": 909.3,
+    "window_s": 60
+   },
+   "mark": {
+    "p50": 323.6,
+    "p99": 958.5,
+    "window_s": 60
+   },
+   "trade": {
+    "p50": 219.1,
+    "p99": 630.8,
+    "window_s": 60
+   }
+  },
+  "lag_in_ms": {
+   "p50": 227.3,
+   "p99": 892.9,
+   "window_s": 60
+  },
+  "lag_out_ms": {
+   "p50": 95.2,
+   "p99": 149.5,
+   "window_s": 60
+  },
+  "last_frame_ms": 1794490243029,
+  "last_write_ms": 1794490243025,
+  "process": {
+   "cpu_by_class": {
+    "alpha": 0.002,
+    "ln": 0.006,
+    "rx": 0.751,
+    "sh": 0.006,
+    "signals": 0.0,
+    "sk": 0.05,
+    "wr": 0.379
+   },
+   "cpu_cores": 1.211,
+   "hot_thread": {
+    "cores": 0.032,
+    "name": "rx-book10-17954"
+   },
+   "rss_mb": 222.754,
+   "sched_wait_cores": 0.933,
+   "threads": 177,
+   "version": "unknown"
+  },
+  "schema": 2,
+  "shards": [
+   {
+    "busy_max_us": 2840,
+    "connected": 2,
+    "lag_in_p99_ms": 811.0,
+    "msgs_10s": 7949,
+    "recvq_max": 42580,
+    "ring_depth_max": 196,
+    "shard": "book00"
+   },
+   {
+    "busy_max_us": 2057,
+    "connected": 2,
+    "lag_in_p99_ms": 712.7,
+    "msgs_10s": 5801,
+    "recvq_max": 64909,
+    "ring_depth_max": 244,
+    "shard": "book01"
+   },
+   {
+    "busy_max_us": 2444,
+    "connected": 2,
+    "lag_in_p99_ms": 745.5,
+    "msgs_10s": 7185,
+    "recvq_max": 55472,
+    "ring_depth_max": 187,
+    "shard": "book02"
+   },
+   {
+    "busy_max_us": 5914,
+    "connected": 2,
+    "lag_in_p99_ms": 647.2,
+    "msgs_10s": 5548,
+    "recvq_max": 17722,
+    "ring_depth_max": 75,
+    "shard": "book03"
+   },
+   {
+    "busy_max_us": 1868,
+    "connected": 2,
+    "lag_in_p99_ms": 1040.4,
+    "msgs_10s": 5505,
+    "recvq_max": 45517,
+    "ring_depth_max": 75,
+    "shard": "book04"
+   },
+   {
+    "busy_max_us": 6425,
+    "connected": 2,
+    "lag_in_p99_ms": 909.3,
+    "msgs_10s": 12238,
+    "recvq_max": 114672,
+    "ring_depth_max": 458,
+    "shard": "book05"
+   },
+   {
+    "busy_max_us": 3080,
+    "connected": 2,
+    "lag_in_p99_ms": 31195.1,
+    "msgs_10s": 5262,
+    "recvq_max": 45989,
+    "ring_depth_max": 184,
+    "shard": "book06"
+   },
+   {
+    "busy_max_us": 5752,
+    "connected": 2,
+    "lag_in_p99_ms": 663.6,
+    "msgs_10s": 14178,
+    "recvq_max": 70824,
+    "ring_depth_max": 338,
+    "shard": "book07"
+   },
+   {
+    "busy_max_us": 6907,
+    "connected": 2,
+    "lag_in_p99_ms": 663.6,
+    "msgs_10s": 14506,
+    "recvq_max": 72012,
+    "ring_depth_max": 230,
+    "shard": "book08"
+   },
+   {
+    "busy_max_us": 3917,
+    "connected": 2,
+    "lag_in_p99_ms": 647.2,
+    "msgs_10s": 5504,
+    "recvq_max": 15561,
+    "ring_depth_max": 70,
+    "shard": "book09"
+   },
+   {
+    "busy_max_us": 5823,
+    "connected": 2,
+    "lag_in_p99_ms": 860.2,
+    "msgs_10s": 13160,
+    "recvq_max": 102694,
+    "ring_depth_max": 283,
+    "shard": "book10"
+   },
+   {
+    "busy_max_us": 1883,
+    "connected": 2,
+    "lag_in_p99_ms": 942.1,
+    "msgs_10s": 5809,
+    "recvq_max": 18541,
+    "ring_depth_max": 101,
+    "shard": "book11"
+   },
+   {
+    "busy_max_us": 2412,
+    "connected": 2,
+    "lag_in_p99_ms": 663.6,
+    "msgs_10s": 5242,
+    "recvq_max": 21538,
+    "ring_depth_max": 116,
+    "shard": "book12"
+   },
+   {
+    "busy_max_us": 2414,
+    "connected": 2,
+    "lag_in_p99_ms": 958.5,
+    "msgs_10s": 10956,
+    "recvq_max": 132963,
+    "ring_depth_max": 276,
+    "shard": "book13"
+   },
+   {
+    "busy_max_us": 969,
+    "connected": 2,
+    "lag_in_p99_ms": 925.7,
+    "msgs_10s": 10469,
+    "recvq_max": 97660,
+    "ring_depth_max": 201,
+    "shard": "book14"
+   },
+   {
+    "busy_max_us": 3553,
+    "connected": 2,
+    "lag_in_p99_ms": 892.9,
+    "msgs_10s": 11458,
+    "recvq_max": 99963,
+    "ring_depth_max": 354,
+    "shard": "book15"
+   },
+   {
+    "busy_max_us": 6971,
+    "connected": 2,
+    "lag_in_p99_ms": 340.0,
+    "msgs_10s": 3681,
+    "recvq_max": 17179,
+    "ring_depth_max": 80,
+    "shard": "trade00"
+   },
+   {
+    "busy_max_us": 4938,
+    "connected": 2,
+    "lag_in_p99_ms": 630.8,
+    "msgs_10s": 1938,
+    "recvq_max": 3639,
+    "ring_depth_max": 37,
+    "shard": "trade01"
+   },
+   {
+    "busy_max_us": 1516,
+    "connected": 2,
+    "lag_in_p99_ms": 614.4,
+    "msgs_10s": 1414,
+    "recvq_max": 9060,
+    "ring_depth_max": 60,
+    "shard": "trade02"
+   },
+   {
+    "busy_max_us": 451,
+    "connected": 2,
+    "lag_in_p99_ms": 630.8,
+    "msgs_10s": 3460,
+    "recvq_max": 19392,
+    "ring_depth_max": 199,
+    "shard": "trade03"
+   },
+   {
+    "busy_max_us": 293,
+    "connected": 2,
+    "lag_in_p99_ms": 663.6,
+    "msgs_10s": 2288,
+    "recvq_max": 9266,
+    "ring_depth_max": 79,
+    "shard": "trade04"
+   },
+   {
+    "busy_max_us": 1417,
+    "connected": 2,
+    "lag_in_p99_ms": 512.0,
+    "msgs_10s": 1834,
+    "recvq_max": 8738,
+    "ring_depth_max": 57,
+    "shard": "trade05"
+   },
+   {
+    "busy_max_us": 1287,
+    "connected": 2,
+    "lag_in_p99_ms": 614.4,
+    "msgs_10s": 1326,
+    "recvq_max": 7375,
+    "ring_depth_max": 56,
+    "shard": "trade06"
+   },
+   {
+    "busy_max_us": 1974,
+    "connected": 2,
+    "lag_in_p99_ms": 679.9,
+    "msgs_10s": 2601,
+    "recvq_max": 12490,
+    "ring_depth_max": 67,
+    "shard": "trade07"
+   },
+   {
+    "busy_max_us": 58,
+    "connected": 2,
+    "lag_in_p99_ms": 958.5,
+    "msgs_10s": 41,
+    "recvq_max": 26248,
+    "ring_depth_max": 2,
+    "shard": "mark00"
+   }
+  ],
+  "started_ms": 1794489582780,
+  "symbols": {
+   "subscribed": 512,
+   "with_data_1m": 512
+  },
+  "totals": {
+   "dups": 3646005,
+   "files_closed": 0,
+   "raw": 855,
+   "raw_copies": 626,
+   "records": 3898955,
+   "rows": 3905094,
+   "rx_clamped": 5474,
+   "sink_blocks_dropped": 0,
+   "sink_errors": 0
+  },
+  "ts_ms": 1794490243028,
+  "ws": {
+   "connections": 50,
+   "entrance_switches_1h": 0,
+   "entrance_switches_24h": 0,
+   "gaps_1h": 79,
+   "gaps_24h": 79,
+   "path_switches_1h": 92,
+   "path_switches_24h": 92,
+   "ping_ms": {
+    "max": 9098.4,
+    "p50": 377.4
+   },
+   "reconnects_1h": 73,
+   "reconnects_24h": 73,
+   "timeouts_1h": 158,
+   "timeouts_24h": 158
+  }
+ }
+}

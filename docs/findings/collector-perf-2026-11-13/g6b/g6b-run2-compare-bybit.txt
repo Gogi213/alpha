@@ -1,0 +1,6 @@
+--- bybit: A-old vs NEW
+A: 397216 личностей (book/trade/mark строк [338551, 58665, 0]), B: 397340 ([338703, 58637, 0]); окно сравнения 2082 с
+общих 393362, только A 0, только B 0, различное содержимое среди общих 0 (book/trade/mark [0, 0, 0])
+rx_b − rx_a, мкс: p0.1 -53130 p1 -12029 p10 -5365 p50 520 p90 8597 p99 18098 p99.9 65962; хвост > +1 мс: 175550 (44.628 %), < −1 мс: 85780
+A-old totals {'dups': 400325, 'files_closed': 0, 'raw': 4, 'raw_copies': 0, 'records': 397216, 'rows': 398896, 'rx_clamped': 349, 'sink_blocks_dropped': 0, 'sink_errors': 0} | ws {'gaps_24h': 0, 'reconnects_24h': 0, 'timeouts_24h': 0} | ring {'blocked_ms_total': 0, 'cap': 32768, 'depth_max': 29, 'full_events_total': 0, 'full_events_window': 0} | sink {'cap': 64, 'depth_max': 1, 'write_max_ms': 8.6} | queue_lag {'p50': 0.1, 'p99': 7.5, 'window_s': 60}
+NEW totals {'dups': 400418, 'files_closed': 0, 'raw': 4, 'raw_copies': 0, 'records': 397339, 'rows': 399015, 'rx_clamped': 218, 'sink_blocks_dropped': 0, 'sink_errors': 0} | ws {'gaps_24h': 0, 'reconnects_24h': 0, 'timeouts_24h': 0} | ring {'blocked_ms_total': 0, 'cap': 32768, 'depth_max': 63, 'full_events_total': 0, 'full_events_window': 0} | sink {'cap': 64, 'depth_max': 1, 'write_max_ms': 3.8} | queue_lag {'p50': 2.5, 'p99': 10.4, 'p99_9': 16.6, 'window_s': 60}

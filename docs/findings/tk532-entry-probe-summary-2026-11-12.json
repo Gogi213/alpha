@@ -1,0 +1,242 @@
+{
+ "com": {
+  "connected_events": 12,
+  "errors": 0,
+  "ping_timeouts": 0,
+  "ips": [
+   "2600:9000:201c:4200:17:57ca:2ec0:93a1",
+   "2600:9000:201c:4c00:17:57ca:2ec0:93a1",
+   "2600:9000:201c:7c00:17:57ca:2ec0:93a1",
+   "2600:9000:201c:9200:17:57ca:2ec0:93a1",
+   "2600:9000:201c:9c00:17:57ca:2ec0:93a1",
+   "2600:9000:201c:e200:17:57ca:2ec0:93a1",
+   "2600:9000:201c:e400:17:57ca:2ec0:93a1"
+  ],
+  "pops": [
+   "DUS51-P7"
+  ],
+  "first_ms": 1794458130740,
+  "last_ms": 1794468500567,
+  "recs": 3349095,
+  "late_recs": 1810,
+  "late_in_stats": 1810,
+  "lag_max_ms": 6751,
+  "loop_late_max_ms": 501,
+  "conns_min": 12
+ },
+ "com4": {
+  "connected_events": 12,
+  "errors": 0,
+  "ping_timeouts": 0,
+  "ips": [
+   "54.230.172.108"
+  ],
+  "pops": [
+   "DUS51-P7"
+  ],
+  "first_ms": 1794459461099,
+  "last_ms": 1794468502757,
+  "recs": 2932685,
+  "late_recs": 0,
+  "late_in_stats": 0,
+  "lag_max_ms": 2407,
+  "loop_late_max_ms": 225,
+  "conns_min": 12
+ },
+ "fra": {
+  "connected_events": 33,
+  "errors": 21,
+  "ping_timeouts": 931,
+  "ips": [
+   "13.226.244.52"
+  ],
+  "pops": [
+   "FRA56-P14"
+  ],
+  "first_ms": 1794458131075,
+  "last_ms": 1794468503460,
+  "recs": 2812839,
+  "late_recs": 77607,
+  "late_in_stats": 77607,
+  "lag_max_ms": 120726,
+  "loop_late_max_ms": 1022,
+  "conns_min": 8
+ },
+ "fra6": {
+  "connected_events": 26,
+  "errors": 14,
+  "ping_timeouts": 0,
+  "ips": [
+   "2600:9000:28c5:8200:17:57ca:2ec0:93a1"
+  ],
+  "pops": [
+   "FRA50-P1"
+  ],
+  "first_ms": 1794459461100,
+  "last_ms": 1794468500406,
+  "recs": 2932167,
+  "late_recs": 571,
+  "late_in_stats": 571,
+  "lag_max_ms": 6405,
+  "loop_late_max_ms": 304,
+  "conns_min": 12
+ },
+ "ge": {
+  "connected_events": 20,
+  "errors": 8,
+  "ping_timeouts": 0,
+  "ips": [
+   "92.123.12.177",
+   "92.123.12.181"
+  ],
+  "pops": [
+   "None"
+  ],
+  "first_ms": 1794458131006,
+  "last_ms": 1794468501457,
+  "recs": 3349074,
+  "late_recs": 3214,
+  "late_in_stats": 3214,
+  "lag_max_ms": 15807,
+  "loop_late_max_ms": 687,
+  "conns_min": 5
+ },
+ "id": {
+  "connected_events": 33,
+  "errors": 21,
+  "ping_timeouts": 1,
+  "ips": [
+   "2600:9000:224a:2200:7:ac95:a880:93a1",
+   "2600:9000:224a:3200:7:ac95:a880:93a1",
+   "2600:9000:224a:3400:7:ac95:a880:93a1",
+   "2600:9000:224a:4a00:7:ac95:a880:93a1",
+   "2600:9000:224a:5000:7:ac95:a880:93a1",
+   "2600:9000:224a:5400:7:ac95:a880:93a1",
+   "2600:9000:224a:5e00:7:ac95:a880:93a1",
+   "2600:9000:224a:6800:7:ac95:a880:93a1",
+   "2600:9000:224a:7800:7:ac95:a880:93a1",
+   "2600:9000:224a:800:7:ac95:a880:93a1",
+   "2600:9000:224a:8c00:7:ac95:a880:93a1",
+   "2600:9000:224a:9c00:7:ac95:a880:93a1",
+   "2600:9000:224a:a400:7:ac95:a880:93a1",
+   "2600:9000:224a:c000:7:ac95:a880:93a1",
+   "2600:9000:224a:c00:7:ac95:a880:93a1",
+   "2600:9000:224a:e000:7:ac95:a880:93a1",
+   "2600:9000:224a:e200:7:ac95:a880:93a1",
+   "2600:9000:224a:e600:7:ac95:a880:93a1",
+   "2600:9000:224a:e800:7:ac95:a880:93a1",
+   "2600:9000:224a:f400:7:ac95:a880:93a1"
+  ],
+  "pops": [
+   "DUS51-P1"
+  ],
+  "first_ms": 1794458131147,
+  "last_ms": 1794468508687,
+  "recs": 3348747,
+  "late_recs": 1736,
+  "late_in_stats": 1736,
+  "lag_max_ms": 7115,
+  "loop_late_max_ms": 596,
+  "conns_min": 10
+ },
+ "kz": {
+  "connected_events": 12,
+  "errors": 0,
+  "ping_timeouts": 0,
+  "ips": [
+   "43.174.196.245"
+  ],
+  "pops": [
+   "None"
+  ],
+  "first_ms": 1794458131142,
+  "last_ms": 1794468503241,
+  "recs": 3349609,
+  "late_recs": 143,
+  "late_in_stats": 143,
+  "lag_max_ms": 3839,
+  "loop_late_max_ms": 456,
+  "conns_min": 12
+ },
+ "nrt": {
+  "connected_events": 18,
+  "errors": 6,
+  "ping_timeouts": 236,
+  "ips": [
+   "3.166.244.57"
+  ],
+  "pops": [
+   "NRT20-P6"
+  ],
+  "first_ms": 1794458131358,
+  "last_ms": 1794468509537,
+  "recs": 3212730,
+  "late_recs": 14,
+  "late_in_stats": 14,
+  "lag_max_ms": 2495,
+  "loop_late_max_ms": 838,
+  "conns_min": 11
+ },
+ "nrt6": {
+  "connected_events": 12,
+  "errors": 0,
+  "ping_timeouts": 0,
+  "ips": [
+   "2600:9000:26a6:a00:17:57ca:2ec0:93a1"
+  ],
+  "pops": [
+   "NRT20-P1"
+  ],
+  "first_ms": 1794459461190,
+  "last_ms": 1794468506267,
+  "recs": 2933369,
+  "late_recs": 445,
+  "late_in_stats": 445,
+  "lag_max_ms": 6431,
+  "loop_late_max_ms": 157,
+  "conns_min": 12
+ },
+ "sin": {
+  "connected_events": 16,
+  "errors": 4,
+  "ping_timeouts": 162,
+  "ips": [
+   "65.9.168.90"
+  ],
+  "pops": [
+   "SIN3-P4"
+  ],
+  "first_ms": 1794458131156,
+  "last_ms": 1794468502820,
+  "recs": 3260933,
+  "late_recs": 0,
+  "late_in_stats": 0,
+  "lag_max_ms": 2380,
+  "loop_late_max_ms": 645,
+  "conns_min": 11
+ },
+ "tr": {
+  "connected_events": 12,
+  "errors": 0,
+  "ping_timeouts": 0,
+  "ips": [
+   "2600:9000:2182:6200:b:3b54:45c0:93a1",
+   "2600:9000:2182:9000:b:3b54:45c0:93a1",
+   "2600:9000:2182:b400:b:3b54:45c0:93a1",
+   "2600:9000:2182:da00:b:3b54:45c0:93a1",
+   "2600:9000:2182:e000:b:3b54:45c0:93a1",
+   "2600:9000:2182:f800:b:3b54:45c0:93a1"
+  ],
+  "pops": [
+   "DUS51-P6"
+  ],
+  "first_ms": 1794458130871,
+  "last_ms": 1794468500238,
+  "recs": 3348949,
+  "late_recs": 650,
+  "late_in_stats": 650,
+  "lag_max_ms": 7048,
+  "loop_late_max_ms": 704,
+  "conns_min": 12
+ }
+}

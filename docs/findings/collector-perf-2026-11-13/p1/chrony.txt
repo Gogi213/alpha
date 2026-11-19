@@ -1,0 +1,13 @@
+Reference ID    : 1FD155F2 (ntp1.lwlcom.net)
+Stratum         : 2
+Ref time (UTC)  : Fri Nov 13 14:31:05 2026
+System time     : 0.000039456 seconds fast of NTP time
+Last offset     : +0.000067734 seconds
+RMS offset      : 0.000271755 seconds
+Frequency       : 11.883 ppm fast
+Residual freq   : +0.002 ppm
+Skew            : 0.039 ppm
+Root delay      : 0.010757888 seconds
+Root dispersion : 0.000929412 seconds
+Update interval : 1036.9 seconds
+Leap status     : Normal

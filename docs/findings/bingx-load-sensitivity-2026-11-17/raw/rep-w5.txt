@@ -1,0 +1,12 @@
+== phase 1 (real hold_* of that evening, zstd -dc | mawk, nice 15; NOT quiet; label fixed in v2): 81 s, host idle 12.6% steal 4.05% nice 60.0% sys 9.1%
+  old        : frames/s 1257, on-CPU 6.8%, runq wait 37.3 ms/s, wakeups/s 106, involuntary sw/s 10.4, queue_lag_p99 median 12.9 p90 99.3 max 99.3 (n 35)
+  new        : frames/s 1257, on-CPU 5.9%, runq wait 34.3 ms/s, wakeups/s 103, involuntary sw/s 9.0, queue_lag_p99 median 15.2 p90 74.8 max 74.8 (n 40)
+  new (repl.): frames/s 1251, on-CPU 5.7%, runq wait 32.9 ms/s, wakeups/s 102, involuntary sw/s 9.4, queue_lag_p99 median 14.7 p90 16.3 max 20.7 (n 35)
+== phase 2 (same real hold_* load; memhog bw was NOT started; label fixed in v2): 81 s, host idle 15.6% steal 2.49% nice 57.9% sys 9.3%
+  old        : frames/s 1408, on-CPU 6.9%, runq wait 35.0 ms/s, wakeups/s 106, involuntary sw/s 10.2, queue_lag_p99 median 12.2 p90 16.6 max 16.6 (n 45)
+  new        : frames/s 1254, on-CPU 6.1%, runq wait 31.9 ms/s, wakeups/s 104, involuntary sw/s 9.0, queue_lag_p99 median 11.6 p90 18.2 max 18.2 (n 40)
+  new (repl.): frames/s 1411, on-CPU 5.7%, runq wait 29.9 ms/s, wakeups/s 102, involuntary sw/s 9.4, queue_lag_p99 median 12.2 p90 15.5 max 16.3 (n 45)
+== phase 3 (same real hold_* load; memhog chase was NOT started; label fixed in v2): 81 s, host idle 15.3% steal 2.65% nice 57.9% sys 9.2%
+  old        : frames/s 1255, on-CPU 7.0%, runq wait 35.6 ms/s, wakeups/s 107, involuntary sw/s 11.1, queue_lag_p99 median 12.4 p90 20.7 max 20.7 (n 40)
+  new        : frames/s 1250, on-CPU 5.9%, runq wait 32.1 ms/s, wakeups/s 103, involuntary sw/s 8.8, queue_lag_p99 median 11.6 p90 16.6 max 16.6 (n 40)
+  new (repl.): frames/s 1253, on-CPU 5.9%, runq wait 33.0 ms/s, wakeups/s 102, involuntary sw/s 9.5, queue_lag_p99 median 12.2 p90 16.0 max 17.7 (n 40)

@@ -1,0 +1,123 @@
+{
+ "ex": "bingx",
+ "utc": "04:43:35",
+ "ver": "9d5bbf27",
+ "up_s": 1838,
+ "symbols": {
+  "subscribed": 886,
+  "with_data_1m": 886,
+  "not_subscribed": 0,
+  "not_subscribed_qv_usd": 0.0,
+  "rest_checked": 881,
+  "not_in_layout": 0,
+  "book_window_s": 600
+ },
+ "not_subscribed_top": [],
+ "pool": {
+  "pool": 886,
+  "rest_eligible": 881,
+  "rest_age_s": 253,
+  "errors": 0,
+  "last_error": null,
+  "added_total": 0,
+  "removed_total": 0,
+  "spawned_shards": 0,
+  "over_cap": [],
+  "max_shard_load": 897.0,
+  "max_shard": "book01",
+  "rates_tracked": 2841,
+  "held_from_previous_run": null,
+  "missing_at_poll": 0
+ },
+ "backfill": {
+  "enabled": true,
+  "gaps_confirmed": 36,
+  "ids_absent": 0,
+  "ids_backfilled": 70,
+  "ids_confirmed": 70,
+  "ids_lost": 0,
+  "ids_lost_1h": 0,
+  "last_error": null,
+  "open_ids": 0,
+  "paused_s": 0,
+  "paused_s_total": 0,
+  "rate_limited": 0,
+  "rest_errors": 0,
+  "rest_requests": 36,
+  "trades_written": 70
+ },
+ "storm": {
+  "aborts": 0,
+  "episodes": 0,
+  "holds": 0,
+  "impaired": 0,
+  "on": false,
+  "shards": 15,
+  "since_s": null
+ },
+ "connect_budget": {
+  "alarm": false,
+  "free": 2,
+  "limit": 2,
+  "max_wait_s": 0,
+  "urgent_reserve": 0,
+  "used": 0,
+  "wait_s_total": 227,
+  "waiting": 0,
+  "waits_total": 33,
+  "window_s": 1
+ },
+ "ws": {
+  "connections": 30,
+  "gaps_1h": 5,
+  "gaps_1h_nontrade": 3,
+  "reconnects_1h": 17,
+  "timeouts_1h": 25,
+  "timeouts_silent_1h": 16,
+  "path_switches_1h": 26
+ },
+ "lag_in": {
+  "p50": 91.1,
+  "p99": 323.6,
+  "p99_9": 479.2,
+  "window_s": 60
+ },
+ "queue_lag": {
+  "p50": 3.4,
+  "p99": 18.2,
+  "p99_9": 35.3,
+  "window_s": 60
+ },
+ "loss": {
+  "records": 8236975,
+  "sink_blocks_dropped": 0,
+  "sink_errors": 0,
+  "rx_clamped": 5031
+ },
+ "ring_full": 0,
+ "shards": {
+  "n": 15,
+  "lt2": 0,
+  "lt1": 0
+ },
+ "page": {
+  "ok": false,
+  "live_bad": false,
+  "late_bad": false,
+  "budget_bad": false,
+  "lost_1h_s": 24.9,
+  "lost_ids_1h": 0,
+  "backfill_lost_1h": 0
+ },
+ "pool_state": {
+  "age_s": 262,
+  "keys": [
+   "hold_s",
+   "last_above",
+   "rates",
+   "ts_ms"
+  ],
+  "last_above": 886,
+  "rates": 3
+ }
+}

@@ -1,0 +1,54 @@
+{
+ "sec": 180,
+ "ts": 1794458670.444801,
+ "by_topic": {
+  "aalusdt/orderbook": {
+   "frames": 88,
+   "records": 88,
+   "new_records": 46,
+   "last_frame_age_s": 1.4
+  },
+  "aalusdt/publicTrade": {
+   "frames": 3,
+   "records": 3,
+   "new_records": 3,
+   "last_frame_age_s": 26.0
+  },
+  "aalusdt/tickers": {
+   "frames": 46,
+   "records": 1,
+   "new_records": 1,
+   "last_frame_age_s": 16.9
+  },
+  "aiousdt/orderbook": {
+   "frames": 123,
+   "records": 123,
+   "new_records": 96,
+   "last_frame_age_s": 0.2
+  },
+  "aiousdt/publicTrade": {
+   "frames": 1,
+   "records": 1,
+   "new_records": 1,
+   "last_frame_age_s": 116.2
+  },
+  "aiousdt/tickers": {
+   "frames": 125,
+   "records": 50,
+   "new_records": 50,
+   "last_frame_age_s": 1.6
+  },
+  "futuusdt/orderbook": {
+   "frames": 60,
+   "records": 60,
+   "new_records": 1,
+   "last_frame_age_s": 3.1
+  },
+  "futuusdt/tickers": {
+   "frames": 2,
+   "records": 1,
+   "new_records": 1,
+   "last_frame_age_s": 87.7
+  }
+ }
+}

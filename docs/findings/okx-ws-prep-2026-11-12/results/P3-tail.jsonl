@@ -1,0 +1,10 @@
+{"file": "../frames/P3-v4a.jsonl.zst", "peer": "104.18.43.174", "bbo_records": 26827, "late": 0, "late_share_pct": 0.0, "buckets_with_late": 0, "buckets_total": 18, "longest_run_buckets": 0, "lag_max": 186}
+{"file": "../frames/P3-v4b.jsonl.zst", "peer": "172.64.144.82", "bbo_records": 26830, "late": 0, "late_share_pct": 0.0, "buckets_with_late": 0, "buckets_total": 18, "longest_run_buckets": 0, "lag_max": 173}
+{"file": "../frames/P3-v6a.jsonl.zst", "peer": "2a06:98c1:3103::ac40:9052", "bbo_records": 26829, "late": 4, "late_share_pct": 0.01, "buckets_with_late": 1, "buckets_total": 18, "longest_run_buckets": 1, "lag_max": 281}
+{"file": "../frames/P3-v6b.jsonl.zst", "peer": "2a06:98c1:3108::6812:2bae", "bbo_records": 26832, "late": 33, "late_share_pct": 0.12, "buckets_with_late": 1, "buckets_total": 18, "longest_run_buckets": 1, "lag_max": 375}
+{"pair": ["../frames/P3-v4a.jsonl.zst", "../frames/P3-v4b.jsonl.zst"], "common_late_buckets": 0, "only_first": 0, "only_second": 0}
+{"pair": ["../frames/P3-v4a.jsonl.zst", "../frames/P3-v6a.jsonl.zst"], "common_late_buckets": 0, "only_first": 0, "only_second": 1}
+{"pair": ["../frames/P3-v4a.jsonl.zst", "../frames/P3-v6b.jsonl.zst"], "common_late_buckets": 0, "only_first": 0, "only_second": 1}
+{"pair": ["../frames/P3-v4b.jsonl.zst", "../frames/P3-v6a.jsonl.zst"], "common_late_buckets": 0, "only_first": 0, "only_second": 1}
+{"pair": ["../frames/P3-v4b.jsonl.zst", "../frames/P3-v6b.jsonl.zst"], "common_late_buckets": 0, "only_first": 0, "only_second": 1}
+{"pair": ["../frames/P3-v6a.jsonl.zst", "../frames/P3-v6b.jsonl.zst"], "common_late_buckets": 0, "only_first": 1, "only_second": 1}

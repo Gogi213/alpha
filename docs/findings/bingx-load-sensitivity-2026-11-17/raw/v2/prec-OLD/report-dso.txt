@@ -1,0 +1,4 @@
+    69.00%  alpha-old        
+    20.14%  [kernel.kallsyms]
+    10.41%  libc.so.6        
+     0.45%  [vdso]           

@@ -1,0 +1,6 @@
+warning: Maximum frequency rate (750 Hz) exceeded, throttling from 1999 Hz to 750 Hz.
+         The limit can be raised via /proc/sys/kernel/perf_event_max_sample_rate.
+         The kernel will lower it when perf's interrupts take too long.
+         Use --strict-freq to disable this throttling, refusing to record.
+[ perf record: Woken up 1 times to write data ]
+[ perf record: Captured and wrote 0.908 MB /data/tk580/a.perf.data (18237 samples) ]

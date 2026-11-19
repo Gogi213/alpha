@@ -1,0 +1,20 @@
+Пробы ядра и сети (srv 5.231.25.224, 13.11 14:08–14:26 UTC; скрипты tools/collector-perf/ts_probe.py)
+
+1. ts_probe.py: одно живое соединение Binance (fstream, 32 потока bookTicker, блокирующий recv внутри ядра с SO_RCVTIMEO 200 мс, как у коллектора),
+   SO_TIMESTAMPNS; «user − kernel rx stamp» = время от приёма пакета ядром до того, как поток получил данные (Python добавляет ≈ 20–30 мкс — оценка сверху).
+   Прогоны по 25–40 с, srv под обычной нагрузкой (load ≈ 10):
+
+   busy_poll=0 мкс    wall 25.0s  recv 29085 (1163/s)  user−kernel, мкс: p50 113.9  p90 227.4  p99 530.5  p99.9 1509.2  max 9023.8   CPU потока 25.7 %  (user 3.58 с sys 2.84 с)  vol ctx sw 23327
+   busy_poll=3000 мкс wall 25.0s  recv 38027 (1521/s)  user−kernel, мкс: p50  46.4  p90 103.1  p99 304.3  p99.9 1025.0  max 9179.5   CPU потока 87.3 %  (user 2.69 с sys 19.15 с) vol ctx sw 652
+   busy_poll=0 мкс    wall 25.0s  recv 28207 (1128/s)  user−kernel, мкс: p50 113.3  p90 223.2  p99 511.8  p99.9 1222.2  max 16041.3  CPU потока 25.1 %  (user 3.79 с sys 2.49 с)  vol ctx sw 22277
+   busy_poll=3000 мкс wall 25.0s  recv 33228 (1329/s)  user−kernel, мкс: p50  47.7  p90 116.4  p99 350.5  p99.9 1076.3  max 14553.9  CPU потока 86.4 %  (user 2.26 с sys 19.34 с) vol ctx sw 796
+   (первые прогоны с Python-таймаутом сокета — poll() до recv — busy-poll не задействовали: p50 132/133/128 мкс при 0/50/200/3000 мкс; поэтому окончательные — со SO_RCVTIMEO.)
+
+2. virtio-net srv (`/sys/bus/virtio/devices/virtio3/features`, бит i = i-й символ строки): выставлены CSUM, GUEST_CSUM, CTRL_GUEST_OFFLOADS, MTU, MAC, GUEST_TSO4/6, GUEST_ECN, GUEST_UFO,
+   HOST_TSO4/6, HOST_ECN, HOST_UFO, MRG_RXBUF, STATUS, CTRL_VQ, CTRL_RX, CTRL_VLAN, GUEST_ANNOUNCE, MQ, CTRL_MAC_ADDR, INDIRECT_DESC, EVENT_IDX, VERSION_1, и биты 54–56 (USO).
+   НЕ выставлены: бит 53 NOTF_COAL (коалесценция уведомлений), 57 HASH_REPORT, 60 RSS. Итог: аппаратная модерация прерываний (`ethtool -C eth0 rx-usecs …`) хостом не предложена; `ethtool -c eth0`: rx-usecs 0, Adaptive RX off.
+   Есть программные ручки NAPI: /sys/class/net/eth0/napi_defer_hard_irqs (0), gro_flush_timeout (0). Очереди: Combined 8 (макс. 8), RPS выключен (rps_cpus 00 на всех rx-N).
+3. Ядро srv 6.12.90+deb13.1-cloud-amd64; io_uring_disabled = 0 (io_uring включён); socket(AF_XDP) создаётся.
+4. XDP на VPS София (13.140.29.171, ядро 6.8, virtio_net, 1 очередь, 4 vCPU; не на srv — боевой): `ip link set dev eth0 xdpdrv obj xdp_pass.o sec xdp` — принято (prog/xdp id 21851 jited),
+   `xdpgeneric` — принято; оба сняты (`… off`), остаточных программ 0. Вывод: нативный XDP на virtio_net этого хостера работает.
+5. Железо srv: Intel Xeon E5-2699 v4 @ 2.2 ГГц (Broadwell: AES-NI, PCLMUL, AVX2, BMI2; без AVX-512), 8 vCPU, steal ≈ 6,6 %. София: Xeon Gold 5120 (Skylake-SP), 4 vCPU.

@@ -1,0 +1,102 @@
+#!/usr/bin/env python3
+"""G-022 turbo: one-line verdict of a step window (`steps.sh`): reads win.json (abwin, run X), cov.json (coverage.py), rest.json (restcheck), cpu.json.
+
+  stepsum.py <window dir> <label> [--no-rest]   -> prints the status line, writes sum.json, exit 1 if the window is not clean.
+  --no-rest: the REST check is deferred (RESTPASS=defer, `restpass.sh`): the line carries `rest=deferred` and a missing rest.json is not a failure.
+Clean = 0 drops (`error` events), mark coverage 100 % after covered, REST missing after covered 0, 0 shard-seconds without a live session, every shard connected.
+"""
+import json
+import os
+import sys
+
+
+def load(p):
+    try:
+        return json.load(open(p))
+    except (OSError, ValueError):
+        return None
+
+
+def span_text(rest):
+    """BingX: what the REST snapshot covered — its duration and, per symbol, how much of the window the last 1000 trades reach back (busy coins: only the last seconds)."""
+    sp, sn = (rest.get("snapshot") or {}).get("rest_span"), (rest.get("snapshot") or {}).get("took_s")
+    if not sp:
+        return ""
+    cut = "" if not sp["truncated"] else f" (the last {sp['truncated_min_s']}..{sp['truncated_median_s']} s of the window, min/median)"
+    share = "—" if sp["checked_share"] is None else f"{sp['checked_share'] * 100:.0f}%"
+    return f" rest_span=full window {sp['full_window']}/{sp['symbols']} symbols, truncated {sp['truncated']}{cut}, trades checked {sp['checked_trades']}/{sp['window_trades']} ({share}) snapshot={sn}s"
+
+
+def main():
+    d, label = sys.argv[1], sys.argv[2]
+    no_rest = "--no-rest" in sys.argv[3:]
+    w = (load(os.path.join(d, "win.json")) or {}).get("runs", {}).get("X")
+    cov, rest, cpu = load(os.path.join(d, "cov.json")), load(os.path.join(d, "rest.json")), load(os.path.join(d, "cpu.json"))
+    reasons = []
+    if not w or not cov:
+        print(f"{label} FAIL no data (win.json/cov.json missing)")
+        sys.exit(1)
+    ev = w["events"]
+    drops = w.get("drops", ev.get("error", 0))  # a live session that died (abwin); older abwin: all `error` events
+    if drops:
+        reasons.append(f"drops {drops}")
+    if w.get("mark_cov") is not None and w["mark_missing_s"] > 0:
+        reasons.append(f"mark gaps {w['mark_missing_s']} s in {w['mark_symbols_with_gap']} symbols (none at all: {w['mark_symbols_without_records']})")
+    t = (rest or {}).get("total") or {}
+    miss = t.get("missing_after_covered", t.get("missing_in_file"))
+    if no_rest and rest is None:
+        miss = None
+    elif rest is None or not t:
+        reasons.append("REST check missing")
+    elif miss:
+        reasons.append(f"REST missing after covered {miss} of {t.get('rest_after_covered')}")
+    if t.get("mismatch"):
+        reasons.append(f"REST mismatches {t['mismatch']}")
+    snap_errors = len(((rest or {}).get("snapshot") or {}).get("errors") or {})  # BingX: pool symbols the REST snapshot could not fetch = not checked
+    if snap_errors:
+        reasons.append(f"REST snapshot errors {snap_errors} symbols")
+    ids = (rest or {}).get("pool_ids")  # BingX: contiguous trade ids per symbol over the whole pool (restcheck.py bingx)
+    if ids and t.get("extra_in_file"):  # BingX: a recorded trade with an id inside the REST id range that REST lacks
+        reasons.append(f"REST extra {t['extra_in_file']}")
+    if ids and ids["gaps_after_covered"]:
+        reasons.append(f"trade id gaps after covered {ids['gaps_after_covered']} in {ids['symbols_with_gaps']} symbols")
+    gate = (rest or {}).get("exchange") == "gate"  # Gate: REST history over every symbol of the window + mark-price candles (restcheck.py gate)
+    if gate and t.get("extra_in_file"):
+        reasons.append(f"REST extra {t['extra_in_file']}")
+    if gate and t.get("cells_missing_after_covered"):
+        reasons.append(f"symbol-second cells without a recorded trade after covered {t['cells_missing_after_covered']} of {t.get('cells_rest_after_covered')}")
+    if gate and t.get("mark_out_of_range", 0) > 0.05 * max(t.get("mark_judged", 0), 1):  # assigned 5 %: the candle series is sampled differently from the stream's (fast moves: the stream is 2–3 price steps ahead); measured 0–1.0 % outside the 3-bucket range, a systematic error would be far above
+        reasons.append(f"recorded marks outside the REST candles {t['mark_out_of_range']} of {t.get('mark_judged')}")
+    # assigned 1 %: `futures.tickers` pushes only when a ticker field changes, and the candle series is finer than the stream's (measured 15.11: a quiet contract's candle moves by 1–7 price steps while the stream
+    # keeps the old mark; 0–0.11 % of the moved cells, always low-volume symbols); a stall or a lost batch would miss tens of cells at once
+    if gate and t.get("mark_missed_after_covered", 0) > 0.01 * max(t.get("mark_moving_after_covered", 0), 1):
+        reasons.append(f"mark candles that moved without a recorded mark after covered {t['mark_missed_after_covered']} of {t.get('mark_moving_after_covered')}")
+    if cov["uncovered_after_first_s_total"] > 0:
+        reasons.append(f"no live session {cov['uncovered_after_first_s_total']} shard-s")
+    if cov["shards_connected"] < cov["shards"]:
+        reasons.append(f"shards connected {cov['shards_connected']}/{cov['shards']}")
+    s = {
+        "label": label, "ok": not reasons, "reasons": reasons, "shards": cov["shards"], "first_connected_max_s": cov["first_connected_s"]["max"], "dials": w["dials"], "fast_share": w["fast_share"],
+        "lag_p50": w["lag_p50"], "lag_p99": w["lag_p99"], "lag_max": w["lag_max"], "late": w["late"], "late_after_covered": w.get("late_after_covered"), "stalls": ev.get("timeout", 0) + ev.get("ping_degraded", 0), "book_n": w["book_n"], "drops": drops, "connect_errors": w.get("connect_errors"), "timeouts": ev.get("timeout", 0),
+        "path_switch": ev.get("path_switch", 0), "path_upgrade": ev.get("path_upgrade", 0), "replace_deferred": ev.get("replace_deferred", 0), "mark_cov": w.get("mark_cov"),
+        "rest_missing_after_covered": miss, "rest": t.get("rest"), "rest_mismatch": t.get("mismatch"), "id_gaps_after_covered": (ids or {}).get("gaps_after_covered"), "cells_missing_after_covered": t.get("cells_missing_after_covered"), "cells_rest_after_covered": t.get("cells_rest_after_covered"),
+        "mark_moving_missed_after_covered": t.get("mark_missed_after_covered"), "mark_moving_after_covered": t.get("mark_moving_after_covered"), "mark_out_of_range": t.get("mark_out_of_range"), "mark_records": w.get("mark_records"), "uncovered_shard_s": cov["uncovered_after_first_s_total"], "cpu_pct": (cpu or {}).get("cpu_pct"),
+        "host_load1": (cpu or {}).get("load1"), "psi_cpu10": (cpu or {}).get("psi_cpu_avg10"), "book_rps": round(w["book_n"] / 180),
+    }
+    json.dump(s, open(os.path.join(d, "sum.json"), "w"), indent=1)
+    fs = "—" if w["fast_share"] is None else f"{w['fast_share'] * 100:.0f}% ({w['fast_dials']}/{w['dials']})"
+    mc = "—" if s["mark_cov"] is None else f"{s['mark_cov'] * 100:.3f}%"
+    line = (f"{label} {'ok' if not reasons else 'FAIL'} shards={s['shards']} fast={fs} lag p50/p99/max={s['lag_p50']}/{s['lag_p99']}/{s['lag_max']} ms late={s['late']} "
+            f"late_after_covered={s['late_after_covered']} stalls(timeout+ping_degraded)={s['stalls']} drops={drops} connect_errors={s['connect_errors']} mark_cov={mc} {'rest=deferred' if no_rest and rest is None else f'rest_missing_after_covered={miss}/' + str(t.get('rest_after_covered'))} uncovered={s['uncovered_shard_s']} shard-s cpu={s['cpu_pct']}% core "
+            f"host_load1={(cpu or {}).get('load1')} psi_cpu10={(cpu or {}).get('psi_cpu_avg10')} book_rec/s={round(w['book_n'] / 180)} "
+            f"switch/upgrade/deferred={s['path_switch']}/{s['path_upgrade']}/{s['replace_deferred']}"
+            + (f" rest_mismatch={t.get('mismatch')} id_gaps_after_covered={ids['gaps_after_covered']}/{ids['trades']}" + span_text(rest) if ids else "")
+            + (f" rest_mismatch={t.get('mismatch')} rest_extra={t.get('extra_in_file')} cells_missing_after_covered={t.get('cells_missing_after_covered')}/{t.get('cells_rest_after_covered')} "
+               f"mark_moving_missed_after_covered={t.get('mark_missed_after_covered')}/{t.get('mark_moving_after_covered')} mark_out_of_range={t.get('mark_out_of_range')}/{t.get('mark_judged')} (own bucket {t.get('mark_in_own_bucket')}) mark_records={w.get('mark_records')} "
+               f"mark_gap_p50/p99/max={w.get('mark_gap_p50_s')}/{w.get('mark_gap_p99_s')}/{w.get('mark_gap_max_s')} s" if gate else ""))
+    print(line + ("" if not reasons else " | " + "; ".join(reasons)))
+    sys.exit(1 if reasons else 0)
+
+
+if __name__ == "__main__":
+    main()

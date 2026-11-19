@@ -1,0 +1,4375 @@
+//! Тесты ядра коллектора: формат (круг без потерь), разбор кадров обеих бирж (кадры живых замеров), пул и раскладка, гистограммы,
+//! свежесть, бюджет, путь, писатель (дубли, копии сырых кадров, смена суток, закрытие), сеть и шард на локальном WebSocket.
+
+use std::collections::HashSet;
+use std::net::TcpListener;
+use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering::Relaxed};
+use std::sync::Arc;
+use std::time::{Duration, Instant};
+
+use bytes::Bytes;
+use serde_json::json;
+
+use super::binance::{self, Binance};
+use super::bingx::{self, Bingx};
+use super::budget::Budget;
+use super::bybit::{self, Bybit};
+use super::codec::{Book, Decoded, Decoder, Encoder, Mark, Rec, SymEnc, Trade};
+use super::events::replay_lists;
+use super::exchange::{Entrance, Exchange, Family, Parsed};
+use super::fresh::{Fresh, KindFresh, LATE_MS};
+use super::gate::{self, Gate};
+use super::health::{build, HealthCtx, ProcSampler};
+use super::metrics::{Hist, Rolling, ShardMetrics};
+use super::net::select_addrs;
+use super::okx::{self, Okx};
+use super::path::{path_verdict, percentile, PathProbe, PathWatch};
+use super::pool::{balanced_chunks, rank_pool};
+use super::ring::{ring, Item, Payload};
+use super::runner::{lines_of, RunArgs};
+use super::scan::{each_elem, parse_i64, parse_object, single_pair, Val};
+use super::shard::{spawn_shard, ShardOpts};
+use super::sink::{run_sink, run_sink_with, sink_channel, SinkMsg};
+use super::writer::{day_string, ShardWriter, WriterCfg};
+
+const NS_PER_DAY: i64 = 86_400 * 1_000_000_000;
+
+// ---- кадры живых замеров ----
+
+const BN_BOOK: &str = r#"{"stream":"avaxusdt@bookTicker","data":{"e":"bookTicker","u":12081389761850,"s":"AVAXUSDT","ps":"AVAXUSDT","b":"8.6790","B":"42","a":"8.6800","A":"285","T":1794418695170,"E":1794418695171,"st":1}}"#;
+const BN_TRADE: &str = r#"{"stream":"aiotusdt@aggTrade","data":{"e":"aggTrade","E":1794418694042,"a":92150638,"s":"AIOTUSDT","p":"0.1742400","q":"410","nq":"410","f":180333636,"l":180333637,"T":1794418693917,"m":true,"st":1}}"#;
+const BN_MARK: &str = r#"{"stream":"!markPrice@arr@1s","data":[{"e":"markPriceUpdate","E":1794418695000,"s":"AVAXUSDT","p":"8.68001","ap":"8.68002","P":"8.67","st":1,"i":"8.6801","r":"0.00010000","T":1794441600000},{"e":"markPriceUpdate","E":1794418695000,"s":"BTCUSDT","p":"74601.07","ap":"74601.50","P":"74600.00","st":1,"i":"74634.68","r":"0.00006514","T":1794441600000}]}"#;
+
+const BB_BOOK: &str = r#"{"topic":"orderbook.1.BTCUSDT","ts":1794433022399,"type":"snapshot","data":{"s":"BTCUSDT","b":[["74600","8.454"]],"a":[["74600.1","7.416"]],"u":174478070,"seq":843868169089},"cts":1794433022398}"#;
+const BB_SNAP: &str = r#"{"topic":"tickers.BTCUSDT","type":"snapshot","data":{"symbol":"BTCUSDT","lastPrice":"74600.00","markPrice":"74601.07","indexPrice":"74634.68","fundingRate":"0.00006514","nextFundingTime":"1794441600000","bid1Price":"74600.00","openInterest":"69022.136"},"cs":1,"ts":1794433021421}"#;
+
+fn bb_fill(side: &str, v: &str, id: &str, bt: &str) -> String {
+    format!(
+        r#"{{"T":1794433203183,"s":"XRPUSDT","S":"{side}","v":"{v}","p":"1.0634","L":"PlusTick","i":"{id}","BT":{bt},"RPI":false,"seq":272596956733}}"#
+    )
+}
+
+fn bb_trade(fills: &[String]) -> String {
+    format!(
+        r#"{{"topic":"publicTrade.XRPUSDT","type":"snapshot","ts":1794433203184,"data":[{}]}}"#,
+        fills.join(",")
+    )
+}
+
+fn bb_delta(data: &str, ts: i64) -> String {
+    format!(r#"{{"topic":"tickers.BTCUSDT","type":"delta","data":{data},"cs":2,"ts":{ts}}}"#)
+}
+
+/// Разбор кадра → записи в виде декодированных строк формата (кодировщик → декодер): сравниваем с тем, что попадёт в файл.
+fn parse_all(exch: &dyn Exchange, frames: &[&str]) -> Vec<(Parsed, Vec<Decoded>)> {
+    let mut parser = exch.new_parser();
+    let (mut enc, mut st) = (
+        Encoder::new(),
+        std::collections::HashMap::<Vec<u8>, SymEnc>::new(),
+    );
+    let (mut out, mut dec) = (Vec::new(), Decoder::new());
+    for (i, f) in frames.iter().enumerate() {
+        let mut text = Vec::new();
+        let rx = 1_794_433_300_000_000_000 + i64::try_from(i).unwrap() * 1000;
+        struct Cap<'a> {
+            enc: &'a mut Encoder,
+            st: &'a mut std::collections::HashMap<Vec<u8>, SymEnc>,
+            text: &'a mut Vec<u8>,
+            rx: i64,
+        }
+        impl super::exchange::Out for Cap<'_> {
+            fn rec(&mut self, r: &Rec<'_>) {
+                let s = self.st.entry(r.sym().to_vec()).or_default();
+                self.enc.record(self.text, self.rx, s, r);
+            }
+            fn raw(&mut self, frame: &[u8]) {
+                self.enc.raw(self.text, self.rx, frame);
+            }
+        }
+        let parsed = parser.parse(
+            f.as_bytes(),
+            &mut Cap {
+                enc: &mut enc,
+                st: &mut st,
+                text: &mut text,
+                rx,
+            },
+        );
+        let recs = String::from_utf8(text)
+            .unwrap()
+            .lines()
+            .map(|l| dec.line(l).unwrap())
+            .collect();
+        out.push((parsed, recs));
+    }
+    out
+}
+
+// ---- формат ----
+
+#[test]
+fn codec_roundtrip_exact() {
+    let mut enc = Encoder::new();
+    let mut st = std::collections::HashMap::<Vec<u8>, SymEnc>::new();
+    let mut out = Vec::new();
+    let b1 = Rec::Book(Book {
+        sym: b"BTCUSDT",
+        e: 1_000_000_000_001,
+        t: 1_000_000_000_000,
+        u: 500,
+        id: 500,
+        bid: b"74600",
+        bsz: b"8.454",
+        ask: b"74600.10",
+        asz: b"7.416",
+        bn: b"",
+        an: b"",
+    });
+    let b2 = Rec::Book(Book {
+        sym: b"BTCUSDT",
+        e: 1_000_000_000_010,
+        t: 1_000_000_000_010,
+        u: 503,
+        id: 503,
+        bid: b"74600",
+        bsz: b"1",
+        ask: b"74600.10",
+        asz: b"2",
+        bn: b"",
+        an: b"",
+    });
+    let t1 = Rec::Trade(Trade {
+        sym: b"BTCUSDT",
+        e: 1_000_000_000_005,
+        t: 1_000_000_000_004,
+        a: 10,
+        id: 10,
+        p: b"74600.1",
+        q: b"0.5",
+        f: 100,
+        l: 102,
+        m: true,
+        nq: b"0.5",
+        x: b"",
+        i: b"",
+    });
+    let t2 = Rec::Trade(Trade {
+        sym: b"BTCUSDT",
+        e: 1_000_000_000_006,
+        t: 1_000_000_000_006,
+        a: 11,
+        id: 11,
+        p: b"74600.2",
+        q: b"0.7",
+        f: 103,
+        l: 103,
+        m: false,
+        nq: b"0.4",
+        x: b"R",
+        i: b"0b2a7f1e-3c44-4a3b-9d0e-1f6a2c4d5e6f",
+    });
+    let m1 = Rec::Mark(Mark {
+        sym: b"BTCUSDT",
+        e: 1_000_000_001_000,
+        p: b"74601.07",
+        ap: b"",
+        pp: b"",
+        i: b"74634.68",
+        r: b"0.0001",
+        t: 1_000_000_500_000,
+    });
+    for (i, r) in [b1, t1, b2, t2, m1].iter().enumerate() {
+        enc.record(
+            &mut out,
+            1_000_000_002_000_000_000 + i64::try_from(i).unwrap() * 250,
+            st.entry(r.sym().to_vec()).or_default(),
+            r,
+        );
+    }
+    enc.ping(&mut out, 1_000_000_002_000_001_000, 305_000);
+    enc.control(
+        &mut out,
+        1_000_000_002_000_002_000,
+        "connected",
+        "7 wss://x/y",
+    );
+    enc.raw(
+        &mut out,
+        1_000_000_002_000_003_000,
+        b"{\"result\":null,\"id\":1}",
+    );
+    let text = String::from_utf8(out).unwrap();
+    let mut dec = Decoder::new();
+    let got: Vec<Decoded> = text.lines().map(|l| dec.line(l).unwrap()).collect();
+    assert_eq!(got.len(), 8);
+    assert_eq!(
+        got[0],
+        Decoded::Book {
+            rx_ns: 1_000_000_002_000_000_000,
+            e: 1_000_000_000_001,
+            t: 1_000_000_000_000,
+            sym: "BTCUSDT".into(),
+            u: 500,
+            bid: "74600".into(),
+            bsz: "8.454".into(),
+            ask: "74600.10".into(),
+            asz: "7.416".into(),
+            bn: String::new(),
+            an: String::new(),
+        }
+    );
+    assert!(
+        matches!(&got[1], Decoded::Trade { a: 10, f: 100, l: 102, m: true, nq, i, .. } if nq == "0.5" && i.is_empty())
+    );
+    assert!(matches!(&got[2], Decoded::Book { u: 503, .. }));
+    assert!(
+        matches!(&got[3], Decoded::Trade { a: 11, f: 103, l: 103, m: false, q, nq, x, i, .. } if q == "0.7" && nq == "0.4" && x == "R" && i == "0b2a7f1e-3c44-4a3b-9d0e-1f6a2c4d5e6f")
+    );
+    // без `i` строка сделки кончается на `x`: файлы Binance не меняются побайтно
+    assert!(text.lines().nth(1).unwrap().ends_with("\t1\t\t"), "{text}");
+    assert!(matches!(&got[4], Decoded::Mark { t: 1_000_000_500_000, r, .. } if r == "0.0001"));
+    assert_eq!(
+        got[5],
+        Decoded::Ping {
+            rx_ns: 1_000_000_002_000_001_000,
+            rtt_us: 305_000
+        }
+    );
+    assert_eq!(
+        got[6],
+        Decoded::Control {
+            rx_ns: 1_000_000_002_000_002_000,
+            what: "connected".into(),
+            detail: "7 wss://x/y".into()
+        }
+    );
+    assert_eq!(
+        got[7],
+        Decoded::Raw {
+            rx_ns: 1_000_000_002_000_003_000,
+            frame: "{\"result\":null,\"id\":1}".into()
+        }
+    );
+    // `dns` первой записи — абсолютное время, дальше разности ≥ 0
+    assert!(text.starts_with("b\t1000000002000000000\t"));
+    // тот же вход, что у Python-ядра: строка книги побайтно
+    assert!(text
+        .lines()
+        .next()
+        .unwrap()
+        .ends_with("\tBTCUSDT\t500\t74600\t8.454\t74600.10\t7.416"));
+}
+
+#[test]
+fn codec_raw_replaces_newline_only() {
+    let mut out = Vec::new();
+    Encoder::new().raw(&mut out, 5, b"a\nb\tc");
+    assert_eq!(out, b"r\t5\ta b\tc\n");
+}
+
+#[test]
+fn encoder_reset_makes_next_record_absolute() {
+    let mut enc = Encoder::new();
+    let mut st = SymEnc::default();
+    let r = Rec::Book(Book {
+        sym: b"X",
+        e: 10,
+        t: 10,
+        u: 7,
+        id: 7,
+        bid: b"1",
+        bsz: b"1",
+        ask: b"2",
+        asz: b"2",
+        bn: b"",
+        an: b"",
+    });
+    let mut a = Vec::new();
+    enc.record(&mut a, 1_000, &mut st, &r);
+    enc.reset();
+    st = SymEnc::default();
+    let mut b = Vec::new();
+    enc.record(&mut b, 1_000, &mut st, &r);
+    assert_eq!(a, b);
+}
+
+// ---- сканер ----
+
+#[test]
+fn scan_object_and_values() {
+    let o = parse_object(
+        br#" {"a":"x","b":12,"c":-3,"d":true,"e":null,"f":[1,[2],"]"],"g":{"h":"}"} } "#,
+    )
+    .unwrap();
+    assert_eq!(o.len(), 7);
+    assert_eq!(o.get(b"a"), Some(Val::Str(b"x")));
+    assert_eq!(o.get(b"b").and_then(Val::int), Some(12));
+    assert_eq!(o.get(b"c").and_then(Val::int), Some(-3));
+    assert_eq!(o.get(b"d").and_then(Val::boolean), Some(true));
+    assert_eq!(o.get(b"e"), Some(Val::Null));
+    assert_eq!(o.get(b"f").and_then(Val::raw), Some(&br#"[1,[2],"]"]"#[..]));
+    assert_eq!(o.get(b"g").and_then(Val::raw), Some(&br#"{"h":"}"}"#[..]));
+    assert_eq!(parse_i64(b"1.5"), None);
+    assert_eq!(
+        parse_i64(b"1234567890123456789"),
+        None,
+        "19 цифр — не разбираем"
+    );
+    assert_eq!(
+        each_elem(br#"[ "a", 1, {"x":[1,2]}, [3] ]"#, |_| true),
+        Some(4)
+    );
+    assert_eq!(each_elem(b"[]", |_| true), Some(0));
+    assert_eq!(
+        single_pair(br#"[["74600","8.4"]]"#),
+        Some((&b"74600"[..], &b"8.4"[..]))
+    );
+    assert_eq!(single_pair(b"[]"), None);
+    assert_eq!(single_pair(br#"[["1","2"],["3","4"]]"#), None);
+    assert_eq!(single_pair(br#"[["1"]]"#), None);
+}
+
+#[test]
+fn scan_rejects_bad_input_without_panic() {
+    for bad in [
+        &b""[..],
+        b"{",
+        b"{\"a\"",
+        b"{\"a\":}",
+        b"{\"a\":1,}",
+        b"[1]",
+        b"{\"a\":\"\\n\"}",
+        b"{\"a\":tru}",
+        b"{\"a\":1} x",
+        b"\xff\xfe",
+    ] {
+        assert!(
+            parse_object(bad).is_none(),
+            "{:?}",
+            String::from_utf8_lossy(bad)
+        );
+    }
+    // детерминированный «шум»: срезы и порча настоящих кадров не роняют разбор
+    let mut seed = 0x9e37_79b9_7f4a_7c15u64;
+    let mut next = || {
+        seed ^= seed << 13;
+        seed ^= seed >> 7;
+        seed ^= seed << 17;
+        seed
+    };
+    for frame in [BN_BOOK, BN_TRADE, BN_MARK, BB_BOOK, BB_SNAP] {
+        let b = frame.as_bytes();
+        for cut in 0..b.len() {
+            let _ = parse_object(&b[..cut]);
+            for ex in [&Binance as &dyn Exchange, &Bybit] {
+                let mut p = ex.new_parser();
+                let _ = p.parse(&b[..cut], &mut super::exchange::Recs(|_: &Rec<'_>| {}));
+                let _ = ex.lag_ms(&b[..cut], 1);
+                let _ = ex.symbol(&b[..cut]);
+            }
+        }
+        for _ in 0..300 {
+            let mut c = b.to_vec();
+            let i = usize::try_from(next() % u64::try_from(c.len()).unwrap()).unwrap();
+            c[i] = u8::try_from(next() % 256).unwrap();
+            let _ = parse_object(&c);
+            for ex in [&Binance as &dyn Exchange, &Bybit] {
+                let mut p = ex.new_parser();
+                let _ = p.parse(&c, &mut super::exchange::Recs(|_: &Rec<'_>| {}));
+            }
+        }
+    }
+}
+
+// ---- Binance ----
+
+#[test]
+fn binance_parses_book_trade_mark_exactly() {
+    let r = parse_all(&Binance, &[BN_BOOK, BN_TRADE, BN_MARK]);
+    assert_eq!(r[0].0, Parsed::Recs(1));
+    assert_eq!(
+        r[0].1[0],
+        Decoded::Book {
+            rx_ns: 1_794_433_300_000_000_000,
+            e: 1_794_418_695_171,
+            t: 1_794_418_695_170,
+            sym: "AVAXUSDT".into(),
+            u: 12_081_389_761_850,
+            bid: "8.6790".into(),
+            bsz: "42".into(),
+            ask: "8.6800".into(),
+            asz: "285".into(),
+            bn: String::new(),
+            an: String::new(),
+        }
+    );
+    assert_eq!(r[1].0, Parsed::Recs(1));
+    assert!(
+        matches!(&r[1].1[0], Decoded::Trade { a: 92_150_638, f: 180_333_636, l: 180_333_637, m: true, p, q, nq, .. } if p == "0.1742400" && q == "410" && nq == "410")
+    );
+    assert_eq!(r[2].0, Parsed::Recs(2));
+    assert!(
+        matches!(&r[2].1[1], Decoded::Mark { sym, p, ap, pp, i, r, t: 1_794_441_600_000, .. } if sym == "BTCUSDT" && p == "74601.07" && ap == "74601.50" && pp == "74600.00" && i == "74634.68" && r == "0.00006514")
+    );
+}
+
+#[test]
+fn binance_unexpected_frames_stay_raw() {
+    let new_field = BN_BOOK.replace(r#""st":1"#, r#""st":1,"zz":5"#);
+    let bad_st = BN_BOOK.replace(r#""st":1"#, r#""st":2"#);
+    let ps_diff = BN_BOOK.replace(r#""ps":"AVAXUSDT""#, r#""ps":"OTHER""#);
+    let esc = BN_BOOK.replace("8.6790", "8.\\u0036790");
+    let empty_arr = r#"{"stream":"!markPrice@arr@1s","data":[]}"#;
+    let ack = r#"{"result":null,"id":1}"#;
+    let frames = [
+        new_field.as_str(),
+        bad_st.as_str(),
+        ps_diff.as_str(),
+        esc.as_str(),
+        empty_arr,
+        ack,
+        "not json",
+        "",
+    ];
+    for (f, (parsed, recs)) in frames.iter().zip(parse_all(&Binance, &frames)) {
+        assert_eq!(parsed, Parsed::Raw, "{f}");
+        assert!(recs.is_empty(), "{f}: частично разобранный кадр не пишется");
+    }
+}
+
+#[test]
+fn binance_lag_and_symbol() {
+    let rx = 1_794_418_695_271_000_000;
+    assert_eq!(Binance.lag_ms(BN_BOOK.as_bytes(), rx), Some(100.0));
+    assert_eq!(
+        Binance.lag_ms(BN_MARK.as_bytes(), 1_794_418_695_250_000_000),
+        Some(250.0)
+    );
+    assert_eq!(Binance.lag_ms(br#"{"result":null,"id":1}"#, rx), None);
+    assert_eq!(Binance.symbol(BN_BOOK.as_bytes()), Some(&b"avaxusdt"[..]));
+    assert_eq!(Binance.symbol(BN_MARK.as_bytes()), None);
+}
+
+#[test]
+fn binance_plan_layout_a_and_subscribe() {
+    let pool: Vec<String> = (0..509).map(|i| format!("S{i:03}USDT")).collect();
+    let kinds: Vec<String> = ["book", "trade", "mark"].map(String::from).to_vec();
+    let plan = Binance.plan(&pool, &kinds, 0);
+    let sizes = |k: &str| {
+        plan.iter()
+            .filter(|p| p.name.starts_with(k))
+            .map(|p| p.streams.len())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        (
+            sizes("book").len(),
+            *sizes("book").iter().max().unwrap(),
+            sizes("book").iter().sum::<usize>()
+        ),
+        (16, 32, 509)
+    );
+    assert_eq!(
+        (
+            sizes("trade").len(),
+            *sizes("trade").iter().max().unwrap(),
+            sizes("trade").iter().sum::<usize>()
+        ),
+        (8, 64, 509)
+    );
+    assert_eq!(sizes("mark"), vec![1]);
+    assert_eq!(
+        2 * plan.len(),
+        50,
+        "два линии = 50 соединений, как в боевом Python"
+    );
+    assert_eq!(plan[0].streams[0], "s000usdt@bookTicker");
+    assert_eq!(
+        (plan[0].endpoint.as_str(), plan[16].endpoint.as_str()),
+        ("public", "market")
+    );
+    assert_eq!(
+        Binance.url("public", "fstream.binance.com"),
+        "wss://fstream.binance.com/public/stream"
+    );
+    let msgs = Binance.subscribe_messages(
+        &plan[16]
+            .streams
+            .iter()
+            .chain(&plan[17].streams)
+            .cloned()
+            .collect::<Vec<_>>(),
+    );
+    let v: Vec<serde_json::Value> = msgs
+        .iter()
+        .map(|m| serde_json::from_str(m).unwrap())
+        .collect();
+    assert_eq!(
+        (
+            v[0]["params"].as_array().unwrap().len(),
+            v[1]["params"].as_array().unwrap().len()
+        ),
+        (100, 28)
+    );
+    assert_eq!(v[0]["method"], "SUBSCRIBE");
+    assert_eq!(v[1]["id"], 101);
+    let explicit = Binance.plan(&pool, &kinds[..2], 100);
+    assert!(explicit.iter().all(|p| p.streams.len() <= 100));
+}
+
+#[test]
+fn pool_rules_binance_and_bybit() {
+    let names: Vec<String> = (0..15).map(|i| format!("A{i:02}USDT")).collect();
+    let info = json!({"symbols": names.iter().map(|n| json!({"symbol": n, "status": "TRADING", "contractType": "PERPETUAL", "quoteAsset": "USDT"})).chain([
+        json!({"symbol": "QTRUSDT", "status": "TRADING", "contractType": "CURRENT_QUARTER", "quoteAsset": "USDT"}),
+        json!({"symbol": "BUSDUSD", "status": "TRADING", "contractType": "PERPETUAL", "quoteAsset": "USD"}),
+        json!({"symbol": "SETUSDT", "status": "SETTLING", "contractType": "PERPETUAL", "quoteAsset": "USDT"}),
+        json!({"symbol": "NOTICKUSDT", "status": "TRADING", "contractType": "PERPETUAL", "quoteAsset": "USDT"}),
+    ]).collect::<Vec<_>>()});
+    let mut tk: Vec<serde_json::Value> = names
+        .iter()
+        .enumerate()
+        .map(|(i, n)| json!({"symbol": n, "quoteVolume": (1_000_000 * (20 - i)).to_string()}))
+        .collect();
+    tk.extend(
+        ["QTRUSDT", "BUSDUSD", "SETUSDT"].map(|n| json!({"symbol": n, "quoteVolume": "9e9"})),
+    );
+    tk[14] = json!({"symbol": names[14], "quoteVolume": "300000"});
+    let (pool, top) = binance::select_pool(&info, &json!(tk), 300_000.0, 10);
+    assert_eq!(top, names[..10].to_vec());
+    let mut want: Vec<String> = names[10..].to_vec();
+    want.sort();
+    assert_eq!(
+        pool, want,
+        "ровно порог входит; квартальные, USD, расчётные и без тикера — нет"
+    );
+    tk[14] = json!({"symbol": names[14], "quoteVolume": "299999.99"});
+    assert!(!binance::select_pool(&info, &json!(tk), 300_000.0, 10)
+        .0
+        .contains(&names[14]));
+
+    let ins: Vec<serde_json::Value> = names.iter().map(|n| json!({"symbol": n, "status": "Trading", "contractType": "LinearPerpetual", "quoteCoin": "USDT"})).chain([json!({"symbol": "FUTUSDT", "status": "Trading", "contractType": "LinearFutures", "quoteCoin": "USDT"})]).collect();
+    let bt: Vec<serde_json::Value> = names
+        .iter()
+        .enumerate()
+        .map(|(i, n)| json!({"symbol": n, "turnover24h": (1_000_000 * (20 - i)).to_string()}))
+        .chain([json!({"symbol": "FUTUSDT", "turnover24h": "9e9"})])
+        .collect();
+    let (bpool, btop) = bybit::select_pool(&ins, &json!(bt), 300_000.0, 10);
+    assert_eq!((btop, bpool.len()), (names[..10].to_vec(), 5));
+    let qv: std::collections::BTreeMap<String, f64> = [
+        ("B".to_string(), 5.0),
+        ("A".to_string(), 5.0),
+        ("C".to_string(), 1.0),
+    ]
+    .into();
+    assert_eq!(
+        rank_pool(&qv, 2.0, 1),
+        (vec!["B".to_string()], vec!["A".to_string()]),
+        "при равном обороте топ — по имени"
+    );
+}
+
+#[test]
+fn balanced_chunks_are_even() {
+    let v: Vec<u32> = (0..408).collect();
+    let c = balanced_chunks(&v, 80);
+    assert_eq!(
+        (
+            c.len(),
+            c.iter()
+                .map(Vec::len)
+                .collect::<HashSet<_>>()
+                .into_iter()
+                .collect::<Vec<_>>()
+        ),
+        (6, vec![68])
+    );
+    assert!(balanced_chunks::<u32>(&[], 80).is_empty());
+    assert_eq!(balanced_chunks(&v[..3], 80), vec![vec![0, 1, 2]]);
+}
+
+// ---- Bybit ----
+
+#[test]
+fn bybit_book_and_lag() {
+    let r = parse_all(&Bybit, &[BB_BOOK]);
+    assert_eq!(
+        r[0].1[0],
+        Decoded::Book {
+            rx_ns: 1_794_433_300_000_000_000,
+            e: 1_794_433_022_399,
+            t: 1_794_433_022_398,
+            sym: "BTCUSDT".into(),
+            u: 843_868_169_089,
+            bid: "74600".into(),
+            bsz: "8.454".into(),
+            ask: "74600.1".into(),
+            asz: "7.416".into(),
+            bn: String::new(),
+            an: String::new(),
+        }
+    );
+    assert_eq!(
+        Bybit.lag_ms(BB_BOOK.as_bytes(), 1_794_433_022_499_000_000),
+        Some(100.0)
+    );
+    assert_eq!(Bybit.symbol(BB_BOOK.as_bytes()), Some(&b"BTCUSDT"[..]));
+    let others = [
+        BB_BOOK.replace("\"snapshot\"", "\"delta\""),
+        BB_BOOK.replace(r#""b":[["74600","8.454"]]"#, r#""b":[]"#),
+        BB_BOOK.replace("\"seq\"", "\"newfield\":1,\"seq\""),
+        r#"{"success":true,"ret_msg":"","conn_id":"x","req_id":"","op":"subscribe"}"#.to_string(),
+        r#"{"success":true,"ret_msg":"pong","conn_id":"x","req_id":"","op":"ping"}"#.to_string(),
+    ];
+    let refs: Vec<&str> = others.iter().map(String::as_str).collect();
+    assert!(parse_all(&Bybit, &refs)
+        .iter()
+        .all(|(p, r)| *p == Parsed::Raw && r.is_empty()));
+    assert_eq!(Bybit.lag_ms(br#"{"success":true}"#, 1), None);
+}
+
+#[test]
+fn bybit_trades_batch_keys_and_raw_cases() {
+    let frame = bb_trade(&[
+        bb_fill("Sell", "5.2", "id-a", "false"),
+        bb_fill("Sell", "675.8", "id-b", "false"),
+        bb_fill("Buy", "4.8", "id-c", "false"),
+    ]);
+    let r = parse_all(&Bybit, &[&frame]);
+    assert_eq!(r[0].0, Parsed::Recs(3));
+    let a: Vec<i64> = r[0]
+        .1
+        .iter()
+        .map(|d| {
+            if let Decoded::Trade { a, .. } = d {
+                *a
+            } else {
+                -1
+            }
+        })
+        .collect();
+    assert_eq!(
+        a,
+        vec![
+            272_596_956_733_000,
+            272_596_956_733_001,
+            272_596_956_733_002
+        ],
+        "пачка с общим seq → строго растущий ключ"
+    );
+    assert!(
+        matches!(&r[0].1[0], Decoded::Trade { m: true, f, l, p, q, nq, .. } if *f == 272_596_956_733_000 && f == l && p == "1.0634" && q == "5.2" && nq == "5.2")
+    );
+    assert!(
+        matches!(&r[0].1[2], Decoded::Trade { m: false, .. }),
+        "тейкер Buy → покупатель не мейкер"
+    );
+    for bad in [
+        bb_trade(&[bb_fill("Hold", "1", "i", "false")]),
+        bb_trade(&[]),
+    ] {
+        let (p, recs) = parse_all(&Bybit, &[&bad]).remove(0);
+        assert_eq!(
+            (p, recs.len()),
+            (Parsed::Raw, 0),
+            "{bad}: ни одной годной сделки — кадр сырым целиком"
+        );
+    }
+    // блок-сделка и RPI — записи с признаком в `x`
+    let flagged = bb_trade(&[
+        bb_fill("Sell", "1", "u-1", "true"),
+        bb_fill("Buy", "2", "u-2", "false").replace(r#""RPI":false"#, r#""RPI":true"#),
+        bb_fill("Buy", "3", "u-3", "false"),
+    ]);
+    let (p, recs) = parse_all(&Bybit, &[&flagged]).remove(0);
+    assert_eq!(p, Parsed::Recs(3));
+    let xs: Vec<&str> = recs
+        .iter()
+        .filter_map(|d| {
+            if let Decoded::Trade { x, .. } = d {
+                Some(x.as_str())
+            } else {
+                None
+            }
+        })
+        .collect();
+    assert_eq!(xs, ["B", "R", ""]);
+    let ids: Vec<&str> = recs
+        .iter()
+        .filter_map(|d| {
+            if let Decoded::Trade { i, .. } = d {
+                Some(i.as_str())
+            } else {
+                None
+            }
+        })
+        .collect();
+    assert_eq!(ids, ["u-1", "u-2", "u-3"], "id исполнения биржи — в файл");
+    // одна годная и одна с неизвестной стороной: годная — запись (номер в пачке по исходной позиции), негодная — один raw в кадре той же формы
+    let mixed = bb_trade(&[
+        bb_fill("Sell", "1", "ok-1", "false"),
+        bb_fill("Hold", "2", "block-1", "false"),
+        bb_fill("Buy", "3", "ok-2", "false"),
+    ]);
+    let (p, recs) = parse_all(&Bybit, &[&mixed]).remove(0);
+    assert_eq!(p, Parsed::Recs(2));
+    let keys: Vec<i64> = recs
+        .iter()
+        .filter_map(|d| {
+            if let Decoded::Trade { a, .. } = d {
+                Some(*a)
+            } else {
+                None
+            }
+        })
+        .collect();
+    assert_eq!(
+        keys,
+        vec![272_596_956_733_000, 272_596_956_733_002],
+        "ключи по позиции в пачке"
+    );
+    assert!(
+        matches!(recs.last(), Some(Decoded::Raw { frame, .. }) if frame.contains("block-1") && !frame.contains("ok-1") && frame.starts_with(r#"{"topic":"publicTrade.XRPUSDT","type":"snapshot","ts":1794433203184,"data":[{"#)),
+        "{recs:?}"
+    );
+    let huge = bb_trade(&vec![bb_fill("Sell", "1", "i", "false"); 1000]);
+    assert_eq!(
+        parse_all(&Bybit, &[&huge])[0].0,
+        Parsed::Raw,
+        "больше места в пачке — сырым"
+    );
+}
+
+#[test]
+fn bybit_mark_state_merge_and_skip() {
+    let d = |data: &str, ts| bb_delta(data, ts);
+    let f0 = d(r#"{"symbol":"BTCUSDT","markPrice":"1"}"#, 1_794_433_021_000);
+    let f2 = d(
+        r#"{"symbol":"BTCUSDT","ask1Price":"74600.10","ask1Size":"7.377"}"#,
+        1_794_433_021_521,
+    );
+    let f3 = d(
+        r#"{"symbol":"BTCUSDT","markPrice":"74602.5"}"#,
+        1_794_433_021_621,
+    );
+    let f4 = d(
+        r#"{"symbol":"BTCUSDT","markPrice":"99"}"#,
+        1_794_433_021_500,
+    );
+    let f5 = d(
+        r#"{"symbol":"BTCUSDT","indexPrice":"74700"}"#,
+        1_794_433_021_700,
+    );
+    let r = parse_all(&Bybit, &[&f0, BB_SNAP, &f2, &f3, &f4, &f5]);
+    assert_eq!(
+        (r[0].0, r[0].1.len()),
+        (Parsed::Recs(0), 0),
+        "дельта до снапшота"
+    );
+    assert!(
+        matches!(&r[1].1[0], Decoded::Mark { e: 1_794_433_021_421, p, i, r, t: 1_794_441_600_000, ap, pp, .. } if p == "74601.07" && i == "74634.68" && r == "0.00006514" && ap.is_empty() && pp.is_empty())
+    );
+    assert_eq!(r[2].1.len(), 0, "изменились bid/ask — не mark");
+    assert!(
+        matches!(&r[3].1[0], Decoded::Mark { e: 1_794_433_021_621, p, i, .. } if p == "74602.5" && i == "74634.68"),
+        "{:?}",
+        r[3]
+    );
+    assert_eq!(
+        r[4].1.len(),
+        0,
+        "запоздавшая дельта другого пути не портит состояние"
+    );
+    assert!(matches!(&r[5].1[0], Decoded::Mark { p, i, .. } if p == "74602.5" && i == "74700"));
+}
+
+/// Живой замер 12.11 (srv): `tickers` несёт десятки полей — разбор не должен ограничиваться числом полей объекта.
+#[test]
+fn bybit_tickers_with_many_fields_still_parse() {
+    let snap = r#"{"topic":"tickers.ETHUSDT","type":"snapshot","data":{"symbol":"ETHUSDT","tickDirection":"PlusTick","price24hPcnt":"-0.012","lastPrice":"3000.10","prevPrice24h":"3036.5","highPrice24h":"3050","lowPrice24h":"2950","prevPrice1h":"2999","markPrice":"3000.12","indexPrice":"3000.5","openInterest":"1000.1","openInterestValue":"3000000","turnover24h":"5e9","volume24h":"1.6e6","nextFundingTime":"1794441600000","fundingRate":"0.0001","bid1Price":"3000.1","bid1Size":"5","ask1Price":"3000.2","ask1Size":"7","preOpenPrice":"","preQty":"","curPreListingPhase":"","fundingIntervalHour":"8","basisRate":"0","basis":"0","deliveryFeeRate":"","predictedDeliveryPrice":"","deliveryTime":"0"},"cs":9,"ts":1794433021421}"#;
+    let delta = r#"{"topic":"tickers.ETHUSDT","type":"delta","data":{"symbol":"ETHUSDT","markPrice":"3001.0","bid1Price":"3000.9","a":{"nested":[1,2]}},"cs":10,"ts":1794433021521}"#;
+    let r = parse_all(&Bybit, &[snap, delta]);
+    assert!(
+        matches!(&r[0].1[0], Decoded::Mark { sym, p, i, r, t: 1_794_441_600_000, .. } if sym == "ETHUSDT" && p == "3000.12" && i == "3000.5" && r == "0.0001"),
+        "{:?}",
+        r[0]
+    );
+    assert!(
+        matches!(&r[1].1[0], Decoded::Mark { p, i, .. } if p == "3001.0" && i == "3000.5"),
+        "{:?}",
+        r[1]
+    );
+}
+
+#[test]
+fn bybit_plan_entrances_and_subscribe() {
+    let pool: Vec<String> = (0..408).map(|i| format!("S{i:03}USDT")).collect();
+    let kinds: Vec<String> = ["book", "trade", "mark"].map(String::from).to_vec();
+    let plan = Bybit.plan(&pool, &kinds, 0);
+    assert_eq!(plan.len(), 18);
+    assert!(plan.iter().all(|p| p.streams.len() == 68));
+    assert_eq!(
+        (
+            plan[0].streams[0].as_str(),
+            plan[6].streams[0].as_str(),
+            plan[12].streams[0].as_str()
+        ),
+        (
+            "orderbook.1.S000USDT",
+            "publicTrade.S000USDT",
+            "tickers.S000USDT"
+        )
+    );
+    assert_eq!(
+        Bybit.url("linear", "stream.bybit.kz"),
+        "wss://stream.bybit.kz/v5/public/linear"
+    );
+    let m: serde_json::Value =
+        serde_json::from_str(&Bybit.subscribe_messages(&plan[0].streams)[0]).unwrap();
+    assert_eq!(
+        (m["op"].as_str(), m["args"].as_array().map(Vec::len)),
+        (Some("subscribe"), Some(68))
+    );
+    let lines = Bybit.default_entrances(2);
+    assert_eq!(
+        (lines[0][0].host.as_str(), lines[0][0].family),
+        ("stream.bybit.com", Family::V4)
+    );
+    assert_eq!(
+        (lines[0][1].host.as_str(), lines[0][1].family),
+        ("stream.bybit.com", Family::V6),
+        "запасной линии 0 — IPv6 того же имени (Python)"
+    );
+    assert_eq!(
+        (lines[1][0].host.as_str(), lines[1][1].host.as_str()),
+        ("stream.bybit.kz", "stream.bybitgeorgia.ge"),
+        "линия 1 — kz, запасной georgia (Python)"
+    );
+    let e = Entrance::parse("stream.bybit.com@13.226.244.52", Family::Any).unwrap();
+    assert_eq!(
+        (e.family, e.ip.map(|i| i.to_string())),
+        (Family::V4, Some("13.226.244.52".into()))
+    );
+    assert_eq!(
+        Entrance::parse("h@v6", Family::V4).unwrap().family,
+        Family::V6
+    );
+    assert_eq!(Entrance::parse("h", Family::V4).unwrap().family, Family::V4);
+    assert!(
+        Entrance::parse("@1.2.3.4", Family::Any).is_err()
+            && Entrance::parse("h@nope", Family::Any).is_err()
+    );
+}
+
+// ---- OKX ----
+
+const OK_BOOK: &str = r#"{"arg":{"channel":"bbo-tbt","instId":"BTC-USDT-SWAP"},"data":[{"asks":[["73525.1","410.62","0","32"]],"bids":[["73525","607.92","0","47"]],"ts":"1794471872705","seqId":352851720643}]}"#;
+const OK_TRADE: &str = r#"{"arg":{"channel":"trades","instId":"BTC-USDT-SWAP"},"data":[{"instId":"BTC-USDT-SWAP","tradeId":"3065992813","px":"73525.1","sz":"10.28","side":"buy","ts":"1794471876286","count":"6","source":"0","seqId":352851722116}]}"#;
+const OK_MARK: &str = r#"{"arg":{"channel":"mark-price","instId":"BTC-USDT-SWAP"},"data":[{"instId":"BTC-USDT-SWAP","instType":"SWAP","markPx":"73525.0","ts":"1794471872430"}]}"#;
+const OK_INDEX: &str = r#"{"arg":{"channel":"index-tickers","instId":"BTC-USDT"},"data":[{"instId":"BTC-USDT","idxPx":"73557.7","open24h":"73678.4","high24h":"74789","low24h":"73355","sodUtc0":"73980","sodUtc8":"73967.6","ts":"1794471872500"}]}"#;
+const OK_FUND: &str = r#"{"arg":{"channel":"funding-rate","instId":"BTC-USDT-SWAP"},"data":[{"formulaType":"withRate","fundingRate":"0.0000871484324502","fundingTime":"1794499200000","impactValue":"20000.0000000000000000","instId":"BTC-USDT-SWAP","instType":"SWAP","interestRate":"0.0001000000000000","maxFundingRate":"0.00375","method":"current_period","minFundingRate":"-0.00375","nextFundingRate":"","nextFundingTime":"1794528000000","premium":"0.0001","prevFundingTime":"1794470400000","settFundingRate":"","settState":"settled","ts":"1794471872600"}]}"#;
+const OK_NOTICE: &str = r#"{"event":"notice","code":"64008","msg":"The connection will soon be closed for a service upgrade. Please reconnect.","connId":"7adac232"}"#;
+
+fn ok_trade(elems: &[&str]) -> String {
+    format!(
+        r#"{{"arg":{{"channel":"trades","instId":"BTC-USDT-SWAP"}},"data":[{}]}}"#,
+        elems.join(",")
+    )
+}
+
+fn ok_fill(id: &str, side: &str, count: &str, source: &str) -> String {
+    format!(
+        r#"{{"instId":"BTC-USDT-SWAP","tradeId":"{id}","px":"73525.1","sz":"10.28","side":"{side}","ts":"1794471876286","count":"{count}","source":"{source}","seqId":352851722116}}"#
+    )
+}
+
+#[test]
+fn okx_book_keeps_order_counts_and_goes_raw_on_unknown_shapes() {
+    let r = parse_all(&Okx::default(), &[OK_BOOK]);
+    assert_eq!(r[0].0, Parsed::Recs(1));
+    assert_eq!(
+        r[0].1[0],
+        Decoded::Book {
+            rx_ns: 1_794_433_300_000_000_000,
+            e: 1_794_471_872_705,
+            t: 1_794_471_872_705,
+            sym: "BTC-USDT-SWAP".into(),
+            u: 352_851_720_643,
+            bid: "73525".into(),
+            bsz: "607.92".into(),
+            ask: "73525.1".into(),
+            asz: "410.62".into(),
+            bn: "47".into(),
+            an: "32".into(),
+        }
+    );
+    let okx = Okx::default();
+    assert_eq!(
+        okx.lag_ms(OK_BOOK.as_bytes(), 1_794_471_872_805_000_000),
+        Some(100.0)
+    );
+    assert_eq!(okx.symbol(OK_BOOK.as_bytes()), Some(&b"BTC-USDT-SWAP"[..]));
+    assert_eq!(
+        okx.symbol(OK_INDEX.as_bytes()),
+        None,
+        "индекс — не контракт пула"
+    );
+    let others = [
+        OK_BOOK.replace(r#""0","32""#, r#""1","32""#),
+        OK_BOOK.replace(r#""seqId""#, r#""newfield":1,"seqId""#),
+        OK_BOOK.replace(r#"[["73525.1","410.62","0","32"]]"#, "[]"),
+        OK_BOOK.replace(
+            r#"[["73525","607.92","0","47"]]"#,
+            r#"[["73525","607.92","0","47"],["73524","1","0","1"]]"#,
+        ),
+        OK_BOOK.replace(
+            r#""instId":"BTC-USDT-SWAP"},"data""#,
+            r#""instId":"BTC-USDT-SWAP","x":1},"data""#,
+        ),
+        r#"{"event":"subscribe","arg":{"channel":"bbo-tbt","instId":"BTC-USDT-SWAP"},"connId":"7adac232"}"#.to_string(),
+        r#"{"event":"error","code":"60018","msg":"Wrong URL or channel:trades-all,instId:BTC-USDT-SWAP doesn't exist.","connId":"x"}"#.to_string(),
+        OK_NOTICE.to_string(),
+    ];
+    let refs: Vec<&str> = others.iter().map(String::as_str).collect();
+    for (i, (p, recs)) in parse_all(&okx, &refs).iter().enumerate() {
+        assert!(*p == Parsed::Raw && recs.is_empty(), "кадр {i}: {p:?}");
+    }
+    assert_eq!(okx.lag_ms(OK_NOTICE.as_bytes(), 1), None);
+}
+
+#[test]
+fn okx_trade_aggregate_ranges_side_and_source() {
+    let r = parse_all(&Okx::default(), &[OK_TRADE]);
+    assert_eq!(r[0].0, Parsed::Recs(1));
+    assert_eq!(
+        r[0].1[0],
+        Decoded::Trade {
+            rx_ns: 1_794_433_300_000_000_000,
+            e: 1_794_471_876_286,
+            t: 1_794_471_876_286,
+            sym: "BTC-USDT-SWAP".into(),
+            a: 3_065_992_813,
+            p: "73525.1".into(),
+            q: "10.28".into(),
+            f: 3_065_992_808,
+            l: 3_065_992_813,
+            m: false,
+            nq: "10.28".into(),
+            x: String::new(),
+            i: String::new(),
+        }
+    );
+    let sell_elp = ok_trade(&[&ok_fill("3065992805", "sell", "1", "1")]);
+    let r = parse_all(&Okx::default(), &[&sell_elp]);
+    let Decoded::Trade { a, f, l, m, x, .. } = &r[0].1[0] else {
+        panic!("{:?}", r[0].1);
+    };
+    assert_eq!(
+        (*a, *f, *l, *m, x.as_str()),
+        (3_065_992_805, 3_065_992_805, 3_065_992_805, true, "E")
+    );
+    // элемент с неизвестным источником/стороной/счётчиком — raw, годный рядом — запись
+    let mixed = ok_trade(&[
+        &ok_fill("10", "buy", "1", "0"),
+        &ok_fill("11", "buy", "1", "2"),
+        &ok_fill("12", "hold", "1", "0"),
+        &ok_fill("13", "buy", "0", "0"),
+    ]);
+    let r = parse_all(&Okx::default(), &[&mixed]);
+    assert_eq!(r[0].0, Parsed::Recs(1));
+    let raws: Vec<&Decoded> = r[0]
+        .1
+        .iter()
+        .filter(|d| matches!(d, Decoded::Raw { .. }))
+        .collect();
+    assert_eq!(raws.len(), 1, "негодные элементы — одним raw");
+    let Decoded::Raw { frame, .. } = raws[0] else {
+        unreachable!()
+    };
+    assert!(frame.starts_with(r#"{"arg":{"channel":"trades","instId":"BTC-USDT-SWAP"},"data":[{"#));
+    assert_eq!(frame.matches("tradeId").count(), 3);
+    let all_bad = ok_trade(&[&ok_fill("11", "buy", "1", "2")]);
+    assert_eq!(parse_all(&Okx::default(), &[&all_bad])[0].0, Parsed::Raw);
+}
+
+#[test]
+fn okx_mark_needs_index_and_funding_state_then_writes_every_frame() {
+    let newer_idx = OK_INDEX
+        .replace("73557.7", "73560.1")
+        .replace("872500", "872700");
+    let stale_idx = OK_INDEX
+        .replace("73557.7", "70000")
+        .replace("872500", "872000");
+    let later_mark = OK_MARK
+        .replace("73525.0", "73525.5")
+        .replace("872430", "872630");
+    let last_mark = later_mark.replace("872630", "872830");
+    let r = parse_all(
+        &Okx::default(),
+        &[
+            OK_MARK,
+            OK_INDEX,
+            OK_MARK,
+            OK_FUND,
+            OK_MARK,
+            &stale_idx,
+            &later_mark,
+            &newer_idx,
+            &last_mark,
+        ],
+    );
+    assert_eq!(
+        r[0].0,
+        Parsed::Raw,
+        "до индекса и ставки запись m неполная — кадр сырым"
+    );
+    assert_eq!(r[1].0, Parsed::Recs(0), "индекс — состояние, не запись");
+    assert_eq!(r[2].0, Parsed::Raw, "ставки ещё нет");
+    assert_eq!(r[3].0, Parsed::Recs(0));
+    let mark = |d: &Decoded| match d {
+        Decoded::Mark {
+            e,
+            p,
+            i,
+            r,
+            t,
+            ap,
+            pp,
+            ..
+        } => (
+            *e,
+            p.clone(),
+            i.clone(),
+            r.clone(),
+            *t,
+            ap.clone(),
+            pp.clone(),
+        ),
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(
+        mark(&r[4].1[0]),
+        (
+            1_794_471_872_430,
+            "73525.0".into(),
+            "73557.7".into(),
+            "0.0000871484324502".into(),
+            1_794_499_200_000,
+            String::new(),
+            String::new()
+        )
+    );
+    assert_eq!(
+        mark(&r[6].1[0]).2,
+        "73557.7",
+        "запоздавший индекс состояние не портит"
+    );
+    assert_eq!(mark(&r[6].1[0]).1, "73525.5");
+    assert_eq!(
+        mark(&r[8].1[0]).2,
+        "73560.1",
+        "новый индекс виден в следующей записи"
+    );
+}
+
+#[test]
+fn okx_plan_keeps_a_symbol_in_one_shard_and_subscribes_by_hundreds() {
+    let okx = Okx::default();
+    let pool: Vec<String> = (0..346).map(|i| format!("S{i:03}-USDT-SWAP")).collect();
+    let kinds: Vec<String> = ["book", "trade", "mark"].map(String::from).to_vec();
+    let plan = okx.plan(&pool, &kinds, 0);
+    let sizes = |p: &str| -> Vec<usize> {
+        plan.iter()
+            .filter(|x| x.name.starts_with(p))
+            .map(|x| x.streams.len())
+            .collect()
+    };
+    assert_eq!(sizes("book"), vec![87, 87, 87, 85]);
+    assert_eq!(sizes("trade"), vec![87, 87, 87, 85]);
+    assert_eq!(
+        sizes("mark"),
+        vec![261, 261, 261, 255],
+        "87 символов × 3 канала"
+    );
+    assert_eq!(plan[0].streams[0], "bbo-tbt:S000-USDT-SWAP");
+    assert_eq!(plan[4].streams[0], "trades:S000-USDT-SWAP");
+    let mark0 = &plan[8].streams;
+    assert_eq!(
+        (mark0[0].as_str(), mark0[1].as_str(), mark0[2].as_str()),
+        (
+            "mark-price:S000-USDT-SWAP",
+            "index-tickers:S000-USDT",
+            "funding-rate:S000-USDT-SWAP"
+        )
+    );
+    let mut all: Vec<&String> = plan
+        .iter()
+        .filter(|x| x.name.starts_with("mark"))
+        .flat_map(|x| x.streams.iter())
+        .collect();
+    all.sort();
+    all.dedup();
+    assert_eq!(all.len(), 346 * 3, "каждый символ ровно в одном шарде");
+    assert_eq!(
+        okx.plan(&pool, &["mark".to_string()], 30).len(),
+        35,
+        "30 аргументов — 10 символов на шард"
+    );
+    let msgs = okx.subscribe_messages(&plan[8].streams);
+    assert_eq!(msgs.len(), 3);
+    let m: serde_json::Value = serde_json::from_str(&msgs[0]).unwrap();
+    assert_eq!(
+        (
+            m["op"].as_str(),
+            m["args"].as_array().map(Vec::len),
+            m["args"][1]["channel"].as_str(),
+            m["args"][1]["instId"].as_str()
+        ),
+        (
+            Some("subscribe"),
+            Some(100),
+            Some("index-tickers"),
+            Some("S000-USDT")
+        )
+    );
+    assert_eq!(
+        okx.url("public", "ws.okx.com"),
+        "wss://ws.okx.com/ws/v5/public"
+    );
+    let lines = okx.default_entrances(2);
+    assert_eq!(
+        (
+            lines[0][0].family,
+            lines[0][1].family,
+            lines[1][0].family,
+            lines[1][1].family
+        ),
+        (Family::V4, Family::V6, Family::V4, Family::V6)
+    );
+    assert!(lines.iter().flatten().all(|e| e.host == "ws.okx.com"));
+    assert_eq!(okx.default_top_exclude(), 0);
+    assert_eq!(
+        Bybit.default_top_exclude(),
+        0,
+        "топ-10 не исключается нигде (16.11)"
+    );
+    assert_eq!(Binance.default_top_exclude(), 0);
+}
+
+#[test]
+fn okx_pool_rule_turnover_filters_and_meta() {
+    let inst = |id: &str, ct: &str, settle: &str, state: &str| {
+        json!({"instId": id, "ctType": ct, "settleCcy": settle, "state": state, "ctVal": "0.01", "ctMult": "1", "ctValCcy": "BTC", "lotSz": "1",
+               "tickSz": "0.1", "minSz": "1", "instFamily": "BTC-USDT", "instCategory": "1", "listTime": "1"})
+    };
+    let tick =
+        |id: &str, vol: &str, last: &str| json!({"instId": id, "volCcy24h": vol, "last": last});
+    let instruments = vec![
+        inst("BTC-USDT-SWAP", "linear", "USDT", "live"),
+        inst("ETH-USDT-SWAP", "linear", "USDT", "live"),
+        inst("DEAD-USDT-SWAP", "linear", "USDT", "suspend"),
+        inst("BTC-USD-SWAP", "inverse", "BTC", "live"),
+        inst("BTC-USDC-SWAP", "linear", "USDC", "live"),
+        inst("THIN-USDT-SWAP", "linear", "USDT", "live"),
+        inst("NOTICK-USDT-SWAP", "linear", "USDT", "live"),
+    ];
+    let tickers = vec![
+        tick("BTC-USDT-SWAP", "1000", "70000"),
+        tick("ETH-USDT-SWAP", "1000", "2000"),
+        tick("DEAD-USDT-SWAP", "1000000", "1"),
+        tick("BTC-USD-SWAP", "1000000", "1"),
+        tick("BTC-USDC-SWAP", "1000000", "1"),
+        tick("THIN-USDT-SWAP", "1", "100000"),
+    ];
+    let (pool, top, extra) = okx::select_pool(&instruments, &tickers, 300_000.0, 0);
+    assert_eq!(
+        (pool, top),
+        (
+            vec!["BTC-USDT-SWAP".to_string(), "ETH-USDT-SWAP".to_string()],
+            vec![]
+        )
+    );
+    assert_eq!(extra["meta"]["ETH-USDT-SWAP"]["ctVal"], "0.01");
+    assert_eq!(extra["qv"]["BTC-USDT-SWAP"], 70_000_000.0);
+    assert!(extra["meta"].get("THIN-USDT-SWAP").is_none());
+    let (pool, top, _) = okx::select_pool(&instruments, &tickers, 300_000.0, 1);
+    assert_eq!(
+        (pool, top),
+        (
+            vec!["ETH-USDT-SWAP".to_string()],
+            vec!["BTC-USDT-SWAP".to_string()]
+        )
+    );
+}
+
+#[test]
+fn okx_retire_notice_only_for_64008() {
+    let okx = Okx::default();
+    assert!(okx.is_retire_notice(OK_NOTICE.as_bytes()));
+    assert!(!okx.is_retire_notice(OK_NOTICE.replace("64008", "64010").as_bytes()));
+    assert!(!okx.is_retire_notice(OK_BOOK.as_bytes()));
+    assert!(!Bybit.is_retire_notice(OK_NOTICE.as_bytes()));
+}
+
+fn okx_book_frame(u: i64, e: i64) -> String {
+    format!(
+        r#"{{"arg":{{"channel":"bbo-tbt","instId":"BTC-USDT-SWAP"}},"data":[{{"asks":[["1.1","3","0","2"]],"bids":[["1.0","2","0","1"]],"ts":"{e}","seqId":{u}}}]}}"#
+    )
+}
+
+#[test]
+fn okx_service_upgrade_notice_opens_a_replacement_without_a_gap() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let (head, stop_src) = (
+        Arc::new(std::sync::atomic::AtomicI64::new(0)),
+        Arc::new(AtomicBool::new(false)),
+    );
+    let once = Arc::new(AtomicBool::new(false));
+    let src = spawn_tape_with(
+        listener,
+        head,
+        Arc::clone(&stop_src),
+        okx_book_frame,
+        Some((once, OK_NOTICE)),
+    );
+    let dir = tempfile::tempdir().unwrap();
+    let (mut opts, mut plan) = book_shard(dir.path(), port, (0.2, 0.5));
+    plan.streams = vec!["bbo-tbt:BTC-USDT-SWAP".into()];
+    (opts.overlap, opts.switch_wait) = (Duration::from_millis(800), Duration::from_secs(5));
+    let exch: Arc<dyn Exchange> = Arc::new(Okx::default());
+    let stop = Arc::new(AtomicBool::new(false));
+    let budget = Arc::new(Budget::new(50, Duration::from_secs(300)));
+    let h = spawn_shard(
+        &exch,
+        &plan,
+        &[vec![Entrance::new("127.0.0.1", Family::V4)]],
+        &opts,
+        &budget,
+        &stop,
+    )
+    .unwrap();
+    let t0 = Instant::now();
+    while count_events(dir.path(), "rotated") < 1 && t0.elapsed() < Duration::from_secs(20) {
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    std::thread::sleep(Duration::from_millis(600));
+    stop.store(true, Relaxed);
+    h.join();
+    stop_src.store(true, Relaxed);
+    src.join().unwrap();
+    assert_eq!(
+        count_events(dir.path(), "notice"),
+        1,
+        "предупреждение принято один раз"
+    );
+    assert_eq!(
+        count_events(dir.path(), "rotated"),
+        1,
+        "замена по предупреждению, возраст до 23 ч далеко"
+    );
+    assert_eq!(
+        count_events(dir.path(), "entrance_switch"),
+        0,
+        "вход не меняется"
+    );
+    assert_eq!(count_events(dir.path(), "connected"), 2);
+    assert_u_contiguous(dir.path());
+    let raws = read_days(dir.path())
+        .iter()
+        .flat_map(|d| d.1.iter())
+        .filter(|d| matches!(d, Decoded::Raw { frame, .. } if frame.contains("64008")))
+        .count();
+    assert_eq!(raws, 1, "само предупреждение записано как пришло");
+}
+
+// ---- BingX ----
+
+const BX_BOOK: &str = r#"{"code":0,"dataType":"NCCOGOLD2USD-USDT@bookTicker","data":{"e":"bookTicker","u":290557857,"E":1794490576218,"T":1794490576115,"s":"NCCOGOLD2USD-USDT","b":"3912.21","B":"59.6554","a":"3912.22","A":"93.3727"}}"#;
+const BX_TRADE: &str = r#"{"code":0,"dataType":"NCCOGOLD2USD-USDT@trade","data":[{"t":"198076694","q":"0.0044","p":"3912.21","T":1794490576035,"m":true,"s":"NCCOGOLD2USD-USDT"},{"t":"198076695","q":"0.0014","p":"3912.21","T":1794490576035,"m":true,"s":"NCCOGOLD2USD-USDT"}]}"#;
+const BX_MARK: &str = r#"{"code":0,"dataType":"ETH-USDT@markPrice","data":{"e":"markPriceUpdate","E":1794490576785,"s":"ETH-USDT","p":"2009.84"}}"#;
+const BX_ACK: &str = r#"{"id":"BTC-USDT@bookTicker","code":0,"msg":"","dataType":"","data":null}"#;
+const BX_OVER: &str = r#"{"id":"bt-ELSA-USDT","code":80403,"msg":"your topic num over max 200","dataType":"","data":null}"#;
+
+fn bx_fill(id: &str, m: &str) -> String {
+    format!(r#"{{"t":"{id}","q":"0.5","p":"70000.1","T":1794490576035,"m":{m},"s":"BTC-USDT"}}"#)
+}
+
+fn bx_trade(elems: &[&str]) -> String {
+    format!(
+        r#"{{"code":0,"dataType":"BTC-USDT@trade","data":[{}]}}"#,
+        elems.join(",")
+    )
+}
+
+fn bx_book(u: i64, t: i64, e: i64) -> String {
+    format!(
+        r#"{{"code":0,"dataType":"BTC-USDT@bookTicker","data":{{"e":"bookTicker","u":{u},"E":{e},"T":{t},"s":"BTC-USDT","b":"1.0","B":"2","a":"1.1","A":"3"}}}}"#
+    )
+}
+
+#[test]
+fn bingx_frames_parse_exactly_and_unknown_shapes_go_raw() {
+    let bx = Bingx::default();
+    let r = parse_all(&bx, &[BX_BOOK, BX_TRADE, BX_MARK]);
+    assert_eq!(r[0].0, Parsed::Recs(1));
+    assert_eq!(
+        r[0].1[0],
+        Decoded::Book {
+            rx_ns: 1_794_433_300_000_000_000,
+            e: 1_794_490_576_218,
+            t: 1_794_490_576_115,
+            sym: "NCCOGOLD2USD-USDT".into(),
+            u: 290_557_857,
+            bid: "3912.21".into(),
+            bsz: "59.6554".into(),
+            ask: "3912.22".into(),
+            asz: "93.3727".into(),
+            bn: String::new(),
+            an: String::new(),
+        }
+    );
+    assert_eq!(r[1].0, Parsed::Recs(2), "пачка сделок — запись на сделку");
+    for (d, (id, q)) in r[1]
+        .1
+        .iter()
+        .zip([(198_076_694, "0.0044"), (198_076_695, "0.0014")])
+    {
+        assert_eq!(
+            *d,
+            Decoded::Trade {
+                rx_ns: 1_794_433_300_000_001_000,
+                e: 1_794_490_576_035,
+                t: 1_794_490_576_035,
+                sym: "NCCOGOLD2USD-USDT".into(),
+                a: id,
+                p: "3912.21".into(),
+                q: q.into(),
+                f: id,
+                l: id,
+                m: true,
+                nq: q.into(),
+                x: String::new(),
+                i: String::new(),
+            }
+        );
+    }
+    assert_eq!(
+        r[2].1[0],
+        Decoded::Mark {
+            rx_ns: 1_794_433_300_000_002_000,
+            e: 1_794_490_576_785,
+            sym: "ETH-USDT".into(),
+            p: "2009.84".into(),
+            ap: String::new(),
+            pp: String::new(),
+            i: String::new(),
+            r: String::new(),
+            t: 0,
+        },
+        "индекс и ставка в потоке BingX не приходят — столбцы пусты"
+    );
+    assert_eq!(
+        bx.lag_ms(BX_BOOK.as_bytes(), 1_794_490_576_318_000_000),
+        Some(100.0)
+    );
+    assert_eq!(
+        bx.lag_ms(BX_TRADE.as_bytes(), 1_794_490_576_135_000_000),
+        Some(100.0),
+        "сделка — T первой в пачке"
+    );
+    assert_eq!(
+        bx.lag_ms(BX_MARK.as_bytes(), 1_794_490_576_885_000_000),
+        Some(100.0)
+    );
+    assert_eq!(bx.lag_ms(BX_ACK.as_bytes(), 1), None);
+    assert_eq!(
+        bx.symbol(BX_BOOK.as_bytes()),
+        Some(&b"NCCOGOLD2USD-USDT"[..])
+    );
+    assert_eq!(bx.symbol(BX_MARK.as_bytes()), Some(&b"ETH-USDT"[..]));
+    assert_eq!(
+        bx.symbol(BX_ACK.as_bytes()),
+        None,
+        "ответ подписки — не символ"
+    );
+    let others = [
+        BX_ACK.to_string(),
+        BX_OVER.to_string(),
+        BX_BOOK.replace(r#""code":0"#, r#""code":1"#),
+        BX_BOOK.replace(r#""A":"93.3727""#, r#""A":"93.3727","zz":1"#),
+        BX_BOOK.replace(r#""e":"bookTicker""#, r#""e":"bookTickerX""#),
+        BX_BOOK.replace(r#""s":"NCCOGOLD2USD-USDT""#, r#""s":"OTHER-USDT""#),
+        BX_BOOK.replace(r#""u":290557857"#, r#""u":"290557857""#),
+        BX_BOOK.replace("@bookTicker", "@depth5@200ms"),
+        BX_MARK.replace(r#""p":"2009.84""#, r#""p":"2009.84","i":"1""#),
+        bx_trade(&[]),
+        bx_trade(&[&bx_fill("1", "\"true\"")]),
+        r#"{"code":0,"dataType":"BTC-USDT@trade","data":null}"#.to_string(),
+    ];
+    let refs: Vec<&str> = others.iter().map(String::as_str).collect();
+    for (i, (p, recs)) in parse_all(&bx, &refs).iter().enumerate() {
+        assert!(*p == Parsed::Raw && recs.is_empty(), "кадр {i}: {p:?}");
+    }
+    // годные элементы пачки — записи, негодные — один raw в кадре той же формы
+    let mixed = bx_trade(&[
+        &bx_fill("10", "false"),
+        &bx_fill("11", "\"x\""),
+        &bx_fill("12", "true"),
+        &bx_fill("13", "1"),
+    ]);
+    let r = parse_all(&bx, &[&mixed]);
+    assert_eq!(r[0].0, Parsed::Recs(2));
+    let raws: Vec<&Decoded> = r[0]
+        .1
+        .iter()
+        .filter(|d| matches!(d, Decoded::Raw { .. }))
+        .collect();
+    assert_eq!(raws.len(), 1);
+    let Decoded::Raw { frame, .. } = raws[0] else {
+        unreachable!()
+    };
+    assert!(frame.starts_with(r#"{"code":0,"dataType":"BTC-USDT@trade","data":[{"#));
+    assert_eq!(frame.matches(r#""t":""#).count(), 2);
+}
+
+#[test]
+fn bingx_trade_ids_out_of_order_are_kept_and_identity_dedups_across_lines() {
+    let r = rig(Arc::new(Bingx::default()), 20);
+    let t = 20_000 * NS_PER_DAY + 1_000_000_000;
+    let ms = |m: i64| t + m * 1_000_000;
+    // id сделок BingX приходят не по порядку у 1–6 % (подготовка п. 3): меньший id после большего — новая сделка, не дубль
+    let fill = |id: &str| bx_trade(&[&bx_fill(id, "false")]);
+    r.frame(ms(1), 1, &fill("100"));
+    r.frame(ms(2), 1, &fill("102"));
+    r.frame(ms(3), 1, &fill("101"));
+    r.frame(ms(4), 2, &fill("102")); // та же сделка с другой линии
+    r.frame(ms(5), 2, &fill("99"));
+    // книга: у каждого соединения свой u, личность — T
+    r.frame(ms(6), 1, &bx_book(317_924_135, 5_000, 5_006));
+    r.frame(ms(7), 2, &bx_book(759_670_106, 5_000, 5_006)); // то же состояние, другой u
+    r.frame(ms(8), 2, &bx_book(759_670_107, 5_385, 5_391));
+    r.frame(ms(9), 1, BX_MARK);
+    r.frame(ms(10), 2, BX_MARK); // тот же E с другой линии
+    let (dir, m) = r.finish();
+    let rows = &read_days(dir.path())[0].1;
+    let trades: Vec<i64> = rows
+        .iter()
+        .filter_map(|d| match d {
+            Decoded::Trade { a, .. } => Some(*a),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(trades, [100, 102, 101, 99]);
+    let books: Vec<i64> = rows
+        .iter()
+        .filter_map(|d| match d {
+            Decoded::Book { u, .. } => Some(*u),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(books, [317_924_135, 759_670_107]);
+    let marks = rows
+        .iter()
+        .filter(|d| matches!(d, Decoded::Mark { .. }))
+        .count();
+    assert_eq!(marks, 1);
+    let w = m.writer();
+    assert_eq!((w.records, w.dups), (7, 3));
+}
+
+#[test]
+fn bingx_plan_subscription_url_and_exchange_traits() {
+    let bx = Bingx::default();
+    let pool: Vec<String> = (0..892).map(|i| format!("S{i:03}-USDT")).collect();
+    let kinds: Vec<String> = ["book", "trade", "mark"].map(String::from).to_vec();
+    let plan = bx.plan(&pool, &kinds, 0);
+    let sizes = |p: &str| -> Vec<usize> {
+        plan.iter()
+            .filter(|x| x.name.starts_with(p))
+            .map(|x| x.streams.len())
+            .collect()
+    };
+    assert_eq!(sizes("book"), vec![179, 179, 179, 179, 176]);
+    assert_eq!(sizes("trade"), vec![179, 179, 179, 179, 176]);
+    assert_eq!(sizes("mark"), vec![179, 179, 179, 179, 176]);
+    assert!(plan.iter().all(|p| p.streams.len() <= bingx::MAX_TOPICS));
+    assert_eq!(plan[0].name, "book00");
+    assert_eq!(plan[0].streams[0], "S000-USDT@bookTicker");
+    assert_eq!(plan[5].streams[0], "S000-USDT@trade");
+    assert_eq!(plan[10].streams[0], "S000-USDT@markPrice");
+    assert_eq!(
+        bx.plan(&pool, &["book".to_string()], 500).len(),
+        5,
+        "число тем на соединение не больше 200 даже по флагу"
+    );
+    assert_eq!(bx.plan(&pool, &["mark".to_string()], 30).len(), 30);
+    let msgs = bx.subscribe_messages(&plan[0].streams);
+    assert_eq!(msgs.len(), 179, "одна тема в сообщении");
+    let m: serde_json::Value = serde_json::from_str(&msgs[1]).unwrap();
+    assert_eq!(
+        (
+            m["id"].as_str(),
+            m["reqType"].as_str(),
+            m["dataType"].as_str()
+        ),
+        (
+            Some("S001-USDT@bookTicker"),
+            Some("sub"),
+            Some("S001-USDT@bookTicker")
+        )
+    );
+    assert_eq!(
+        bx.url("swap", "open-api-swap.bingx.com"),
+        "wss://open-api-swap.bingx.com/swap-market"
+    );
+    let lines = bx.default_entrances(2);
+    assert_eq!(
+        (
+            lines[0][0].family,
+            lines[0][1].family,
+            lines[1][0].family,
+            lines[1][1].family
+        ),
+        (Family::V4, Family::V6, Family::V4, Family::V6),
+        "обе линии — IPv4, запасной вход — IPv6"
+    );
+    assert!(lines
+        .iter()
+        .flatten()
+        .all(|e| e.host == "open-api-swap.bingx.com"));
+    assert_eq!(bx.default_top_exclude(), 0);
+    assert!(bx.gzip_frames() && !Okx::default().gzip_frames());
+    assert_eq!(bx.heartbeat_reply(b"Ping"), Some("Pong"));
+    assert_eq!(bx.heartbeat_reply(b"ping"), Some("Pong"));
+    assert_eq!(bx.heartbeat_reply(BX_ACK.as_bytes()), None);
+    assert_eq!(Okx::default().heartbeat_reply(b"Ping"), None);
+}
+
+#[test]
+fn bingx_pool_rule_status_currency_turnover_and_meta() {
+    let con = |sym: &str, cur: &str, status: i64| {
+        json!({"symbol": sym, "currency": cur, "status": status, "size": "0.001", "quantityPrecision": 3, "pricePrecision": 4,
+               "tradeMinQuantity": 1.5, "tradeMinUSDT": 2, "apiStateOpen": "true", "apiStateClose": "true", "launchTime": 1, "displayName": sym, "asset": "X"})
+    };
+    let tick = |sym: &str, qv: &str| json!({"symbol": sym, "quoteVolume": qv});
+    let contracts = vec![
+        con("BTC-USDT", "USDT", 1),
+        con("ETH-USDT", "USDT", 1),
+        con("HALT-USDT", "USDT", 25),
+        con("BTC-USDC", "USDC", 1),
+        con("THIN-USDT", "USDT", 1),
+        con("NOTICK-USDT", "USDT", 1),
+    ];
+    let tickers = vec![
+        tick("BTC-USDT", "1080000000.5"),
+        tick("ETH-USDT", "440000000"),
+        tick("HALT-USDT", "9999999999"),
+        tick("BTC-USDC", "9999999999"),
+        tick("THIN-USDT", "299999.99"),
+    ];
+    let (pool, top, extra) = bingx::select_pool(&contracts, &tickers, 300_000.0, 0);
+    assert_eq!(
+        (pool, top),
+        (vec!["BTC-USDT".to_string(), "ETH-USDT".to_string()], vec![])
+    );
+    assert_eq!(extra["qv"]["BTC-USDT"], 1_080_000_000.5);
+    assert_eq!(extra["meta"]["ETH-USDT"]["size"], "0.001");
+    assert_eq!(extra["meta"]["ETH-USDT"]["apiStateOpen"], "true");
+    assert!(extra["meta"].get("THIN-USDT").is_none());
+    let (pool, top, _) = bingx::select_pool(&contracts, &tickers, 300_000.0, 1);
+    assert_eq!(
+        (pool, top),
+        (vec!["ETH-USDT".to_string()], vec!["BTC-USDT".to_string()])
+    );
+}
+
+fn gz_bytes(data: &[u8]) -> Vec<u8> {
+    use std::io::Write as _;
+    let mut e = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+    e.write_all(data).unwrap();
+    e.finish().unwrap()
+}
+
+#[test]
+fn gunzip_roundtrips_reuses_state_and_rejects_damaged_frames() {
+    use super::gzip::Gunzip;
+    use std::io::Write as _;
+    let mut g = Gunzip::new();
+    let big = "x".repeat(100_000);
+    for s in [BX_BOOK, "Ping", "", BX_TRADE, big.as_str(), BX_MARK] {
+        let z = gz_bytes(s.as_bytes());
+        assert_eq!(g.unpack(&z), Some(s.as_bytes()), "кадр {} байт", s.len());
+    }
+    // заголовок с именем файла, комментарием и дополнительным полем (RFC 1952)
+    let mut b = flate2::GzBuilder::new()
+        .filename("a.json")
+        .comment("c")
+        .extra(vec![1, 2, 3])
+        .write(Vec::new(), flate2::Compression::fast());
+    b.write_all(BX_BOOK.as_bytes()).unwrap();
+    assert_eq!(g.unpack(&b.finish().unwrap()), Some(BX_BOOK.as_bytes()));
+    let good = gz_bytes(BX_BOOK.as_bytes());
+    let n = good.len();
+    let mut bad_crc = good.clone();
+    bad_crc[n - 8] ^= 1;
+    let mut bad_len = good.clone();
+    bad_len[n - 4] ^= 1;
+    let mut bad_body = good.clone();
+    bad_body[n / 2] ^= 0x55;
+    let mut tail = good.clone();
+    tail.insert(n - 8, 0);
+    let cases: [(&str, Vec<u8>); 8] = [
+        ("CRC", bad_crc),
+        ("длина", bad_len),
+        ("тело", bad_body),
+        ("лишний байт после deflate", tail),
+        ("обрыв", good[..n - 12].to_vec()),
+        ("не gzip", BX_BOOK.as_bytes().to_vec()),
+        ("пусто", Vec::new()),
+        ("заголовок без тела", good[..8].to_vec()),
+    ];
+    for (name, f) in &cases {
+        assert_eq!(g.unpack(f), None, "{name}");
+    }
+    // после отказов состояние чистое
+    assert_eq!(g.unpack(&good), Some(BX_BOOK.as_bytes()));
+}
+
+/// Источник «BingX»: двоичные gzip-кадры, `Ping` раз в 100 мс (текст, gzip), ответ подписки и один кадр не gzip. Считает ответы `Pong`, запоминает подписку.
+fn spawn_bingx_source(
+    listener: TcpListener,
+    stop: Arc<AtomicBool>,
+    ponged: Arc<std::sync::atomic::AtomicUsize>,
+    sub: Arc<std::sync::Mutex<String>>,
+) -> std::thread::JoinHandle<()> {
+    std::thread::spawn(move || {
+        let Ok((s, _)) = listener.accept() else {
+            return;
+        };
+        let Ok(mut ws) = tungstenite::accept(s) else {
+            return;
+        };
+        let Ok(tungstenite::Message::Text(t)) = ws.read() else {
+            return;
+        };
+        *sub.lock().unwrap() = t.to_string();
+        let ack = r#"{"id":"x","code":0,"msg":"","dataType":"","data":null}"#;
+        for b in [gz_bytes(ack.as_bytes()), b"not gzip at all".to_vec()] {
+            if ws.send(tungstenite::Message::binary(b)).is_err() {
+                return;
+            }
+        }
+        ws.get_ref()
+            .set_read_timeout(Some(Duration::from_millis(1)))
+            .unwrap();
+        let (mut n, mut last_ping) = (0i64, Instant::now() - Duration::from_secs(1));
+        while !stop.load(Relaxed) {
+            n += 1;
+            let mut out = vec![gz_bytes(
+                bx_book(n, 1_794_000_000_000 + n, super::events::now_ms()).as_bytes(),
+            )];
+            if last_ping.elapsed() >= Duration::from_millis(100) {
+                last_ping = Instant::now();
+                out.push(gz_bytes(b"Ping"));
+            }
+            for b in out {
+                if ws.send(tungstenite::Message::binary(b)).is_err() {
+                    return;
+                }
+            }
+            match ws.read() {
+                Ok(tungstenite::Message::Text(t)) if t.as_str() == "Pong" => {
+                    ponged.fetch_add(1, Relaxed);
+                }
+                Ok(tungstenite::Message::Close(_)) => return,
+                Ok(_) => {}
+                Err(tungstenite::Error::Io(e))
+                    if matches!(
+                        e.kind(),
+                        std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                    ) => {}
+                Err(_) => return,
+            }
+            std::thread::sleep(Duration::from_millis(4));
+        }
+    })
+}
+
+#[test]
+fn bingx_session_unpacks_gzip_answers_ping_and_does_not_write_heartbeats() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let (stop_src, ponged, sub) = (
+        Arc::new(AtomicBool::new(false)),
+        Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+        Arc::new(std::sync::Mutex::new(String::new())),
+    );
+    let src = spawn_bingx_source(
+        listener,
+        Arc::clone(&stop_src),
+        Arc::clone(&ponged),
+        Arc::clone(&sub),
+    );
+    let dir = tempfile::tempdir().unwrap();
+    let (opts, mut plan) = book_shard(dir.path(), port, (0.2, 0.5));
+    plan.streams = vec!["BTC-USDT@bookTicker".into()];
+    let exch: Arc<dyn Exchange> = Arc::new(Bingx::default());
+    let stop = Arc::new(AtomicBool::new(false));
+    let budget = Arc::new(Budget::new(50, Duration::from_secs(300)));
+    let h = spawn_shard(
+        &exch,
+        &plan,
+        &[vec![Entrance::new("127.0.0.1", Family::V4)]],
+        &opts,
+        &budget,
+        &stop,
+    )
+    .unwrap();
+    // стоп — по тому, что проверяется ниже (записи писателя), а не по времени: три Pong приходят через ≈ 0,3 с, и при шаге источника 5 мс и холодном пути записей к тому моменту могло
+    // быть меньше 21 (на srv ≈ каждый второй прогон). Всё, что писатель принял до остановки, при `join` попадает в файл
+    let metrics = Arc::clone(&h.metrics);
+    let t0 = Instant::now();
+    while (ponged.load(Relaxed) < 3 || metrics.writer().records < 60)
+        && t0.elapsed() < Duration::from_secs(20)
+    {
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    stop.store(true, Relaxed);
+    h.join();
+    stop_src.store(true, Relaxed);
+    src.join().unwrap();
+    assert!(ponged.load(Relaxed) >= 3, "на каждый Ping — текст Pong");
+    let m: serde_json::Value = serde_json::from_str(&sub.lock().unwrap()).unwrap();
+    assert_eq!(m["dataType"], "BTC-USDT@bookTicker");
+    let rows: Vec<Decoded> = read_days(dir.path())
+        .into_iter()
+        .flat_map(|d| d.1)
+        .collect();
+    let books = rows
+        .iter()
+        .filter(|d| matches!(d, Decoded::Book { sym, .. } if sym == "BTC-USDT"))
+        .count();
+    assert!(books > 20, "записей книги из gzip-кадров: {books}");
+    let raws: Vec<&str> = rows
+        .iter()
+        .filter_map(|d| match d {
+            Decoded::Raw { frame, .. } => Some(frame.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        raws.len(),
+        2,
+        "ответ подписки и один не-gzip кадр: {raws:?}"
+    );
+    assert!(raws.iter().any(|f| f.contains(r#""dataType":"""#)));
+    assert!(raws.contains(&"not gzip at all"));
+    assert!(
+        !raws.iter().any(|f| f.eq_ignore_ascii_case("ping")),
+        "сердцебиение биржи не пишется"
+    );
+    assert_eq!(count_events(dir.path(), "bad_frame"), 1);
+}
+
+// ---- Gate ----
+
+const GT_BOOK: &str = r#"{"time":1794708073,"time_ms":1794708073459,"channel":"futures.book_ticker","event":"update","result":{"t":1794708073449,"u":132042281351,"s":"BTC_USDT","b":"62624.2","B":"5997","a":"62624.3","A":"601"}}"#;
+const GT_TRADE: &str = r#"{"time":1794708073,"time_ms":1794708073490,"channel":"futures.trades","event":"update","result":[{"id":880123962,"size":"4","create_time":1794708073,"create_time_ms":1794708073489,"price":"62624.3","contract":"BTC_USDT"}]}"#;
+const GT_SELL: &str = r#"{"time":1794708073,"time_ms":1794708073499,"channel":"futures.trades","event":"update","result":[{"id":880123963,"size":"-144.4","create_time":1794708073,"create_time_ms":1794708073499,"price":"1798.62","contract":"ETH_USDT"}]}"#;
+const GT_TICK: &str = r#"{"time":1794708074,"time_ms":1794708074036,"channel":"futures.tickers","event":"update","result":[{"contract":"BTC_USDT","last":"62608.0","change_percentage":"-8.3157","total_size":"564312826","volume_24h":"1315804833","volume_24h_base":"131580.4833","volume_24h_quote":"8237990904","volume_24h_settle":"8237990904","mark_price":"62612.4","funding_rate":"-0.000101","funding_rate_indicative":"-0.000101","funding_interval":28800,"funding_offset":0,"funding_next_apply":1794729600,"index_price":"62643.43","quanto_base_rate":"","low_24h":"61913.7","high_24h":"68289.9","price_type":"last","change_from":"24h","change_price":"-5678.5","t":1794708074034}]}"#;
+const GT_ACK: &str = r#"{"time":1794708073,"time_ms":1794708073457,"id":1,"conn_id":"9b8e60d7d3612af9","trace_id":"ddeb214ed1c21863ba5cc2f8d2779eaf","channel":"futures.book_ticker","event":"subscribe","payload":["BTC_USDT"],"result":{"status":"success"}}"#;
+const GT_FAIL: &str = r#"{"time":1794708325,"time_ms":1794708325317,"id":1,"conn_id":"4d97a9b404a18e5c","trace_id":"0dba2f5255f563f6c95a19c3624a6f04","channel":"futures.book_ticker","event":"subscribe","payload":["NOPE_USDT"],"error":{"code":2,"message":"unknown currency pair NOPE_USDT"},"result":{"status":"fail"}}"#;
+const GT_PONG: &str = r#"{"time":1794708289,"time_ms":1794708289043,"conn_id":"1b51ba3219a9feb6","channel":"futures.pong","event":"","result":null}"#;
+const GT_UPGRADE: &str = r#"{"time":1782378978,"time_ms":1782378978107,"channel":"futures.system","event":"update","result":{"type":"upgrade","msg":"The connection will soon be closed for a service upgrade. Please reconnect."}}"#;
+
+fn gt_book(u: i64, t: i64) -> String {
+    format!(
+        r#"{{"time":1,"time_ms":{t},"channel":"futures.book_ticker","event":"update","result":{{"t":{t},"u":{u},"s":"BTC_USDT","b":"1.0","B":"2","a":"1.1","A":"3"}}}}"#
+    )
+}
+
+fn gt_fill(id: i64, size: &str) -> String {
+    format!(
+        r#"{{"id":{id},"size":{size},"create_time":1794708073,"create_time_ms":1794708073489,"price":"62624.3","contract":"BTC_USDT"}}"#
+    )
+}
+
+fn gt_trades(elems: &[String]) -> String {
+    format!(
+        r#"{{"time":1794708073,"time_ms":1794708073490,"channel":"futures.trades","event":"update","result":[{}]}}"#,
+        elems.join(",")
+    )
+}
+
+#[test]
+fn gate_frames_parse_exactly_and_unknown_shapes_go_raw() {
+    let gt = Gate::default();
+    let r = parse_all(&gt, &[GT_BOOK, GT_TRADE, GT_SELL, GT_TICK]);
+    assert_eq!(r[0].0, Parsed::Recs(1));
+    assert_eq!(
+        r[0].1[0],
+        Decoded::Book {
+            rx_ns: 1_794_433_300_000_000_000,
+            e: 1_794_708_073_449,
+            t: 1_794_708_073_449,
+            sym: "BTC_USDT".into(),
+            u: 132_042_281_351,
+            bid: "62624.2".into(),
+            bsz: "5997".into(),
+            ask: "62624.3".into(),
+            asz: "601".into(),
+            bn: String::new(),
+            an: String::new(),
+        },
+        "у Gate одно время (t): E = T"
+    );
+    assert_eq!(
+        r[1].1[0],
+        Decoded::Trade {
+            rx_ns: 1_794_433_300_000_001_000,
+            e: 1_794_708_073_489,
+            t: 1_794_708_073_489,
+            sym: "BTC_USDT".into(),
+            a: 880_123_962,
+            p: "62624.3".into(),
+            q: "4".into(),
+            f: 880_123_962,
+            l: 880_123_962,
+            m: false,
+            nq: "4".into(),
+            x: String::new(),
+            i: String::new(),
+        },
+        "плюс — тейкер покупает: m = 0"
+    );
+    assert_eq!(
+        r[2].1[0],
+        Decoded::Trade {
+            rx_ns: 1_794_433_300_000_002_000,
+            e: 1_794_708_073_499,
+            t: 1_794_708_073_499,
+            sym: "ETH_USDT".into(),
+            a: 880_123_963,
+            p: "1798.62".into(),
+            q: "144.4".into(),
+            f: 880_123_963,
+            l: 880_123_963,
+            m: true,
+            nq: "144.4".into(),
+            x: String::new(),
+            i: String::new(),
+        },
+        "минус — тейкер продаёт: q без знака, дробь как пришла, m = 1"
+    );
+    assert_eq!(
+        r[3].1[0],
+        Decoded::Mark {
+            rx_ns: 1_794_433_300_000_003_000,
+            e: 1_794_708_074_034,
+            sym: "BTC_USDT".into(),
+            p: "62612.4".into(),
+            ap: String::new(),
+            pp: String::new(),
+            i: "62643.43".into(),
+            r: "-0.000101".into(),
+            t: 1_794_729_600_000,
+        },
+        "время начисления — секунды биржи в миллисекундах; остальные поля тикера не mark"
+    );
+    // первый кадр тикера после подписки несёт ещё `event_type` (23 поля)
+    let snap = GT_TICK.replace(
+        r#""t":1794708074034}"#,
+        r#""t":1794708074034,"event_type":"snapshot"}"#,
+    );
+    assert_eq!(parse_all(&gt, &[&snap])[0].0, Parsed::Recs(1));
+    // внутренняя сделка (страховой фонд, ADL) — признак `I`
+    let internal = gt_trades(&[gt_fill(7, r#""-3""#).replace(
+        r#""contract":"BTC_USDT""#,
+        r#""contract":"BTC_USDT","is_internal":true"#,
+    )]);
+    let ri = parse_all(&gt, &[&internal]);
+    assert!(
+        matches!(&ri[0].1[0], Decoded::Trade { x, m: true, .. } if x == "I"),
+        "{:?}",
+        ri[0]
+    );
+    assert_eq!(
+        gt.lag_ms(GT_BOOK.as_bytes(), 1_794_708_073_549_000_000),
+        Some(100.0)
+    );
+    assert_eq!(
+        gt.lag_ms(GT_TRADE.as_bytes(), 1_794_708_073_589_000_000),
+        Some(100.0)
+    );
+    assert_eq!(
+        gt.lag_ms(GT_TICK.as_bytes(), 1_794_708_074_136_000_000), // тикер: лаг пути — по `time_ms` кадра (…036), не по `t` (…034, снимок старше кадра)
+        Some(100.0)
+    );
+    for f in [GT_ACK, GT_FAIL, GT_PONG, GT_UPGRADE] {
+        assert_eq!(gt.lag_ms(f.as_bytes(), 1), None, "{f}");
+        assert_eq!(gt.symbol(f.as_bytes()), None, "{f}");
+    }
+    assert_eq!(gt.symbol(GT_BOOK.as_bytes()), Some(&b"BTC_USDT"[..]));
+    assert_eq!(gt.symbol(GT_TRADE.as_bytes()), Some(&b"BTC_USDT"[..]));
+    assert_eq!(gt.symbol(GT_SELL.as_bytes()), Some(&b"ETH_USDT"[..]));
+    assert_eq!(gt.symbol(GT_TICK.as_bytes()), Some(&b"BTC_USDT"[..]));
+    let others = [
+        GT_ACK.to_string(),
+        GT_FAIL.to_string(),
+        GT_PONG.to_string(),
+        GT_UPGRADE.to_string(),
+        GT_BOOK.replace(r#""A":"601""#, r#""A":"601","zz":1"#),
+        GT_BOOK.replace(r#""u":132042281351"#, r#""u":"132042281351""#),
+        GT_BOOK.replace(r#""event":"update""#, r#""event":"all""#),
+        GT_BOOK.replace("futures.book_ticker", "futures.obu"),
+        GT_BOOK.replace(r#""time_ms":1794708073459"#, r#""time_ms":"1794708073459""#),
+        // размер числом: заголовок `X-Gate-Size-Decimal` не принят — усечённый размер в файл не идёт
+        gt_trades(&[gt_fill(1, "-3")]),
+        gt_trades(&[gt_fill(1, r#""-""#)]),
+        gt_trades(&[gt_fill(1, r#""4""#).replace(r#""id":1"#, r#""id":"1""#)]),
+        gt_trades(&[gt_fill(1, r#""4""#).replace(r#""price""#, r#""px""#)]),
+        gt_trades(&[]),
+        GT_TRADE.replace(r#""result":["#, r#""result":null,"x":["#),
+        GT_TICK.replace(r#""mark_price":"62612.4","#, ""),
+        GT_TICK.replace(
+            r#""funding_next_apply":1794729600"#,
+            r#""funding_next_apply":"1794729600""#,
+        ),
+        GT_TICK.replace(r#""contract":"BTC_USDT","#, ""),
+    ];
+    let refs: Vec<&str> = others.iter().map(String::as_str).collect();
+    for (i, (p, recs)) in parse_all(&gt, &refs).iter().enumerate() {
+        assert!(*p == Parsed::Raw && recs.is_empty(), "кадр {i}: {p:?}");
+    }
+    // годные элементы кадра — записи, негодные — один raw в кадре той же формы
+    let mixed = gt_trades(&[
+        gt_fill(10, r#""1""#),
+        gt_fill(11, "2"),
+        gt_fill(12, r#""-2""#),
+    ]);
+    let r = parse_all(&gt, &[&mixed]);
+    assert_eq!(r[0].0, Parsed::Recs(2));
+    let raws: Vec<&Decoded> = r[0]
+        .1
+        .iter()
+        .filter(|d| matches!(d, Decoded::Raw { .. }))
+        .collect();
+    assert_eq!(raws.len(), 1);
+    let Decoded::Raw { frame, .. } = raws[0] else {
+        unreachable!()
+    };
+    assert!(frame.starts_with(
+        r#"{"time":1794708073,"time_ms":1794708073490,"channel":"futures.trades","event":"update","result":[{"id":11,"#
+    ));
+    assert_eq!(frame.matches(r#""id":"#).count(), 1);
+}
+
+/// У Gate есть контракты с именами не из ASCII (`币安人生_USDT`, `龙虾_USDT`; 3 в пуле 15.11): символ проходит в запись и в `symbol()` как есть.
+#[test]
+fn gate_non_ascii_contract_names_pass_through() {
+    let gt = Gate::default();
+    let book = GT_BOOK.replace("BTC_USDT", "币安人生_USDT");
+    let tick = GT_TICK.replace("BTC_USDT", "龙虾_USDT");
+    let r = parse_all(&gt, &[&book, &tick]);
+    assert!(matches!(&r[0].1[0], Decoded::Book { sym, .. } if sym == "币安人生_USDT"));
+    assert!(matches!(&r[1].1[0], Decoded::Mark { sym, .. } if sym == "龙虾_USDT"));
+    assert_eq!(gt.symbol(book.as_bytes()), Some("币安人生_USDT".as_bytes()));
+    assert_eq!(gt.symbol(tick.as_bytes()), Some("龙虾_USDT".as_bytes()));
+}
+
+#[test]
+fn gate_identity_dedups_across_lines() {
+    let r = rig(Arc::new(Gate::default()), 20);
+    let t = 20_000 * NS_PER_DAY + 1_000_000_000;
+    let ms = |m: i64| t + m * 1_000_000;
+    // книга: u общий между соединениями — то же состояние со второй линии дубль, чужое состояние второй линии — запись
+    r.frame(ms(1), 1, &gt_book(5, 1_000));
+    r.frame(ms(2), 2, &gt_book(5, 1_000));
+    r.frame(ms(3), 2, &gt_book(6, 1_010));
+    r.frame(ms(4), 1, &gt_book(7, 1_020));
+    r.frame(ms(5), 2, &gt_book(7, 1_020));
+    // сделки: id подряд по контракту
+    r.frame(ms(6), 1, GT_TRADE);
+    r.frame(ms(7), 2, GT_TRADE);
+    // тикер: личность — t
+    r.frame(ms(8), 1, GT_TICK);
+    r.frame(ms(9), 2, GT_TICK);
+    let (dir, m) = r.finish();
+    let rows = &read_days(dir.path())[0].1;
+    let books: Vec<i64> = rows
+        .iter()
+        .filter_map(|d| match d {
+            Decoded::Book { u, .. } => Some(*u),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(books, [5, 6, 7]);
+    let count = |f: fn(&Decoded) -> bool| rows.iter().filter(|d| f(d)).count();
+    assert_eq!(count(|d| matches!(d, Decoded::Trade { .. })), 1);
+    assert_eq!(count(|d| matches!(d, Decoded::Mark { .. })), 1);
+    let w = m.writer();
+    assert_eq!((w.records, w.dups), (5, 4));
+}
+
+#[test]
+fn gate_plan_subscription_url_and_exchange_traits() {
+    let gt = Gate::default();
+    let pool: Vec<String> = (0..285).map(|i| format!("S{i:03}_USDT")).collect();
+    let kinds: Vec<String> = ["book", "trade", "mark"].map(String::from).to_vec();
+    let plan = gt.plan(&pool, &kinds, 0);
+    let sizes = |p: &str| -> Vec<usize> {
+        plan.iter()
+            .filter(|x| x.name.starts_with(p))
+            .map(|x| x.streams.len())
+            .collect()
+    };
+    for kind in ["book", "trade", "mark"] {
+        assert_eq!(sizes(kind), vec![95, 95, 95], "{kind}");
+    }
+    assert!(plan.iter().all(|p| p.streams.len() <= gate::PER_CONN));
+    assert_eq!(plan[0].name, "book00");
+    assert_eq!(plan[0].streams[0], "futures.book_ticker:S000_USDT");
+    assert_eq!(plan[3].streams[0], "futures.trades:S000_USDT");
+    assert_eq!(plan[6].streams[0], "futures.tickers:S000_USDT");
+    assert_eq!(
+        gt.plan(&pool, &["book".to_string()], 285).len(),
+        1,
+        "лимита подписок у Gate нет: число контрактов на соединение — по флагу"
+    );
+    assert_eq!(gt.plan(&pool, &["mark".to_string()], 30).len(), 10);
+    let msgs = gt.subscribe_messages(&plan[0].streams);
+    assert_eq!(msgs.len(), 95, "один контракт в сообщении");
+    let m: serde_json::Value = serde_json::from_str(&msgs[1]).unwrap();
+    assert_eq!(
+        (
+            m["channel"].as_str(),
+            m["event"].as_str(),
+            m["payload"].clone(),
+            m["id"].as_i64(),
+        ),
+        (
+            Some("futures.book_ticker"),
+            Some("subscribe"),
+            json!(["S001_USDT"]),
+            Some(2)
+        )
+    );
+    assert!(m["time"].as_i64().is_some_and(|t| t > 1_700_000_000));
+    assert_eq!(
+        gt.url("usdt", "fx-ws.gateio.ws"),
+        "wss://fx-ws.gateio.ws/v4/ws/usdt"
+    );
+    let lines = gt.default_entrances(2);
+    assert_eq!(lines.len(), 2);
+    assert!(lines
+        .iter()
+        .flatten()
+        .all(|e| e.host == "fx-ws.gateio.ws" && e.family == Family::V4));
+    assert_eq!(gt.default_top_exclude(), 0);
+    assert_eq!(
+        gt.ws_headers(),
+        &[("X-Gate-Size-Decimal", "1")],
+        "без заголовка размеры усечены до целого"
+    );
+    assert!(Okx::default().ws_headers().is_empty() && Bingx::default().ws_headers().is_empty());
+    assert!(gt.is_retire_notice(GT_UPGRADE.as_bytes()));
+    for f in [GT_BOOK, GT_ACK, GT_PONG, GT_TICK] {
+        assert!(!gt.is_retire_notice(f.as_bytes()));
+    }
+    assert!(!gt.is_retire_notice(
+        GT_UPGRADE
+            .replace(r#""type":"upgrade""#, r#""type":"outdated_sbe_schema_id""#)
+            .as_bytes()
+    ));
+    assert!(!gt.gzip_frames());
+    assert_eq!(gt.heartbeat_reply(b"Ping"), None);
+}
+
+#[test]
+fn gate_pool_rule_status_turnover_and_meta() {
+    let con = |name: &str, status: &str| {
+        json!({"name": name, "status": status, "quanto_multiplier": "0.0001", "order_size_min": 1, "order_price_round": "0.1", "mark_price_round": "0.1",
+               "enable_decimal": true, "contract_type": "stocks", "funding_interval": 28800, "leverage_max": "100", "is_pre_market": false,
+               "in_delisting": false, "mark_type": "index", "type": "direct", "launch_time": 1, "unrelated": 5})
+    };
+    let tick = |c: &str, qv: &str| json!({"contract": c, "volume_24h_quote": qv});
+    let contracts = vec![
+        con("BTC_USDT", "trading"),
+        con("ETH_USDT", "trading"),
+        con("OLD_USDT", "delisting"),
+        con("THIN_USDT", "trading"),
+        con("NOTICK_USDT", "trading"),
+    ];
+    let tickers = vec![
+        tick("BTC_USDT", "9006886116"),
+        tick("ETH_USDT", "6908890246.5"),
+        tick("OLD_USDT", "9999999999"),
+        tick("THIN_USDT", "299999.99"),
+    ];
+    let (pool, top, extra) = gate::select_pool(&contracts, &tickers, 300_000.0, 0);
+    assert_eq!(
+        (pool, top),
+        (vec!["BTC_USDT".to_string(), "ETH_USDT".to_string()], vec![])
+    );
+    assert_eq!(extra["qv"]["ETH_USDT"], 6_908_890_246.5);
+    assert_eq!(extra["meta"]["ETH_USDT"]["quanto_multiplier"], "0.0001");
+    assert_eq!(extra["meta"]["ETH_USDT"]["contract_type"], "stocks");
+    assert!(extra["meta"]["ETH_USDT"].get("unrelated").is_none());
+    assert!(extra["meta"].get("THIN_USDT").is_none());
+    let (pool, top, _) = gate::select_pool(&contracts, &tickers, 300_000.0, 1);
+    assert_eq!(
+        (pool, top),
+        (vec!["ETH_USDT".to_string()], vec!["BTC_USDT".to_string()])
+    );
+}
+
+/// Источник «Gate»: запоминает заголовки рукопожатия и сообщения подписки, на каждую отвечает `success`, затем шлёт кадры книги.
+fn spawn_gate_source(
+    listener: TcpListener,
+    stop: Arc<AtomicBool>,
+    subs: Arc<std::sync::Mutex<Vec<String>>>,
+    headers: Arc<std::sync::Mutex<Vec<(String, String)>>>,
+    n_subs: usize,
+) -> std::thread::JoinHandle<()> {
+    std::thread::spawn(move || {
+        let Ok((s, _)) = listener.accept() else {
+            return;
+        };
+        let cb = |req: &tungstenite::handshake::server::Request,
+                  resp: tungstenite::handshake::server::Response| {
+            *headers.lock().unwrap() = req
+                .headers()
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_str().unwrap_or("").to_string()))
+                .collect();
+            Ok(resp)
+        };
+        let Ok(mut ws) = tungstenite::accept_hdr(s, cb) else {
+            return;
+        };
+        for _ in 0..n_subs {
+            let Ok(tungstenite::Message::Text(t)) = ws.read() else {
+                return;
+            };
+            subs.lock().unwrap().push(t.to_string());
+            if ws.send(tungstenite::Message::text(GT_ACK)).is_err() {
+                return;
+            }
+        }
+        ws.get_ref()
+            .set_read_timeout(Some(Duration::from_millis(1)))
+            .unwrap();
+        let mut n = 0i64;
+        while !stop.load(Relaxed) {
+            n += 1;
+            let f = gt_book(n, super::events::now_ms());
+            if ws.send(tungstenite::Message::text(f)).is_err() {
+                return;
+            }
+            match ws.read() {
+                Ok(tungstenite::Message::Close(_)) => return,
+                Ok(_) => {}
+                Err(tungstenite::Error::Io(e))
+                    if matches!(
+                        e.kind(),
+                        std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                    ) => {}
+                Err(_) => return,
+            }
+            std::thread::sleep(Duration::from_millis(4));
+        }
+    })
+}
+
+#[test]
+fn gate_session_sends_size_decimal_header_and_one_subscription_per_contract() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let (stop_src, subs, headers) = (
+        Arc::new(AtomicBool::new(false)),
+        Arc::new(std::sync::Mutex::new(Vec::new())),
+        Arc::new(std::sync::Mutex::new(Vec::new())),
+    );
+    let src = spawn_gate_source(
+        listener,
+        Arc::clone(&stop_src),
+        Arc::clone(&subs),
+        Arc::clone(&headers),
+        2,
+    );
+    let dir = tempfile::tempdir().unwrap();
+    let (opts, mut plan) = book_shard(dir.path(), port, (0.2, 0.5));
+    plan.streams = vec![
+        "futures.book_ticker:BTC_USDT".into(),
+        "futures.book_ticker:ETH_USDT".into(),
+    ];
+    let exch: Arc<dyn Exchange> = Arc::new(Gate::default());
+    let stop = Arc::new(AtomicBool::new(false));
+    let budget = Arc::new(Budget::new(50, Duration::from_secs(300)));
+    let h = spawn_shard(
+        &exch,
+        &plan,
+        &[vec![Entrance::new("127.0.0.1", Family::V4)]],
+        &opts,
+        &budget,
+        &stop,
+    )
+    .unwrap();
+    std::thread::sleep(Duration::from_secs(2));
+    stop.store(true, Relaxed);
+    h.join();
+    stop_src.store(true, Relaxed);
+    src.join().unwrap();
+    assert!(
+        headers
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|(k, v)| k.eq_ignore_ascii_case("x-gate-size-decimal") && v == "1"),
+        "заголовок рукопожатия: {:?}",
+        headers.lock().unwrap()
+    );
+    let subs = subs.lock().unwrap();
+    assert_eq!(subs.len(), 2, "одно сообщение на контракт");
+    let payloads: Vec<serde_json::Value> = subs
+        .iter()
+        .map(|s| serde_json::from_str::<serde_json::Value>(s).unwrap()["payload"].clone())
+        .collect();
+    assert_eq!(payloads, [json!(["BTC_USDT"]), json!(["ETH_USDT"])]);
+    let rows: Vec<Decoded> = read_days(dir.path())
+        .into_iter()
+        .flat_map(|d| d.1)
+        .collect();
+    let books = rows
+        .iter()
+        .filter(|d| matches!(d, Decoded::Book { sym, .. } if sym == "BTC_USDT"))
+        .count();
+    assert!(books > 20, "записей книги: {books}");
+    let acks = rows
+        .iter()
+        .filter(
+            |d| matches!(d, Decoded::Raw { frame, .. } if frame.contains(r#""event":"subscribe""#)),
+        )
+        .count();
+    assert_eq!(acks, 2, "два ответа на подписку записаны как пришли");
+}
+
+// ---- метрики ----
+
+#[test]
+fn hist_percentiles_match_exact_within_bucket_width() {
+    let mut h = Hist::new();
+    let mut xs: Vec<u64> = (0..20_000u64).map(|i| (i * 7919) % 900_000 + 1).collect();
+    for &x in &xs {
+        h.add(x);
+    }
+    xs.sort_unstable();
+    for p in [0.5, 0.9, 0.99, 0.999] {
+        let exact = xs[((xs.len() as f64 * p) as usize).min(xs.len() - 1)] as f64;
+        let got = h.percentile(p).unwrap() as f64;
+        assert!(
+            (got - exact).abs() / exact < 0.04,
+            "p{p}: {got} против {exact}"
+        );
+    }
+    assert_eq!(Hist::new().percentile(0.5), None);
+    let mut small = Hist::new();
+    [3u64, 5, 9].iter().for_each(|&v| small.add(v));
+    assert_eq!(small.percentile(0.5), Some(5), "малые значения — точно");
+}
+
+#[test]
+fn rolling_window_forgets_old_slots() {
+    let mut r = Rolling::default();
+    r.add(1_000, 100);
+    r.add(30_000, 900);
+    assert_eq!(r.snapshot(31_000).count(), 2);
+    assert_eq!(
+        r.snapshot(70_000).count(),
+        1,
+        "через 60 с первый слот вышел из окна"
+    );
+    assert_eq!(r.snapshot(200_000).count(), 0);
+    r.add(130_000, 5);
+    assert_eq!(r.snapshot(131_000).count(), 1, "новый слот");
+}
+
+#[test]
+fn fresh_counts_late_and_windows() {
+    let mut f = Fresh::default();
+    let t0 = 1_800_000_000_000i64;
+    f.add(0, t0, 100);
+    f.add(0, t0 + 1_000, LATE_MS + 1);
+    f.add(0, t0 + 61_000, 50);
+    assert_eq!(f.fragment(1, t0), None, "вида не было");
+    assert_eq!(
+        f.fragment(0, t0 + 120_000),
+        Some(KindFresh {
+            late_1h: 1,
+            late_24h: 1,
+            max_1h_ms: Some(LATE_MS + 1),
+            max_24h_ms: Some(LATE_MS + 1)
+        })
+    );
+    let later = f.fragment(0, t0 + 2 * 3_600_000).unwrap();
+    assert_eq!(
+        (
+            later.late_1h,
+            later.late_24h,
+            later.max_1h_ms,
+            later.max_24h_ms
+        ),
+        (0, 1, None, Some(LATE_MS + 1)),
+        "через 2 ч час пуст, сутки помнят"
+    );
+    assert_eq!(
+        f.fragment(0, t0 + 25 * 3_600_000)
+            .map(|k| (k.late_24h, k.max_24h_ms)),
+        Some((0, None)),
+        "через сутки всё выброшено"
+    );
+}
+
+#[test]
+fn budget_never_exceeds_limit_in_window() {
+    let b = Budget::new(3, Duration::from_secs(300));
+    let t = Instant::now();
+    assert!(b.try_take(t).is_none() && b.try_take(t).is_none() && b.try_take(t).is_none());
+    let wait = b
+        .try_take(t + Duration::from_secs(10))
+        .expect("четвёртое — ждать");
+    assert!(wait > Duration::from_secs(289) && wait <= Duration::from_secs(290));
+    assert_eq!(b.used(t + Duration::from_secs(10)), 3);
+    assert!(
+        b.try_take(t + Duration::from_secs(301)).is_none(),
+        "окно прошло — место есть"
+    );
+    let stop = AtomicBool::new(true);
+    assert!(
+        Budget::new(1, Duration::from_secs(300))
+            .acquire(&[&stop], &|| false)
+            .is_none(),
+        "остановка прерывает ожидание"
+    );
+}
+
+#[test]
+fn budget_with_two_windows_obeys_both() {
+    // OKX: 3 подключения в секунду наряду с лимитом за 5 минут
+    let b = Budget::with_rules(&[(3, Duration::from_secs(1)), (5, Duration::from_secs(300))]);
+    let t = Instant::now();
+    assert!(b.try_take(t).is_none() && b.try_take(t).is_none() && b.try_take(t).is_none());
+    let w = b
+        .try_take(t + Duration::from_millis(100))
+        .expect("четвёртое в ту же секунду — ждать");
+    assert!(w > Duration::from_millis(850) && w <= Duration::from_millis(900));
+    assert_eq!(
+        b.used(t + Duration::from_millis(100)),
+        3,
+        "отказ ничего не занимает"
+    );
+    assert!(b.try_take(t + Duration::from_millis(1_100)).is_none());
+    assert!(b.try_take(t + Duration::from_millis(1_100)).is_none());
+    // за 5 мин занято 5 из 5: секундное окно свободно, а общее — нет
+    assert!(b.try_take(t + Duration::from_secs(10)).is_some());
+}
+
+#[test]
+fn path_probe_verdict_and_watch() {
+    let mut good = vec![120.0, 130.0, 150.0, 140.0, 160.0, 125.0];
+    assert!(path_verdict(&mut good));
+    let mut slow = vec![2_600.0; 10];
+    assert!(!path_verdict(&mut slow));
+    let mut few = vec![9_000.0, 9_000.0];
+    assert!(path_verdict(&mut few), "мало выборок — не отбраковываем");
+    let mut tail = vec![200.0; 100];
+    tail[0] = 5_000.0;
+    tail[1] = 5_000.0;
+    assert!(!path_verdict(&mut tail), "p99 выше порога");
+    assert_eq!(percentile(&mut [3.0, 1.0, 2.0], 0.5), Some(2.0));
+    let t0 = Instant::now();
+    let p = PathProbe::new(t0);
+    assert!(
+        !p.collecting(t0 + Duration::from_secs(1)) && p.collecting(t0 + Duration::from_secs(5))
+    );
+    assert!(!p.finished(t0 + Duration::from_secs(14)) && p.finished(t0 + Duration::from_secs(15)));
+    let mut w = PathWatch::default();
+    w.open(7);
+    for window in 0..5 {
+        for _ in 0..10 {
+            w.sample(7, 3_000.0);
+        }
+        w.judge();
+        assert_eq!(
+            w.is_degraded(7),
+            window >= 3,
+            "два плохих окна подряд после двух пропущенных"
+        );
+    }
+    w.close(7);
+    assert!(!w.is_degraded(7));
+}
+
+// ---- писатель ----
+
+/// Часы писателя в тестах: сутки 20 000 (приёмы тестов лежат около них), без закрытия суток по часам.
+fn test_clock() -> i64 {
+    20_000 * NS_PER_DAY + 80_000_000_000
+}
+
+struct Rig {
+    dir: tempfile::TempDir,
+    tx: super::ring::RingTx,
+    metrics: Arc<ShardMetrics>,
+    threads: Vec<std::thread::JoinHandle<()>>,
+}
+
+fn rig(exch: Arc<dyn Exchange>, flush_ms: u64) -> Rig {
+    let dir = tempfile::tempdir().unwrap();
+    let metrics = ShardMetrics::new("book00", 0, 1024, 16);
+    let (tx, rx) = ring(&metrics.ring);
+    let (stx, srx) = sink_channel(&metrics.sink_q);
+    let cfg = WriterCfg {
+        root: dir.path().to_path_buf(),
+        shard: "book00".into(),
+        run_id: 1_794_000_000,
+        flush: Duration::from_millis(flush_ms),
+        block_max: 64 * 1024,
+        clock: test_clock,
+    };
+    let w = ShardWriter::new(cfg, exch, Arc::clone(&metrics), stx, rx);
+    let (m2, d2) = (Arc::clone(&metrics), Arc::clone(&metrics.sink_q));
+    let threads = vec![
+        std::thread::spawn(move || w.run()),
+        std::thread::spawn(move || run_sink(&srx, &d2, &m2)),
+    ];
+    Rig {
+        dir,
+        tx,
+        metrics,
+        threads,
+    }
+}
+
+impl Rig {
+    fn frame(&self, rx_ns: i64, sender: u32, f: &str) {
+        self.tx
+            .push(Item {
+                rx_ns,
+                sender,
+                lane: 0,
+                settled: true,
+                payload: Payload::Frame(Bytes::from(f.to_string())),
+            })
+            .unwrap();
+    }
+
+    fn control(&self, rx_ns: i64, sender: u32, what: &'static str, detail: &str) {
+        self.tx
+            .push(Item {
+                rx_ns,
+                sender,
+                lane: 0,
+                settled: true,
+                payload: Payload::Control {
+                    what,
+                    detail: detail.into(),
+                },
+            })
+            .unwrap();
+    }
+
+    fn finish(self) -> (tempfile::TempDir, Arc<ShardMetrics>) {
+        self.tx
+            .push(Item {
+                rx_ns: 0,
+                sender: 0,
+                lane: 0,
+                settled: true,
+                payload: Payload::Shutdown,
+            })
+            .unwrap();
+        for t in self.threads {
+            t.join().unwrap();
+        }
+        (self.dir, self.metrics)
+    }
+}
+
+/// Все файлы суток корня: (путь, строки, число из `.ok`), по имени.
+fn read_days(root: &Path) -> Vec<(String, Vec<Decoded>, Option<u64>)> {
+    let mut days: Vec<_> = std::fs::read_dir(root)
+        .unwrap()
+        .flatten()
+        .filter(|e| e.path().is_dir())
+        .map(|e| e.path())
+        .collect();
+    days.sort();
+    let mut out = Vec::new();
+    for d in days {
+        for f in std::fs::read_dir(&d).unwrap().flatten() {
+            let p = f.path();
+            if p.extension().is_some_and(|e| e == "zst") {
+                let text =
+                    String::from_utf8(zstd::decode_all(std::fs::File::open(&p).unwrap()).unwrap())
+                        .unwrap();
+                let mut dec = Decoder::new();
+                let rows = text.lines().map(|l| dec.line(l).unwrap()).collect();
+                let ok = std::fs::read_to_string(format!("{}.ok", p.display()))
+                    .ok()
+                    .map(|s| s.trim().parse().unwrap());
+                out.push((
+                    d.file_name().unwrap().to_string_lossy().into_owned(),
+                    rows,
+                    ok,
+                ));
+            }
+        }
+    }
+    out
+}
+
+/// Есть ли в корне хоть один `.ok` (закрытый файл суток) — без чтения незакрытых кадров zstd.
+fn any_ok(root: &Path) -> bool {
+    std::fs::read_dir(root)
+        .unwrap()
+        .flatten()
+        .filter(|e| e.path().is_dir())
+        .any(|d| {
+            std::fs::read_dir(d.path())
+                .unwrap()
+                .flatten()
+                .any(|f| f.path().extension().is_some_and(|x| x == "ok"))
+        })
+}
+
+fn bn_book(u: i64, e: i64) -> String {
+    format!(
+        r#"{{"stream":"btcusdt@bookTicker","data":{{"e":"bookTicker","u":{u},"s":"BTCUSDT","ps":"BTCUSDT","b":"1.0","B":"2","a":"1.1","A":"3","T":{e},"E":{e},"st":1}}}}"#
+    )
+}
+
+#[test]
+fn writer_dedups_by_key_across_senders_and_symbols() {
+    let r = rig(Arc::new(Binance), 20);
+    let t = 20_000 * NS_PER_DAY + 1_000_000_000;
+    let ms = |m: i64| t + m * 1_000_000;
+    r.control(t, 1, "connected", "1 wss://x");
+    r.frame(ms(1), 1, &bn_book(10, 1_000));
+    r.frame(ms(2), 2, &bn_book(10, 1_000)); // та же запись с другой линии
+    r.frame(ms(3), 2, &bn_book(9, 999)); // старее записанного, но ещё не виденное — новая запись, пишется (порядок — по приходу)
+    r.frame(ms(4), 1, &bn_book(11, 1_003));
+    r.frame(ms(5), 1, &BN_TRADE.replace("92150638", "5"));
+    r.frame(ms(6), 2, &BN_TRADE.replace("92150638", "5")); // дубль сделки
+    r.frame(ms(7), 1, &BN_TRADE.replace("92150638", "6"));
+    r.control(ms(8), 1, "closed", "1");
+    let (dir, m) = r.finish();
+    let days = read_days(dir.path());
+    assert_eq!(days.len(), 1);
+    let (_, rows, ok) = &days[0];
+    let kinds: Vec<String> = rows
+        .iter()
+        .map(|d| match d {
+            Decoded::Book { u, .. } => format!("b{u}"),
+            Decoded::Trade { a, .. } => format!("t{a}"),
+            Decoded::Control { what, .. } => what.clone(),
+            other => format!("{other:?}"),
+        })
+        .collect();
+    assert_eq!(
+        kinds,
+        ["connected", "b10", "b9", "b11", "t5", "t6", "closed"]
+    );
+    assert_eq!(
+        *ok,
+        Some(7),
+        ".ok = число строк; `closed` до закрытия файла"
+    );
+    let w = m.writer();
+    assert_eq!((w.records, w.dups, w.rows), (5, 2, 7));
+    assert_eq!(m.sink().files_closed, 1);
+}
+
+#[test]
+fn writer_raw_copies_between_senders_only_with_exchange_time() {
+    let r = rig(Arc::new(Binance), 20);
+    let t = 20_000 * NS_PER_DAY + 5_000_000_000;
+    // кадр с временем биржи, не разобранный точно (лишний ключ): писать один раз на двух линиях
+    let odd = BN_BOOK.replace(r#""st":1"#, r#""st":1,"zz":5"#);
+    r.frame(t, 1, &odd);
+    r.frame(t + 1_000_000, 2, &odd); // копия с другой линии → снять
+    r.frame(t + 2_000_000, 1, &odd); // та же линия второй раз → настоящая вторая доставка
+    r.frame(t + 3_000_000, 2, &odd); // копия второй доставки → снять
+                                     // служебные кадры без времени — пишутся все (ответ подписки у двух линий)
+    r.frame(t + 4_000_000, 1, r#"{"result":null,"id":1}"#);
+    r.frame(t + 5_000_000, 2, r#"{"result":null,"id":1}"#);
+    let (dir, m) = r.finish();
+    let rows = &read_days(dir.path())[0].1;
+    let raws = rows
+        .iter()
+        .filter(|d| matches!(d, Decoded::Raw { .. }))
+        .count();
+    assert_eq!(raws, 4, "2 доставки кадра с E + 2 служебных");
+    let w = m.writer();
+    assert_eq!((w.raw, w.raw_copies), (4, 2));
+}
+
+#[test]
+fn writer_rotates_days_resets_encoder_and_keeps_keys() {
+    let r = rig(Arc::new(Binance), 20);
+    let d1 = 20_000 * NS_PER_DAY;
+    r.frame(d1 + NS_PER_DAY - 2_000_000, 1, &bn_book(10, 1_000));
+    r.frame(d1 + NS_PER_DAY - 1_000_000, 1, &bn_book(11, 1_001));
+    r.frame(d1 + NS_PER_DAY + 1_000_000, 1, &bn_book(11, 1_001)); // дубль через границу суток: ключ помним
+    r.frame(d1 + NS_PER_DAY + 2_000_000, 1, &bn_book(12, 1_002));
+    let (dir, _) = r.finish();
+    let days = read_days(dir.path());
+    assert_eq!(
+        days.iter().map(|d| d.0.clone()).collect::<Vec<_>>(),
+        [day_string(20_000), day_string(20_001)]
+    );
+    assert_eq!((days[0].1.len(), days[0].2), (2, Some(2)));
+    assert_eq!((days[1].1.len(), days[1].2), (1, Some(1)));
+    // в новом файле первая запись абсолютная: u = 12 целиком, приём — абсолютный
+    assert!(
+        matches!(&days[1].1[0], Decoded::Book { u: 12, rx_ns, .. } if *rx_ns == d1 + NS_PER_DAY + 2_000_000)
+    );
+    let raw = zstd::decode_all(
+        std::fs::File::open(
+            std::fs::read_dir(dir.path().join(day_string(20_001)))
+                .unwrap()
+                .flatten()
+                .find(|e| e.path().extension().is_some_and(|x| x == "zst"))
+                .unwrap()
+                .path(),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    assert!(String::from_utf8(raw)
+        .unwrap()
+        .starts_with(&format!("b\t{}\t", d1 + NS_PER_DAY + 2_000_000)));
+}
+
+#[test]
+fn writer_closes_ended_day_by_clock_without_new_records() {
+    use std::sync::atomic::AtomicI64;
+    static NOW: AtomicI64 = AtomicI64::new(0);
+    fn clock() -> i64 {
+        NOW.load(Relaxed)
+    }
+    let day = 20_000 * NS_PER_DAY;
+    NOW.store(day + 10_000_000_000, Relaxed);
+    let dir = tempfile::tempdir().unwrap();
+    let metrics = ShardMetrics::new("book00", 0, 64, 16);
+    let (tx, rx) = ring(&metrics.ring);
+    let (stx, srx) = sink_channel(&metrics.sink_q);
+    let cfg = WriterCfg {
+        root: dir.path().to_path_buf(),
+        shard: "book00".into(),
+        run_id: 1,
+        flush: Duration::from_millis(20),
+        block_max: 4096,
+        clock,
+    };
+    let w = ShardWriter::new(cfg, Arc::new(Binance), Arc::clone(&metrics), stx, rx);
+    let (m2, d2) = (Arc::clone(&metrics), Arc::clone(&metrics.sink_q));
+    let threads = [
+        std::thread::spawn(move || w.run()),
+        std::thread::spawn(move || run_sink(&srx, &d2, &m2)),
+    ];
+    tx.push(Item {
+        rx_ns: day + 5_000_000_000,
+        sender: 1,
+        lane: 0,
+        settled: true,
+        payload: Payload::Frame(Bytes::from(bn_book(1, 1_000))),
+    })
+    .unwrap();
+    std::thread::sleep(Duration::from_millis(300));
+    assert!(!any_ok(dir.path()), "сутки ещё идут: файл открыт, .ok нет");
+    NOW.store(day + NS_PER_DAY + 10_000_000_000, Relaxed); // полночь прошла, записей нового дня нет
+    let started = Instant::now();
+    while !any_ok(dir.path()) {
+        assert!(
+            started.elapsed() < Duration::from_secs(5),
+            "файл ушедших суток не закрыт по часам"
+        );
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    tx.push(Item {
+        rx_ns: 0,
+        sender: 0,
+        lane: 0,
+        settled: true,
+        payload: Payload::Shutdown,
+    })
+    .unwrap();
+    for t in threads {
+        t.join().unwrap();
+    }
+    let days = read_days(dir.path());
+    assert_eq!((days.len(), days[0].1.len(), days[0].2), (1, 1, Some(1)));
+}
+
+/// Запись ушедших суток, пришедшая в очередь после закрытия файла по часам (обратное давление дольше 5 с), не открывает закрытый файл:
+/// файл ушедших суток остаётся с `.ok` = 1, запись уходит в файл новых суток (приём поднят до полуночи).
+#[test]
+fn writer_late_previous_day_record_does_not_reopen_the_closed_day() {
+    use std::sync::atomic::AtomicI64;
+    static NOW: AtomicI64 = AtomicI64::new(0);
+    fn clock() -> i64 {
+        NOW.load(Relaxed)
+    }
+    let day = 20_000 * NS_PER_DAY;
+    NOW.store(day + 10_000_000_000, Relaxed);
+    let dir = tempfile::tempdir().unwrap();
+    let metrics = ShardMetrics::new("book00", 0, 64, 16);
+    let (tx, rx) = ring(&metrics.ring);
+    let (stx, srx) = sink_channel(&metrics.sink_q);
+    let cfg = WriterCfg {
+        root: dir.path().to_path_buf(),
+        shard: "book00".into(),
+        run_id: 1,
+        flush: Duration::from_millis(20),
+        block_max: 4096,
+        clock,
+    };
+    let w = ShardWriter::new(cfg, Arc::new(Binance), Arc::clone(&metrics), stx, rx);
+    let (m2, d2) = (Arc::clone(&metrics), Arc::clone(&metrics.sink_q));
+    let threads = [
+        std::thread::spawn(move || w.run()),
+        std::thread::spawn(move || run_sink(&srx, &d2, &m2)),
+    ];
+    let push = |rx_ns: i64, u: i64| {
+        tx.push(Item {
+            rx_ns,
+            sender: 1,
+            lane: 0,
+            settled: true,
+            payload: Payload::Frame(Bytes::from(bn_book(u, 1_000))),
+        })
+        .unwrap();
+    };
+    push(day + 5_000_000_000, 1);
+    std::thread::sleep(Duration::from_millis(300));
+    NOW.store(day + NS_PER_DAY + 10_000_000_000, Relaxed);
+    let started = Instant::now();
+    while !any_ok(dir.path()) {
+        assert!(started.elapsed() < Duration::from_secs(5), "не закрыт");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    // запоздавшая запись с приёмом в ушедших сутках (простояла в очереди дольше 5 с после полуночи)
+    push(day + NS_PER_DAY - 1_000_000_000, 2);
+    tx.push(Item {
+        rx_ns: 0,
+        sender: 0,
+        lane: 0,
+        settled: true,
+        payload: Payload::Shutdown,
+    })
+    .unwrap();
+    for t in threads {
+        t.join().unwrap();
+    }
+    let days = read_days(dir.path());
+    assert_eq!(days.len(), 2, "два файла: ушедшие и новые сутки");
+    assert_eq!(
+        (days[0].1.len(), days[0].2),
+        (1, Some(1)),
+        "закрытые сутки не тронуты: одна запись, .ok = 1"
+    );
+    assert_eq!(
+        (days[1].1.len(), days[1].2),
+        (1, Some(1)),
+        "запоздавшая запись — в новых сутках"
+    );
+    assert!(
+        matches!(&days[1].1[0], Decoded::Book { rx_ns, u: 2, .. } if *rx_ns >= day + NS_PER_DAY),
+        "приём поднят до полуночи: {:?}",
+        days[1].1[0]
+    );
+    assert_eq!(metrics.writer().clamped, 1);
+}
+
+#[test]
+fn writer_clamps_rx_to_keep_dns_non_negative() {
+    let r = rig(Arc::new(Binance), 20);
+    let t = 20_000 * NS_PER_DAY + 9_000_000_000;
+    r.frame(t + 5_000, 1, &bn_book(1, 1_000));
+    r.frame(t, 2, &bn_book(2, 1_001)); // пришёл «раньше» предыдущего в очереди
+    let (dir, m) = r.finish();
+    let rows = &read_days(dir.path())[0].1;
+    assert!(
+        matches!((&rows[0], &rows[1]), (Decoded::Book { rx_ns: a, .. }, Decoded::Book { rx_ns: b, .. }) if b >= a)
+    );
+    assert_eq!(m.writer().clamped, 1);
+}
+
+#[test]
+fn writer_flush_makes_data_visible_before_close() {
+    let r = rig(Arc::new(Binance), 30);
+    let t = 20_000 * NS_PER_DAY + 3_000_000_000;
+    r.frame(t, 1, &bn_book(1, 1_000));
+    let started = Instant::now();
+    let path = loop {
+        let found = std::fs::read_dir(r.dir.path())
+            .ok()
+            .and_then(|d| d.flatten().next())
+            .and_then(|d| std::fs::read_dir(d.path()).ok())
+            .and_then(|d| {
+                d.flatten()
+                    .find(|f| f.path().extension().is_some_and(|x| x == "zst"))
+            });
+        if let Some(f) = found {
+            if f.metadata().unwrap().len() > 0 {
+                break f.path();
+            }
+        }
+        assert!(
+            started.elapsed() < Duration::from_secs(3),
+            "запись не дошла до диска за 3 с при flush 30 мс"
+        );
+        std::thread::sleep(Duration::from_millis(10));
+    };
+    let mut dec = zstd::stream::read::Decoder::new(std::fs::File::open(path).unwrap()).unwrap();
+    let mut buf = vec![0u8; 4096];
+    let n = std::io::Read::read(&mut dec, &mut buf).unwrap();
+    assert!(
+        String::from_utf8_lossy(&buf[..n]).starts_with("b\t"),
+        "открытый файл читается до закрытия (кадры zstd сброшены)"
+    );
+    let (_, m) = r.finish();
+    assert!(
+        m.sink().lag_out.snapshot(super::events::now_ms()).count() >= 1,
+        "лаг «приём → диск» посчитан"
+    );
+}
+
+// ---- сеть, сессия, шард на локальном WebSocket ----
+
+/// Локальный источник: на каждое соединение читает подписку и шлёт кадры книги Binance с растущим u, пока клиент не закроет.
+fn spawn_source(listener: TcpListener, per_conn_frames: usize) -> std::thread::JoinHandle<usize> {
+    std::thread::spawn(move || {
+        let mut served = 0;
+        listener.set_nonblocking(false).unwrap();
+        listener.set_ttl(64).unwrap();
+        while served < 1 {
+            let Ok((s, _)) = listener.accept() else { break };
+            let mut ws = tungstenite::accept(s).unwrap();
+            let sub = ws.read().unwrap();
+            assert!(
+                sub.to_text().unwrap().contains("SUBSCRIBE"),
+                "клиент подписался"
+            );
+            for i in 0..per_conn_frames {
+                let e = super::events::now_ms();
+                let u = i64::try_from(i).unwrap() + 1;
+                ws.send(tungstenite::Message::text(bn_book(u, e))).unwrap();
+                std::thread::sleep(Duration::from_millis(2));
+            }
+            ws.send(tungstenite::Message::text(r#"{"result":null,"id":1}"#))
+                .unwrap();
+            while ws.read().is_ok() {}
+            served += 1;
+        }
+        served
+    })
+}
+
+fn health_keys_ok(v: &serde_json::Value) {
+    for k in [
+        "schema",
+        "exchange",
+        "ts_ms",
+        "started_ms",
+        "symbols",
+        "ws",
+        "fresh",
+        "lag_in_ms",
+        "lag_out_ms",
+        "last_frame_ms",
+        "last_write_ms",
+        "backpressure",
+        "process",
+        "totals",
+        "shards",
+    ] {
+        assert!(v.get(k).is_some(), "в health нет {k}");
+    }
+    for k in [
+        "connections",
+        "ping_ms",
+        "timeouts_1h",
+        "timeouts_24h",
+        "timeouts_alive_1h",
+        "timeouts_alive_24h",
+        "timeouts_silent_1h",
+        "timeouts_silent_24h",
+        "gaps_1h",
+        "gaps_24h",
+        "reconnects_1h",
+        "reconnects_24h",
+        "entrance_switches_1h",
+        "entrance_switches_24h",
+    ] {
+        assert!(v["ws"].get(k).is_some(), "в health.ws нет {k}");
+    }
+    for k in ["ring", "sink", "recv_q", "reader", "queue_lag_ms"] {
+        assert!(
+            v["backpressure"].get(k).is_some(),
+            "в health.backpressure нет {k}"
+        );
+    }
+}
+
+#[test]
+fn shard_end_to_end_on_local_websocket() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let source = spawn_source(listener, 300);
+    let dir = tempfile::tempdir().unwrap();
+    let exch: Arc<dyn Exchange> = Arc::new(Binance);
+    let plan = super::exchange::ShardPlan {
+        name: "book00".into(),
+        endpoint: "public".into(),
+        streams: vec!["btcusdt@bookTicker".into()],
+    };
+    let mut opts = ShardOpts::new(dir.path().to_path_buf(), 1_794_000_000);
+    (opts.tls, opts.port, opts.flush) = (false, port, Duration::from_millis(30));
+    let stop = Arc::new(AtomicBool::new(false));
+    let budget = Arc::new(Budget::new(10, Duration::from_secs(300)));
+    let ent = vec![vec![Entrance::new("127.0.0.1", Family::V4)]];
+    let h = spawn_shard(&exch, &plan, &ent, &opts, &budget, &stop).unwrap();
+    let metrics = Arc::clone(&h.metrics);
+    let t0 = Instant::now();
+    while metrics.writer().records < 300 && t0.elapsed() < Duration::from_secs(10) {
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    assert!(
+        metrics.writer().records >= 300,
+        "300 кадров дошли до писателя: {}",
+        metrics.writer().records
+    );
+    let ctx = HealthCtx {
+        exchange: "binance",
+        pool: ["btcusdt".to_string()].into(),
+        version: "test".into(),
+        live: None,
+        book_window_ms: 600_000,
+    };
+    let health = build(
+        &[Arc::clone(&metrics)],
+        &ctx,
+        super::events::now_ms(),
+        &mut ProcSampler::default(),
+    );
+    health_keys_ok(&health);
+    assert_eq!(health["ws"]["connections"], 1);
+    assert_eq!(health["symbols"]["with_data_1m"], 1);
+    stop.store(true, Relaxed);
+    h.join();
+    assert_eq!(source.join().unwrap(), 1);
+    let days = read_days(dir.path());
+    assert_eq!(days.len(), 1);
+    let (_, rows, ok) = &days[0];
+    assert_eq!(*ok, Some(rows.len() as u64), ".ok совпадает с числом строк");
+    assert!(matches!(rows.first(), Some(Decoded::Control { what, .. }) if what == "connected"));
+    assert!(
+        matches!(rows.last(), Some(Decoded::Control { what, .. }) if what == "closed"),
+        "closed записан ДО закрытия файла: {:?}",
+        rows.last()
+    );
+    let us: Vec<i64> = rows
+        .iter()
+        .filter_map(|d| {
+            if let Decoded::Book { u, .. } = d {
+                Some(*u)
+            } else {
+                None
+            }
+        })
+        .collect();
+    assert_eq!(
+        us,
+        (1..=300).collect::<Vec<i64>>(),
+        "последовательность u без пропусков и дублей"
+    );
+    assert_eq!(
+        rows.iter()
+            .filter(|d| matches!(d, Decoded::Raw { .. }))
+            .count(),
+        1,
+        "ответ подписки — сырым"
+    );
+    let events = std::fs::read_to_string(dir.path().join("events-book00.jsonl")).unwrap();
+    for ev in ["connected", "subscribed", "stopped"] {
+        assert!(
+            events.contains(&format!("\"ev\":\"{ev}\"")),
+            "нет события {ev}"
+        );
+    }
+    let stats = std::fs::read_to_string(dir.path().join("stats-book00.jsonl")).unwrap_or_default();
+    assert!(stats.is_empty() || stats.contains("ring_depth_max"));
+}
+
+/// Источник «биржа»: один общий счётчик событий (u растёт каждые 2 мс), каждое соединение шлёт все события с момента подключения —
+/// два соединения несут одни и те же u (как две линии или перекрытие замены). Принимает соединения, пока не поставлен `stop`.
+fn spawn_tape(
+    listener: TcpListener,
+    head: Arc<std::sync::atomic::AtomicI64>,
+    stop: Arc<AtomicBool>,
+) -> std::thread::JoinHandle<()> {
+    spawn_tape_with(listener, head, stop, bn_book, None)
+}
+
+/// То же с кадром биржи на событие и (необязательно) одноразовым кадром-предупреждением: первое соединение шлёт его сразу после подписки.
+fn spawn_tape_with(
+    listener: TcpListener,
+    head: Arc<std::sync::atomic::AtomicI64>,
+    stop: Arc<AtomicBool>,
+    make: fn(i64, i64) -> String,
+    notice: Option<(Arc<AtomicBool>, &'static str)>,
+) -> std::thread::JoinHandle<()> {
+    let h2 = Arc::clone(&head);
+    let s2 = Arc::clone(&stop);
+    std::thread::spawn(move || {
+        while !s2.load(Relaxed) {
+            h2.fetch_add(1, Relaxed);
+            std::thread::sleep(Duration::from_millis(2));
+        }
+    });
+    std::thread::spawn(move || {
+        listener.set_nonblocking(true).unwrap();
+        let mut conns = Vec::new();
+        while !stop.load(Relaxed) {
+            match listener.accept() {
+                Ok((s, _)) => {
+                    s.set_nonblocking(false).unwrap();
+                    let (head, stop) = (Arc::clone(&head), Arc::clone(&stop));
+                    let notice = notice.clone();
+                    conns.push(std::thread::spawn(move || {
+                        let Ok(mut ws) = tungstenite::accept(s) else {
+                            return;
+                        };
+                        if ws.read().is_err() {
+                            return;
+                        }
+                        if let Some((once, frame)) = notice {
+                            if !once.swap(true, Relaxed)
+                                && ws.send(tungstenite::Message::text(frame)).is_err()
+                            {
+                                return;
+                            }
+                        }
+                        ws.get_ref()
+                            .set_read_timeout(Some(Duration::from_millis(1)))
+                            .unwrap();
+                        let mut sent = head.load(Relaxed);
+                        while !stop.load(Relaxed) {
+                            while sent < head.load(Relaxed) {
+                                sent += 1;
+                                if ws
+                                    .send(tungstenite::Message::text(make(
+                                        sent,
+                                        super::events::now_ms(),
+                                    )))
+                                    .is_err()
+                                {
+                                    return;
+                                }
+                            }
+                            match ws.read() {
+                                Ok(tungstenite::Message::Close(_))
+                                | Err(
+                                    tungstenite::Error::ConnectionClosed
+                                    | tungstenite::Error::AlreadyClosed,
+                                ) => return,
+                                Err(tungstenite::Error::Io(e))
+                                    if matches!(
+                                        e.kind(),
+                                        std::io::ErrorKind::WouldBlock
+                                            | std::io::ErrorKind::TimedOut
+                                    ) => {}
+                                Err(_) => return,
+                                Ok(_) => {}
+                            }
+                        }
+                    }));
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                    std::thread::sleep(Duration::from_millis(5))
+                }
+                Err(_) => break,
+            }
+        }
+        for c in conns {
+            let _ = c.join();
+        }
+    })
+}
+
+fn book_shard(dir: &Path, port: u16, probe: (f64, f64)) -> (ShardOpts, super::exchange::ShardPlan) {
+    let plan = super::exchange::ShardPlan {
+        name: "book00".into(),
+        endpoint: "public".into(),
+        streams: vec!["btcusdt@bookTicker".into()],
+    };
+    let mut opts = ShardOpts::new(dir.to_path_buf(), 1_794_000_000);
+    (opts.tls, opts.port, opts.flush, opts.probe_window) =
+        (false, port, Duration::from_millis(30), probe);
+    (opts, plan)
+}
+
+/// u книги по файлам суток: после сортировки строго подряд (+1), без дублей и пропусков.
+fn assert_u_contiguous(root: &Path) -> usize {
+    let days = read_days(root);
+    let us: Vec<i64> = days
+        .iter()
+        .flat_map(|d| d.1.iter())
+        .filter_map(|d| {
+            if let Decoded::Book { u, .. } = d {
+                Some(*u)
+            } else {
+                None
+            }
+        })
+        .collect();
+    assert!(us.len() > 50, "записей мало: {}", us.len());
+    // порядок в файле — порядок прихода (у двух линий он не обязан совпадать с порядком u); после сортировки — без пропусков и повторов
+    let mut sorted = us.clone();
+    sorted.sort_unstable();
+    for w in sorted.windows(2) {
+        assert_eq!(w[1], w[0] + 1, "u подряд: {} → {}", w[0], w[1]);
+    }
+    us.len()
+}
+
+fn count_events(dir: &Path, name: &str) -> usize {
+    std::fs::read_to_string(dir.join("events-book00.jsonl"))
+        .unwrap_or_default()
+        .matches(&format!("\"ev\":\"{name}\""))
+        .count()
+}
+
+/// События шарда с этим именем по порядку записи (`events-book00.jsonl`).
+fn events_named(dir: &Path, name: &str) -> Vec<serde_json::Value> {
+    std::fs::read_to_string(dir.join("events-book00.jsonl"))
+        .unwrap_or_default()
+        .lines()
+        .filter_map(|l| serde_json::from_str::<serde_json::Value>(l).ok())
+        .filter(|e| e["ev"] == name)
+        .collect()
+}
+
+#[test]
+fn replacement_session_overlaps_without_gap_or_duplicates() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let (head, stop_src) = (
+        Arc::new(std::sync::atomic::AtomicI64::new(0)),
+        Arc::new(AtomicBool::new(false)),
+    );
+    let src = spawn_tape(listener, head, Arc::clone(&stop_src));
+    let dir = tempfile::tempdir().unwrap();
+    let (mut opts, plan) = book_shard(dir.path(), port, (0.2, 0.5));
+    (opts.max_age, opts.overlap, opts.switch_wait) = (
+        Duration::from_millis(1500),
+        Duration::from_millis(800),
+        Duration::from_secs(5),
+    );
+    let exch: Arc<dyn Exchange> = Arc::new(Binance);
+    let stop = Arc::new(AtomicBool::new(false));
+    let budget = Arc::new(Budget::new(50, Duration::from_secs(300)));
+    let h = spawn_shard(
+        &exch,
+        &plan,
+        &[vec![Entrance::new("127.0.0.1", Family::V4)]],
+        &opts,
+        &budget,
+        &stop,
+    )
+    .unwrap();
+    let metrics = Arc::clone(&h.metrics);
+    let t0 = Instant::now();
+    while count_events(dir.path(), "rotated") < 2 && t0.elapsed() < Duration::from_secs(30) {
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    assert!(
+        count_events(dir.path(), "rotated") >= 2,
+        "замена по возрасту сработала дважды"
+    );
+    stop.store(true, Relaxed);
+    h.join();
+    stop_src.store(true, Relaxed);
+    src.join().unwrap();
+    let n = assert_u_contiguous(dir.path());
+    let w = metrics.writer();
+    assert!(
+        w.dups > 0,
+        "на перекрытии оба соединения несли одни u — дубли снял писатель ({} записей, {} дублей)",
+        n,
+        w.dups
+    );
+    assert!(
+        count_events(dir.path(), "connected") >= 3,
+        "подключений не меньше трёх (первая + две замены)"
+    );
+}
+
+#[test]
+fn two_lanes_deliver_one_gapless_stream() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let (head, stop_src) = (
+        Arc::new(std::sync::atomic::AtomicI64::new(0)),
+        Arc::new(AtomicBool::new(false)),
+    );
+    let src = spawn_tape(listener, head, Arc::clone(&stop_src));
+    let dir = tempfile::tempdir().unwrap();
+    let (opts, plan) = book_shard(dir.path(), port, (4.0, 15.0));
+    let exch: Arc<dyn Exchange> = Arc::new(Binance);
+    let stop = Arc::new(AtomicBool::new(false));
+    let budget = Arc::new(Budget::new(50, Duration::from_secs(300)));
+    let lane = vec![Entrance::new("127.0.0.1", Family::V4)];
+    let h = spawn_shard(&exch, &plan, &[lane.clone(), lane], &opts, &budget, &stop).unwrap();
+    let metrics = Arc::clone(&h.metrics);
+    let t0 = Instant::now();
+    while metrics.writer().records < 400 && t0.elapsed() < Duration::from_secs(15) {
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    stop.store(true, Relaxed);
+    h.join();
+    stop_src.store(true, Relaxed);
+    src.join().unwrap();
+    let n = assert_u_contiguous(dir.path());
+    let w = metrics.writer();
+    assert!(
+        w.dups as usize > n / 3,
+        "вторая линия принесла те же записи: дублей {} при {} записях",
+        w.dups,
+        n
+    );
+    assert_eq!(metrics.connected.load(Relaxed), 0, "все соединения закрыты");
+}
+
+#[test]
+fn entrance_switches_to_spare_after_three_short_sessions() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let (head, stop_src) = (
+        Arc::new(std::sync::atomic::AtomicI64::new(0)),
+        Arc::new(AtomicBool::new(false)),
+    );
+    let src = spawn_tape(listener, head, Arc::clone(&stop_src));
+    let dir = tempfile::tempdir().unwrap();
+    let (opts, plan) = book_shard(dir.path(), port, (4.0, 15.0));
+    let exch: Arc<dyn Exchange> = Arc::new(Binance);
+    let stop = Arc::new(AtomicBool::new(false));
+    let budget = Arc::new(Budget::new(50, Duration::from_secs(300)));
+    // основной вход — адрес, где никто не слушает (отказ в соединении), запасной — рабочий источник
+    let dead = Entrance {
+        host: "127.0.0.1".into(),
+        ip: Some("127.0.0.2".parse().unwrap()),
+        family: Family::V4,
+    };
+    let h = spawn_shard(
+        &exch,
+        &plan,
+        &[vec![dead, Entrance::new("127.0.0.1", Family::V4)]],
+        &opts,
+        &budget,
+        &stop,
+    )
+    .unwrap();
+    let metrics = Arc::clone(&h.metrics);
+    let t0 = Instant::now();
+    while metrics.writer().records < 100 && t0.elapsed() < Duration::from_secs(30) {
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    stop.store(true, Relaxed);
+    h.join();
+    stop_src.store(true, Relaxed);
+    src.join().unwrap();
+    let ev = std::fs::read_to_string(dir.path().join("events-book00.jsonl")).unwrap();
+    assert_eq!(
+        count_events(dir.path(), "error"),
+        3,
+        "три неудачи на основном входе"
+    );
+    assert!(
+        ev.contains("\"ev\":\"entrance_switch\"")
+            && ev.contains("\"reason\":\"connect_fail\"")
+            && ev.contains("\"fails\":3"),
+        "{ev}"
+    );
+    assert!(
+        metrics.writer().records >= 100,
+        "данные пошли через запасной вход"
+    );
+    assert_eq!(metrics.lists().entrance_switches.len(), 1);
+}
+
+const BB_BOOK_KZ: &str = r#"{"topic":"orderbook.1.BTCUSDT","ts":1794433022405,"type":"snapshot","data":{"s":"BTCUSDT","b":[["74600","8.454"]],"a":[["74600.1","7.416"]],"u":858576,"seq":843868169089},"cts":1794433022398}"#;
+
+/// Замер 12.11 (захват кадров двух входов): `u` у входов Bybit — свои счётчики (79 205 427 против 858 576 для одного и того же состояния
+/// книги), одинаков сквозной `seq`. Дубль — по `seq`, не по `u`: иначе вторая линия молча отбрасывается целиком.
+#[test]
+fn bybit_entrances_with_different_u_but_same_seq_are_one_record() {
+    let r = rig(Arc::new(Bybit), 20);
+    let t = 20_000 * NS_PER_DAY + 2_000_000_000;
+    let next = BB_BOOK
+        .replace("843868169089", "843868169100")
+        .replace("1794433022399", "1794433022420");
+    let next_kz = BB_BOOK_KZ
+        .replace("843868169089", "843868169100")
+        .replace("1794433022405", "1794433022430");
+    r.frame(t, 1, BB_BOOK); // com
+    r.frame(t + 1_000_000, 2, BB_BOOK_KZ); // kz: то же состояние, другой u
+    r.frame(t + 2_000_000, 2, &next_kz); // kz впереди com: следующее состояние первым пришло по kz
+    r.frame(t + 3_000_000, 1, &next);
+    r.frame(t + 4_000_000, 1, BB_BOOK); // повтор кадра той же сессией (книга не менялась)
+    let (dir, m) = r.finish();
+    let rows = &read_days(dir.path())[0].1;
+    let us: Vec<i64> = rows
+        .iter()
+        .filter_map(|d| {
+            if let Decoded::Book { u, .. } = d {
+                Some(*u)
+            } else {
+                None
+            }
+        })
+        .collect();
+    assert_eq!(
+        us,
+        vec![843_868_169_089, 843_868_169_100],
+        "по одной записи на состояние книги, ключ — seq"
+    );
+    assert_eq!(m.writer().dups, 3);
+}
+
+/// Нарезка сделок на пачки у входов разная (`a = seq·1000 + номер` у одной сделки различается): личность сделки — её UUID.
+#[test]
+fn bybit_trade_identity_is_uuid_not_synthetic_key() {
+    let r = rig(Arc::new(Bybit), 20);
+    let t = 20_000 * NS_PER_DAY + 3_000_000_000;
+    let fill = |id: &str| bb_fill("Sell", "5.2", id, "false");
+    let a = bb_trade(&[fill("u-1"), fill("u-2")]); // com: пачка из двух
+    let b = bb_trade(&[fill("u-2")]).replace("272596956733", "272596956734"); // kz: вторая сделка отдельной пачкой с другим seq
+    r.frame(t, 1, &a);
+    r.frame(t + 1_000_000, 2, &b);
+    r.frame(
+        t + 2_000_000,
+        2,
+        &bb_trade(&[fill("u-3")]).replace("272596956733", "272596956735"),
+    );
+    let (dir, m) = r.finish();
+    let rows = &read_days(dir.path())[0].1;
+    let n = rows
+        .iter()
+        .filter(|d| matches!(d, Decoded::Trade { .. }))
+        .count();
+    assert_eq!(
+        n, 3,
+        "u-1, u-2, u-3 по одному разу, хотя ключ a у u-2 разный"
+    );
+    assert_eq!(m.writer().dups, 1);
+}
+
+#[test]
+fn writer_seen_window_forgets_after_two_to_four_minutes() {
+    let r = rig(Arc::new(Binance), 20);
+    let t = 20_000 * NS_PER_DAY + 4_000_000_000;
+    r.frame(t, 1, &bn_book(10, 1_000));
+    r.frame(t + 100_000_000_000, 2, &bn_book(10, 1_000)); // через 100 с — ещё дубль
+    r.frame(t + 250_000_000_000, 2, &bn_book(10, 1_000)); // через 250 с — личность забыта: пишется
+    let (dir, m) = r.finish();
+    let rows = &read_days(dir.path())[0].1;
+    assert_eq!(rows.len(), 2);
+    assert_eq!(m.writer().dups, 1);
+}
+
+/// Замена не принимает путь за `switch_wait` (окно проверки длиннее): как в Python — событие `switch_timeout`, старая сессия всё равно закрывается
+/// после перекрытия (`rotated`), замена остаётся и несёт поток; повторных замен каждые 30 с (и событий `switch_failed`) нет.
+#[test]
+fn switch_timeout_closes_the_old_session_and_the_replacement_carries_on() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let (head, stop_src) = (
+        Arc::new(std::sync::atomic::AtomicI64::new(0)),
+        Arc::new(AtomicBool::new(false)),
+    );
+    let src = spawn_tape(listener, head, Arc::clone(&stop_src));
+    let dir = tempfile::tempdir().unwrap();
+    // окно проверки пути 60 с: замена не будет принята за `switch_wait`
+    let (mut opts, plan) = book_shard(dir.path(), port, (0.2, 60.0));
+    (opts.max_age, opts.overlap, opts.switch_wait) = (
+        Duration::from_millis(1200),
+        Duration::from_millis(500),
+        Duration::from_millis(1000),
+    );
+    let exch: Arc<dyn Exchange> = Arc::new(Binance);
+    let stop = Arc::new(AtomicBool::new(false));
+    let budget = Arc::new(Budget::new(100, Duration::from_secs(300)));
+    let h = spawn_shard(
+        &exch,
+        &plan,
+        &[vec![Entrance::new("127.0.0.1", Family::V4)]],
+        &opts,
+        &budget,
+        &stop,
+    )
+    .unwrap();
+    let metrics = Arc::clone(&h.metrics);
+    let t0 = Instant::now();
+    while count_events(dir.path(), "switch_timeout") < 2 && t0.elapsed() < Duration::from_secs(30) {
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    let before = metrics.writer().records;
+    std::thread::sleep(Duration::from_millis(500));
+    let after = metrics.writer().records;
+    stop.store(true, Relaxed);
+    h.join();
+    stop_src.store(true, Relaxed);
+    src.join().unwrap();
+    let timeouts = count_events(dir.path(), "switch_timeout");
+    assert!(timeouts >= 2, "замена не принята дважды подряд: {timeouts}");
+    assert!(
+        count_events(dir.path(), "rotated") >= timeouts,
+        "после каждого `switch_timeout` старая сессия закрыта (`rotated`)"
+    );
+    assert_eq!(count_events(dir.path(), "switch_failed"), 0);
+    assert!(after > before, "замена несёт поток после таймаута");
+    assert_u_contiguous(dir.path());
+}
+
+/// Холодный старт: шард без соединения принимает путь сразу, даже медленный (порог RTT здесь занижен, чтобы петля считалась медленной) —
+/// данные пишутся с первой секунды, без отбраковки; улучшение пути — позже заменой (замена проверяется и отбраковывается по RTT).
+#[test]
+fn uncovered_shard_accepts_a_slow_path_at_once_and_upgrades_later() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let (head, stop_src) = (
+        Arc::new(std::sync::atomic::AtomicI64::new(0)),
+        Arc::new(AtomicBool::new(false)),
+    );
+    let src = spawn_tape(listener, head, Arc::clone(&stop_src));
+    let dir = tempfile::tempdir().unwrap();
+    let (mut opts, plan) = book_shard(dir.path(), port, (0.2, 0.5));
+    opts.rtt_max_ms = 1e-6; // любой путь «медленный»
+    let exch: Arc<dyn Exchange> = Arc::new(Binance);
+    let stop = Arc::new(AtomicBool::new(false));
+    let budget = Arc::new(Budget::new(100, Duration::from_secs(300)));
+    let h = spawn_shard(
+        &exch,
+        &plan,
+        &[vec![Entrance::new("127.0.0.1", Family::V4)]],
+        &opts,
+        &budget,
+        &stop,
+    )
+    .unwrap();
+    let metrics = Arc::clone(&h.metrics);
+    let t0 = Instant::now();
+    while metrics.writer().records < 100 && t0.elapsed() < Duration::from_secs(10) {
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let first_data = t0.elapsed();
+    // дальше линия пробует улучшить путь: замена идёт через проверку и отбраковывается по RTT
+    while count_events(dir.path(), "path_rejected_rtt") < 2
+        && t0.elapsed() < Duration::from_secs(20)
+    {
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    let before = metrics.writer().records;
+    std::thread::sleep(Duration::from_millis(300));
+    let after = metrics.writer().records;
+    stop.store(true, Relaxed);
+    h.join();
+    stop_src.store(true, Relaxed);
+    src.join().unwrap();
+    assert!(
+        first_data < Duration::from_secs(3),
+        "данные пошли сразу: {first_data:?}"
+    );
+    // первая сессия не отбракована: по номеру сессии, не по счёту событий в момент сотой записи — первая замена идёт через ≥ 250 мс после подключения (шаг линии),
+    // а сотая запись на нагруженной машине приходит и позже (так тест падал в гейте: счёт на тот момент уже был 1)
+    let first = events_named(dir.path(), "connected")[0]["session"].clone();
+    let rejected = events_named(dir.path(), "path_rejected_rtt");
+    assert!(
+        rejected.iter().all(|e| e["session"] != first),
+        "первая сессия {first} не отбракована: {rejected:?}"
+    );
+    let accepted = events_named(dir.path(), "path_slow_accepted");
+    assert!(
+        accepted
+            .iter()
+            .any(|e| e["session"] == first && e["why"] == "uncovered"),
+        "первая сессия принята как медленная при пустом шарде: {accepted:?}"
+    );
+    assert!(
+        count_events(dir.path(), "path_rejected_rtt") >= 2,
+        "замена пробует лучший путь"
+    );
+    assert!(after > before, "поток не прерывался попытками улучшения");
+    assert_u_contiguous(dir.path());
+}
+
+/// `never_slow`: замена, которая не находит быстрый путь, не принимает медленный «как есть» после 12 отбраковок — продолжает пробовать, старая сессия
+/// остаётся и несёт поток (без `path_upgrade` / `path_switch` / `rotated`).
+#[test]
+fn never_slow_replacement_keeps_the_old_session_until_a_fast_path_exists() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let (head, stop_src) = (
+        Arc::new(std::sync::atomic::AtomicI64::new(0)),
+        Arc::new(AtomicBool::new(false)),
+    );
+    let src = spawn_tape(listener, head, Arc::clone(&stop_src));
+    let dir = tempfile::tempdir().unwrap();
+    let (mut opts, plan) = book_shard(dir.path(), port, (0.2, 0.5));
+    opts.rtt_max_ms = 1e-6; // любой путь «медленный»
+    opts.never_slow = true;
+    opts.strict_pause = Duration::from_millis(100);
+    opts.reject_cap = 1_000; // потолок отбраковок на шард проверяется отдельно (tests_pool.rs)
+    let exch: Arc<dyn Exchange> = Arc::new(Binance);
+    let stop = Arc::new(AtomicBool::new(false));
+    let budget = Arc::new(Budget::new(200, Duration::from_secs(300)));
+    let h = spawn_shard(
+        &exch,
+        &plan,
+        &[vec![Entrance::new("127.0.0.1", Family::V4)]],
+        &opts,
+        &budget,
+        &stop,
+    )
+    .unwrap();
+    let metrics = Arc::clone(&h.metrics);
+    let t0 = Instant::now();
+    while count_events(dir.path(), "path_rejected_rtt") < 14
+        && t0.elapsed() < Duration::from_secs(40)
+    {
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    let before = metrics.writer().records;
+    std::thread::sleep(Duration::from_millis(400));
+    let after = metrics.writer().records;
+    // события до остановки: при остановке ждущая замена оставляет «смену пути» в журнале
+    let swaps: Vec<(&str, usize)> = ["path_upgrade", "path_switch", "rotated", "switch_timeout"]
+        .into_iter()
+        .map(|ev| (ev, count_events(dir.path(), ev)))
+        .collect();
+    stop.store(true, Relaxed);
+    h.join();
+    stop_src.store(true, Relaxed);
+    src.join().unwrap();
+    assert!(
+        count_events(dir.path(), "path_rejected_rtt") >= 14,
+        "строгая замена отбраковывает и после 12-й"
+    );
+    assert!(count_events(dir.path(), "path_slow_accepted") >= 1);
+    for (ev, n) in swaps {
+        assert_eq!(n, 0, "{ev}: медленный путь принят");
+    }
+    assert!(after > before, "старая сессия несёт поток");
+    assert_u_contiguous(dir.path());
+}
+
+/// `cold_probe`: шард без соединения проверяет путь, как Python, — медленный RTT отбраковывается до 12 раз, данных до приёма нет.
+#[test]
+fn cold_probe_rejects_a_slow_path_before_the_first_data() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let (head, stop_src) = (
+        Arc::new(std::sync::atomic::AtomicI64::new(0)),
+        Arc::new(AtomicBool::new(false)),
+    );
+    let src = spawn_tape(listener, head, Arc::clone(&stop_src));
+    let dir = tempfile::tempdir().unwrap();
+    let (mut opts, plan) = book_shard(dir.path(), port, (0.2, 0.5));
+    opts.rtt_max_ms = 1e-6; // любой путь «медленный»
+    opts.cold_probe = true;
+    let exch: Arc<dyn Exchange> = Arc::new(Binance);
+    let stop = Arc::new(AtomicBool::new(false));
+    let budget = Arc::new(Budget::new(200, Duration::from_secs(300)));
+    let h = spawn_shard(
+        &exch,
+        &plan,
+        &[vec![Entrance::new("127.0.0.1", Family::V4)]],
+        &opts,
+        &budget,
+        &stop,
+    )
+    .unwrap();
+    let metrics = Arc::clone(&h.metrics);
+    let t0 = Instant::now();
+    while metrics.writer().records < 100 && t0.elapsed() < Duration::from_secs(30) {
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    let first_data = t0.elapsed();
+    let rejected = count_events(dir.path(), "path_rejected_rtt");
+    stop.store(true, Relaxed);
+    h.join();
+    stop_src.store(true, Relaxed);
+    src.join().unwrap();
+    assert!(rejected >= 12, "12 отбраковок до приёма: {rejected}");
+    assert!(
+        first_data > Duration::from_secs(5),
+        "данные не раньше приёма: {first_data:?}"
+    );
+    assert_u_contiguous(dir.path());
+}
+
+/// Шард без соединения берёт место в бюджете раньше уже покрытого: в очереди за одним местом первой пришла замена покрытого шарда,
+/// второй — шард без соединения; место достаётся второму.
+#[test]
+fn budget_serves_an_uncovered_shard_before_a_covered_one() {
+    let b = Arc::new(Budget::new(1, Duration::from_millis(400)));
+    assert!(b.try_take(Instant::now()).is_none());
+    let order = Arc::new(std::sync::Mutex::new(Vec::<&'static str>::new()));
+    let stop = Arc::new(AtomicBool::new(false));
+    let spawn = |name: &'static str, urgent: bool| {
+        let (b, order, stop) = (Arc::clone(&b), Arc::clone(&order), Arc::clone(&stop));
+        std::thread::spawn(move || {
+            b.acquire(&[&stop], &move || urgent).unwrap();
+            order.lock().unwrap().push(name);
+        })
+    };
+    let covered = spawn("covered", false);
+    std::thread::sleep(Duration::from_millis(80));
+    let uncovered = spawn("uncovered", true);
+    uncovered.join().unwrap();
+    covered.join().unwrap();
+    assert_eq!(*order.lock().unwrap(), ["uncovered", "covered"]);
+    // остановка прерывает ожидание, место не занимается
+    stop.store(true, Relaxed);
+    assert!(b.acquire(&[&stop], &|| true).is_none());
+}
+
+/// Лимит основного правила меняется на ходу (передача между процессами: сумма лимитов ≤ лимита биржи): занятые места не снимаются.
+#[test]
+fn budget_limit_can_be_lowered_and_raised_at_runtime() {
+    let b = Budget::new(5, Duration::from_secs(300));
+    let now = Instant::now();
+    for _ in 0..4 {
+        assert!(b.try_take(now).is_none());
+    }
+    b.set_limit(3);
+    assert!(
+        b.try_take(now).is_some(),
+        "занято 4 при лимите 3 — места нет"
+    );
+    b.set_limit(6);
+    assert!(b.try_take(now).is_none());
+    assert!(b.try_take(now).is_none());
+    assert!(b.try_take(now).is_some(), "шесть из шести");
+}
+
+/// Замер 12.11: `!markPrice@arr@1s` Binance приходит двумя массивами в секунду (237 и 747 элементов), во втором ≈ 30 элементов COIN-M
+/// (`BTCUSD_PERP`, `st` = 2). Целиком-или-никак писало сырым весь массив — mark большинства символов не попадал в структурные записи.
+#[test]
+fn binance_mark_array_is_parsed_per_element() {
+    let coin_m = r#"{"e":"markPriceUpdate","E":1794418695000,"s":"BTCUSD_PERP","p":"73468.8","ap":"73468.8","P":"73398.9","i":"73491.1","r":"0.0001","st":2,"T":1794499200000}"#;
+    let frame = BN_MARK.replace("]}", &format!(",{coin_m}]}}"));
+    let r = parse_all(&Binance, &[&frame]);
+    assert_eq!(r[0].0, Parsed::Recs(2), "два элемента USDⓈ-M — записи");
+    assert_eq!(r[0].1.len(), 3);
+    assert!(matches!(&r[0].1[0], Decoded::Mark { sym, .. } if sym == "AVAXUSDT"));
+    assert!(matches!(&r[0].1[1], Decoded::Mark { sym, .. } if sym == "BTCUSDT"));
+    assert!(
+        matches!(&r[0].1[2], Decoded::Raw { frame, .. } if frame.starts_with(r#"{"stream":"!markPrice@arr@1s","data":[{"e":"markPriceUpdate""#) && frame.contains("BTCUSD_PERP") && !frame.contains("AVAXUSDT")),
+        "{:?}",
+        r[0].1
+    );
+    // все элементы негодные (или массив пуст) — кадр как есть
+    let all_bad = format!(r#"{{"stream":"!markPrice@arr@1s","data":[{coin_m}]}}"#);
+    assert_eq!(parse_all(&Binance, &[&all_bad])[0].0, Parsed::Raw);
+    // повреждённый массив не даёт частичного результата
+    let broken = frame.replace("]}", "");
+    let (p, recs) = parse_all(&Binance, &[&broken]).remove(0);
+    assert_eq!((p, recs.len()), (Parsed::Raw, 0));
+}
+
+/// Хвост массива пишется как сырой кадр: копия с другой линии снимается так же, как у целого кадра с временем биржи.
+#[test]
+fn writer_partial_raw_tail_is_deduplicated_between_lines() {
+    let r = rig(Arc::new(Binance), 20);
+    let t = 20_000 * NS_PER_DAY + 6_000_000_000;
+    let coin_m = r#"{"e":"markPriceUpdate","E":1794418695000,"s":"BTCUSD_PERP","p":"73468.8","ap":"73468.8","P":"73398.9","i":"73491.1","r":"0.0001","st":2,"T":1794499200000}"#;
+    let frame = BN_MARK.replace("]}", &format!(",{coin_m}]}}"));
+    r.frame(t, 1, &frame);
+    r.frame(t + 1_000_000, 2, &frame);
+    let (dir, m) = r.finish();
+    let rows = &read_days(dir.path())[0].1;
+    assert_eq!(
+        rows.iter()
+            .filter(|d| matches!(d, Decoded::Mark { .. }))
+            .count(),
+        2,
+        "записи mark — по одной"
+    );
+    assert_eq!(
+        rows.iter()
+            .filter(|d| matches!(d, Decoded::Raw { .. }))
+            .count(),
+        1,
+        "хвост — один раз"
+    );
+    let w = m.writer();
+    assert_eq!((w.raw, w.raw_copies), (1, 1));
+}
+
+/// Источник, который не отвечает на ping (после подписки не читает): шлёт кадры книги каждые 2 мс, `frames` штук (None — без конца), потом молчит.
+fn spawn_mute(
+    listener: TcpListener,
+    stop: Arc<AtomicBool>,
+    frames: Option<usize>,
+) -> std::thread::JoinHandle<()> {
+    spawn_mute_paced(listener, stop, frames, Duration::from_millis(2))
+}
+
+/// То же с заданным интервалом между кадрами (`period`): редкие кадры — данные «живы», но не «свежие».
+fn spawn_mute_paced(
+    listener: TcpListener,
+    stop: Arc<AtomicBool>,
+    frames: Option<usize>,
+    period: Duration,
+) -> std::thread::JoinHandle<()> {
+    std::thread::spawn(move || {
+        listener.set_nonblocking(true).unwrap();
+        let mut conns = Vec::new();
+        while !stop.load(Relaxed) {
+            match listener.accept() {
+                Ok((s, _)) => {
+                    s.set_nonblocking(false).unwrap();
+                    let stop = Arc::clone(&stop);
+                    conns.push(std::thread::spawn(move || {
+                        let Ok(mut ws) = tungstenite::accept(s) else {
+                            return;
+                        };
+                        if ws.read().is_err() {
+                            return;
+                        }
+                        let mut u = 0i64;
+                        while !stop.load(Relaxed) {
+                            if frames.is_none_or(|n| usize::try_from(u).unwrap_or(0) < n) {
+                                u += 1;
+                                if ws
+                                    .send(tungstenite::Message::text(bn_book(
+                                        u,
+                                        super::events::now_ms(),
+                                    )))
+                                    .is_err()
+                                {
+                                    return;
+                                }
+                            }
+                            std::thread::sleep(period);
+                        }
+                    }));
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                    std::thread::sleep(Duration::from_millis(5))
+                }
+                Err(_) => break,
+            }
+        }
+        for c in conns {
+            let _ = c.join();
+        }
+    })
+}
+
+/// `--no-pong-only-degrade`: нет pong на наш пинг при живых данных — таймауты считаются и пишутся, пинг продолжается, но линия не портится (`ping_degraded` нет).
+#[test]
+fn missing_pong_with_live_data_does_not_degrade_when_the_rule_is_off() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let stop_src = Arc::new(AtomicBool::new(false));
+    let src = spawn_mute(listener, Arc::clone(&stop_src), None);
+    let dir = tempfile::tempdir().unwrap();
+    let (mut opts, plan) = book_shard(dir.path(), port, (4.0, 15.0));
+    opts.ping = (Duration::from_millis(500), Duration::from_secs(1));
+    opts.pong_only_degrades = false;
+    let exch: Arc<dyn Exchange> = Arc::new(Binance);
+    let stop = Arc::new(AtomicBool::new(false));
+    let budget = Arc::new(Budget::new(50, Duration::from_secs(300)));
+    let h = spawn_shard(
+        &exch,
+        &plan,
+        &[vec![Entrance::new("127.0.0.1", Family::V4)]],
+        &opts,
+        &budget,
+        &stop,
+    )
+    .unwrap();
+    let metrics = Arc::clone(&h.metrics);
+    let t0 = Instant::now();
+    while count_events(dir.path(), "timeout") < 2 && t0.elapsed() < Duration::from_secs(20) {
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    stop.store(true, Relaxed);
+    h.join();
+    stop_src.store(true, Relaxed);
+    src.join().unwrap();
+    assert!(
+        count_events(dir.path(), "timeout") >= 2,
+        "пинг продолжается: таймаут повторяется"
+    );
+    assert_eq!(
+        count_events(dir.path(), "ping_degraded"),
+        0,
+        "линия не испорчена"
+    );
+    assert!(metrics.writer().records > 100, "поток шёл");
+}
+
+/// `--no-pong-only-degrade` не покрывает данные старше `FRESH_DATA` (2 с): кадры идут раз в 3 с (живые, но не свежие) — нет pong за 5 с портит линию (`ping_degraded`), как и без флага.
+#[test]
+fn missing_pong_with_stale_but_alive_data_still_degrades_when_the_rule_is_off() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let stop_src = Arc::new(AtomicBool::new(false));
+    let src = spawn_mute_paced(
+        listener,
+        Arc::clone(&stop_src),
+        None,
+        Duration::from_secs(3),
+    );
+    let dir = tempfile::tempdir().unwrap();
+    let (mut opts, plan) = book_shard(dir.path(), port, (4.0, 15.0));
+    opts.ping = (Duration::from_millis(500), Duration::from_secs(5));
+    opts.pong_only_degrades = false;
+    let exch: Arc<dyn Exchange> = Arc::new(Binance);
+    let stop = Arc::new(AtomicBool::new(false));
+    let budget = Arc::new(Budget::new(50, Duration::from_secs(300)));
+    let h = spawn_shard(
+        &exch,
+        &plan,
+        &[vec![Entrance::new("127.0.0.1", Family::V4)]],
+        &opts,
+        &budget,
+        &stop,
+    )
+    .unwrap();
+    let t0 = Instant::now();
+    while count_events(dir.path(), "ping_degraded") < 1 && t0.elapsed() < Duration::from_secs(25) {
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    stop.store(true, Relaxed);
+    h.join();
+    stop_src.store(true, Relaxed);
+    src.join().unwrap();
+    assert!(count_events(dir.path(), "timeout") >= 1, "таймаут записан");
+    assert!(
+        count_events(dir.path(), "ping_degraded") >= 1,
+        "данные старше 2 с — линия портится, флаг не применяется"
+    );
+}
+
+/// Нет pong за PING_TIMEOUT — таймаут и `degraded`, даже когда кадры идут (как в Python `Session.pinger`); `data_alive` в событии — диагностика.
+#[test]
+fn missing_pong_is_a_timeout_and_degraded_even_with_live_data() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let stop_src = Arc::new(AtomicBool::new(false));
+    let src = spawn_mute(listener, Arc::clone(&stop_src), None);
+    let dir = tempfile::tempdir().unwrap();
+    let (mut opts, plan) = book_shard(dir.path(), port, (4.0, 15.0));
+    opts.ping = (Duration::from_millis(500), Duration::from_secs(1));
+    let exch: Arc<dyn Exchange> = Arc::new(Binance);
+    let stop = Arc::new(AtomicBool::new(false));
+    let budget = Arc::new(Budget::new(50, Duration::from_secs(300)));
+    let h = spawn_shard(
+        &exch,
+        &plan,
+        &[vec![Entrance::new("127.0.0.1", Family::V4)]],
+        &opts,
+        &budget,
+        &stop,
+    )
+    .unwrap();
+    let metrics = Arc::clone(&h.metrics);
+    let t0 = Instant::now();
+    while count_events(dir.path(), "ping_degraded") < 1 && t0.elapsed() < Duration::from_secs(20) {
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    stop.store(true, Relaxed);
+    h.join();
+    stop_src.store(true, Relaxed);
+    src.join().unwrap();
+    assert!(
+        count_events(dir.path(), "timeout") >= 1,
+        "таймауты ping считаются"
+    );
+    let ev = std::fs::read_to_string(dir.path().join("events-book00.jsonl")).unwrap();
+    assert!(ev.contains("\"data_alive\":true"), "{ev}");
+    assert!(ev.contains("\"kind\":\"pong_only\""), "{ev}");
+    assert!(
+        count_events(dir.path(), "ping_degraded") >= 1,
+        "нет pong — путь испорчен, как в Python"
+    );
+    assert!(!metrics.lists().timeouts.is_empty());
+    assert!(
+        metrics.lists().timeouts_silent.is_empty(),
+        "данные шли — не «канал молчит»"
+    );
+    assert!(metrics.writer().records > 100, "поток шёл");
+}
+
+/// Б1 (проверка 16.11): в режиме «стоянка» пробная замена испорченной линии не прекращается режимом и доходит до `path_switch`; следующая замена (проба уже была) держится (`storm_hold`).
+/// Прежний код прекращал пробную замену на первой же итерации ожидания (`storm_abort`) — ни одна испорченная линия не менялась никогда.
+#[test]
+fn storm_probe_replacement_is_not_aborted_and_the_degraded_line_is_switched() {
+    use super::storm::Storm;
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let stop_src = Arc::new(AtomicBool::new(false));
+    // источник не отвечает pong: линия портится (`ping_degraded`), кадры идут — замена проходит проверку пути
+    let src = spawn_mute(listener, Arc::clone(&stop_src), None);
+    let dir = tempfile::tempdir().unwrap();
+    let (mut opts, plan) = book_shard(dir.path(), port, (0.2, 0.5));
+    opts.ping = (Duration::from_millis(500), Duration::from_secs(1));
+    opts.overlap = Duration::from_millis(300);
+    let storm = Storm::new();
+    storm.evaluate(9, 9, 0); // режим включён и не выключится: оценок больше нет
+    assert!(storm.is_on());
+    opts.storm = Some(Arc::clone(&storm));
+    let exch: Arc<dyn Exchange> = Arc::new(Binance);
+    let stop = Arc::new(AtomicBool::new(false));
+    let budget = Arc::new(Budget::new(50, Duration::from_secs(300)));
+    let h = spawn_shard(
+        &exch,
+        &plan,
+        &[vec![Entrance::new("127.0.0.1", Family::V4)]],
+        &opts,
+        &budget,
+        &stop,
+    )
+    .unwrap();
+    let t0 = Instant::now();
+    while count_events(dir.path(), "storm_hold") < 1 && t0.elapsed() < Duration::from_secs(40) {
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    stop.store(true, Relaxed);
+    h.join();
+    stop_src.store(true, Relaxed);
+    src.join().unwrap();
+    assert_eq!(
+        count_events(dir.path(), "storm_abort"),
+        0,
+        "пробную замену режим не прекращает"
+    );
+    assert!(
+        count_events(dir.path(), "path_switch") >= 1,
+        "пробная замена дошла до смены линии"
+    );
+    assert!(
+        count_events(dir.path(), "storm_hold") >= 1,
+        "после пробы следующая замена держится"
+    );
+    assert_eq!(
+        count_events(dir.path(), "path_switch"),
+        1,
+        "одна проба на шард за период"
+    );
+    let j = storm.json(0);
+    assert_eq!(j["aborts"], 0);
+    assert!(j["holds"].as_u64().unwrap() >= 1);
+}
+
+/// Ни pong, ни кадров — путь испорчен: помечается `degraded` (шард откроет замену).
+#[test]
+fn silence_without_pong_marks_the_session_degraded() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let stop_src = Arc::new(AtomicBool::new(false));
+    let src = spawn_mute(listener, Arc::clone(&stop_src), Some(50));
+    let dir = tempfile::tempdir().unwrap();
+    let (mut opts, plan) = book_shard(dir.path(), port, (4.0, 15.0));
+    opts.ping = (Duration::from_millis(500), Duration::from_secs(1));
+    let exch: Arc<dyn Exchange> = Arc::new(Binance);
+    let stop = Arc::new(AtomicBool::new(false));
+    let budget = Arc::new(Budget::new(50, Duration::from_secs(300)));
+    let h = spawn_shard(
+        &exch,
+        &plan,
+        &[vec![Entrance::new("127.0.0.1", Family::V4)]],
+        &opts,
+        &budget,
+        &stop,
+    )
+    .unwrap();
+    let t0 = Instant::now();
+    while count_events(dir.path(), "ping_degraded") < 1 && t0.elapsed() < Duration::from_secs(20) {
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    stop.store(true, Relaxed);
+    h.join();
+    stop_src.store(true, Relaxed);
+    src.join().unwrap();
+    assert!(
+        count_events(dir.path(), "ping_degraded") >= 1,
+        "молчание без pong — degraded"
+    );
+    let ev = std::fs::read_to_string(dir.path().join("events-book00.jsonl")).unwrap();
+    assert!(ev.contains("\"data_alive\":false"), "{ev}");
+    assert!(ev.contains("\"kind\":\"silent\""), "{ev}");
+}
+
+/// Отбраковка пути по RTT абсолютная (300 мс), но не выедает бюджет: пока в основном правиле больше запаса — `can_reject`; иначе путь принимается.
+#[test]
+fn path_rejection_stops_at_the_budget_reserve() {
+    let b = Budget::new(10, Duration::from_secs(300));
+    b.set_reserve(4);
+    let now = Instant::now();
+    for i in 0..6 {
+        assert!(b.can_reject(now), "занято {i} из 10, запас 4 — можно");
+        assert!(b.try_take(now).is_none());
+    }
+    assert!(!b.can_reject(now), "занято 6, запас 4 — отбраковка стоп");
+    assert!(b.try_take(now).is_none(), "подключаться по-прежнему можно");
+    b.set_reserve(0);
+    for _ in 0..3 {
+        assert!(b.try_take(now).is_none());
+    }
+    assert!(b.try_take(now).is_some(), "бюджет исчерпан — ждать");
+    assert!(
+        b.can_reject(now),
+        "запас 0 (Python): отбраковка не зависит от бюджета"
+    );
+}
+
+// ---- диск: сбой записи ----
+
+/// Приёмник с отказами: `fail_calls` — номера вызовов `write` (с 1), которые отказывают; остальные принимают не больше 7 байт за раз.
+struct Flaky {
+    out: Arc<std::sync::Mutex<Vec<u8>>>,
+    calls: usize,
+    fail_calls: Vec<usize>,
+}
+
+impl std::io::Write for Flaky {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.calls += 1;
+        if self.fail_calls.contains(&self.calls) {
+            return Err(std::io::Error::other("диск отказал"));
+        }
+        let n = buf.len().min(7);
+        self.out.lock().unwrap().extend_from_slice(&buf[..n]);
+        Ok(n)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+/// Сбой записи посреди блока не рвёт кадр zstd и не сбрасывает счёт строк: после отказов и частичных записей файл читается целиком
+/// одним кадром (`zstd -t`), все блоки на месте по одному разу, `.ok` = все строки.
+#[test]
+fn sink_write_failure_keeps_one_valid_frame_and_the_row_count() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("2026-11-12").join("book00-1.tsv.zst");
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    let out = Arc::new(std::sync::Mutex::new(Vec::<u8>::new()));
+    let m = ShardMetrics::new("book00", 0, 64, 16);
+    let (tx, rx) = sink_channel(&m.sink_q);
+    let (m2, d2) = (Arc::clone(&m), Arc::clone(&m.sink_q));
+    let out2 = Arc::clone(&out);
+    let t = std::thread::spawn(move || {
+        let open = move |_: &Path| -> std::io::Result<super::sink::Dest> {
+            Ok(Box::new(Flaky {
+                out: Arc::clone(&out2),
+                calls: 0,
+                fail_calls: vec![1, 2, 4, 7],
+            }))
+        };
+        run_sink_with(&rx, &d2, &m2, &open, Duration::from_millis(5));
+    });
+    let mut expect = String::new();
+    assert!(tx.send(SinkMsg::Open { path: path.clone() }));
+    for blk in 0..6 {
+        let mut data = String::new();
+        for r in 0..40 {
+            data += &format!(
+                "b\t1\t2\t3\tBTCUSDT\t{}\t74600\t8.4\t74600.1\t7.4\n",
+                blk * 40 + r
+            );
+        }
+        expect += &data;
+        assert!(tx.send(SinkMsg::Block {
+            data: data.into_bytes(),
+            rows: 40,
+            samples: vec![],
+        }));
+    }
+    assert!(tx.send(SinkMsg::Close));
+    assert!(tx.send(SinkMsg::Quit));
+    t.join().unwrap();
+    let bytes = out.lock().unwrap().clone();
+    let mut got = String::new();
+    std::io::Read::read_to_string(
+        &mut zstd::stream::read::Decoder::new(&bytes[..]).unwrap(),
+        &mut got,
+    )
+    .expect("один целый кадр zstd");
+    assert_eq!(got, expect, "каждый блок по разу, без потерь и повторов");
+    assert_eq!(
+        std::fs::read_to_string(format!("{}.ok", path.display()))
+            .unwrap()
+            .trim(),
+        "240",
+        ".ok = все строки"
+    );
+    assert!(
+        m.sink().errors >= 4,
+        "отказы посчитаны: {}",
+        m.sink().errors
+    );
+    assert_eq!(m.sink().blocks_dropped, 0);
+}
+
+/// IPv6 нигде по умолчанию: ни адресом имени, ни закреплённым адресом, ни входом `V6`, ни `Any`; с флагом — как прежде.
+#[test]
+fn dial_never_picks_ipv6_by_default() {
+    use std::net::SocketAddr;
+    let a: Vec<SocketAddr> = ["[2a06:98c1:3103::1]:443", "104.18.43.174:443", "[::1]:443"]
+        .iter()
+        .map(|x| x.parse().unwrap())
+        .collect();
+    for fam in [Family::Any, Family::V4, Family::V6] {
+        assert!(
+            select_addrs(a.clone(), fam, false)
+                .iter()
+                .all(SocketAddr::is_ipv4),
+            "{fam:?}: IPv6 выбран без --allow-ipv6"
+        );
+    }
+    assert!(select_addrs(a.clone(), Family::V6, false).is_empty());
+    assert_eq!(select_addrs(a.clone(), Family::Any, false).len(), 1);
+    assert_eq!(select_addrs(a.clone(), Family::Any, true).len(), 3);
+    assert_eq!(select_addrs(a.clone(), Family::V6, true).len(), 2);
+    assert!(!super::net::allow_ipv6(), "флаг по умолчанию выключен");
+    let e = Entrance::parse("localhost@::1", Family::Any).unwrap();
+    assert!(
+        super::net::dial(&e, 9).is_err(),
+        "закреплённый IPv6-адрес без флага не набирается"
+    );
+    let l = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = l.local_addr().unwrap().port();
+    let (_s, _rtt, ip) = super::net::dial(&Entrance::new("localhost", Family::Any), port).unwrap();
+    assert!(ip.is_ipv4(), "localhost → IPv4, не ::1: {ip}");
+}
+
+fn run_args(extra: &[&str], exchange: &str) -> RunArgs {
+    use clap::Parser;
+    #[derive(Parser)]
+    struct W {
+        #[command(flatten)]
+        a: RunArgs,
+    }
+    let mut v = vec!["x", "--exchange", exchange, "--root", "/tmp/x"];
+    v.extend_from_slice(extra);
+    W::parse_from(v).a
+}
+
+/// Входы линий по умолчанию у всех бирж без IPv6 (и запасного), с `--allow-ipv6` запасные IPv6 возвращаются; только-IPv6 линия без флага — ошибка.
+#[test]
+fn default_lines_have_no_ipv6_entrance_without_the_flag() {
+    for (name, exch) in [
+        ("binance", Arc::new(Binance) as Arc<dyn Exchange>),
+        ("bybit", Arc::new(Bybit)),
+        ("okx", Arc::new(Okx::default())),
+        ("bingx", Arc::new(Bingx::default())),
+        ("gate", Arc::new(Gate::default())),
+    ] {
+        let off = lines_of(exch.as_ref(), &run_args(&[], name)).unwrap();
+        assert!(
+            off.iter()
+                .flatten()
+                .all(|e| e.family != Family::V6 && e.ip.is_none_or(|i| i.is_ipv4())),
+            "{name}: вход IPv6 без --allow-ipv6: {off:?}"
+        );
+        assert!(off.iter().all(|l| !l.is_empty()), "{name}");
+        let on = lines_of(exch.as_ref(), &run_args(&["--allow-ipv6"], name)).unwrap();
+        assert_eq!(
+            on.iter().flatten().any(|e| e.family == Family::V6),
+            !matches!(name, "binance" | "gate"),
+            "{name}: с флагом запасной IPv6 возвращается (у Binance и Gate IPv6-входа нет)"
+        );
+    }
+    let bn = Binance;
+    assert!(lines_of(
+        &bn,
+        &run_args(&["--entrance", "fstream.binance.com@v6"], "binance")
+    )
+    .is_err());
+    assert!(lines_of(
+        &bn,
+        &run_args(&["--entrance", "fstream.binance.com@::1"], "binance")
+    )
+    .is_err());
+    assert!(lines_of(
+        &bn,
+        &run_args(
+            &["--allow-ipv6", "--entrance", "fstream.binance.com@v6"],
+            "binance"
+        )
+    )
+    .is_ok());
+}
+
+/// Рестарт не обнуляет счётчики: события последних суток читаются из `events-<шард>.jsonl`, старше суток и чужие — нет.
+#[test]
+fn restart_replays_counters_from_the_event_log() {
+    let dir = tempfile::tempdir().unwrap();
+    let now = super::events::now_ms();
+    let h = 3_600_000;
+    let lines = [
+        json!({"ev": "timeout", "ts_ms": now - 25 * h, "data_alive": true}),
+        json!({"ev": "timeout", "ts_ms": now - 5 * h, "data_alive": true}),
+        json!({"ev": "timeout", "ts_ms": now - 2 * h, "data_alive": false}),
+        json!({"ev": "timeout", "ts_ms": now - h / 2, "data_alive": false, "kind": "silent"}),
+        json!({"ev": "path_switch", "ts_ms": now - 3 * h}),
+        json!({"ev": "entrance_switch", "ts_ms": now - 3 * h}),
+        json!({"ev": "entrance_switch", "ts_ms": now - 30 * h}),
+        json!({"ev": "error", "ts_ms": now - 3 * h}),
+        json!({"ev": "closed", "ts_ms": now - 3 * h}),
+        json!({"ev": "gap", "ts_ms": now - 3 * h}),
+        json!({"ev": "connected", "ts_ms": now - 3 * h}),
+    ];
+    let mut text: String = lines
+        .iter()
+        .map(|l| {
+            format!(
+                "{l}
+"
+            )
+        })
+        .collect();
+    text.push_str(
+        "не json {\"ev\":\"timeout\"
+",
+    );
+    std::fs::write(dir.path().join("events-book00.jsonl"), text).unwrap();
+    let l = replay_lists(dir.path(), "book00", now);
+    assert_eq!(
+        (
+            l.timeouts.len(),
+            l.timeouts_silent.len(),
+            l.path_switches.len(),
+            l.entrance_switches.len(),
+            l.reconnects.len(),
+            l.gaps.len()
+        ),
+        (3, 2, 1, 1, 2, 1)
+    );
+    assert!(replay_lists(dir.path(), "nope", now).timeouts.is_empty());
+    // health видит возвращённые счётчики и делит таймауты
+    let m = ShardMetrics::new("book00", now, 64, 16);
+    *m.lists() = l;
+    let ctx = HealthCtx {
+        exchange: "binance",
+        pool: HashSet::new(),
+        version: "t".into(),
+        live: None,
+        book_window_ms: 600_000,
+    };
+    let v = build(&[m], &ctx, now, &mut ProcSampler::default());
+    let w = &v["ws"];
+    assert_eq!(
+        (
+            w["timeouts_1h"].as_u64(),
+            w["timeouts_24h"].as_u64(),
+            w["timeouts_alive_24h"].as_u64(),
+            w["timeouts_silent_1h"].as_u64(),
+            w["timeouts_silent_24h"].as_u64(),
+            w["path_switches_24h"].as_u64(),
+            w["entrance_switches_24h"].as_u64(),
+        ),
+        (
+            Some(1),
+            Some(3),
+            Some(1),
+            Some(1),
+            Some(2),
+            Some(1),
+            Some(1)
+        )
+    );
+}
+
+/// Строка минуты: паузы по началу, поздние по минуте прихода, таймауты по виду; соседние минуты не мешаются.
+#[test]
+fn series_minute_row_counts_lost_late_and_timeouts() {
+    let min = 60_000i64;
+    let m0 = ShardMetrics::new("book00", 0, 64, 16);
+    let m1 = ShardMetrics::new("book01", 0, 64, 16);
+    let base = 5_000 * min;
+    {
+        let mut l = m0.lists();
+        l.gap_spans.push_back((base + 10_000, 3_500));
+        l.gap_spans.push_back((base + min + 1, 4_000));
+        l.timeouts.push_back(base + 20_000);
+        l.timeouts.push_back(base + 30_000);
+        l.timeouts_silent.push_back(base + 30_000);
+    }
+    m1.lists().gap_spans.push_back((base + 40_000, 3_000));
+    {
+        let mut w = m0.writer();
+        w.fresh.add(0, base + 1_000, 2_500);
+        w.fresh.add(0, base + 2_000, 100);
+        w.fresh.add(1, base + 3_000, 9_000);
+        w.fresh.add(0, base + min + 5, 5_000);
+    }
+    m1.writer().fresh.add(2, base + 59_000, 2_001);
+    let r = super::series::minute_row(&[Arc::clone(&m0), Arc::clone(&m1)], 5_000);
+    assert_eq!(
+        r,
+        super::series::MinuteRow {
+            lost_ms: 6_500,
+            trade_ms: 0,
+            gaps: 2,
+            late: [1, 1, 1, 0],
+            to_alive: 1,
+            to_silent: 1
+        }
+    );
+    let next = super::series::minute_row(&[m0, m1], 5_001);
+    assert_eq!(
+        (next.lost_ms, next.gaps, next.late),
+        (4_000, 1, [1, 0, 0, 0])
+    );
+}
+
+/// Ряд на диске: пишутся только завершённые минуты, метка запуска с версией, рестарт не перезаписывает прежнее.
+#[test]
+fn series_writer_writes_completed_minutes_and_survives_restart() {
+    let dir = tempfile::tempdir().unwrap();
+    let min = 60_000i64;
+    let m = ShardMetrics::new("book00", 0, 64, 16);
+    m.lists().gap_spans.push_back((101 * min + 1_000, 3_500));
+    let mut w = super::series::SeriesWriter::open(dir.path(), 100 * min + 5_000, "abc1234");
+    w.flush(std::slice::from_ref(&m), 103 * min + 10_000);
+    w.flush(std::slice::from_ref(&m), 103 * min + 20_000);
+    let mut w2 = super::series::SeriesWriter::open(dir.path(), 104 * min + 30_000, "def5678");
+    w2.flush(std::slice::from_ref(&m), 106 * min + 1_000);
+    let text = std::fs::read_to_string(w2.path()).unwrap();
+    let v: Vec<serde_json::Value> = text
+        .lines()
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect();
+    assert_eq!(v[0]["version"], "abc1234");
+    let ts: Vec<i64> = v.iter().filter_map(|x| x["t"].as_i64()).collect();
+    assert_eq!(ts, vec![101 * 60, 102 * 60, 105 * 60]);
+    assert_eq!(v[1]["lost_ms"], 3_500);
+    assert_eq!(v[1]["gaps"], 1);
+    assert_eq!(v[2]["lost_ms"], 0);
+    assert_eq!(v[3]["version"], "def5678");
+    assert_eq!(v[3]["start"], 104 * 60 + 30);
+}

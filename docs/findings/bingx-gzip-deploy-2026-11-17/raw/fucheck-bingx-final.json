@@ -1,0 +1,123 @@
+{
+ "ex": "bingx",
+ "utc": "04:12:50",
+ "ver": "29d981c0",
+ "up_s": 45998,
+ "symbols": {
+  "subscribed": 947,
+  "with_data_1m": 947,
+  "not_subscribed": 0,
+  "not_subscribed_qv_usd": 0.0,
+  "rest_checked": 881,
+  "not_in_layout": 0,
+  "book_window_s": 600
+ },
+ "not_subscribed_top": [],
+ "pool": {
+  "pool": 947,
+  "rest_eligible": 881,
+  "rest_age_s": 288,
+  "errors": 0,
+  "last_error": null,
+  "added_total": 57,
+  "removed_total": 0,
+  "spawned_shards": 0,
+  "over_cap": [],
+  "max_shard_load": 968.0,
+  "max_shard": "book01",
+  "rates_tracked": 2841,
+  "held_from_previous_run": null,
+  "missing_at_poll": 0
+ },
+ "backfill": {
+  "enabled": true,
+  "gaps_confirmed": 419,
+  "ids_absent": 0,
+  "ids_backfilled": 1653,
+  "ids_confirmed": 1653,
+  "ids_lost": 0,
+  "ids_lost_1h": 0,
+  "last_error": "https://open-api.bingx.com/openApi/swap/v2/quote/trades?symbol=NCSINASDAQ1002USD-USDT&limit=1000: error sending request for url (https://open-api.bingx.com/openApi/swap/v2/quote/trades?symbol=NCSINASD",
+  "open_ids": 0,
+  "paused_s": 0,
+  "paused_s_total": 0,
+  "rate_limited": 0,
+  "rest_errors": 2,
+  "rest_requests": 421,
+  "trades_written": 1653
+ },
+ "storm": {
+  "aborts": 21,
+  "episodes": 1,
+  "holds": 9,
+  "impaired": 0,
+  "on": false,
+  "shards": 15,
+  "since_s": null
+ },
+ "connect_budget": {
+  "alarm": false,
+  "free": 2,
+  "limit": 2,
+  "max_wait_s": 0,
+  "urgent_reserve": 0,
+  "used": 0,
+  "wait_s_total": 355,
+  "waiting": 0,
+  "waits_total": 104,
+  "window_s": 1
+ },
+ "ws": {
+  "connections": 30,
+  "gaps_1h": 4,
+  "gaps_1h_nontrade": 2,
+  "reconnects_1h": 1,
+  "timeouts_1h": 15,
+  "timeouts_silent_1h": 6,
+  "path_switches_1h": 16
+ },
+ "lag_in": {
+  "p50": 91.1,
+  "p99": 266.2,
+  "p99_9": 446.5,
+  "window_s": 60
+ },
+ "queue_lag": {
+  "p50": 4.2,
+  "p99": 41.5,
+  "p99_9": 78.8,
+  "window_s": 60
+ },
+ "loss": {
+  "records": 225466302,
+  "sink_blocks_dropped": 0,
+  "sink_errors": 0,
+  "rx_clamped": 1433558
+ },
+ "ring_full": 0,
+ "shards": {
+  "n": 15,
+  "lt2": 0,
+  "lt1": 0
+ },
+ "page": {
+  "ok": false,
+  "live_bad": false,
+  "late_bad": true,
+  "budget_bad": false,
+  "lost_1h_s": 20.2,
+  "lost_ids_1h": 0,
+  "backfill_lost_1h": 0
+ },
+ "pool_state": {
+  "age_s": 296,
+  "keys": [
+   "hold_s",
+   "last_above",
+   "rates",
+   "ts_ms"
+  ],
+  "last_above": 947,
+  "rates": 3
+ }
+}

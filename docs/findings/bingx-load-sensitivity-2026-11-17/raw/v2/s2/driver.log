@@ -1,0 +1,13 @@
+01:24:11 start label=s2 first=new phases=[W:120 Q:600 B:600 C:600 Q:600 L:1500 Q:600] load_nice=19 total=4620s copies=1
+01:26:30 phase 1 W 120s done
+01:36:32 phase 2 Q 600s done
+01:36:32 phase 3 B: 6 x memhog bw 600s nice 19
+01:46:35 phase 3 B 600s done
+01:46:36 phase 4 C: 6 x memhog chase 600s nice 19
+01:56:38 phase 4 C 600s done
+02:06:40 phase 5 Q 600s done
+02:06:40 phase 6 L: load started nice=19, MemAvailable 58 GB
+02:31:45 phase 6 L: load stopped; scan.log tail: irs 3 SHELL 98s pairs 10 SKUU 1s pairs 1 SKY 4s pairs 6 SKYAI 2s pairs 3 SLP 1s pairs 3 SLX 4s pairs 10 SMCI 2s pairs 6 
+02:31:45 phase 6 L 1500s done
+02:41:47 phase 7 Q 600s done
+02:42:12 done

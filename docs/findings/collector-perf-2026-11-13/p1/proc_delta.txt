@@ -1,0 +1,50 @@
+
+## binance: window 75 s; frames 0/s (); bytes 0.00 MB/s; avg frame 0 B
+   CPU total 1.17 cores = user 0.42 + sys 0.75; ctx switches 13,652/s (1025013.00/frame); CPU/frame 88160000.0 us (user 31740000.0, sys 56420000.0)
+   rx         threads  50  user  0.22 sys  0.54  vol    6,301/s invol     983/s
+   wr         threads  25  user  0.17 sys  0.17  vol    5,687/s invol     177/s
+   sk         threads  25  user  0.03 sys  0.02  vol      209/s invol      32/s
+   ln         threads  50  user  0.00 sys  0.01  vol      199/s invol       2/s
+   sh         threads  25  user  0.00 sys  0.01  vol       50/s invol       4/s
+   main/other threads   2  user  0.00 sys  0.00  vol        5/s invol       2/s
+
+## bybit: window 75 s; frames 0/s (); bytes 0.00 MB/s; avg frame 0 B
+   CPU total 0.87 cores = user 0.33 + sys 0.54; ctx switches 9,287/s (700099.00/frame); CPU/frame 65460000.0 us (user 24730000.0, sys 40730000.0)
+   rx         threads  42  user  0.16 sys  0.38  vol    4,009/s invol     602/s
+   wr         threads  21  user  0.14 sys  0.13  vol    4,148/s invol     135/s
+   sk         threads  21  user  0.02 sys  0.01  vol      153/s invol      20/s
+   ln         threads  42  user  0.00 sys  0.01  vol      167/s invol       2/s
+   sh         threads  21  user  0.00 sys  0.00  vol       42/s invol       2/s
+   main/other threads   2  user  0.00 sys  0.00  vol        5/s invol       2/s
+
+## okx: window 74 s; frames 0/s (); bytes 0.00 MB/s; avg frame 0 B
+   CPU total 0.75 cores = user 0.35 + sys 0.39; ctx switches 6,766/s (500903.00/frame); CPU/frame 55440000.0 us (user 26280000.0, sys 29160000.0)
+   rx         threads  24  user  0.15 sys  0.27  vol    2,997/s invol     348/s
+   wr         threads  12  user  0.19 sys  0.11  vol    3,042/s invol     139/s
+   sk         threads  12  user  0.02 sys  0.01  vol       94/s invol      16/s
+   ln         threads  24  user  0.00 sys  0.00  vol       96/s invol       1/s
+   sh         threads  12  user  0.00 sys  0.00  vol       24/s invol       2/s
+   main/other threads   2  user  0.00 sys  0.00  vol        5/s invol       2/s
+
+## bingx: window 74 s; frames 0/s (); bytes 0.00 MB/s; avg frame 0 B
+   CPU total 1.21 cores = user 0.67 + sys 0.54; ctx switches 9,104/s (673979.00/frame); CPU/frame 89470000.0 us (user 49550000.0, sys 39920000.0)
+   rx         threads  30  user  0.50 sys  0.39  vol    3,492/s invol     976/s
+   wr         threads  15  user  0.15 sys  0.13  vol    4,240/s invol     117/s
+   sk         threads  15  user  0.02 sys  0.01  vol      101/s invol      19/s
+   ln         threads  30  user  0.00 sys  0.00  vol      120/s invol       1/s
+   sh         threads  15  user  0.00 sys  0.00  vol       30/s invol       2/s
+   main/other threads   2  user  0.00 sys  0.00  vol        5/s invol       1/s
+
+## system CPU (all 8 cores): user 20.0%, nice 2.1%, system 20.6%, idle 39.0%, iowait 0.0%, irq 0.0%, softirq 11.6%, steal 6.6%
+## softirqs per second per CPU (window 74 s):
+   TIMER         87      91      85      84      87      84      85      83
+   NET_TX         0       0       0       0       0       0       0       0
+   NET_RX     3,500   3,485   3,455   3,432   3,472   3,474   3,330   3,478
+   BLOCK          0       0       0       0       0       1       0       0
+   TASKLET        0       0       0       0       0       0       0       0
+   SCHED        152     151     148     146     143     149     143     148
+   HRTIMER        0       0       0       0       0       0       0       0
+   RCU          159     160     167     158     173     164     163     163
+## eth0: rx 65.9 Mbit/s 20,417 pkt/s (avg 404 B/pkt); tx 7.7 Mbit/s 14,628 pkt/s
+## softnet per CPU processed/s, dropped, time_squeeze: [(2575, 0, 22), (2572, 0, 8), (2545, 0, 12), (2540, 0, 16), (2613, 0, 16), (2552, 0, 8), (2448, 0, 15), (2570, 0, 11)]
+## eth0 rx IRQs per queue per second: {'virtio3-input.0': 1968, 'virtio3-input.1': 1963, 'virtio3-input.2': 1942, 'virtio3-input.3': 1931, 'virtio3-input.4': 1976, 'virtio3-input.5': 1949, 'virtio3-input.6': 1875, 'virtio3-input.7': 1960}

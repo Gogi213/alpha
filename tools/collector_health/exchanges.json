@@ -4,5 +4,6 @@
   {"id": "okx", "name": "OKX"},
   {"id": "bitget", "name": "Bitget"},
   {"id": "huobi", "name": "Huobi (HTX)"},
-  {"id": "bingx", "name": "BingX"}
+  {"id": "bingx", "name": "BingX"},
+  {"id": "gate", "name": "Gate"}
 ]

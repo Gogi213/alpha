@@ -1,0 +1,4 @@
+    67.82%  alpha-new2       
+    22.63%  [kernel.kallsyms]
+     9.01%  libc.so.6        
+     0.53%  [vdso]           

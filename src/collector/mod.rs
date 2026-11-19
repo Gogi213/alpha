@@ -1,0 +1,85 @@
+//! Турбо-ядро коллектора рынка по WebSocket (G-022, В-148): приём без обратного давления и подвисаний, формат файлов `docs/collector-ws-format.md`.
+//!
+//! Карта модулей (зависимости сверху вниз):
+//!
+//! ```text
+//!   scan, codec        разбор плоского JSON без аллокаций; формат записи (Encoder/Decoder)
+//!   exchange           контракт адаптера биржи; binance, bybit, okx, bingx, gate — адреса, подписка, пул, разбор кадра
+//!   gzip               разжатие кадров gzip (BingX) в потоке приёма, до метки лага и разбора
+//!   metrics, fresh     гистограммы лагов, глубины очередей, свежесть записей
+//!   ring               очередь приёма → писатель (ограниченная, с глубиной и счётом ожиданий)
+//!   reactor            один поток процесса читает все соединения (epoll, окно пакетирования, ядерные метки)
+//!   worker             один поток процесса: раз в такт забирает очереди шардов и прогоняет через писателей
+//!   writer, sink       писатель шарда (разбор, дубли, строки) → поток диска (zstd, файл суток, `.ok`)
+//!   net, budget, path  connect с RTT, TLS, WebSocket; бюджет подключений; качество пути
+//!   session, shard     одно соединение (поток ОС); линии, замена пути, смена входа, надзор
+//!   livepool           живой пул: пересмотр состава по REST без перезапуска, раскладка по шардам (по измеренной нагрузке), файл пула запуска, состояние между запусками
+//!   backfill           поиск пропусков номеров сделок и дозапрос их из REST в отдельный файл
+//!   storm              режим «стоянка всей биржи»: большинство шардов испорчено сразу — старые линии держатся, замены не открываются
+//!   health, series     health.json; поминутный ряд на диске (`series-minutes.jsonl`)
+//!   runner             процесс, сигналы, остановка
+//! ```
+//!
+//! Поток данных: сокет --кадр--> `session` (метка приёма, счётчики) --`ring`--> `writer` (`Parser` адаптера, дубли по ключу
+//! u/a/E, `Encoder`) --блок--> `sink` (zstd, файл) ; метрики всех стадий — в `ShardMetrics` → `health`.
+
+pub mod backfill;
+pub mod bench;
+pub mod binance;
+pub mod bingx;
+pub mod budget;
+pub mod bybit;
+pub mod cli;
+pub mod codec;
+pub mod compare;
+pub mod events;
+pub mod exchange;
+pub mod fresh;
+pub mod gate;
+pub mod gzbench;
+pub mod gzip;
+pub mod hash;
+pub mod health;
+pub mod hostinfo;
+pub mod inflate;
+pub mod ladder;
+pub mod livepool;
+pub mod metrics;
+pub mod net;
+pub mod okx;
+pub mod path;
+pub mod pausecheck;
+pub mod pkttap;
+pub mod pool;
+pub mod reactor;
+pub mod replay;
+pub mod ring;
+pub mod runner;
+pub mod scan;
+pub mod series;
+pub mod session;
+pub mod shard;
+pub mod sink;
+pub mod storm;
+pub mod synth;
+pub mod worker;
+pub mod writer;
+
+/// Версия сборки: `ALPHA_COMMIT` на этапе сборки (хеш коммита), иначе `unknown`.
+pub const VERSION: &str = match option_env!("ALPHA_COMMIT") {
+    Some(v) => v,
+    None => "unknown",
+};
+
+#[cfg(test)]
+mod tests;
+#[cfg(test)]
+mod tests_followups;
+#[cfg(test)]
+mod tests_gzip;
+#[cfg(test)]
+mod tests_gzip_review;
+#[cfg(test)]
+mod tests_perf;
+#[cfg(test)]
+mod tests_pool;

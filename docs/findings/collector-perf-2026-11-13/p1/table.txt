@@ -1,0 +1,48 @@
+category                                                         ALL   binance     bybit       okx     bingx   (cores; ALL also %)
+TOTAL cores                                                     5.59      1.62      1.19      1.04      1.74
+kernel: syscall recvfrom                                       1.046     0.380     0.254     0.179     0.233    18.7%
+kernel: syscall futex (hand-off wake/wait)                     0.798     0.264     0.200     0.149     0.186    14.3%
+kernel: syscall other (clock_nanosleep/write/read/…)           0.464     0.156     0.121     0.082     0.106     8.3%
+kernel: softirq (net rx, in collector thread ctx)              0.447     0.134     0.099     0.078     0.135     8.0%
+user: [unknown] (libc/vdso/unresolved)                         0.401     0.061     0.051     0.053     0.236     7.2%
+user: JSON parse/adapters                                      0.368     0.082     0.077     0.142     0.067     6.6%
+user: TLS (rustls/ring)                                        0.353     0.116     0.092     0.067     0.079     6.3%
+user: gunzip (miniz_oxide)                                     0.333     0.000     0.000     0.000     0.333     6.0%
+kernel: irq/timer/sched (not in syscall)                       0.303     0.091     0.062     0.055     0.095     5.4%
+user: rx loop/stamps/sock wrappers                             0.214     0.068     0.050     0.045     0.050     3.8%
+user: channel/park (hand-off)                                  0.183     0.059     0.046     0.036     0.042     3.3%
+user: other                                                    0.178     0.052     0.039     0.035     0.053     3.2%
+user: writer (dedup, handle)                                   0.165     0.045     0.034     0.045     0.041     2.9%
+user: zstd compress                                            0.109     0.038     0.021     0.024     0.026     2.0%
+user: WebSocket framing                                        0.091     0.031     0.020     0.020     0.020     1.6%
+user: malloc/free/alloc                                        0.085     0.025     0.020     0.015     0.026     1.5%
+user: record encoder                                           0.030     0.010     0.005     0.006     0.008     0.5%
+kernel: syscall ioctl (FIONREAD)                               0.017     0.005     0.003     0.005     0.003     0.3%
+user: memcpy/memchr                                            0.004     0.003     0.000     0.000     0.000     0.1%
+
+top kernel leaf symbols in collector samples (all 4):
+    2.2%  0.069 cores  entry_SYSRETQ_unsafe_stack
+    2.0%  0.061 cores  __schedule
+    1.9%  0.059 cores  __pv_queued_spin_lock_slowpath
+    1.7%  0.053 cores  timerqueue_add
+    1.6%  0.049 cores  update_curr
+    1.4%  0.043 cores  update_load_avg
+    1.3%  0.041 cores  perf_tp_event
+    1.3%  0.041 cores  entry_SYSCALL_64
+    1.3%  0.040 cores  __get_user_8
+    1.2%  0.037 cores  psi_group_change
+    1.2%  0.037 cores  syscall_return_via_sysret
+    1.2%  0.036 cores  dequeue_entities
+    1.1%  0.033 cores  __raw_callee_save___pv_queued_spin_unlock
+    1.1%  0.032 cores  select_task_rq_fair
+    1.0%  0.031 cores  pvclock_clocksource_read_nowd
+    1.0%  0.031 cores  _raw_spin_lock_irqsave
+    1.0%  0.030 cores  psi_task_switch
+    1.0%  0.030 cores  dequeue_entity
+    1.0%  0.029 cores  tcp_recvmsg_locked
+    0.9%  0.028 cores  __update_load_avg_se
+    0.9%  0.027 cores  rep_movs_alternative
+    0.8%  0.024 cores  restore_fpregs_from_fpstate
+    0.8%  0.023 cores  fdget
+    0.8%  0.023 cores  syscall_exit_to_user_mode_prepare
+    0.7%  0.023 cores  ___perf_sw_event

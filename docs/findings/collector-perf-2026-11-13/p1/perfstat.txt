@@ -1,0 +1,12 @@
+# started on Fri Nov 13 13:50:54 2026
+
+
+ Performance counter stats for 'system wide':
+
+           3635646      context-switches                                                      
+            858484      cpu-migrations                                                        
+           3761328      raw_syscalls:sys_enter                                                
+           3761333      raw_syscalls:sys_exit                                                 
+
+      60.006843710 seconds time elapsed
+

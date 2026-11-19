@@ -1,0 +1,11 @@
+--- binance: A-old vs N2
+A: 4001776 личностей (book/trade/mark строк [1454853, 168364, 2378559]), B: 4002694 ([1455254, 168401, 2379039]); окно сравнения 2473 с
+общих 3966703, только A 0, только B 0, различное содержимое среди общих 0 (book/trade/mark [0, 0, 0])
+rx_b − rx_a, мкс: p0.1 -136962 p1 -16888 p10 -3393 p50 -491 p90 1383 p99 23608 p99.9 239691; хвост > +1 мс: 519463 (13.096 %), < −1 мс: 1479943
+--- binance: A-old vs N5
+A: 4001776 личностей (book/trade/mark строк [1454853, 168364, 2378559]), B: 4002940 ([1455260, 168404, 2379276]); окно сравнения 2473 с
+общих 3966590, только A 0, только B 0, различное содержимое среди общих 0 (book/trade/mark [0, 0, 0])
+rx_b − rx_a, мкс: p0.1 -60785 p1 -16840 p10 -3704 p50 -814 p90 2635 p99 25146 p99.9 235117; хвост > +1 мс: 737154 (18.584 %), < −1 мс: 1821388
+A-old totals {'dups': 4004012, 'files_closed': 0, 'raw': 2501, 'raw_copies': 2493, 'records': 4001776, 'rows': 4008253, 'rx_clamped': 6801, 'sink_blocks_dropped': 0, 'sink_errors': 0} | ws {'gaps_24h': 0, 'reconnects_24h': 0, 'timeouts_24h': 0} | ring {'blocked_ms_total': 0, 'cap': 32768, 'depth_max': 261, 'full_events_total': 0, 'full_events_window': 0} | sink {'cap': 64, 'depth_max': 1, 'write_max_ms': 6.6}
+N2 totals {'dups': 4005078, 'files_closed': 0, 'raw': 2502, 'raw_copies': 2494, 'records': 4002647, 'rows': 4009131, 'rx_clamped': 8069, 'sink_blocks_dropped': 0, 'sink_errors': 0} | ws {'gaps_24h': 0, 'reconnects_24h': 0, 'timeouts_24h': 0} | ring {'blocked_ms_total': 0, 'cap': 32768, 'depth_max': 286, 'full_events_total': 0, 'full_events_window': 0} | sink {'cap': 64, 'depth_max': 1, 'write_max_ms': 19.0}
+N5 totals {'dups': 4005335, 'files_closed': 0, 'raw': 2502, 'raw_copies': 2494, 'records': 4002940, 'rows': 4009429, 'rx_clamped': 4582, 'sink_blocks_dropped': 0, 'sink_errors': 0} | ws {'gaps_24h': 0, 'reconnects_24h': 0, 'timeouts_24h': 0} | ring {'blocked_ms_total': 0, 'cap': 32768, 'depth_max': 276, 'full_events_total': 0, 'full_events_window': 0} | sink {'cap': 64, 'depth_max': 1, 'write_max_ms': 48.8}

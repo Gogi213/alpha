@@ -1,0 +1,38 @@
+minute value = median of all 10 s shard rows of the kind in that minute; host idle = sar %idle (incl. nice), mean of the minute
+
+== BingX book: queue_lag p99 (ms) by host idle bin; controls = same minutes, book, median (ms)
+idle bin  window         n_min bingx med     p90  steal    okx  bybit   gate binance  bx/ctl
+0-5    OLD 29d981c0     339      18.7    43.5    7.2   13.3   16.3   13.4   137.2    1.26
+5-15   OLD 29d981c0      88      18.7    36.4    3.1   13.0   17.7   17.0   153.6    1.08
+15-30   OLD 29d981c0      81      18.7    66.6    3.1   13.2   18.4   14.9   153.6    1.12
+15-30   NEW 9d5bbf27      16      14.3    19.7    1.8   11.7   14.8   10.6    78.8    1.08
+30-50   OLD 29d981c0      90      14.4    49.2    3.1   11.6   15.8   13.2   161.8    0.99
+30-50   NEW 9d5bbf27       1      11.1    11.1    2.3   10.6   10.9   10.1    53.8    1.03
+50-100  OLD 29d981c0     166      11.9    18.2    2.6   10.6   12.9   10.4   118.3    1.01
+50-100  NEW 9d5bbf27      13      10.8    13.2    2.3   10.4   10.9    9.9    43.5    1.01
+
+== BingX trade: queue_lag p99 (ms) by host idle bin; controls = same minutes, book, median (ms)
+idle bin  window         n_min bingx med     p90  steal    okx  bybit   gate binance  bx/ctl
+0-5    OLD 29d981c0     339      22.8    34.3    7.2   13.3   16.3   13.4   137.2    1.53
+5-15   OLD 29d981c0      88      22.3    34.3    3.1   13.0   17.7   17.0   153.6    1.28
+15-30   OLD 29d981c0      81      22.5    41.5    3.1   13.2   18.4   14.9   153.6    1.35
+15-30   NEW 9d5bbf27      16      19.2    24.3    1.8   11.7   14.8   10.6    78.8    1.45
+30-50   OLD 29d981c0      90      18.7    28.6    3.1   11.6   15.8   13.2   161.8    1.29
+30-50   NEW 9d5bbf27       1      15.5    15.5    2.3   10.6   10.9   10.1    53.8    1.44
+50-100  OLD 29d981c0     166      16.0    21.8    2.6   10.6   12.9   10.4   118.3    1.36
+50-100  NEW 9d5bbf27      13      14.3    15.5    2.3   10.4   10.9    9.9    43.5    1.35
+
+== BingX mark: queue_lag p99 (ms) by host idle bin; controls = same minutes, book, median (ms)
+idle bin  window         n_min bingx med     p90  steal    okx  bybit   gate binance  bx/ctl
+0-5    OLD 29d981c0     339      39.4    74.8    7.2   13.3   16.3   13.4   137.2    2.65
+5-15   OLD 29d981c0      88      38.9    70.7    3.1   13.0   17.7   17.0   153.6    2.24
+15-30   OLD 29d981c0      81      35.8   102.4    3.1   13.2   18.4   14.9   153.6    2.15
+15-30   NEW 9d5bbf27      16      33.1    39.9    1.8   11.7   14.8   10.6    78.8    2.50
+30-50   OLD 29d981c0      90      30.9    64.8    3.1   11.6   15.8   13.2   161.8    2.13
+30-50   NEW 9d5bbf27       1      23.8    23.8    2.3   10.6   10.9   10.1    53.8    2.21
+50-100  OLD 29d981c0     166      27.4    46.6    2.6   10.6   12.9   10.4   118.3    2.34
+50-100  NEW 9d5bbf27      13      25.3    45.6    2.3   10.4   10.9    9.9    43.5    2.38
+
+== whole windows (all minutes after +2 min), BingX book / trade / mark median, controls median, host idle median
+OLD 29d981c0: n 764 | bx book 16.6/p90 46.1 | bx trade 21.2/p90 33.8 | bx mark 35.3/p90 72.7 | okx 12.7 | bybit 16.0 | gate 12.9 | binance 141.3 | idle 9.4
+NEW 9d5bbf27: n 30 | bx book 12.9/p90 18.7 | bx trade 17.2/p90 24.3 | bx mark 29.2/p90 45.6 | okx 11.2 | bybit 12.1 | gate 10.2 | binance 68.6 | idle 25.3

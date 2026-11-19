@@ -1,0 +1,301 @@
+{
+ "window_ms": [
+  1794475929731,
+  1794476110549
+ ],
+ "dials": 0,
+ "dials_5min_max": 0,
+ "events": {},
+ "events_detail": {},
+ "disk_stream": {
+  "b": {
+   "n": 125686,
+   "lag_ms": {
+    "p50": 83,
+    "p99": 108,
+    "max": 210
+   },
+   "lag_p50_10s_max": 83,
+   "max_pause_ms": 46
+  },
+  "t": {
+   "n": 29669,
+   "lag_ms": {
+    "p50": 84,
+    "p99": 131,
+    "max": 278
+   },
+   "lag_p50_10s_max": 85,
+   "max_pause_ms": 323
+  },
+  "m": {
+   "n": 23070,
+   "lag_ms": {
+    "p50": 83,
+    "p99": 124,
+    "max": 269
+   },
+   "lag_p50_10s_max": 84,
+   "max_pause_ms": 95
+  }
+ },
+ "shards": {
+  "trade01": {
+   "windows": 18,
+   "msgs": 3144,
+   "max_gap_ms": 1435,
+   "lag_p50_ms_median": 87.29150390625,
+   "lag_p50_ms_max": 184.988525390625,
+   "lag_p99_ms_max": 184.988525390625,
+   "cpu_frac_max": 0.019
+  },
+  "trade02": {
+   "windows": 19,
+   "msgs": 7698,
+   "max_gap_ms": 708,
+   "lag_p50_ms_median": 85.762939453125,
+   "lag_p50_ms_max": 91.58447265625,
+   "lag_p99_ms_max": 176.41796875,
+   "cpu_frac_max": 0.046
+  },
+  "mark00": {
+   "windows": 19,
+   "msgs": 36836,
+   "max_gap_ms": 96,
+   "lag_p50_ms_median": 88.4013671875,
+   "lag_p50_ms_max": 149.291015625,
+   "lag_p99_ms_max": 737.006591796875,
+   "cpu_frac_max": 0.114
+  },
+  "book05": {
+   "windows": 18,
+   "msgs": 45222,
+   "max_gap_ms": 114,
+   "lag_p50_ms_median": 84.433349609375,
+   "lag_p50_ms_max": 85.33154296875,
+   "lag_p99_ms_max": 287.783935546875,
+   "cpu_frac_max": 0.144
+  },
+  "trade05": {
+   "windows": 18,
+   "msgs": 4583,
+   "max_gap_ms": 1484,
+   "lag_p50_ms_median": 149.31103515625,
+   "lag_p50_ms_max": 206.298828125,
+   "lag_p99_ms_max": 540.47119140625,
+   "cpu_frac_max": 0.034
+  },
+  "book01": {
+   "windows": 19,
+   "msgs": 38546,
+   "max_gap_ms": 149,
+   "lag_p50_ms_median": 84.09619140625,
+   "lag_p50_ms_max": 86.217041015625,
+   "lag_p99_ms_max": 172.89990234375,
+   "cpu_frac_max": 0.137
+  },
+  "mark02": {
+   "windows": 19,
+   "msgs": 36636,
+   "max_gap_ms": 140,
+   "lag_p50_ms_median": 134.982177734375,
+   "lag_p50_ms_max": 164.3251953125,
+   "lag_p99_ms_max": 561.07470703125,
+   "cpu_frac_max": 0.116
+  },
+  "book03": {
+   "windows": 18,
+   "msgs": 47039,
+   "max_gap_ms": 139,
+   "lag_p50_ms_median": 84.63818359375,
+   "lag_p50_ms_max": 85.89208984375,
+   "lag_p99_ms_max": 257.04931640625,
+   "cpu_frac_max": 0.151
+  },
+  "mark04": {
+   "windows": 19,
+   "msgs": 34348,
+   "max_gap_ms": 123,
+   "lag_p50_ms_median": 83.5107421875,
+   "lag_p50_ms_max": 84.9501953125,
+   "lag_p99_ms_max": 164.956298828125,
+   "cpu_frac_max": 0.109
+  },
+  "book02": {
+   "windows": 18,
+   "msgs": 52965,
+   "max_gap_ms": 110,
+   "lag_p50_ms_median": 123.251953125,
+   "lag_p50_ms_max": 155.23974609375,
+   "lag_p99_ms_max": 687.296630859375,
+   "cpu_frac_max": 0.165
+  },
+  "trade04": {
+   "windows": 18,
+   "msgs": 4461,
+   "max_gap_ms": 1098,
+   "lag_p50_ms_median": 96.3203125,
+   "lag_p50_ms_max": 128.563232421875,
+   "lag_p99_ms_max": 160.40966796875,
+   "cpu_frac_max": 0.024
+  },
+  "book00": {
+   "windows": 18,
+   "msgs": 44829,
+   "max_gap_ms": 172,
+   "lag_p50_ms_median": 119.28955078125,
+   "lag_p50_ms_max": 169.959716796875,
+   "lag_p99_ms_max": 680.3505859375,
+   "cpu_frac_max": 0.149
+  },
+  "trade00": {
+   "windows": 18,
+   "msgs": 4929,
+   "max_gap_ms": 889,
+   "lag_p50_ms_median": 157.22021484375,
+   "lag_p50_ms_max": 202.541748046875,
+   "lag_p99_ms_max": 417.83154296875,
+   "cpu_frac_max": 0.031
+  },
+  "mark03": {
+   "windows": 19,
+   "msgs": 36028,
+   "max_gap_ms": 97,
+   "lag_p50_ms_median": 136.955810546875,
+   "lag_p50_ms_max": 157.796142578125,
+   "lag_p99_ms_max": 585.6201171875,
+   "cpu_frac_max": 0.115
+  },
+  "mark05": {
+   "windows": 19,
+   "msgs": 39008,
+   "max_gap_ms": 123,
+   "lag_p50_ms_median": 84.496337890625,
+   "lag_p50_ms_max": 86.44677734375,
+   "lag_p99_ms_max": 225.57373046875,
+   "cpu_frac_max": 0.117
+  },
+  "book04": {
+   "windows": 19,
+   "msgs": 48199,
+   "max_gap_ms": 119,
+   "lag_p50_ms_median": 84.358642578125,
+   "lag_p50_ms_max": 85.779541015625,
+   "lag_p99_ms_max": 825.30810546875,
+   "cpu_frac_max": 0.147
+  },
+  "trade03": {
+   "windows": 18,
+   "msgs": 4866,
+   "max_gap_ms": 1088,
+   "lag_p50_ms_median": 140.189453125,
+   "lag_p50_ms_max": 193.832763671875,
+   "lag_p99_ms_max": 485.687255859375,
+   "cpu_frac_max": 0.028
+  },
+  "mark01": {
+   "windows": 19,
+   "msgs": 31076,
+   "max_gap_ms": 153,
+   "lag_p50_ms_median": 84.553955078125,
+   "lag_p50_ms_max": 86.106201171875,
+   "lag_p99_ms_max": 275.27294921875,
+   "cpu_frac_max": 0.104
+  }
+ },
+ "records": {
+  "b": 125686,
+  "t": 29669,
+  "m": 23070,
+  "g": 1247,
+  "c": 0,
+  "r": 872
+ },
+ "sequence_checks": {
+  "book_u_not_increasing": 0,
+  "trade_a_not_increasing": 0,
+  "trade_a_gaps": 0,
+  "trade_a_gap_ids": 0,
+  "mark_E_not_increasing": 0
+ },
+ "ping_ms": {
+  "n": 1247,
+  "p50": 197.908,
+  "p99": 440.883,
+  "max": 1107.447
+ },
+ "raw_samples": [
+  "{\"topic\":\"publicTrade.ARIAUSDT\",\"type\":\"snapshot\",\"ts\":1794475932033,\"data\":[{\"T\":1794475931998,\"s\":\"ARIAUSDT\",\"S\":\"Sell\",\"v\":\"29\",\"p\":\"0.19021\",\"L\":\"MinusTick\",\"i\":\"f516f310-3572-592e-9344-5b4b59c802",
+  "{\"topic\":\"publicTrade.AKEUSDT\",\"type\":\"snapshot\",\"ts\":1794475933274,\"data\":[{\"T\":1794475933237,\"s\":\"AKEUSDT\",\"S\":\"Buy\",\"v\":\"4000\",\"p\":\"0.0028760\",\"L\":\"PlusTick\",\"i\":\"548f4153-c1dc-5b32-8a88-e370ff7223",
+  "{\"topic\":\"publicTrade.AKEUSDT\",\"type\":\"snapshot\",\"ts\":1794475934462,\"data\":[{\"T\":1794475934425,\"s\":\"AKEUSDT\",\"S\":\"Sell\",\"v\":\"4000\",\"p\":\"0.0028720\",\"L\":\"MinusTick\",\"i\":\"6a2c8f7d-2cee-5639-b631-1d9e48b3",
+  "{\"topic\":\"publicTrade.AKEUSDT\",\"type\":\"snapshot\",\"ts\":1794475936894,\"data\":[{\"T\":1794475936857,\"s\":\"AKEUSDT\",\"S\":\"Buy\",\"v\":\"4000\",\"p\":\"0.0028710\",\"L\":\"PlusTick\",\"i\":\"34b5d31a-9208-5831-88ff-b4bc3e7f31",
+  "{\"topic\":\"publicTrade.AKEUSDT\",\"type\":\"snapshot\",\"ts\":1794475937359,\"data\":[{\"T\":1794475937322,\"s\":\"AKEUSDT\",\"S\":\"Sell\",\"v\":\"600\",\"p\":\"0.0028700\",\"L\":\"PlusTick\",\"i\":\"cd1059a2-990f-524e-90db-95afe254a5"
+ ],
+ "disk_bytes": 55008534,
+ "health": {
+  "schema": 1,
+  "exchange": "bybit",
+  "ts_ms": 1794476123800,
+  "started_ms": 1794471633715,
+  "symbols": {
+   "subscribed": 413,
+   "with_data_1m": 413
+  },
+  "ws": {
+   "connections": 36,
+   "ping_ms": {
+    "p50": 180.8,
+    "max": 494.8
+   },
+   "timeouts_1h": 0,
+   "timeouts_24h": 0,
+   "gaps_1h": 2,
+   "gaps_24h": 2,
+   "reconnects_1h": 0,
+   "reconnects_24h": 0,
+   "entrance_switches_1h": 0,
+   "entrance_switches_24h": 0
+  },
+  "fresh": {
+   "late_ms": 2000,
+   "kinds": {
+    "book": {
+     "late_1h": 2093,
+     "late_24h": 2093,
+     "max_1h_ms": 5852,
+     "max_24h_ms": 5852
+    },
+    "mark": {
+     "late_1h": 403,
+     "late_24h": 403,
+     "max_1h_ms": 5642,
+     "max_24h_ms": 5642
+    },
+    "raw": {
+     "late_1h": 35,
+     "late_24h": 35,
+     "max_1h_ms": 5765,
+     "max_24h_ms": 5765
+    },
+    "trade": {
+     "late_1h": 739,
+     "late_24h": 739,
+     "max_1h_ms": 5752,
+     "max_24h_ms": 5752
+    }
+   }
+  },
+  "lag_in_ms": {
+   "p50": 85.7,
+   "p99": 339.8,
+   "window_s": 60
+  },
+  "lag_out_ms": {
+   "p50": 513.6,
+   "p99": 1100.2,
+   "window_s": 60
+  },
+  "last_frame_ms": 1794476121133,
+  "last_write_ms": 1794476120656
+ }
+}

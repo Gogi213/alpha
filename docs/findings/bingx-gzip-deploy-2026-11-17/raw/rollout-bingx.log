@@ -1,0 +1,6 @@
+итоговые аргументы: collect run --exchange bingx --root /data/collect/bingx/data --health /data/collect/bingx/health.json --lanes 2 --reactor --worker-inline --reactor-window-us 10000 --rx-stamp kernel --sub-in-reactor
+binary /data/collect/alpha-collect-bingx: prev 2c993779 -> 7accfc20
+stopped 2026-11-17T04:12:52.498Z
+Running as unit: collect-bingx.service; invocation ID: 78d8d902254946a69326376924385382
+started 2026-11-17T04:12:52.567Z
+OK: collect-bingx active, NRestarts=0, health и кадры свежие (04:12:53)

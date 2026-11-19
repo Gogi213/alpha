@@ -1,0 +1,13 @@
+Mon Nov 16 23:50:59 UTC 2026
+ 23:50:59 up 9 days,  3:13,  3 users,  load average: 11.49, 8.28, 6.82
+               total        used        free      shared  buff/cache   available
+Mem:              62           6          25           0          32          56
+Swap:              0           0           0
+    PID  NI %CPU   RSS     ELAPSED COMMAND
+3475541  15 74.0 806248      03:59 python3 hold_parse.py /data/arb-hold/b3 5
+3174980  15  9.1 744780   23:48:08 /usr/bin/python3 /opt/arb-tab/tools/arb_stats/arb_daemon.py run /data/arb-tab/live 3
+3475536  15 73.2 438640      03:59 python3 hold_parse.py /data/arb-hold/b3 5
+3475535  15 72.2 436764      03:59 python3 hold_parse.py /data/arb-hold/b3 5
+3475538  15 73.8 426440      03:59 python3 hold_parse.py /data/arb-hold/b3 5
+3475540  15 72.8 417072      03:59 python3 hold_parse.py /data/arb-hold/b3 5
+3326459   0 35.6 318884   08:00:00 /data/collect/alpha-collect-ab1 collect run --exchange binance --root /data/collect/binance/data --health /data/turbo-probe/soak-binance/health.json --lanes 2 --neve

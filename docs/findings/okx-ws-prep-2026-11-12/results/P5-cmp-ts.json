@@ -1,0 +1,1 @@
+{"other": "../frames/P5-b.jsonl.zst", "window_s": 85.8, "ref_keys_by_channel": {"index-tickers": 2668, "mark-price": 4259, "funding-rate": 20}, "common": 6947, "only_ref": 0, "only_other": 0, "delta_ms_p50": 2.361037, "delta_ms_p99": 9.934132, "delta_ms_min": -24.69094, "delta_ms_max": 26.715761}

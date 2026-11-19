@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Сборка и проверки рабочего дерева на VPS (13.140.29.171) — вторая дорожка работ, пока на этой машине идёт
 # своя сборка (владелец 24.09: «одна сборка здесь, вторая на VPS»; две сборки на одной машине — нельзя).
-#   tools/vps-check.sh <рабочее дерево> [test|testdbg|clippy|fmt|build|all|gate|complexity] [фильтр тестов]
+#   tools/vps-check.sh <рабочее дерево> [check|test|testdbg|clippy|fmt|build|binrel|all|gate|complexity] [фильтр тестов]
 # Переносит отслеживаемые и новые файлы дерева (без target*/data/) архивом с сохранением времени изменения —
 # неизменённые файлы cargo не пересобирает; сборка — в отдельном target-wave2, не в каталоге сборок для дека.
 # Сборки на VPS идут по очереди: замок /opt/alpha-compute/.build.lock (его же берёт сборка бинарника для дека).
@@ -75,10 +75,15 @@ case "$WHAT" in
   test)  CMD="cargo test --release $FEAT --target-dir $TGT -j $J $FILTER 2>&1 $GREP_T" ;;
   # TK-211: как CI (GC/Quality) — debug: overflow-checks и debug_assert включены; release их прячет
   testdbg) CMD="cargo test $FEAT --target-dir $TGT -j $J $FILTER 2>&1 $GREP_T" ;;
+  # G-022: быстрая проверка типов (без кодогенерации) — цикл правки; тесты, clippy и сборку не заменяет
+  check)  CMD="cargo check --all-targets $FEAT --target-dir $TGT-chk -j $J 2>&1 $TL25" ;;
   clippy) CMD="cargo clippy --release $FEAT --target-dir $TGT --all-targets -j $J -- -D warnings 2>&1 $TL25" ;;
   fmt)    CMD="cargo fmt --check 2>&1 $TL25" ;;
   lint)   CMD="bash tools/lint-gate.sh $TGT-lint 2>&1 $TL15" ;;   # TK-279: только бюджет линтов (строгие линты + счёт срабатываний), без тестов   # TK-279: только бюджет линтов (строгие линты + счёт срабатываний), без тестов
   build)  CMD="cargo build --release $FEAT --target-dir $TGT -j $J 2>&1 $TL5" ;;
+  # G-022: один боевой бинарь (release без фич) на машине сборки: BIN_OUT — путь установки; печатает md5; ALPHA_COMMIT=<хеш> вшивается (health process.version)
+  binrel) : "${BIN_OUT:?BIN_OUT — путь на машине сборки, например /data/turbo-probe/alpha-turbo}"
+          CMD="set -o pipefail; ALPHA_COMMIT=${ALPHA_COMMIT:-unknown} cargo build --release --target-dir $TGT -j $J 2>&1 | tail -3 && install -D $TGT/release/alpha $BIN_OUT && md5sum $BIN_OUT" ;;
   # TK-160: бинарники для гейта прямо на машине сборки, без копирования: без фич и r2 → $BIN_OUT-plain / $BIN_OUT-r2 + md5
   bin)    : "${BIN_OUT:?BIN_OUT — путь на машине сборки, например /data/tk0160/alpha-tk160}"
           B1="cargo build --release --target-dir $TGT -j $J"

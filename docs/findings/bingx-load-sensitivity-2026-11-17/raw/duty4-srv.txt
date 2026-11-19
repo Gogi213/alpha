@@ -1,0 +1,16 @@
+pass1 work 0us sleep 0us: mean 5961 ns, 2.088 GHz
+pass1 work 4000us sleep 6000us: mean 14563 ns, 1.239 GHz
+pass1 work 4000us sleep 1000us: mean 11832 ns, 1.463 GHz
+pass1 work 4000us sleep 200us: mean 9515 ns, 1.422 GHz
+pass1 work 1000us sleep 9000us: mean 11632 ns, 1.265 GHz
+pass2 work 0us sleep 0us: mean 8321 ns, 1.658 GHz
+pass2 work 4000us sleep 6000us: mean 11623 ns, 1.404 GHz
+pass2 work 4000us sleep 1000us: mean 11887 ns, 1.373 GHz
+pass2 work 4000us sleep 200us: mean 8529 ns, 1.635 GHz
+pass2 work 1000us sleep 9000us: mean 10667 ns, 1.179 GHz
+pass3 work 0us sleep 0us: mean 4957 ns, 2.247 GHz
+pass3 work 4000us sleep 6000us: mean 11223 ns, 1.385 GHz
+pass3 work 4000us sleep 1000us: mean 8522 ns, 1.422 GHz
+pass3 work 4000us sleep 200us: mean 8962 ns, 1.697 GHz
+pass3 work 1000us sleep 9000us: mean 11978 ns, 1.236 GHz
+Average:     all    6.49   62.17    7.87    1.25    0.00    4.62    1.50    0.00    0.00   16.10

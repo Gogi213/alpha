@@ -1,0 +1,84 @@
+19:37:48 binance=6.2 bybit=3.5 okx=2.9 bingx=3.9 | some avg10=12.23 avg60=14.88 avg300=16.24 | load 7.96 | ФАЗА ФОНА
+19:38:18 binance=6.5 bybit=5.2 okx=4.0 bingx=6.3 | some avg10=13.56 avg60=15.24 avg300=16.21 | load 11.16 | ФАЗА ФОНА
+19:38:48 binance=6.5 bybit=5.8 okx=4.3 bingx=6.6 | some avg10=14.80 avg60=15.01 avg300=16.06 | load 8.12 | ФАЗА ФОНА
+19:39:18 binance=4.8 bybit=3.6 okx=3.0 bingx=4.2 | some avg10=13.56 avg60=14.51 avg300=15.82 | load 9.29 | ФАЗА ФОНА
+19:39:48 binance=4.3 bybit=3.1 okx=2.7 bingx=3.7 | some avg10=10.43 avg60=12.91 avg300=15.29 | load 8.75 | ФАЗА ФОНА
+19:40:18 binance=5.1 bybit=3.5 okx=3.0 bingx=4.1 | some avg10=15.47 avg60=14.07 avg300=15.33 | load 11.18 | ФАЗА ФОНА
+19:40:48 binance=5.1 bybit=3.4 okx=3.0 bingx=4.2 | some avg10=12.44 avg60=13.08 avg300=14.95 | load 9.54 | ФАЗА ФОНА
+19:41:18 binance=2.6 bybit=1.9 okx=1.9 bingx=2.9 | some avg10=10.54 avg60=12.26 avg300=14.56 | load 7.89 | ФАЗА ФОНА
+19:41:48 binance=2.9 bybit=2.3 okx=2.1 bingx=3.1 | some avg10=13.96 avg60=12.67 avg300=14.42 | load 6.57 | ФАЗА ФОНА
+19:42:18 binance=3.6 bybit=2.9 okx=2.7 bingx=4.4 | some avg10=12.14 avg60=12.74 avg300=14.27 | load 8.24 | ФАЗА ФОНА
+19:42:48 пороги боя (мс): binance=10.0 bybit=10.0 okx=10.0 bingx=10.0
+19:42:48 binance=3.2 bybit=2.8 okx=2.8 bingx=4.2 | some avg10=10.97 avg60=11.88 avg300=13.90 | load 6.80
+19:43:18 binance=4.9 bybit=3.3 okx=2.7 bingx=4.7 | some avg10=19.06 avg60=15.42 avg300=14.59 | load 8.84
+19:43:48 binance=6.1 bybit=3.7 okx=3.0 bingx=5.2 | some avg10=19.20 avg60=16.77 avg300=15.01 | load 8.54
+19:44:18 binance=4.7 bybit=3.6 okx=3.0 bingx=5.1 | some avg10=18.33 avg60=17.66 avg300=15.41 | load 11.19
+19:44:48 binance=4.8 bybit=3.6 okx=2.7 bingx=4.3 | some avg10=19.82 avg60=18.41 avg300=15.82 | load 11.56
+19:45:18 binance=11.4 bybit=6.3 okx=5.2 bingx=9.6 | some avg10=24.57 avg60=21.28 avg300=16.78 | load 25.15
+19:45:48 binance=11.6 bybit=6.3 okx=5.4 bingx=10.9 | some avg10=22.82 avg60=21.51 avg300=17.28 | load 18.85
+19:46:18 binance=6.7 bybit=4.4 okx=4.4 bingx=6.0 | some avg10=21.88 avg60=22.75 avg300=18.04 | load 21.47
+19:46:48 binance=4.9 bybit=4.2 okx=4.0 bingx=4.7 | some avg10=19.18 avg60=20.92 avg300=18.03 | load 14.43
+19:47:18 binance=5.2 bybit=5.2 okx=4.4 bingx=7.0 | some avg10=22.26 avg60=21.79 avg300=18.52 | load 12.18
+19:47:48 binance=7.6 bybit=6.6 okx=4.4 bingx=7.4 | some avg10=23.15 avg60=21.70 avg300=18.79 | load 14.58
+19:48:18 binance=12.7 bybit=7.0 okx=5.1 bingx=6.0 | some avg10=21.51 avg60=22.42 avg300=19.27 | load 15.94
+19:48:48 binance=14.2 bybit=6.1 okx=5.3 bingx=6.1 | some avg10=18.18 avg60=20.74 avg300=19.17 | load 18.24
+19:49:18 binance=9.3 bybit=5.3 okx=3.3 bingx=4.8 | some avg10=23.55 avg60=21.55 avg300=19.51 | load 13.87
+19:49:48 binance=6.6 bybit=4.8 okx=3.7 bingx=4.5 | some avg10=15.21 avg60=19.20 avg300=19.13 | load 10.47
+19:50:18 binance=12.2 bybit=10.9 okx=5.4 bingx=6.6 | some avg10=29.78 avg60=23.54 avg300=20.19 | load 12.90
+19:50:48 binance=11.6 bybit=10.1 okx=6.7 bingx=8.0 | some avg10=21.09 avg60=23.25 avg300=20.49 | load 12.12
+19:51:18 binance=6.5 bybit=5.2 okx=5.6 bingx=6.6 | some avg10=23.02 avg60=24.13 avg300=21.00 | load 10.48
+19:51:48 binance=7.2 bybit=5.6 okx=5.7 bingx=6.0 | some avg10=21.13 avg60=22.88 avg300=21.00 | load 9.23
+19:52:18 binance=5.8 bybit=4.2 okx=3.5 bingx=5.6 | some avg10=21.44 avg60=22.93 avg300=21.22 | load 8.27
+19:52:48 binance=5.6 bybit=4.4 okx=3.7 bingx=5.7 | some avg10=18.86 avg60=21.14 avg300=20.92 | load 6.00
+19:53:18 binance=13.4 bybit=5.1 okx=3.8 bingx=5.4 | some avg10=21.04 avg60=21.67 avg300=21.09 | load 7.25
+19:53:48 binance=12.2 bybit=4.9 okx=4.3 bingx=6.1 | some avg10=20.03 avg60=21.32 avg300=21.05 | load 7.10
+19:54:18 binance=7.5 bybit=6.3 okx=6.2 bingx=6.7 | some avg10=19.61 avg60=21.71 avg300=21.21 | load 8.52
+19:54:48 binance=16.6 bybit=7.7 okx=7.7 bingx=7.0 | some avg10=19.65 avg60=21.53 avg300=21.25 | load 8.46
+19:55:18 binance=28.4 bybit=15.7 okx=10.6 bingx=13.4 | some avg10=27.29 avg60=24.87 avg300=22.12 | load 14.47
+19:55:48 binance=15.5 bybit=12.4 okx=8.1 bingx=12.2 | some avg10=20.27 avg60=23.00 avg300=21.92 | load 13.06
+19:56:18 binance=6.2 bybit=3.8 okx=3.1 bingx=4.3 | some avg10=23.33 avg60=22.51 avg300=21.87 | load 15.41
+19:56:48 binance=5.4 bybit=3.1 okx=2.9 bingx=4.1 | some avg10=17.90 avg60=20.61 avg300=21.46 | load 10.86
+19:57:18 binance=4.9 bybit=3.2 okx=3.4 bingx=4.1 | some avg10=22.58 avg60=21.08 avg300=21.47 | load 9.35
+19:57:48 binance=4.9 bybit=3.9 okx=3.3 bingx=4.3 | some avg10=17.89 avg60=19.19 avg300=20.94 | load 8.66
+19:58:19 binance=19.2 bybit=6.1 okx=4.8 bingx=5.3 | some avg10=26.29 avg60=21.69 avg300=21.36 | load 12.64
+19:58:49 binance=23.8 bybit=7.9 okx=6.2 bingx=7.7 | some avg10=28.19 avg60=25.81 avg300=22.49 | load 11.08
+19:59:19 binance=17.7 bybit=7.6 okx=6.1 bingx=8.0 | some avg10=22.23 avg60=24.92 avg300=22.60 | load 17.51
+19:59:49 binance=6.6 bybit=4.3 okx=3.9 bingx=5.7 | some avg10=17.19 avg60=21.93 avg300=22.09 | load 14.72
+20:00:19 binance=130.0 bybit=128.0 okx=198.7 bingx=42.5 | some avg10=39.00 avg60=28.69 avg300=23.69 | load 18.61
+20:00:49 binance=121.9 bybit=109.6 okx=174.1 bingx=42.5 | some avg10=30.57 avg60=29.14 avg300=24.30 | load 20.47
+20:01:19 binance=8.8 bybit=5.2 okx=3.9 bingx=5.8 | some avg10=23.42 avg60=27.08 avg300=24.27 | load 16.08
+20:01:49 binance=7.7 bybit=4.4 okx=3.6 bingx=4.9 | some avg10=22.06 avg60=25.63 avg300=24.21 | load 12.22
+20:02:19 binance=7.1 bybit=5.7 okx=3.6 bingx=5.2 | some avg10=22.27 avg60=24.94 avg300=24.19 | load 9.60
+20:02:49 binance=6.8 bybit=5.3 okx=3.7 bingx=5.7 | some avg10=23.90 avg60=24.99 avg300=24.29 | load 12.33
+20:03:19 binance=6.2 bybit=3.8 okx=3.2 bingx=4.8 | some avg10=22.46 avg60=24.29 avg300=24.19 | load 14.90
+20:03:49 binance=5.8 bybit=3.7 okx=3.2 bingx=5.3 | some avg10=14.38 avg60=21.23 avg300=23.48 | load 12.06
+20:04:19 binance=7.2 bybit=5.6 okx=4.8 bingx=6.5 | some avg10=19.01 avg60=20.66 avg300=23.11 | load 14.05
+20:04:49 binance=6.8 bybit=5.1 okx=4.4 bingx=4.9 | some avg10=13.26 avg60=17.69 avg300=22.13 | load 10.83
+20:05:19 binance=12.9 bybit=9.1 okx=8.6 bingx=9.6 | some avg10=17.82 avg60=18.51 avg300=21.89 | load 9.42
+20:05:49 binance=12.7 bybit=8.8 okx=8.6 bingx=9.6 | some avg10=12.77 avg60=16.04 avg300=20.94 | load 7.77
+20:06:19 binance=3.9 bybit=2.8 okx=2.3 bingx=4.2 | some avg10=13.18 avg60=15.40 avg300=20.31 | load 6.77
+20:06:49 binance=4.4 bybit=2.8 okx=2.5 bingx=4.2 | some avg10=11.42 avg60=14.23 avg300=19.56 | load 8.17
+20:07:19 binance=5.7 bybit=4.3 okx=3.0 bingx=6.1 | some avg10=17.03 avg60=15.64 avg300=19.38 | load 10.10
+20:07:49 binance=4.9 bybit=3.6 okx=3.3 bingx=6.3 | some avg10=10.72 avg60=13.84 avg300=18.58 | load 8.06
+20:08:19 binance=6.0 bybit=4.1 okx=3.0 bingx=3.8 | some avg10=11.26 avg60=13.51 avg300=18.05 | load 6.74
+20:08:49 binance=6.2 bybit=4.8 okx=3.9 bingx=4.4 | some avg10=14.38 avg60=14.70 avg300=17.93 | load 7.96
+20:09:19 binance=5.7 bybit=4.4 okx=4.9 bingx=5.6 | some avg10=14.18 avg60=15.09 avg300=17.73 | load 7.40
+20:09:49 binance=5.2 bybit=4.4 okx=3.8 bingx=5.3 | some avg10=11.46 avg60=14.08 avg300=17.24 | load 6.22
+20:10:19 binance=24.8 bybit=18.7 okx=10.9 bingx=10.6 | some avg10=17.60 avg60=16.69 avg300=17.59 | load 17.15
+20:10:49 binance=23.8 bybit=17.7 okx=10.1 bingx=10.6 | some avg10=13.42 avg60=15.45 avg300=17.20 | load 11.47
+20:11:19 binance=3.4 bybit=2.8 okx=3.2 bingx=4.0 | some avg10=12.74 avg60=14.75 avg300=16.86 | load 10.18
+20:11:49 binance=3.3 bybit=2.8 okx=2.4 bingx=3.6 | some avg10=13.84 avg60=14.12 avg300=16.49 | load 8.01
+20:12:19 binance=7.9 bybit=4.8 okx=4.3 bingx=4.8 | some avg10=14.16 avg60=15.12 avg300=16.54 | load 7.19
+20:12:49 binance=8.0 bybit=5.1 okx=5.2 bingx=5.2 | some avg10=12.04 avg60=14.17 avg300=16.17 | load 6.05
+20:13:19 binance=4.4 bybit=3.6 okx=3.5 bingx=4.1 | some avg10=12.97 avg60=14.36 avg300=16.05 | load 6.44
+20:13:49 binance=3.9 bybit=3.0 okx=3.2 bingx=4.2 | some avg10=11.61 avg60=13.22 avg300=15.59 | load 5.34
+20:14:19 binance=3.1 bybit=2.7 okx=2.7 bingx=3.9 | some avg10=13.28 avg60=13.53 avg300=15.45 | load 5.64
+20:14:49 binance=3.0 bybit=2.8 okx=2.7 bingx=3.6 | some avg10=10.19 avg60=12.31 avg300=14.97 | load 5.03
+20:15:19 binance=8.6 bybit=7.0 okx=5.7 bingx=9.1 | some avg10=15.29 avg60=14.64 avg300=15.30 | load 5.48
+20:15:49 binance=8.1 bybit=6.3 okx=5.6 bingx=8.8 | some avg10=14.00 avg60=14.00 avg300=15.07 | load 4.80
+20:16:19 binance=3.3 bybit=2.5 okx=2.1 bingx=3.5 | some avg10=15.85 avg60=14.30 avg300=15.02 | load 3.86
+20:16:49 binance=3.1 bybit=2.5 okx=2.5 bingx=3.9 | some avg10=11.63 avg60=13.54 avg300=14.77 | load 3.38
+20:17:19 binance=5.8 bybit=4.3 okx=2.8 bingx=4.1 | some avg10=17.81 avg60=14.81 avg300=14.95 | load 6.80
+20:17:49 binance=6.7 bybit=4.7 okx=3.6 bingx=4.7 | some avg10=12.58 avg60=13.83 avg300=14.69 | load 5.49
+20:18:19 binance=4.3 bybit=2.6 okx=2.7 bingx=4.0 | some avg10=11.29 avg60=12.93 avg300=14.38 | load 5.16
+20:18:49 binance=3.6 bybit=2.3 okx=2.1 bingx=3.6 | some avg10=11.88 avg60=12.82 avg300=14.22 | load 5.35

@@ -1,0 +1,25 @@
+== duty 0us sleep 0us
+libdeflate  все: средн    5267 p50   5563 p90   7496 p99  10248 нс | book p50   6127 | trade p50   6117 | mark p50    728
+           2645.88 msec task-clock                       #    0.979 CPUs utilized             
+        5867973760      cycles                           #    2.218 GHz                       
+        9053775413      instructions                     #    1.54  insn per cycle            
+       2.703510833 seconds time elapsed
+== duty 4000us sleep 6000us
+libdeflate  все: средн   12587 p50   9522 p90  15668 p99  59829 нс | book p50  11824 | trade p50  11830 | mark p50   1304
+           5189.19 msec task-clock                       #    0.388 CPUs utilized             
+        6686845838      cycles                           #    1.289 GHz                       
+        9152138504      instructions                     #    1.37  insn per cycle            
+      13.359226071 seconds time elapsed
+== duty 0us sleep 0us
+libdeflate  все: средн    7063 p50   6461 p90  10358 p99  25149 нс | book p50   6642 | trade p50   6876 | mark p50    849
+           2977.42 msec task-clock                       #    0.987 CPUs utilized             
+        5977112238      cycles                           #    2.007 GHz                       
+        9059808608      instructions                     #    1.52  insn per cycle            
+       3.015981630 seconds time elapsed
+== duty 4000us sleep 6000us
+libdeflate  все: средн   12354 p50  10166 p90  15604 p99  56398 нс | book p50  11817 | trade p50  11764 | mark p50   1299
+           5152.84 msec task-clock                       #    0.391 CPUs utilized             
+        6597202114      cycles                           #    1.280 GHz                       
+        9157883926      instructions                     #    1.39  insn per cycle            
+      13.195225727 seconds time elapsed
+Average:     all    7.96   63.93    8.83    0.00    0.00    5.85    0.62    0.00    0.00   12.81

@@ -1,0 +1,15 @@
+# TK-580: стенд разжатия, София (Xeon Gold 5120, 4 vCPU, load 0,1), 135 462 настоящих кадра, 16.11 20:16–20:55 UTC
+# alpha collect gzbench --file bx-raw.bin --cpu 0 --rounds 5 --decoders libdeflate,tiny [--pollute-kb N]   (сборка gzbench6 = код этой ветки, попарно на каждом кадре)
+== pollute 0 KB
+libdeflate  все: средн    4570 p50   5184 p90   5585 p99  12328 нс | book p50   5259 | trade p50   5392 | mark p50    606
+tiny        все: средн    2694 p50   2943 p90   3436 p99   5557 нс | book p50   3029 | trade p50   3346 | mark p50    696
+== pollute 512 KB
+libdeflate  все: средн    4800 p50   5309 p90   6239 p99  12868 нс | book p50   5392 | trade p50   5575 | mark p50    767
+tiny        все: средн    2881 p50   3081 p90   3778 p99   6092 нс | book p50   3174 | trade p50   3511 | mark p50    790
+
+# ранние последовательные прогоны (каждый декодер своим проходом; сборки gzbench1/3/5)
+# gzbench1 (libdeflate против miniz_oxide), pollute 0 KB:      libdeflate средн 4693 p50 5197 book 5277 | miniz средн 9488 p50 9290 book 9437
+# gzbench1, pollute 512 KB, фон 3 потока (64 МБ случайных чтений каждый): libdeflate средн 4757 p50 5265 book 5339 | miniz средн 10064 p50 9602 book 9732
+# gzbench3 (первый быстрый декодер, до переработки таблицы): tiny средн 3142 p50 3488 book 3566 | libdeflate средн 4984 p50 5310 book 5450 | miniz средн 9236 p50 9152 book 9284
+# gzbench5 (текущий декодер, последовательно): tiny средн 2524 p50 2806 book 2882 | libdeflate средн 4702 p50 5204 book 5286
+# perf record на tiny (gzbench5, Sofia): block 31,8 % / build 28,9 % / Tiny::unpack (заголовок) 27,8 % / crc32 1,5 %

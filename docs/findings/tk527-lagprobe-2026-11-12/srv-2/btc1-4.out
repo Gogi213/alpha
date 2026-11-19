@@ -1,0 +1,1 @@
+{"sec": 180, "msgs": 95004, "disconnects": 0, "gaps_over_1s": [], "max_gap_ms": 604, "lag_ms": {"p50": 212.1, "p90": 585.0, "p99": 831.6, "max": 1064.3}}
