@@ -7,6 +7,7 @@
 #   new0w — то же на тёплом кэше (после new0c);
 #   mkc   — L_mk1, S_mk1, L_mk2, S_mk2 (= база стороны + mk=1|2), пустой кэш; mkw — тёплый кэш (сигналы баз уже в кэше);
 #           сверка mkc против mkw: *-trades|daily|coinday|entryrej.csv и *-maker.json (detail — тоже, если есть).
+# meta.json: строка `, tl: 0` (ключ `tl` TK-603, по умолчанию 0) в `params` вырезается с обеих сторон — эталон a112684a её не печатает (поправка координатора, TK-615).
 # Итог — /data/p42-tk616/gate/<метка>.summary (строки GATE OK|DIFF|FAIL). Выходы после сверки удаляются (KEEP_OUT=1 — оставить).
 set -uo pipefail
 NEW="$1"; TAG="${2:-gb1}"
@@ -46,7 +47,7 @@ cmpdirs() { # метка окно варианты A B список-файлов
       done
     done
     if [[ " $* " == *" meta.json "* ]]; then
-      n=$((n+1)); if [ ! -e "$A/$vid/meta.json" ] || [ ! -e "$B/$vid/meta.json" ] || ! cmp -s "$A/$vid/meta.json" "$B/$vid/meta.json"; then d=$((d+1)); echo "  DIFF $vid meta.json" >> "$SUM"; fi
+      n=$((n+1)); if [ ! -e "$A/$vid/meta.json" ] || [ ! -e "$B/$vid/meta.json" ] || ! cmp -s <(sed 's/, tl: 0//' "$A/$vid/meta.json") <(sed 's/, tl: 0//' "$B/$vid/meta.json"); then d=$((d+1)); echo "  DIFF $vid meta.json" >> "$SUM"; fi
     fi
   done < "$vars"
   [ "$d" = 0 ] && echo "GATE OK $label $w вариантов=$nv файлов=$n различий=0" >> "$SUM" || echo "GATE DIFF $label $w вариантов=$nv файлов=$n различий=$d" >> "$SUM"
