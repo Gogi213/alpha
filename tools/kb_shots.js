@@ -47,7 +47,8 @@ const base = url.replace(/#.*$/, '').replace(/index\.html$/, '').replace(/\/?$/,
 
   await page.selectOption('#type', 'decision');
   r = await rows();
-  check('фильтр тип=decision → 390 решений, В-161 среди них', r.length === 390 && r.includes('В-161'), r.length);
+  const nDecisions = await page.evaluate(() => window.KB.cards.filter(c => c.type === 'decision').length);
+  check(`фильтр тип=decision → ${nDecisions} решений (по сборке), В-161 среди них`, nDecisions > 0 && r.length === nDecisions && r.includes('В-161'), `${r.length} из ${nDecisions}`);
   check('хеш хранит фильтр', /type=decision/.test(await page.evaluate(() => location.hash)), await page.evaluate(() => location.hash));
   await page.selectOption('#type', '');
   await page.selectOption('#status', 'running');

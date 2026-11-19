@@ -3,7 +3,7 @@ import io
 import sys
 import tempfile
 import unittest
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -69,11 +69,10 @@ class Repo:
     def __init__(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.root = Path(self.tmp.name)
-        (self.root / ".claude").mkdir()
-        (self.root / "docs" / "plan").mkdir(parents=True)
-        (self.root / ".claude" / "decisions.md").write_text(DECISIONS, encoding="utf-8")
-        (self.root / "docs" / "plan" / "SETTLED.md").write_text(SETTLED, encoding="utf-8")
-        (self.root / "docs" / "plan" / "SETTLED-index.md").write_text(INDEX, encoding="utf-8")
+        (self.root / "docs" / "archive").mkdir(parents=True)
+        (self.root / "docs" / "archive" / "decisions-2026-11-20.md").write_text(DECISIONS, encoding="utf-8")
+        (self.root / "docs" / "archive" / "SETTLED-2026-11-20.md").write_text(SETTLED, encoding="utf-8")
+        (self.root / "docs" / "archive" / "SETTLED-index-2026-11-20.md").write_text(INDEX, encoding="utf-8")
         kbd = self.root / "kb"
         (kbd / "protocol").mkdir(parents=True)
         (kbd / "task").mkdir()
@@ -169,7 +168,7 @@ class Idempotent(unittest.TestCase):
         self.addCleanup(r.tmp.cleanup)
         r.run()
         before = {p.name: p.read_bytes() for p in (r.root / "kb" / "decision").glob("*.md")}
-        rc, out = r.run()
+        rc, out = r.run("--force")
         self.assertEqual(rc, 0)
         self.assertIn("new 0, changed 0, same 9", out)
         self.assertEqual(before, {p.name: p.read_bytes() for p in (r.root / "kb" / "decision").glob("*.md")})
@@ -180,9 +179,21 @@ class Idempotent(unittest.TestCase):
         (r.root / "kb" / "decision").mkdir()
         manual = "---\nid: В-1\ntype: decision\nstatus: done\ntitle: рукой\ndate: 2026-10-14\nlinks: [P-42]\nsupersedes: []\n---\nруками\n"
         (r.root / "kb" / "decision" / "В-1.md").write_text(manual, encoding="utf-8")
-        rc, out = r.run()
+        rc, out = r.run("--force")
         self.assertIn("kept-manual 1", out)
         self.assertEqual(r.read("В-1"), manual)
+
+    def test_existing_cards_need_force(self):
+        r = Repo()
+        self.addCleanup(r.tmp.cleanup)
+        r.run()
+        card = r.root / "kb" / "decision" / "В-3.md"
+        card.write_text(card.read_text(encoding="utf-8") + "\nправка карточкой\n", encoding="utf-8")
+        edited = card.read_bytes()
+        with redirect_stderr(io.StringIO()):
+            rc, out = r.run()
+        self.assertEqual(rc, 2)
+        self.assertEqual(card.read_bytes(), edited)
 
     def test_dry_run_writes_nothing(self):
         r = Repo()
@@ -195,9 +206,9 @@ class Idempotent(unittest.TestCase):
         r = Repo()
         self.addCleanup(r.tmp.cleanup)
         r.run()
-        p = r.root / ".claude" / "decisions.md"
+        p = r.root / "docs" / "archive" / "decisions-2026-11-20.md"
         p.write_text(p.read_text(encoding="utf-8").replace("Макет v6 принят.", "Макет v7 принят."), encoding="utf-8")
-        rc, out = r.run()
+        rc, out = r.run("--force")
         self.assertIn("changed 1", out)
         self.assertIn("Макет v7 принят.", r.read("В-3"))
 
