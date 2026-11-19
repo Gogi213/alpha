@@ -23,6 +23,7 @@ import hashlib
 import json
 import os
 import pickle
+import re
 import subprocess
 import sys
 
@@ -56,6 +57,8 @@ RECORDED = {
     "grids_sha256": "e1d6bded92ddd44c68c130b98187756f9f3eaa36759291a619435e0e9a369e5d",
     "manifests_sha256": "e377de791796bcc93bee2ad5ad70c5ee69cf1e45499369637cdf293e07c9bd59",   # §13.24.4 п. 8 (глубина предыстории H = 32, 18.11); до этого 06e0993e… (§13.24.3 п. 7), 9f52379e…
 }
+# §13.24.6 (TK-607): допустимые бинари движка {md5: sha256}: a03c91df (§13.24) и бинарь «только скорость» (склад суток сделок, кэш сигналов; ворота и PASS критика — docs/findings/p42-speed-2026-11-18.md §9–§10).
+ACCEPTED_BIN = {RECORDED["bin_md5"]: RECORDED["bin_sha256"], "a112684a495e61cf5219610e4eecff22": "ee28fd7b85eada7dd30ef96e3a91bba14df0489fb929c7a7e7163c8b72a49b53"}
 GuardError = rf.GuardError
 
 
@@ -69,6 +72,10 @@ def require_go(env=None):
 @dataclasses.dataclass
 class Paths:
     root: str = ROOT
+    tick_store: str = ""                                # TK-607: каталог склада суток сделок (`--tick-store`); пусто — прежний путь без склада
+    sig_cache: str = ""                                 # TK-607: каталог кэша сигналов (`--sig-cache`)
+    store_cap_gb: int = 3
+    store_min_free_gb: int = 5
 
     def j(self, *a):
         return os.path.join(self.root, *a)
@@ -205,13 +212,32 @@ class Engine:
         self.paths, self.runner, self.symbols, self.bin, self.threads, self.chunk = paths, runner, symbols_text, bin_path, threads, chunk
         self.ensure_tables, self.windows = ensure_tables, windows
         self.prefix = prefix                                            # пакеты `<prefix>NNNN`: у `sens` — «s» (журналы основного прогона `b0001…` не перезаписываются)
-        self.n = 0
+        self.n = self.last_batch()                                      # после перезапуска нумерация продолжается: файлы `var/bNNNN.txt` и журналы не перезаписываются
+
+    def last_batch(self):
+        """Наибольший номер пакета `<prefix>NNNN` среди журналов `log/<prefix>NNNN-<окно>.log` и `var/<prefix>NNNN.txt` (0 — нет ни одного)."""
+        best = 0
+        for d in (self.paths.log, self.paths.var):
+            try:
+                names = os.listdir(d)
+            except OSError:
+                continue
+            for fn in names:
+                m = re.fullmatch(r"%s(\d{4})(?:-[a-z]+\.log|\.txt)" % re.escape(self.prefix), fn)
+                if m:
+                    best = max(best, int(m.group(1)))
+        return best
 
     def command(self, w, vfile, out, ftab=None, sigsx_only=False):
         cmd = [self.bin, "breakout", "tick", "--cache", self.paths.cache(w.name), "--trades", self.paths.trades(w.name), "--variants", vfile,
                "--symbols", self.symbols, "--out", out, "--threads", str(self.threads)]
         if ftab:
             cmd += ["--ftab", ftab]
+        if self.paths.tick_store:
+            cmd += ["--tick-store", self.paths.tick_store, "--tick-store-cap-gb", str(self.paths.store_cap_gb),
+                    "--tick-store-min-free-gb", str(self.paths.store_min_free_gb)]
+        if self.paths.sig_cache:
+            cmd += ["--sig-cache", self.paths.sig_cache]
         env = {"P42_T0": w.t0}
         if sigsx_only:
             env.update({"P42_SIGSX_ONLY": "1", "P42_SIGSX": SIGSX_DAYS})
@@ -461,7 +487,8 @@ def gate12(paths, bin_path=BIN, symbols=SYMBOLS, grids=GRIDS, manifests=MANIFEST
     """G1 (бинарь md5/sha256), G2 (sha256 монет, сеток, файла манифестов; MANIFEST каждого окна на srv = записанному разделу). Возвращает {проверка: ок}; список невыполненных — в 'fail'."""
     res = {}
     sha, md5 = file_hashes(bin_path)
-    res["G1_bin_sha256"], res["G1_bin_md5"] = sha == recorded["bin_sha256"], md5 == recorded["bin_md5"]
+    accepted = dict(ACCEPTED_BIN) if recorded is RECORDED else {recorded["bin_md5"]: recorded["bin_sha256"]}      # §13.24.6: a03c91df и бинарь, записанный в протоколе до смены
+    res["G1_bin_sha256"], res["G1_bin_md5"] = accepted.get(md5) == sha, md5 in accepted
     res["G2_symbols_sha256"] = file_hashes(symbols)[0] == recorded["symbols_sha256"]
     res["G2_grids_sha256"] = file_hashes(grids)[0] == recorded["grids_sha256"]
     res["G2_manifests_sha256"] = file_hashes(manifests)[0] == recorded["manifests_sha256"]
@@ -547,8 +574,16 @@ class Ctx:
 
 
 def make_ctx(root=ROOT, runner=None, nboot=rf.NBOOT, chunk=None, procs=6, threads=THREADS, bin_path=None, symbols=SYMBOLS, grids=GRIDS, funding=FUNDING,
-             prod=PROD, rates=None, python=None, metrics=True, prefix="b"):
-    paths = Paths(root)
+             prod=PROD, rates=None, python=None, metrics=True, prefix="b", tick_store="", sig_cache=""):
+    bin_file = bin_path or os.path.join(root, "bin", "alpha-master")
+    bin_md5 = file_hashes(bin_file)[1] if os.path.exists(bin_file) else None
+    if bin_md5 in ACCEPTED_BIN and bin_md5 != RECORDED["bin_md5"]:                                  # бинарь «только скорость» (§13.24.6): склад суток сделок и кэш сигналов по умолчанию; "off" — выключить
+        tick_store, sig_cache = tick_store or os.path.join(root, "tick-store"), sig_cache or os.path.join(root, "sig-cache")
+    tick_store, sig_cache = ("" if tick_store == "off" else tick_store), ("" if sig_cache == "off" else sig_cache)
+    for d in (tick_store, sig_cache):
+        if d:
+            os.makedirs(d, exist_ok=True)
+    paths = Paths(root, tick_store=tick_store, sig_cache=sig_cache)
     runner = runner or SubprocessRunner()
     spec = rf.Spec.load(grids)
     text, coins = read_symbols(symbols)
@@ -558,7 +593,8 @@ def make_ctx(root=ROOT, runner=None, nboot=rf.NBOOT, chunk=None, procs=6, thread
     engine.ensure_tables = store.build
     os.makedirs(paths.npz, exist_ok=True)
     ev = rf.OutDirEvaluator(paths.j("out"), coins, rates if rates is not None else rf.load_funding_rates(funding, coins), launch=engine.launch, cache_dir=paths.npz,
-                            run_t0={w.name: w.t0 for w in rf.WINDOWS}, ftab_builder=store.build, ftab_ready=store.ready)
+                            run_t0={w.name: w.t0 for w in rf.WINDOWS}, ftab_builder=store.build, ftab_ready=store.ready,
+                            bin_md5=bin_md5, allowed_md5=set(ACCEPTED_BIN), legacy_md5=RECORDED["bin_md5"])
     return Ctx(paths, runner, spec, coins, text, engine, store, ev, nboot, engine_conv, stop=lambda: os.path.exists(paths.stop))
 
 
@@ -780,7 +816,7 @@ def cmd_plan(a):
 
 def cmd_gates(a):
     require_go()
-    ctx = make_ctx(a.root, nboot=a.nboot, chunk=a.chunk, procs=a.procs, threads=a.threads, bin_path=a.bin, prod=a.prod)
+    ctx = make_ctx(a.root, nboot=a.nboot, chunk=a.chunk, procs=a.procs, threads=a.threads, bin_path=a.bin, prod=a.prod, tick_store=getattr(a, "tick_store", ""), sig_cache=getattr(a, "sig_cache", ""))
     g = run_gates(ctx, with_g5=False)                                   # G1/G2/G3/G3b; G5 — отдельной командой после докачки метрик
     os.makedirs(ctx.paths.gate, exist_ok=True)
     json.dump(jsonable(g), open(os.path.join(ctx.paths.gate, "gates-g123.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
@@ -813,7 +849,7 @@ def run_gates(ctx, with_g5=True, reuse=None):
 
 def cmd_gate5(a):
     require_go()
-    ctx = make_ctx(a.root, nboot=a.nboot, chunk=a.chunk, procs=a.procs, threads=a.threads, bin_path=a.bin, prod=a.prod)
+    ctx = make_ctx(a.root, nboot=a.nboot, chunk=a.chunk, procs=a.procs, threads=a.threads, bin_path=a.bin, prod=a.prod, tick_store=getattr(a, "tick_store", ""), sig_cache=getattr(a, "sig_cache", ""))
     g5 = gate5(ctx.store, ctx.spec)
     os.makedirs(ctx.paths.gate, exist_ok=True)
     json.dump(g5, open(os.path.join(ctx.paths.gate, "g5.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
@@ -825,7 +861,7 @@ def cmd_gate5(a):
 
 def cmd_run(a):
     require_go()
-    ctx = make_ctx(a.root, nboot=a.nboot, chunk=a.chunk, procs=a.procs, threads=a.threads, bin_path=a.bin, prod=a.prod)
+    ctx = make_ctx(a.root, nboot=a.nboot, chunk=a.chunk, procs=a.procs, threads=a.threads, bin_path=a.bin, prod=a.prod, tick_store=getattr(a, "tick_store", ""), sig_cache=getattr(a, "sig_cache", ""))
     gp = os.path.join(ctx.paths.gate, "gates.json")
     if a.reuse_gates:                                                    # перезапуск: ворота первого запуска остаются в силе, файл не переписывается
         with open(gp, encoding="utf-8") as f:
@@ -849,7 +885,7 @@ def cmd_sens(a):
     require_go()
     ns = parse_ns(a.ns)
     rf.check_sens_windows(rf.WINDOWS)
-    ctx = make_ctx(a.root, nboot=a.nboot, chunk=a.chunk, procs=a.procs, threads=a.threads, bin_path=a.bin, prod=a.prod, prefix="s")
+    ctx = make_ctx(a.root, nboot=a.nboot, chunk=a.chunk, procs=a.procs, threads=a.threads, bin_path=a.bin, prod=a.prod, prefix="s", tick_store=getattr(a, "tick_store", ""), sig_cache=getattr(a, "sig_cache", ""))
     pkl, frozen_sha = require_main_done(ctx.paths)
     with open(os.path.join(ctx.paths.gate, "gates.json"), encoding="utf-8") as f:
         gates = json.load(f)
@@ -868,6 +904,8 @@ def main(argv=None):
     ap.add_argument("--prod", default=PROD)
     ap.add_argument("--threads", type=int, default=THREADS)
     ap.add_argument("--procs", type=int, default=6)
+    ap.add_argument("--tick-store", default=os.environ.get("P42_TICK_STORE", ""), help="TK-607: каталог склада суток сделок движка (пусто — без склада); по умолчанию из окружения P42_TICK_STORE")
+    ap.add_argument("--sig-cache", default=os.environ.get("P42_SIG_CACHE", ""), help="TK-607: каталог кэша сигналов движка (пусто — без кэша); по умолчанию из окружения P42_SIG_CACHE")
     ap.add_argument("--chunk", type=int, default=0, help="вариантов в одном вызове движка (0 — все недостающие одним пакетом)")
     ap.add_argument("--nboot", type=int, default=rf.NBOOT)
     ap.add_argument("--ns", default="20,10,15,25", help="`sens`: пороги N (контрольный 20 — первым)")

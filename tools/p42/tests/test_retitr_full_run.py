@@ -166,6 +166,81 @@ def test_engine_command_shape():
         assert "--ftab" not in cmd and env == {"P42_T0": "2026-07-25", "P42_SIGSX_ONLY": "1", "P42_SIGSX": "14:73"}
 
 
+def test_engine_store_keys_and_batch_numbering():
+    with tempfile.TemporaryDirectory() as tmp:
+        ctx, _ = make(tmp)
+        w = rf.WINDOWS[1]
+        cmd, _ = ctx.engine.command(w, "/v/b1.txt", "/o/wb", None)
+        assert "--tick-store" not in cmd and "--sig-cache" not in cmd                              # без ключей — прежняя команда
+        ctx.paths.tick_store, ctx.paths.sig_cache = "/s/tk", "/s/sc"
+        cmd, _ = ctx.engine.command(w, "/v/b1.txt", "/o/wb", None)
+        assert cmd[cmd.index("--tick-store"):] == ["--tick-store", "/s/tk", "--tick-store-cap-gb", "3", "--tick-store-min-free-gb", "5", "--sig-cache", "/s/sc"]
+        assert ctx.engine.last_batch() == 0
+        for d, names in ((ctx.paths.log, ["b0007-wa.log", "b0007-wc.log", "sx-wa-abcdef.log", "ftab-wb-1234.log", "s0003-wa.log"]), (ctx.paths.var, ["b0012.txt", "sx-wa-ab.txt"])):
+            os.makedirs(d, exist_ok=True)
+            for n in names:
+                open(os.path.join(d, n), "w").close()
+        assert rr.Engine(ctx.paths, ctx.runner, "X").n == 12 and rr.Engine(ctx.paths, ctx.runner, "X", prefix="s").n == 3
+
+
+def test_series_bin_md5_saved_and_guarded():
+    with tempfile.TemporaryDirectory() as tmp:
+        ctx, _ = make(tmp, World(lambda k, s, d: 0.0))
+        new = "ab" * 16
+        ctx.ev.bin_md5 = new
+        req = rf.Req("L", rf.cfg_keys(SPEC, "L", {}), False)
+        ctx.ev.fulfil([req])
+        assert str(np.load(ctx.ev._npz(req))["bin_md5"]) == new
+        ctx2, _ = make(tmp, World(lambda k, s, d: 0.0))                                            # тот же корень: серия берётся из npz
+        assert new in raises(rr.GuardError, ctx2.ev.missing, [req])
+        ctx2.ev.allowed_md5 = {new, rr.RECORDED["bin_md5"]}
+        assert ctx2.ev.missing([req]) == []
+
+
+def test_make_ctx_store_and_cache_default_only_for_new_binary():
+    with tempfile.TemporaryDirectory() as tmp:
+        sym = os.path.join(tmp, "symbols.txt")
+        with open(sym, "w", encoding="utf-8") as f:
+            f.write(",".join(COINS) + "\n")
+        binp = os.path.join(tmp, "alpha-new")
+        with open(binp, "wb") as f:
+            f.write(b"new engine")
+        md5, root = rr.file_hashes(binp)[1], os.path.join(tmp, "root")
+
+        def ctx(**kw):
+            return rr.make_ctx(root, runner=FakeSrv(None), nboot=NB, symbols=sym, rates={}, bin_path=binp, prod="/x/py", metrics=False, **kw)
+        c = ctx()
+        assert c.paths.tick_store == "" and c.paths.sig_cache == ""                                # бинарь не из допустимых новых — без склада и кэша
+        rr.ACCEPTED_BIN[md5] = "0" * 64
+        try:
+            c = ctx()
+            assert c.paths.tick_store == os.path.join(root, "tick-store") and c.paths.sig_cache == os.path.join(root, "sig-cache") and os.path.isdir(c.paths.sig_cache)
+            c = ctx(tick_store="off", sig_cache=os.path.join(tmp, "sc"))
+            assert c.paths.tick_store == "" and c.paths.sig_cache == os.path.join(tmp, "sc")
+        finally:
+            rr.ACCEPTED_BIN.pop(md5, None)
+
+
+def test_gate12_accepts_only_recorded_binaries():
+    with tempfile.TemporaryDirectory() as tmp:
+        paths = rr.Paths(os.path.join(tmp, "root"))
+        b, s, g, m = (os.path.join(tmp, n) for n in ("bin", "sym", "grids", "man"))
+        for p, txt in ((b, "NEW"), (s, "S"), (g, "G"), (m, "== wa\n")):
+            open(p, "w").write(txt)
+        sha, md5 = rr.file_hashes(b)
+        r = rr.gate12(paths, b, s, g, m)
+        assert not r["G1_bin_md5"] and not r["G1_bin_sha256"]                                      # бинарь, не записанный в протоколе
+        rr.ACCEPTED_BIN[md5] = sha
+        try:
+            r = rr.gate12(paths, b, s, g, m)
+            assert r["G1_bin_md5"] and r["G1_bin_sha256"]
+            rr.ACCEPTED_BIN[md5] = "0" * 64
+            r = rr.gate12(paths, b, s, g, m)
+            assert r["G1_bin_md5"] and not r["G1_bin_sha256"]
+        finally:
+            rr.ACCEPTED_BIN.pop(md5, None)
+
+
 def test_groups_split_and_chunks():
     with tempfile.TemporaryDirectory() as tmp:
         ctx, _ = make(tmp, chunk=2)
