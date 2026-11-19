@@ -1,0 +1,256 @@
+{
+ "F-1": {
+  "long": {
+   "L_u0": {
+    "rows": 12018,
+    "age_h_max": 173.51666666666668,
+    "age_h_p99": 147.844,
+    "rows_age_gt_14d": 0,
+    "coins": 565,
+    "censored_rows": 5,
+    "new_listing": {
+     "rows": 5,
+     "coins": 2,
+     "age_h_max": 58.483333333333334
+    },
+    "cache_start": {
+     "rows": 0,
+     "coins": 0,
+     "age_h_max": null
+    },
+    "other": {
+     "rows": 0,
+     "coins": 0,
+     "age_h_max": null
+    }
+   },
+   "L_u1": {
+    "rows": 307,
+    "age_h_max": 195.98333333333332,
+    "age_h_p99": 166.71766666666667,
+    "rows_age_gt_14d": 0,
+    "coins": 196,
+    "censored_rows": 1,
+    "new_listing": {
+     "rows": 1,
+     "coins": 1,
+     "age_h_max": 18.05
+    },
+    "cache_start": {
+     "rows": 0,
+     "coins": 0,
+     "age_h_max": null
+    },
+    "other": {
+     "rows": 0,
+     "coins": 0,
+     "age_h_max": null
+    }
+   }
+  },
+  "short": {
+   "S_u0": {
+    "rows": 12046,
+    "age_h_max": 248.41666666666666,
+    "age_h_p99": 149.8983333333331,
+    "rows_age_gt_14d": 0,
+    "coins": 565,
+    "censored_rows": 7,
+    "new_listing": {
+     "rows": 7,
+     "coins": 3,
+     "age_h_max": 164.06666666666666
+    },
+    "cache_start": {
+     "rows": 0,
+     "coins": 0,
+     "age_h_max": null
+    },
+    "other": {
+     "rows": 0,
+     "coins": 0,
+     "age_h_max": null
+    }
+   },
+   "S_u1": {
+    "rows": 195,
+    "age_h_max": 194.78333333333333,
+    "age_h_p99": 164.93033333333335,
+    "rows_age_gt_14d": 0,
+    "coins": 142,
+    "censored_rows": 0,
+    "new_listing": {
+     "rows": 0,
+     "coins": 0,
+     "age_h_max": null
+    },
+    "cache_start": {
+     "rows": 0,
+     "coins": 0,
+     "age_h_max": null
+    },
+    "other": {
+     "rows": 0,
+     "coins": 0,
+     "age_h_max": null
+    }
+   }
+  }
+ },
+ "aug-1": {
+  "long": {
+   "L_u1": {
+    "rows": 131,
+    "age_h_max": 171.25,
+    "age_h_p99": 169.58166666666665,
+    "rows_age_gt_14d": 0,
+    "coins": 94,
+    "censored_rows": 2,
+    "new_listing": {
+     "rows": 2,
+     "coins": 1,
+     "age_h_max": 19.4
+    },
+    "cache_start": {
+     "rows": 0,
+     "coins": 0,
+     "age_h_max": null
+    },
+    "other": {
+     "rows": 0,
+     "coins": 0,
+     "age_h_max": null
+    }
+   }
+  },
+  "short": {
+   "S_u1": {
+    "rows": 110,
+    "age_h_max": 169.2,
+    "age_h_p99": 151.46766666666656,
+    "rows_age_gt_14d": 0,
+    "coins": 78,
+    "censored_rows": 3,
+    "new_listing": {
+     "rows": 3,
+     "coins": 2,
+     "age_h_max": 31.6
+    },
+    "cache_start": {
+     "rows": 0,
+     "coins": 0,
+     "age_h_max": null
+    },
+    "other": {
+     "rows": 0,
+     "coins": 0,
+     "age_h_max": null
+    }
+   }
+  }
+ },
+ "hold-1": {
+  "long": {
+   "L_u1": {
+    "rows": 8,
+    "age_h_max": 138.33333333333334,
+    "age_h_p99": 133.90699999999998,
+    "rows_age_gt_14d": 0,
+    "coins": 8,
+    "censored_rows": 0,
+    "new_listing": {
+     "rows": 0,
+     "coins": 0,
+     "age_h_max": null
+    },
+    "cache_start": {
+     "rows": 0,
+     "coins": 0,
+     "age_h_max": null
+    },
+    "other": {
+     "rows": 0,
+     "coins": 0,
+     "age_h_max": null
+    }
+   }
+  },
+  "short": {
+   "S_u1": {
+    "rows": 10,
+    "age_h_max": 42.083333333333336,
+    "age_h_p99": 41.21483333333334,
+    "rows_age_gt_14d": 0,
+    "coins": 10,
+    "censored_rows": 0,
+    "new_listing": {
+     "rows": 0,
+     "coins": 0,
+     "age_h_max": null
+    },
+    "cache_start": {
+     "rows": 0,
+     "coins": 0,
+     "age_h_max": null
+    },
+    "other": {
+     "rows": 0,
+     "coins": 0,
+     "age_h_max": null
+    }
+   }
+  }
+ },
+ "jul-1": {
+  "long": {
+   "L_u1": {
+    "rows": 132,
+    "age_h_max": 166.58333333333334,
+    "age_h_p99": 153.19816666666665,
+    "rows_age_gt_14d": 0,
+    "coins": 93,
+    "censored_rows": 2,
+    "new_listing": {
+     "rows": 2,
+     "coins": 2,
+     "age_h_max": 43.63333333333333
+    },
+    "cache_start": {
+     "rows": 0,
+     "coins": 0,
+     "age_h_max": null
+    },
+    "other": {
+     "rows": 0,
+     "coins": 0,
+     "age_h_max": null
+    }
+   }
+  },
+  "short": {
+   "S_u1": {
+    "rows": 104,
+    "age_h_max": 162.05,
+    "age_h_p99": 161.85433333333333,
+    "rows_age_gt_14d": 0,
+    "coins": 73,
+    "censored_rows": 2,
+    "new_listing": {
+     "rows": 2,
+     "coins": 2,
+     "age_h_max": 54.916666666666664
+    },
+    "cache_start": {
+     "rows": 0,
+     "coins": 0,
+     "age_h_max": null
+    },
+    "other": {
+     "rows": 0,
+     "coins": 0,
+     "age_h_max": null
+    }
+   }
+  }
+ }
+}
