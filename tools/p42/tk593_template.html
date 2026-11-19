@@ -223,6 +223,36 @@ section.ft-set{margin-top:22px;scroll-margin-top:118px}
 .lv-name,.lv-prog{grid-column:1/-1}
 .lv-c[data-l]::before{content:attr(data-l);display:block;color:var(--mfg);font-size:11px}
 }
+/* TK-624: блок «Где мы» и вид «Базы» вкладки «Эквити» */
+.tabs[hidden]{display:none}
+.where-card{margin:0 0 28px}
+.where-card .card-b{padding:12px 20px 18px}
+.wh-lead{margin:0 0 6px;font-size:15px;max-width:100ch}
+.wh-tt{margin:16px 0 0;font-size:13px;font-weight:600}
+.wh-tn{margin:2px 0 0;color:var(--mfg);font-size:12px;max-width:110ch}
+.where-card .eqt td:first-child{min-width:190px}
+.wh-chart{margin-top:16px}
+.wh-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:18px}
+@media(max-width:940px){.wh-grid{grid-template-columns:1fr}}
+.wh-box{border:1px solid var(--border);border-radius:var(--r);padding:12px 16px;min-width:0}
+.wh-box.wide{grid-column:1/-1}
+.wh-box h3{margin:0 0 6px;font-size:14px;font-weight:600}
+.wh-box ul{margin:0;padding-left:18px;font-size:13px}
+.wh-box li{padding:3px 0}
+.wh-box li b{font-weight:600}
+.wh-link{margin:12px 0 0;font-size:13px}
+.wh-link a{color:var(--accent);text-decoration:none;font-weight:600}
+.wh-link a:hover{text-decoration:underline}
+.uni td:first-child{white-space:normal;min-width:230px;max-width:300px}
+.ft-card{margin:0 0 28px}
+.ft-card .card-b{padding:12px 20px 18px}
+.ft-st{margin:6px 0 0;font-size:13px}
+.ft-tbl{margin-top:10px}
+.ft-notes{margin:8px 0 0;padding-left:18px;font-size:13px}.ft-notes li{margin:4px 0}
+.ft-sec{margin-top:22px}.ft-fold{margin-top:22px}.ft-fold summary{cursor:pointer;font-weight:650;font-size:14px}
+.stage-group{margin:26px 0 10px;font-size:14px;font-weight:650;color:var(--z700)}
+.stage-group:first-of-type{margin-top:14px}
+@media(max-width:640px){.where-card .card-b{padding:10px 12px 14px}.wh-box{padding:10px 12px}}
 </style>
 </head>
 <body>
@@ -233,7 +263,7 @@ section.ft-set{margin-top:22px;scroll-margin-top:118px}
   <div class="pane" id="pane-targets" hidden><div class="prog" id="targets-box"></div></div>
   <div class="pane" id="pane-equity" hidden>
     <div class="prog" id="equity">
-      <div class="eq-h"><h2>Эквити</h2><span class="muted small">прибыль сделок без фандинга, $ · по времени закрытия, UTC</span></div>
+      <div class="eq-h"><h2>Эквити</h2><span class="muted small" id="eq-sub">прибыль сделок без фандинга, $ · по времени закрытия, UTC</span></div>
       <div class="eq-ctls"><div class="tabs eq-ctl" id="eq-tabs" role="tablist"></div><div class="tabs eq-ctl" id="eq-views" role="tablist"></div>
         <div class="eq-cmp" id="eq-cmp"><div class="tabs eq-ctl" id="eq-modes" role="tablist"></div><label class="eq-dep eq-ctl">Стартовый депозит, $ <input id="eq-dep" type="number" min="100" step="500" inputmode="decimal"></label></div></div>
       <p class="prog-head" id="eq-desc"></p>
@@ -256,6 +286,8 @@ section.ft-set{margin-top:22px;scroll-margin-top:118px}
 <script id="equity-data" type="application/json">/*__EQUITY__*/</script>
 <script id="shape-data" type="application/json">/*__SHAPE__*/</script>
 <script id="features-data" type="application/json">/*__FEATURES__*/</script>
+<script id="bases-data" type="application/json">/*__BASES__*/</script>
+<script id="universe-data" type="application/json">/*__UNIVERSE__*/</script>
 <script>
 const D = JSON.parse(document.getElementById('data').textContent);
 const NS = 'http://www.w3.org/2000/svg';
@@ -266,7 +298,7 @@ const STY = {CB3: {c: ACC, w: 2.25, d: null}, LOGIT: {c: '#52525b', w: 1.5, d: n
 const SHORT = {CB3: 'CB3', LOGIT: 'логистика', CB1: 'CB1', TURN: 'оборот'};
 const SIDE = {long: 'Лонг', short: 'Шорт'};
 const FNAME = {lturn24: 'turn24h (lg)'};
-const fn = f => FNAME[f] || f;
+const fn = f => FNAME[f] || f.replace(/_bp$/, '');   // имя признака на экране без суффикса единицы; ключ данных остаётся прежним
 
 const el = (t, a = {}, kids = []) => {
   const e = document.createElementNS(NS, t);
@@ -564,7 +596,7 @@ function strataFor(cell, kind) {
   if (kind !== 'day') {
     const q = v => (Math.abs(v) >= 100 ? v.toFixed(0) : Math.abs(v) >= 10 ? v.toFixed(1) : v.toFixed(2)).replace('.', ',');
     const money = v => { const x = Math.pow(10, v); return x >= 1e9 ? q(x / 1e9) + ' млрд' : x >= 1e6 ? q(x / 1e6) + ' млн' : q(x / 1e3) + ' тыс'; };
-    const f = {lturn24: money, natr_bp: v => q(v) + ' бп', age_h: v => q(v) + ' ч'}[kind];
+    const f = {lturn24: money, natr_bp: v => (v / 100).toFixed(3).replace('.', ',') + ' %', age_h: v => q(v) + ' ч'}[kind];
     items.forEach(s => { s.rangeLabel = s.label === 'L' ? '≤ ' + f(s.cut_lo) : s.label === 'M' ? f(s.cut_lo) + '…' + f(s.cut_hi) : '> ' + f(s.cut_hi); });
   }
   const wrap = h('div', {});
@@ -664,15 +696,26 @@ function renderProgress() {
   const root = document.getElementById('progress');
   root.append(h('div', {class: 'prog-h'}, [h('h2', {}, 'Ход работ'), h('span', {class: 'muted small'}, 'обновлено ' + P.updated)]));
   root.append(h('p', {class: 'prog-head'}, P.headline));
-  root.append(h('div', {class: 'stages', style: '--n:' + Math.min(P.stages.length, 5)}, P.stages.map(stageCard)));
+  root.append(h('p', {class: 'wh-link', 'data-wlink-box': '1'}, [h('a', {href: '#equity/short/where', 'data-wlink': 'where'}, 'Деньги, шарп и кривые — вкладка «Эквити», вид «Где мы»')]));
+  const grouped = P.stages.some(s => s.group);
+  let cur = null, box = null;
+  P.stages.forEach(s => {
+    if (box === null || (grouped && (s.group || '') !== cur)) {
+      cur = s.group || '';
+      if (cur) root.append(h('h3', {class: 'stage-group', 'data-group': cur}, cur));
+      box = h('div', {class: 'stages', style: '--n:' + (grouped ? 4 : Math.min(P.stages.length, 5))});
+      root.append(box);
+    }
+    box.append(stageCard(s));
+  });
   document.getElementById('targets-box').append(targetsCard(P.targets));
-  root.append(h('p', {class: 'prog-foot'}, 'Подробности — на вкладках: цели TK-598 (что предсказывает каждая и итог чтения), эквити (кривые накопленной прибыли), модель TK-592 (ROC, децили, калибровка, важность признаков, переобучение, устойчивость по суткам).'));
+  root.append(h('p', {class: 'prog-foot'}, 'Подробности — на вкладках: цели TK-598 (что предсказывает каждая и итог чтения), эквити (кривые накопленной прибыли; вид «Базы» — текущие базы за 136 суток в $), модель TK-592 (ROC, децили, калибровка, важность признаков, переобучение, устойчивость по суткам).'));
 }
 
 // ── эквити (TK-601): сделки баз U1 и «трети» целей TK-598; данные — equity.json (tk601_equity.py), вшиты при сборке
 const E = JSON.parse(document.getElementById('equity-data').textContent);
 const EQ_COL = {base: '#71717a', T1: '#2a78d6', T2: '#eb6834', T4: '#1baf7a', T5: '#6250d6', T6: '#008300', short: '#2a78d6', long: '#eb6834'};
-const EQ_NAME = {T1: 'T1 · прибыль, $', T2: 'T2 · прибыль, бп', T4: 'T4 · без жёсткого стопа', T5: 'T5 · MFE − MAE', T6: 'T6 · ранжирование', short: 'Шорт', long: 'Лонг'};
+const EQ_NAME = {T1: 'T1 · прибыль, $', T2: 'T2 · прибыль, % от номинала', T4: 'T4 · без жёсткого стопа', T5: 'T5 · MFE − MAE', T6: 'T6 · ранжирование', short: 'Шорт', long: 'Лонг'};
 const EQ_BASE = {short: 'Шорт: все сделки базы', long: 'Лонг: все сделки базы', both: 'Шорт + лонг: все сделки'};
 const EQ_SIDES = [['short', 'Шорт'], ['long', 'Лонг'], ['both', 'Шорт + лонг']];
 const EQ_DESC = {
@@ -806,17 +849,21 @@ function eqChart(chartId, side, width) {
   return card;
 }
 function renderEquity() {
-  const shape = ST.view === 'shape';
+  const shape = ST.view === 'shape', bases = ST.view === 'bases', where = ST.view === 'where';
   if (shape && ST.eq === 'both') ST.eq = 'short';
   const side = ST.eq, view = document.getElementById('eq-view');
   document.querySelectorAll('#eq-tabs button').forEach(b => { b.setAttribute('aria-selected', b.dataset.side === side); b.hidden = shape && b.dataset.side === 'both'; });
   document.querySelectorAll('#eq-views button').forEach(b => b.setAttribute('aria-selected', b.dataset.view === ST.view));
   document.querySelectorAll('#eq-modes button').forEach(b => b.setAttribute('aria-selected', (b.dataset.mode === 'cmp') === ST.cmp));
-  document.getElementById('eq-cmp').hidden = shape;
+  document.getElementById('eq-cmp').hidden = shape || bases || where;
+  document.getElementById('eq-tabs').hidden = where;
+  document.getElementById('eq-sub').textContent = bases || where ? 'прибыль сделок без фандинга, $ · по дню входа, UTC' : 'прибыль сделок без фандинга, $ · по времени закрытия, UTC';
   document.getElementById('eq-dep').value = ST.dep;
-  document.getElementById('eq-desc').textContent = shape ? SH_DESC[side] : EQ_DESC[side];
+  document.getElementById('eq-desc').textContent = shape ? SH_DESC[side] : bases ? BS_DESC[side] : where ? WH_DESC : EQ_DESC[side];
   view.replaceChildren();
   const width = Math.max(300, Math.floor(view.clientWidth - (view.clientWidth < 520 ? 22 : 42)));
+  if (bases) { view.append(basesView(side, width)); return; }
+  if (where) { const wb = h('div', {id: 'where-box'}); view.append(wb); renderWhere(wb); return; }
   ['ja', 'fit'].forEach(id => view.append(shape ? shapeCard(id, side, width) : eqChart(id, side, width)));
   if (!shape) view.append(h('p', {class: 'eq-note', id: 'eq-cmp-note'}, 'Компаундинг — только вид кривой: тесты, вердикты и все числа протоколов считаются при фиксированных 500 $ на сделку. Объём сделки = 500 $ × E / депозит, где E — депозит плюс реализованная прибыль сделок линии, закрытых до входа этой сделки (пересекающиеся сделки берут эквити на своём входе); прибыль сделки = прибыль при 500 $ × тот же коэффициент. Каждая линия — отдельный счёт с тем же депозитом («шорт + лонг: все сделки» — один счёт на обе стороны). Макс. просадка в % — от пика эквити (депозит + накопленная прибыль). Депозит влияет и на % просадки при фиксе.'));
 }
@@ -824,7 +871,7 @@ function initEquity() {
   const tabs = document.getElementById('eq-tabs');
   EQ_SIDES.forEach(([k, t]) => { const b = h('button', {role: 'tab', 'data-side': k, 'aria-selected': 'false'}, t); b.onclick = () => { ST.eq = k; setHash(); renderEquity(); }; tabs.append(b); });
   const vs = document.getElementById('eq-views');
-  [['curve', 'Кривая'], ['shape', 'Форма']].forEach(([k, t]) => { const b = h('button', {role: 'tab', 'data-view': k, 'aria-selected': 'false'}, t); b.onclick = () => { ST.view = k; setHash(); renderEquity(); }; vs.append(b); });
+  [['where', 'Где мы'], ['curve', 'Кривая'], ['shape', 'Форма'], ['bases', 'Базы 01.07–13.11']].forEach(([k, t]) => { const b = h('button', {role: 'tab', 'data-view': k, 'aria-selected': 'false'}, t); b.onclick = () => { ST.view = k; setHash(); renderEquity(); }; vs.append(b); });
   const ms = document.getElementById('eq-modes');
   [['fix', 'Фикс 500 $'], ['cmp', 'Компаундинг']].forEach(([k, t]) => { const b = h('button', {role: 'tab', 'data-mode': k, 'aria-selected': 'false'}, t); b.onclick = () => { ST.cmp = k === 'cmp'; setHash(); renderEquity(); }; ms.append(b); });
   const inp = document.getElementById('eq-dep');
@@ -900,12 +947,160 @@ function shapeCard(wid, side, width) {
   return card;
 }
 
+// ── базы 01.07–13.11 (TK-624): суточная прибыль L_base / S_base (TK-599) и S_mk1 (TK-616) в $; данные — bases.json (tk624_table.py), вшиты при сборке
+const B = JSON.parse(document.getElementById('bases-data').textContent);
+const BS_COL = {L_base: '#eb6834', S_base: '#2a78d6', S_mk1: '#1baf7a', SL: '#52525b'};
+const BS_NAME = {L_base: 'Лонг · вход по рынку (L_base)', S_base: 'Шорт · вход по рынку (S_base)', S_mk1: 'Шорт · вход лимиткой (S_mk1)', SL: 'Шорт + лонг (S_base + L_base)'};
+const BS_LINES = {short: ['S_base', 'S_mk1'], long: ['L_base'], both: ['L_base', 'S_base', 'SL']};
+const BS_MSHORT = ['июл', 'авг', 'сен', 'окт', 'ноя'];
+const BS_DESC = {
+  short: 'Накопленная прибыль шорта за 136 суток (01.07–13.11), $ при ставке 500 $ на сделку, после комиссий. Синяя — вход по рынку (S_base), зелёная — вход лимиткой на лучшей цене (S_mk1). Ряд суточный, сделка считается днём входа.',
+  long: 'Накопленная прибыль лонга за 136 суток (01.07–13.11), $ при ставке 500 $ на сделку, после комиссий. Лонг-база почти не зарабатывает: июль и октябрь — минус, август и ноябрь — плюс.',
+  both: 'Обе базы на одних осях и их сумма: видно, откуда рост и что забирает лонг. Ряд суточный, сделка считается днём входа; ставка 500 $ на сделку, после комиссий.'
+};
+const WH_DESC = 'Где мы сейчас по деньгам: единственный кандидат, таблицы $ и шарпа по базам и по наборам монет (честная вселенная TK-621), что нашли сломанным и что дальше. Ставка 500 $ на сделку, после комиссий, 01.07–13.11.';
+const BS_D0 = Date.parse(B.d0 + 'T00:00:00Z');
+const bsDate = i => fday(BS_D0 + i * 86400e3);
+const bsStarts = () => { const a = [0]; B.month_len.forEach(n => a.push(a[a.length - 1] + n)); return a; };
+function bsSeries(k) {
+  if (k === 'SL') { const a = B.cells.S_base, b = B.cells.L_base; return {S: a.daily_sum.map((v, i) => v + b.daily_sum[i]), N: a.daily_n.map((v, i) => v + b.daily_n[i])}; }
+  return {S: B.cells[k].daily_sum, N: B.cells[k].daily_n};
+}
+// шарп = среднее / станд. откл. (n−1) суточной прибыли, ВКЛЮЧАЯ дни без сделок, × √365; просадка — от пика накопленной суточной прибыли периода (старт = 0)
+function bsStats(S, N, lo, hi) {
+  const s = S.slice(lo, hi), nn = N.slice(lo, hi), n = s.length, sum = s.reduce((a, b) => a + b, 0), tr = nn.reduce((a, b) => a + b, 0), mean = sum / n;
+  let ss = 0; s.forEach(v => { ss += (v - mean) * (v - mean); });
+  const sd = n > 1 ? Math.sqrt(ss / (n - 1)) : 0;
+  let c = 0, pk = 0, dd = 0; s.forEach(v => { c += v; pk = Math.max(pk, c); dd = Math.max(dd, pk - c); });
+  return {days: n, sum, trades: tr, mean: tr ? sum / tr : 0, sharpe: sd > 0 ? mean / sd * Math.sqrt(365) : 0, maxdd: dd, pos: s.filter(v => v > 0).length, tdays: nn.filter(v => v > 0).length};
+}
+const bsMonth = (k, m) => { const st = bsStarts(), q = bsSeries(k); return bsStats(q.S, q.N, st[m], st[m + 1]); };
+const bsTotal = k => { const q = bsSeries(k); return bsStats(q.S, q.N, 0, B.days); };
+function bsChart(keys, w, id) {
+  const n = B.days, st = bsStarts(), Q = keys.map(bsSeries), cum = Q.map(q => { let c = 0; return [0].concat(q.S.map(v => (c += v))); });
+  const [ylo, yhi] = rng(cum.flat().concat([0]), .08), mob = w < 520;
+  const p = plot({id, w, h: mob ? 260 : 330, xd: [0, n], yd: [ylo, yhi], xt: st, xf: bsDate, yf: v => num(v, 0), ylab: 'накопленная прибыль, $', m: {l: 50, r: 14, t: 24, b: 30}});
+  const {X, Y} = p;
+  for (let m = 0; m < B.month_len.length; m++) {
+    if (m) p.svg.append(el('line', {x1: X(st[m]), x2: X(st[m]), y1: p.m.t, y2: p.h - p.m.b, stroke: '#d4d4d8', 'stroke-dasharray': '2 3'}));
+    p.svg.append(el('text', {x: (X(st[m]) + X(st[m + 1])) / 2, y: p.m.t - 8, 'text-anchor': 'middle'}, mob ? BS_MSHORT[m] : B.month_names[m]));
+  }
+  p.svg.append(el('line', {x1: X(0), x2: X(n), y1: Y(0), y2: Y(0), stroke: '#a1a1aa', 'stroke-dasharray': '3 3'}));
+  keys.forEach((k, j) => p.svg.append(el('path', {d: cum[j].map((v, i) => (i ? 'L' : 'M') + X(i).toFixed(1) + ' ' + Y(v).toFixed(1)).join(''), fill: 'none', stroke: BS_COL[k], 'stroke-width': 2.4, 'stroke-linejoin': 'round', 'data-chart': `${id}.${k}`, 'data-final': cum[j][n]})));
+  const vl = el('line', {y1: p.m.t, y2: p.h - p.m.b, stroke: '#a1a1aa', 'stroke-dasharray': '3 3', visibility: 'hidden'});
+  const dots = keys.map(k => el('circle', {r: 4, fill: BS_COL[k], stroke: '#fff', 'stroke-width': 1.5, visibility: 'hidden'}));
+  const r = el('rect', {x: p.m.l, y: p.m.t, width: w - p.m.l - p.m.r, height: p.h - p.m.t - p.m.b, fill: 'transparent', 'data-chart': `${id}.hover`});
+  p.svg.append(vl, ...dots, r);
+  const dayAt = ev => { const b = p.svg.getBoundingClientRect(), x = (ev.clientX - b.left) / b.width * w; return Math.max(0, Math.min(n - 1, Math.floor((x - p.m.l) / (w - p.m.l - p.m.r) * n))); };
+  const show = ev => {
+    const i = dayAt(ev), xx = X(i + 1);
+    vl.setAttribute('x1', xx); vl.setAttribute('x2', xx); vl.setAttribute('visibility', 'visible');
+    dots.forEach((d, j) => { d.setAttribute('cx', xx); d.setAttribute('cy', Y(cum[j][i + 1])); d.setAttribute('visibility', 'visible'); });
+    tip.innerHTML = `<div class="t">${bsDate(i)}</div>` + keys.map((k, j) => `<div class="r"><span><span style="display:inline-block;width:12px;border-top:3px solid ${BS_COL[k]};vertical-align:middle;margin-right:6px"></span>${BS_NAME[k]}</span></div>` +
+      trow('Прибыль суток · сделок', `<b>${money(Q[j].S[i])} $</b> · ${ints(Q[j].N[i])}`) + trow('Накоплено', `<b>${money(cum[j][i + 1])} $</b>`)).join('');
+    tip.style.display = 'block'; moveTip(ev);
+  };
+  r.addEventListener('mouseenter', show); r.addEventListener('mousemove', show);
+  r.addEventListener('mouseleave', () => { vl.setAttribute('visibility', 'hidden'); dots.forEach(d => d.setAttribute('visibility', 'hidden')); tip.style.display = 'none'; });
+  return h('div', {}, [legend(keys.map(k => [swLine(BS_COL[k], 2.4), BS_NAME[k]])), p.svg]);
+}
+function bsTable(k) {
+  const cols = [['sum', 'Сумма, $'], ['trades', 'Сделок'], ['mean', 'В среднем на сделку, $'], ['sharpe', 'Шарп (год)'], ['maxdd', 'Макс. просадка, $'], ['pos', 'Дней в плюсе из дней со сделками']];
+  const tb = h('table', {class: 'eqt', 'data-bsline': k});
+  tb.append(h('thead', {}, h('tr', {}, [h('th', {}, 'Период'), ...cols.map(([, t]) => h('th', {class: 'num'}, t))])));
+  const body = h('tbody'), rows = B.month_names.map((nm, m) => [nm, bsMonth(k, m), m]).concat([['всего · ' + B.days + ' суток', bsTotal(k), 'all']]);
+  rows.forEach(([nm, st, m]) => {
+    const f = {sum: money(st.sum), trades: ints(st.trades), mean: money(st.mean, 3), sharpe: num(st.sharpe, 2, true), maxdd: num(st.maxdd, 2), pos: `${st.pos} из ${st.tdays}`};
+    body.append(h('tr', {'data-bsrow': m, class: m === 'all' ? 'base' : ''}, [h('td', {}, nm), ...cols.map(([c, lab]) => h('td', {class: 'num', 'data-f': c, 'data-lab': lab}, f[c]))]));
+  });
+  tb.append(body);
+  return h('div', {style: 'overflow-x:auto;margin-top:22px'}, [h('div', {class: 'cap'}, [h('span', {class: 'sw', style: `display:inline-block;width:18px;border-top:3px solid ${BS_COL[k]};vertical-align:middle;margin-right:8px`}), BS_NAME[k]]), tb]);
+}
+function basesView(side, width) {
+  const keys = BS_LINES[side], card = h('div', {class: 'card eq-card', 'data-bases': side});
+  card.append(h('div', {class: 'card-h'}, [h('b', {}, 'Базы за 136 суток: ' + bsDate(0) + ' — ' + bsDate(B.days - 1)), h('span', {}, 'ставка 500 $ на сделку · по дню входа · после комиссий')]));
+  const b = h('div', {class: 'card-b'});
+  b.append(bsChart(keys, width, 'bs'));
+  keys.forEach(k => b.append(bsTable(k)));
+  b.append(h('p', {class: 'eq-note'}, 'Шарп = среднесуточная прибыль ÷ разброс суточной прибыли (дни без сделок — ноль) × √365. Просадка — наибольшее падение накопленной прибыли от пика внутри периода, $. Ряд — сделки по дню входа; фандинг не учтён. Источники: L_base и S_base — принятые выходы TK-599, S_mk1 — принятые выходы TK-616; итоги совпадают с отчётами (' + Object.keys(B.cells).map(k => k + ' ' + money(bsTotal(k).sum) + ' $').join(', ') + ').'));
+  card.append(b);
+  return card;
+}
+const UNI = JSON.parse(document.getElementById('universe-data').textContent);
+function uniTable(side) {
+  const cols = [['sum', 'Итог, $'], ['trades', 'Сделок'], ['mean', 'На сделку, $'], ['sharpe', 'Шарп (год)'], ['maxdd', 'Макс. просадка, $']];
+  const tb = h('table', {class: 'eqt uni', 'data-utable': side});
+  tb.append(h('thead', {}, h('tr', {}, [h('th', {}, 'Набор монет'), ...cols.map(([, t]) => h('th', {class: 'num'}, t)), ...UNI.month_names.map(m => h('th', {class: 'num'}, 'Сумма, $ · ' + m))])));
+  const body = h('tbody');
+  UNI.universes.forEach(u => {
+    const rows = UNI.sides[side][u.id].rows, t = rows[rows.length - 1], f = {sum: money(t.sum), trades: ints(t.trades), mean: money(t.mean, 3), sharpe: num(t.sharpe, 2, true), maxdd: num(t.maxdd, 2)};
+    body.append(h('tr', {'data-uni': u.id}, [h('td', {}, u.id + ' · ' + u.name), ...cols.map(([c, lab]) => h('td', {class: 'num', 'data-f': c, 'data-lab': lab}, f[c])),
+      ...UNI.month_names.map((m, i) => h('td', {class: 'num', 'data-f': 'm' + i, 'data-lab': 'Сумма, $ · ' + m}, money(rows[i].sum)))]));
+  });
+  tb.append(body);
+  return h('div', {style: 'overflow-x:auto;margin-top:12px'}, [h('div', {class: 'cap'}, side === 'short' ? 'Шорт (S_base)' : 'Лонг (L_base)'), tb]);
+}
+function ftTable(T, key) {
+  const tb = h('table', {class: 'eqt ft-tbl', 'data-ftable': key});
+  tb.append(h('thead', {}, h('tr', {}, T.cols.map((c, i) => h('th', {class: i ? 'num' : ''}, c)))));
+  tb.append(h('tbody', {}, T.rows.map((r, ri) => h('tr', {class: (T.bold || []).includes(ri) ? 'base' : ''}, r.map((c, i) => h('td', {class: i ? 'num' : '', 'data-lab': T.cols[i]}, c))))));
+  return h('div', {style: 'overflow-x:auto;margin-top:12px'}, [h('div', {class: 'cap'}, T.title), tb]);
+}
+function featureCard(F) {
+  const C = F.current, card = h('div', {class: 'card ft-card', id: 'feature'});
+  card.append(h('div', {class: 'card-h'}, [h('b', {}, F.title), h('span', {class: 'badge' + (C.status === 'done' ? ' ok' : ' run'), 'data-f': 'fstatus'}, C.status === 'done' ? 'готово' : 'считается')]));
+  const b = h('div', {class: 'card-b'});
+  b.append(h('p', {class: 'wh-lead'}, F.lead));
+  const cur = h('div', {class: 'wh-box wide', 'data-fbox': 'current'}, [h('h3', {}, C.title), h('p', {class: 'ft-st'}, C.text)]);
+  if (C.notes) cur.append(h('ul', {class: 'ft-notes'}, C.notes.map(t => h('li', {}, t))));
+  b.append(cur);
+  (C.sections || []).forEach((S, si) => {
+    const body = [...(S.note ? [h('p', {class: 'wh-tn'}, S.note)] : []), ...S.tables.map((T, ti) => ftTable(T, si + '.' + ti))];
+    b.append(S.fold ? h('details', {class: 'ft-fold', 'data-fsec': si}, [h('summary', {}, S.title), ...body]) : h('div', {class: 'ft-sec', 'data-fsec': si}, [h('div', {class: 'wh-tt'}, S.title), ...body]));
+  });
+  card.append(b);
+  return card;
+}
+function whereList(items) {
+  return h('ul', {}, items.map(it => typeof it === 'string' ? h('li', {}, it) : h('li', {}, [h('b', {}, it.t + ' '), it.s])));
+}
+function renderWhere(box) {
+  const W = P.where;
+  const width = Math.max(300, Math.floor(box.clientWidth - (box.clientWidth < 520 ? 26 : 42)));
+  const card = h('div', {class: 'card where-card', id: 'where'});
+  card.append(h('div', {class: 'card-h'}, [h('b', {}, W.title), h('span', {}, 'ставка 500 $ на сделку · ' + bsDate(0) + ' — ' + bsDate(B.days - 1) + ' · ' + B.days + ' суток')]));
+  const b = h('div', {class: 'card-b'});
+  b.append(h('p', {class: 'wh-lead'}, W.lead));
+  b.append(h('div', {class: 'wh-tt'}, W.table_title), h('p', {class: 'wh-tn'}, W.table_note));
+  const cols = [['sum', 'Итог, $'], ['trades', 'Сделок'], ['mean', 'На сделку, $'], ['sharpe', 'Шарп (год)'], ['maxdd', 'Макс. просадка, $']];
+  const tb = h('table', {class: 'eqt', 'data-wtable': '1'});
+  tb.append(h('thead', {}, h('tr', {}, [h('th', {}, 'Вариант'), ...cols.map(([, t]) => h('th', {class: 'num'}, t)), ...B.month_names.map(m => h('th', {class: 'num'}, 'Сумма, $ · ' + m))])));
+  const body = h('tbody');
+  W.rows.forEach(r => {
+    const t = bsTotal(r.id), f = {sum: money(t.sum), trades: ints(t.trades), mean: money(t.mean, 3), sharpe: num(t.sharpe, 2, true), maxdd: num(t.maxdd, 2)};
+    body.append(h('tr', {'data-wline': r.id}, [h('td', {}, [h('span', {class: 'sw', style: `border-color:${BS_COL[r.id]};border-top-width:3px`}), r.name]),
+      ...cols.map(([c, lab]) => h('td', {class: 'num', 'data-f': c, 'data-lab': lab}, f[c])),
+      ...B.month_names.map((m, i) => h('td', {class: 'num', 'data-f': 'm' + i, 'data-lab': 'Сумма, $ · ' + m}, money(bsMonth(r.id, i).sum)))]));
+  });
+  tb.append(body);
+  b.append(h('div', {style: 'overflow-x:auto'}, tb));
+  b.append(h('div', {class: 'wh-chart'}, bsChart(W.rows.map(r => r.id), width, 'wh')));
+  if (W.universe) { b.append(h('div', {class: 'wh-tt', style: 'margin-top:22px'}, W.universe.title), h('p', {class: 'wh-tn'}, W.universe.note), uniTable('short'), uniTable('long')); }
+  const grid = h('div', {class: 'wh-grid'});
+  [['candidate', W.candidate], ['next', W.next], ['broken', W.broken]].forEach(([k, X]) => grid.append(h('div', {class: 'wh-box' + (k === 'broken' ? ' wide' : ''), 'data-wbox': k}, [h('h3', {}, X.title), whereList(X.items)])));
+  b.append(grid);
+  b.append(h('p', {class: 'wh-link'}, [h('a', {href: '#equity/short/bases', 'data-wlink': 'bases'}, 'Кривые баз и таблицы по месяцам → вкладка «Эквити», вид «Базы»')]));
+  card.append(b);
+  box.append(card);
+  if (P.feature) box.append(featureCard(P.feature));
+}
+
 // ── признаки (TK-606): данные — features.json (ml_features.json в репозитории, схема ml_features.schema.json), вшиты при сборке
 const FEAT = JSON.parse(document.getElementById('features-data').textContent);
 const ftTotal = FEAT.sets.reduce((s, x) => s + x.groups.reduce((a, g) => a + g.features.length, 0), 0);
 function ftGo() { const e = ST.ft && document.getElementById('ft-' + ST.ft); if (e) e.scrollIntoView({behavior: 'smooth', block: 'start'}); }
 function ftRow(f) {
-  const nm = h('td', {class: 'nm', 'data-f': 'name'}, [h('code', {}, f.name)]);
+  const nm = h('td', {class: 'nm', 'data-f': 'name'}, [h('code', {}, f.name.replace(/_bp$/, ''))]);
   if (f.mark) nm.append(h('span', {class: 'badge mk', 'data-f': 'mark'}, f.mark));
   return h('tr', {'data-feature': f.name}, [nm, h('td', {class: 'what', 'data-f': 'what'}, f.what), h('td', {class: 'src', 'data-f': 'src'}, f.src.map(k => h('div', {}, FEAT.sources[k])))]);
 }
@@ -1037,14 +1232,14 @@ function parseHash() {
   if (a === 'equity') {
     if (EQ_SIDES.some(s => s[0] === b)) ST.eq = b;
     const rest = [b, c, d];
-    ST.view = rest.includes('shape') ? 'shape' : 'curve';
+    ST.view = rest.includes('shape') ? 'shape' : rest.includes('bases') ? 'bases' : rest.includes('where') ? 'where' : 'curve';
     ST.cmp = rest.includes('comp');
     const dm = rest.map(x => /^dep=(\d+(?:\.\d+)?)$/.exec(x || '')).find(Boolean);
     ST.dep = dm && +dm[1] >= 100 && +dm[1] <= 1e9 ? +dm[1] : EQ_DEP0;
   }
   if (a === 'model' && (b === 'long' || b === 'short')) ST.model = b;
 }
-function setHash() { history.replaceState(null, '', '#' + ST.tab + (ST.tab === 'equity' ? '/' + ST.eq + (ST.view === 'shape' ? '/shape' : (ST.cmp ? '/comp' : '') + (ST.dep !== EQ_DEP0 ? '/dep=' + ST.dep : '')) : ST.tab === 'model' ? '/' + ST.model : ST.tab === 'features' && ST.ft ? '/' + ST.ft : '')); }
+function setHash() { history.replaceState(null, '', '#' + ST.tab + (ST.tab === 'equity' ? '/' + ST.eq + (ST.view === 'shape' ? '/shape' : ST.view === 'bases' ? '/bases' : ST.view === 'where' ? '/where' : (ST.cmp ? '/comp' : '') + (ST.dep !== EQ_DEP0 ? '/dep=' + ST.dep : '')) : ST.tab === 'model' ? '/' + ST.model : ST.tab === 'features' && ST.ft ? '/' + ST.ft : '')); }
 function route() {
   TABS.forEach(([k]) => { document.getElementById('pane-' + k).hidden = k !== ST.tab; });
   document.querySelectorAll('#toptabs button').forEach(b => b.setAttribute('aria-selected', b.dataset.tab === ST.tab));
