@@ -1,4 +1,4 @@
-"""Сторож контекста треда (владелец 13.11; порог 265 тыс. — В-159, 18.11): при контексте ≥ 265 тыс. токенов — предупреждение треду и владельцу.
+"""Сторож контекста треда (владелец 13.11; В-161, 20.11: передача дел при 260 тыс., контекст не выше 265 тыс.): при контексте ≥ 260 тыс. токенов — предупреждение треду и владельцу.
 
 Контекст = input + cache_read + cache_creation последнего ответа модели в транскрипте.
 UserPromptSubmit — всегда, если порог пройден; PostToolUse — только при переходе через очередную ступень 25 тыс.
@@ -9,7 +9,8 @@ import os
 import sys
 import tempfile
 
-LIMIT = 265_000
+LIMIT = 260_000
+HARD = 265_000
 STEP = 25_000
 
 
@@ -47,9 +48,9 @@ def main():
         if step <= last:
             return
         open(mark, "w").write(str(step))
-    msg = (f"Context {n // 1000}k ≥ {LIMIT // 1000}k tokens. Stop starting new work: finish the current step, "
-           "write the handoff (state, open items, next step) to disk, report, and ask for /clear.")
-    print(json.dumps({"systemMessage": f"Контекст треда {n // 1000} тыс. токенов ≥ {LIMIT // 1000} тыс. — пора готовить клир.",
+    msg = (f"Context {n // 1000}k ≥ {LIMIT // 1000}k tokens. Stop starting new work: write the handoff (state, open items, "
+           f"next step) to disk now, report, and ask for /clear before {HARD // 1000}k.")
+    print(json.dumps({"systemMessage": f"Контекст треда {n // 1000} тыс. токенов ≥ {LIMIT // 1000} тыс. — передача дел сейчас, клир до {HARD // 1000} тыс.",
                       "hookSpecificOutput": {"hookEventName": event, "additionalContext": msg}}))
 
 
