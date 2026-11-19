@@ -1,7 +1,7 @@
 {
  "version": "tk610-frozen-1",
  "protocol": "docs/research/P-42-level-breakout.md §13.27",
- "created_utc": "2026-11-19T03:10:15.557672+00:00",
+ "created_utc": "2026-11-19T03:13:22.445697+00:00",
  "tk599": {
   "frozen_sha256": "e9004629e4c2432680fa0efeb16bce8c8c510d2a0aec7dde39a6e9888cb120be",
   "commit": "f0389eef4d0ef5ee1366d49d1f99b746c4b1abd8",
@@ -2419,7 +2419,7 @@
   "tk610_data.py": "2b5f5b4f50b3be5d26344355a30f321196eb5cd8f895236f506326ddb6bec66d",
   "tk610_fit.py": "912663eff32aa0539b0692d0533a011c64a86db145bb5fddf525969262bf485b",
   "tk610_gates.py": "4ed92d916bfade2a838eef2e856277db81e6a714952aadecddb0804e448da9d2",
-  "tk610_lib.py": "3b2690d5c1d296a231432fb599b3b17183bd27feeb062ac1059d3c50ff2b19d4",
+  "tk610_lib.py": "dddc836751f41c02578698c4763bd37d1aa91a7a6c9256ee942944298459d2a9",
   "tk610_read.py": "9fdd2d4207239c1f153762dcd813d7c87b5017355dba67cad5b61b7dc12f60f6"
  }
 }
