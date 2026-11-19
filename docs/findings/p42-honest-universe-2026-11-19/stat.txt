@@ -1,0 +1,10 @@
+long  ref gate566      n= 621 S=    7.06 mean= 0.011 [-0.525;  0.523] p(mean<=0)=0.4854
+long  old566_t24       n= 423 S=  167.87 mean= 0.397 [-0.125;  0.890] p(mean<=0)=0.1015 | vs gate566: dS= +160.81 (SE 103.6), d_mean=+0.385 (SE 0.159, 5% lower +0.125)
+long  all_t24          n= 428 S=  193.17 mean= 0.451 [-0.049;  0.930] p(mean<=0)=0.0690 | vs gate566: dS= +186.10 (SE 104.6), d_mean=+0.440 (SE 0.156, 5% lower +0.184)
+long  crypto_t24       n= 298 S=  304.12 mean= 1.021 [ 0.359;  1.630] p(mean<=0)=0.0065 | vs gate566: dS= +297.06 (SE 149.1), d_mean=+1.009 (SE 0.307, 5% lower +0.509)
+long  tradfi_t24       n= 136 S= -111.77 mean=-0.822 [-2.056;  0.240] p(mean<=0)=0.8927 | vs gate566: dS= -118.84 (SE 186.6), d_mean=-0.833 (SE 0.661, 5% lower -1.965)
+short ref gate566      n= 431 S=  259.14 mean= 0.601 [ 0.222;  0.962] p(mean<=0)=0.0058
+short old566_t24       n= 313 S=  205.65 mean= 0.657 [ 0.254;  1.038] p(mean<=0)=0.0047 | vs gate566: dS=  -53.49 (SE 52.4), d_mean=+0.056 (SE 0.130, 5% lower -0.162)
+short all_t24          n= 319 S=  223.14 mean= 0.700 [ 0.293;  1.079] p(mean<=0)=0.0037 | vs gate566: dS=  -36.00 (SE 52.2), d_mean=+0.098 (SE 0.132, 5% lower -0.123)
+short crypto_t24       n= 172 S=  154.47 mean= 0.898 [ 0.322;  1.417] p(mean<=0)=0.0072 | vs gate566: dS= -104.67 (SE 73.7), d_mean=+0.297 (SE 0.253, 5% lower -0.131)
+short tradfi_t24       n= 147 S=   68.67 mean= 0.467 [-0.195;  1.128] p(mean<=0)=0.1218 | vs gate566: dS= -190.47 (SE 92.0), d_mean=-0.134 (SE 0.364, 5% lower -0.727)
