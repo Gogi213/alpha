@@ -22,6 +22,8 @@ import retitr_ftab as rfx  # noqa: E402
 import retitr_full as rf  # noqa: E402
 import retitr_full_report as rep  # noqa: E402
 import retitr_full_run as rr  # noqa: E402
+import tk599_posthoc as ph  # noqa: E402
+import tk599_replay as trp  # noqa: E402
 from test_retitr_full import World, raises  # noqa: E402
 
 NB = 800
@@ -44,6 +46,8 @@ class FakeSrv:
 
     def __init__(self, world=None, fail=None, perturb=None):
         self.world, self.fail, self.perturb = world, fail, perturb
+        self.filter_perturb = None                                          # (dropped += 1) для проверки сверки счётчиков фильтра
+        self.episode_shift = False                                          # эпизодные столбцы зависят от потока (инцидент 19.11); по умолчанию — как раньше
         self.calls, self.base_dates, self.engine_variants = [], [], 0
 
     @staticmethod
@@ -70,7 +74,8 @@ class FakeSrv:
         names = [n for n, _ in rfx.FEATURES[side]]
         syms, ms = [r[0] for r in rows], np.array([int(r[2]) for r in rows], dtype=np.int64)
         os.makedirs(os.path.dirname(out), exist_ok=True)
-        rfx.write_ftab(out, syms, ms, names, [np.array([fval(n, s, int(m)) for s, m in zip(syms, ms)]) for n in names])
+        shift = int(hashlib.md5(os.path.basename(os.path.dirname(out)).encode()).hexdigest()[:4], 16) % 7 + 1 if self.episode_shift else 0   # §13.24.8: по vid потока
+        rfx.write_ftab(out, syms, ms, names, [np.array([fval(n, s, int(m)) + (0.0 if n in rfx.TK594_MODE else shift) for s, m in zip(syms, ms)]) for n in names])
         return 0
 
     def engine(self, cmd, env):
@@ -126,7 +131,14 @@ class FakeSrv:
                 for i, v in sorted(daily.items()):
                     f.write("%d,%.6f\n" % (i, v))
             if "fa=" in keys:
-                meta[side] = {"filter_[cands,dropped,no_key,no_value]": [100, 10, 0 if ftab and os.path.exists(ftab) else 100, 0]}
+                if ftab and os.path.exists(ftab):
+                    _plain, feats = rc.parse_keys(keys)
+                    tab = rfx.read_ftab(ftab)
+                    col, fv = tab[2][feats[0]["fa"]], float(feats[0]["fv"])
+                    drop = int(((~np.isnan(col)) & ((col > fv) if feats[0]["fo"] == "hi" else (col < fv))).sum())
+                    meta[side] = {"filter_[cands,dropped,no_key,no_value]": [len(col), drop + (1 if self.filter_perturb else 0), 0, int(np.isnan(col).sum())]}
+                else:
+                    meta[side] = {"filter_[cands,dropped,no_key,no_value]": [100, 10, 100, 0]}
             else:
                 meta[side] = {}
         with open(os.path.join(d, "meta.json"), "w", encoding="utf-8") as f:
@@ -246,7 +258,7 @@ def test_groups_split_and_chunks():
         r = [rf.Req("L", "s=%d" % i, False) for i in range(1, 6)]
         f = [rf.Req("L", "s=3 fa=maxmv1 fo=lo fv=1.0", False), rf.Req("S", "s=3 fa=tpm15 fo=lo fv=2.0", False), rf.Req("S", "s=4 fa=tpm15 fo=lo fv=2.0", False)]
         g = ctx.engine.groups(r + f)
-        assert [(s, len(p)) for s, p in g] == [(None, 2), (None, 2), (None, 1), ("L", 1), ("S", 2)]
+        assert [(s, len(p)) for s, p in g] == [(None, 2), (None, 2), (None, 1), ("L", 1), ("S", 1), ("S", 1)]          # §13.24.8: с фильтром — по потоку (s=3 и s=4 — разные потоки)
         assert rr.Engine.stream_need(f[0]) == rf.FtabNeed("L", "s=3") and rr.Engine.stream_need(f[1]).hash != rr.Engine.stream_need(f[0]).hash
         assert list(rr.chunks([1, 2, 3], 0)) == [[1, 2, 3]]
 
@@ -299,7 +311,101 @@ def test_merge_union():
         assert "столбцы" in raises(rr.GuardError, rr.merge_union, u, c)
 
 
-def test_ftab_store_build_union_base_date_and_ready():
+def test_merge_union_only_pure_columns():
+    """§13.24.8: общий файл — только чистые столбцы; эпизодные (зависят от потока) не сравниваются, расхождение чистого — стоп."""
+    with tempfile.TemporaryDirectory() as tmp:
+        u, a, b, c = (os.path.join(tmp, n) for n in ("u.csv", "a.csv", "b.csv", "c.csv"))
+        names = ("tpm15", "big1800")
+        _tab(a, [("X", 10, 69.4, 1.5), ("Y", 20, 3.0, 2.5)], names)
+        assert rr.merge_union(u, a, only=("big1800",)) == (2, 2)
+        _tab(b, [("X", 10, 69.3333, 1.5)], names)                                                   # тот же ключ, эпизодный столбец другой (инцидент 19.11) — не ошибка
+        assert rr.merge_union(u, b, only=("big1800",)) == (2, 0)
+        assert set(rfx.read_ftab(u)[2]) == {"big1800"}
+        _tab(c, [("X", 10, 69.4, 1.75)], names)                                                     # чистый столбец другой — стоп
+        assert "расходятся" in raises(rr.GuardError, rr.merge_union, u, c, ("big1800",))
+    assert rr.pure_cols("S") == ("big1800",) and rr.pure_cols("L") == ("oi_c24", "loi_turn")
+
+
+def test_stream_table_unique_key_guard():
+    with tempfile.TemporaryDirectory() as tmp:
+        t = os.path.join(tmp, "ftab.csv")
+        with open(t, "w", encoding="utf-8", newline="") as f:
+            f.write("sym,sig_ms,tpm15\nX,10,1.0\nY,10,2.0\nX,10,3.0\n")
+        assert "не уникален" in raises(rr.GuardError, rr.stream_table, t)
+        assert "нет таблицы потока" in raises(rr.GuardError, rr.stream_table, os.path.join(tmp, "нет.csv"))
+        _tab(t, [("X", 10, 1.0, 2.0), ("Y", 10, 2.0, 3.0)], ("tpm15", "cons60"))
+        assert rr.stream_table(t)[0] == ["X", "Y"]
+
+
+def test_posthoc_compare_cells_and_restore_req():
+    """§13.24.6 п. 4: сравнение выходов (равны / различие / нет у одного, разбор `meta.json`) и восстановление запроса клетки по хэшу и строке варианта (в т. ч. сигнальный двойник с фильтром)."""
+    with tempfile.TemporaryDirectory() as tmp:
+        for root, meta in (("main", {"a": 1, "b": {"c": 2}}), ("audit", {"a": 1, "b": {"c": 3}})):
+            d = os.path.join(tmp, root, "wa", "c1")
+            os.makedirs(d)
+            for fn in ("long-trades.csv", "short-daily.csv"):
+                open(os.path.join(d, fn), "w").write("x\n")
+            json.dump(meta, open(os.path.join(d, "meta.json"), "w"))
+        open(os.path.join(tmp, "audit", "wa", "c1", "short-daily.csv"), "w").write("y\n")
+        os.remove(os.path.join(tmp, "audit", "wa", "c1", "long-trades.csv"))
+        r = ph.compare_cell(os.path.join(tmp, "main"), os.path.join(tmp, "audit"), "c1", ["wa"])["wa"]
+        assert r["long-trades.csv"] == "нет у одного" and r["short-daily.csv"] == "РАЗЛИЧИЕ" and r["meta.json"] == "РАЗЛИЧИЕ" and r["meta_diff"] == ["b.c: 2 ≠ 3"]
+        assert "long-daily.csv" not in r                                                         # нет ни там, ни там — не считается
+        s = ph.summarize([1], {"c1": {"wa": r}})
+        assert s["diffs"] == 3 and s["files_compared"] == 3 and s["windows"] == ["wa"]
+    base = SPEC.bases["S"]
+    for keys, sig in ((base, False), (base + " fa=cons60 fo=hi fv=25", False), (base + " fa=cons60 fo=hi fv=25", True)):
+        req = rf.Req("S", keys, sig)
+        side, rk, sg = ph._req_of(req.hash, req.engine_keys)
+        assert (side, sg) == ("S", sig) and rf.Req(side, rk, sg).hash == req.hash
+    assert ph._req_of("0" * 64, base) == (None, base, False)
+    assert "восстановить не удалось" in raises(rr.GuardError, ph._req_of, "0" * 64, base + " fa=cons60 fo=hi fv=25")
+
+
+def test_filter_call_reads_own_stream_table_and_checks_counts():
+    """§13.24.8: `--ftab` каждого вызова = таблица ЕГО потока по vid, вызов на один поток; сверка счётчиков фильтра (no_key = 0, прошло = Python) до шага процедуры."""
+    with tempfile.TemporaryDirectory() as tmp:
+        ctx, srv = make(tmp, World(lambda k, s, d: 0.0))
+        k1 = rf.cfg_keys(SPEC, "S", {})
+        k2 = k1 + " natr_min=0.3"
+        reqs = [rf.Req("S", k1 + " fa=tpm15 fo=lo fv=40.0", False), rf.Req("S", k1 + " fa=cons60 fo=hi fv=60.0", False), rf.Req("S", k2 + " fa=tpm15 fo=lo fv=40.0", False)]
+        ctx.engine.launch(reqs)
+        needs = {rr.Engine.stream_need(r).vid: rr.Engine.stream_need(r) for r in reqs}
+        assert len(needs) == 2
+        fcalls = [(c, e) for c, e in srv.calls if "--ftab" in c]
+        assert len(fcalls) == 2 * len(rf.WINDOWS)                                                   # на окно — по вызову на поток (2 потока), не один общий
+        for c, e in fcalls:
+            win = next(w for w in rf.WINDOWS if w.t0 == e["P42_T0"])
+            vids = {ln.partition(" ")[0] for ln in open(srv.arg(c, "--variants"), encoding="utf-8").read().splitlines()}
+            streams = {rr.Engine.stream_need(r).vid for r in reqs if r.vid in vids}
+            assert len(streams) == 1 and vids == {r.vid for r in reqs if rr.Engine.stream_need(r).vid in streams}
+            assert srv.arg(c, "--ftab") == ctx.paths.need_tab(win.name, needs[next(iter(streams))])    # по vid потока, не «последняя таблица стороны»
+        assert not any(os.path.exists(ctx.paths.union(w.name, "S")) for w in rf.WINDOWS)
+        rows = [ln.split("\t") for ln in open(os.path.join(ctx.paths.log, "filtercheck.tsv"), encoding="utf-8").read().splitlines()]
+        assert len(rows) == len(reqs) * len(rf.WINDOWS) and all(r[-1] == "0" and r[-2] == r[-3] and r[5] == r[6] and r[7] == r[8] for r in rows)   # no_key 0; прошло движком = Python
+    with tempfile.TemporaryDirectory() as tmp:
+        ctx, srv = make(tmp, World(lambda k, s, d: 0.0))
+        srv.filter_perturb = True                                                                   # движок «отбросил» на одного больше, чем по таблице
+        r = rf.Req("S", rf.cfg_keys(SPEC, "S", {}) + " fa=tpm15 fo=lo fv=40.0", False)
+        assert "счётчики фильтра" in raises(rr.GuardError, ctx.engine.launch, [r])
+
+
+def test_stream_with_different_episode_columns_builds_without_stop():
+    """Инцидент 19.11: тот же ключ (sym, sig_ms) у двух потоков, эпизодные столбцы различаются — прежний union останавливал счёт, теперь сборка идёт."""
+    with tempfile.TemporaryDirectory() as tmp:
+        ctx, srv = make(tmp, World())
+        srv.episode_shift = True
+        n1, n2 = (rf.FtabNeed("S", rf.cfg_keys(SPEC, "S", {}) + x) for x in ("", " natr_min=0.3"))
+        ctx.store.build([n1, n2])
+        assert ctx.store.ready(n1) and ctx.store.ready(n2)
+        t1, t2 = ({(sy, int(m)): (a, b) for sy, m, a, b in zip(*rfx.read_ftab(ctx.paths.need_tab("wa", n))[:2], *(rfx.read_ftab(ctx.paths.need_tab("wa", n))[2][c] for c in ("tpm15", "big1800")))}
+                  for n in (n1, n2))
+        common = set(t1) & set(t2)
+        assert common and all(t1[k][0] != t2[k][0] for k in common)                                  # эпизодный столбец у потоков разный на тех же ключах
+        assert all(t1[k][1] == t2[k][1] or (t1[k][1] != t1[k][1] and t2[k][1] != t2[k][1]) for k in common)   # чистый — тот же
+
+
+def test_ftab_store_build_pure_guard_base_date_and_ready():
     with tempfile.TemporaryDirectory() as tmp:
         ctx, srv = make(tmp, World())
         need = rf.FtabNeed("L", rf.cfg_keys(SPEC, "L", {}))
@@ -312,14 +418,16 @@ def test_ftab_store_build_union_base_date_and_ready():
         sx = [(c, e) for c, e in srv.calls if e.get("P42_SIGSX_ONLY")]
         assert [e["P42_T0"] for _, e in sx] == [w.t0 for w in rf.WINDOWS] and all(e["P42_SIGSX"] == "14:73" for _, e in sx)
         for w in rf.WINDOWS:
-            syms, ms, cols = rfx.read_ftab(ctx.paths.union(w.name, "L"))
-            assert len(syms) == len(CAND_COINS) * (rf.TRADE_END + 1 - rf.GRID_START_DAY) * 2 and set(cols) == {n for n, _ in rfx.FEATURES["L"]}
+            syms, ms, cols = rfx.read_ftab(ctx.paths.pure(w.name, "L"))
+            assert len(syms) == len(CAND_COINS) * (rf.TRADE_END + 1 - rf.GRID_START_DAY) * 2 and set(cols) == set(rr.pure_cols("L")) == {"oi_c24", "loi_turn"}
+            assert not os.path.exists(ctx.paths.union(w.name, "L"))                                    # union больше не пишется (§13.24.8)
+            assert len(rfx.read_ftab(ctx.paths.need_tab(w.name, need))[2]) == len(rfx.FEATURES["L"])   # таблица потока — все столбцы
         n = len(srv.calls)
         ctx.store.build([need])
         assert len(srv.calls) == n                                                                 # готовое не собирается повторно
-        need2 = rf.FtabNeed("L", rf.cfg_keys(SPEC, "L", {}) + " natr_min=0.3")                    # другой поток: ключи новые, общие значения те же
+        need2 = rf.FtabNeed("L", rf.cfg_keys(SPEC, "L", {}) + " natr_min=0.3")                    # другой поток: ключи новые, общие чистые значения те же, эпизодные — другие
         ctx.store.build([need2])
-        syms, ms, _ = rfx.read_ftab(ctx.paths.union("wa", "L"))
+        syms, ms, _ = rfx.read_ftab(ctx.paths.pure("wa", "L"))
         assert len(syms) == len(CAND_COINS) * (rf.TRADE_END + 1 - rf.GRID_START_DAY) * 3
         days, cols = ctx.store.candidates(need)                                                    # зачётные диапазоны без перекрытий
         assert (np.bincount(days, minlength=rf.NDAYS) == len(CAND_COINS) * 2).all()                # каждые сутки 0…135 — ровно в одном окне
@@ -499,13 +607,54 @@ def test_end_to_end_run_all_report_and_frozen():
         assert '"freeze"' in js
         pkl, md, fz = (os.path.join(tmp, n) for n in ("results.pkl", "r.md", "frozen.json"))
         pickle.dump(res, open(pkl, "wb"))
-        assert rep.main([pkl, "--md", md, "--frozen", fz, "--commit", "abc123"]) == 0
+        nz = os.path.join(tmp, "npz-for-report")                                                   # md5 бинарей — из серий кэша (TK-607: поле bin_md5; без поля — a03c91df)
+        os.makedirs(nz)
+        for i, new in enumerate([None, None, "a112684a" + "0" * 24, "a112684a" + "0" * 24, "a112684a" + "0" * 24]):
+            np.savez(os.path.join(nz, "s%d.npz" % i), **({"bin_md5": np.array(new)} if new else {"val": np.zeros(1)}))
+        open(os.path.join(nz, "x.tmp.npz"), "wb").write(b"oborvan")                              # оборванный — не считается
+        assert rep.engine_md5s(nz) == {rep.LEGACY_BIN_MD5: 2, "a112684a" + "0" * 24: 3}
+        ft = os.path.join(tmp, "ftab-for-report")                                                  # сборщики таблиц по окнам: python / alpha-feat md5 по файлу признаков; метка built-by может не совпасть
+        for w, vid, info, label in (("wa", "v1", None, None), ("wa", "v2", "aaaa", "aaaa"), ("wa", "v3", "aaaa", "bbbb"), ("wb", "v1", None, None), ("wb", "v4", "bbbb", "bbbb")):
+            d = os.path.join(ft, w, vid)
+            os.makedirs(d)
+            open(os.path.join(d, "ftab.csv"), "w").close()
+            if info:
+                json.dump({"engine": "alpha-feat", "bin_md5": info}, open(os.path.join(d, "tk594-flow-S.parquet.info.json"), "w"))
+            if label:
+                json.dump({"feat_bin_md5": label}, open(os.path.join(d, "built-by.json"), "w"))
+        os.makedirs(os.path.join(ft, "wa", "ready"))
+        os.makedirs(os.path.join(ft, "wa", "v5"))                                                  # каталог без ftab.csv (сборка не дошла) — не считается
+        assert rep.ftab_builders(ft) == ({"wa": {"python": 1, "alpha-feat:aaaa": 2}, "wb": {"python": 1, "alpha-feat:bbbb": 1}}, ["wa/v3"])
+        raises(SystemExit, rep.main, [pkl, "--md", md, "--frozen", fz, "--npz", os.path.join(tmp, "net"), "--ftab", ft])
+        raises(SystemExit, rep.main, [pkl, "--md", md, "--frozen", fz, "--npz", nz, "--ftab", os.path.join(tmp, "net")])
+        fcf, adf = os.path.join(tmp, "filtercheck.tsv"), os.path.join(tmp, "audit.json")
+        row = "\t".join
+        ok1, ok2 = row(["b0042", "wa", "fx", "v1", "S", "495", "495", "127", "127", "368", "368", "0"]), row(["b0043", "wa", "fy", "v2", "S", "10", "10", "3", "3", "7", "7", "0"])
+        open(fcf, "w").write(ok1 + "\n" + ok2 + "\n")
+        assert rep.filtercheck_summary(fcf) == {"rows": 2, "bad": 0, "streams": 2}
+        open(fcf, "a").write(row(["b0044", "wa", "fz", "v3", "S", "10", "10", "3", "4", "7", "6", "0"]) + "\n")
+        assert rep.filtercheck_summary(fcf)["bad"] == 1
+        open(fcf, "w").write(ok1 + "\n" + ok2 + "\n")
+        cell = {"vid": "c1", "side": "S", "why": ["итог полной процедуры, сторона S"], "bin_md5": "a03c91df" + "0" * 24}
+        json.dump({"old_bin_md5": "a03c91df" + "0" * 24, "old_bin_sha256": "f" * 64, "results_sha256": "e" * 64, "series_by_bin": {"a03c91df": 3}, "cells": [cell],
+                   "summary": {"cells": 1, "windows": ["wa", "wb", "wc"], "files_compared": 27, "diffs": 0, "diff_list": []},
+                   "compared": {"c1": {"wa": {"long-trades.csv": "равны"}}}}, open(adf, "w"))
+        assert rep.main([pkl, "--md", md, "--frozen", fz, "--commit", "abc123", "--npz", nz, "--ftab", ft, "--filtercheck", fcf, "--audit", adf,
+                         "--chrono", "f0389eef|06:45:57 +04|06:48:39 +04"]) == 0
         text = open(md, encoding="utf-8").read()
         for s in ("# П-42 §13.24", "Ограничение области: сочетания двух и более признаков не проверялись", "## Шаг 0", "F_maxmv1_lo_", "Проход 1", "Совместная сетка",
                   "Проверка процедуры вперёд", "Исход заморозки", "abc123", "Чтение вперёд 17–30.11 здесь не сделано", "§13.24.2", "G5", "**снят**"):
             assert s in text, s
         j = json.load(open(fz, encoding="utf-8"))
         assert j["scope"] == rep.SCOPE_LIMIT and j["version"] == rep.FROZEN_VERSION
+        assert j["meta"]["bin_md5"] == sorted([rep.LEGACY_BIN_MD5, "a112684a" + "0" * 24]) and j["meta"]["bin_md5_series"][rep.LEGACY_BIN_MD5] == 2 and "a112684a" in text
+        assert j["meta"]["ftab_builders"] == {"wa": {"python": 1, "alpha-feat:aaaa": 2}, "wb": {"python": 1, "alpha-feat:bbbb": 1}} and j["meta"]["ftab_relabeled"] == ["wa/v3"]
+        assert "wa: alpha-feat aaaa 2, python 1; wb: alpha-feat bbbb 1, python 1" in text and "wa/v3" in text
+        for s in ("(12) §13.24.8", "0 из 323", "расхождений 0", "## Пост-фактум аудит бинаря движка", "сравнено файлов 27, различий 0", "Различимость с измеренным σ", "`t24` не влияет",
+                  "метка формата файла", "заморозка закоммичена `f0389eef`", "06:48:39 +04"):
+            assert s in text, s
+        j0 = json.load(open(fz, encoding="utf-8"))                                                # аудит, сверка счётчиков и хронология в файл заморозки не попадают
+        assert "audit" not in j0["meta"] and "filtercheck" not in j0["meta"] and "chrono" not in j0["meta"]
         L, S = j["sides"]["L"], j["sides"]["S"]
         assert L["decision"] == "C*" and "rr=3" in L["keys"] and L["axes"]["rr"] == "rr_3" and L["axes"]["F"].startswith("F_maxmv1_lo_") and L["keys"].count("fa=") == 1
         assert S["decision"] == "база" and S["keys"] == S["base_keys"] and S["axes"] == {}
@@ -597,7 +746,7 @@ def test_sens_run_control_override_and_report():
         pkl, md, fz, sj = (os.path.join(tmp, n) for n in ("results.pkl", "r.md", "frozen.json", "sens.json"))
         pickle.dump(main, open(pkl, "wb"))
         json.dump(sens, open(sj, "w", encoding="utf-8"))
-        assert rep.main([pkl, "--md", md, "--frozen", fz, "--sens", sj]) == 0
+        assert rep.main([pkl, "--md", md, "--frozen", fz, "--sens", sj, "--npz", ctx.paths.npz]) == 0
         text = open(md, encoding="utf-8").read()
         for s in ("## Чувствительность порога минимума сделок", "«также нужно протитровать минимальное количество сделок от 10-15-20-25»", "N = 10 — 10/10/10/10/4", "(контроль, вердикт)",
                   "`rr`: база → rr_3", "m_сем", "совпал с `results.pkl`", "abababababababab"):
@@ -609,6 +758,194 @@ def test_sens_run_control_override_and_report():
         raises(rr.GuardError, rr.sens_run, ctx, g5, [20, 10], control=bad, out_dir=os.path.join(tmp, "res2"), gates=None, c595=c595)
         j = json.load(open(os.path.join(tmp, "res2", "sens.json"), encoding="utf-8"))
         assert j["ns"] == [20] and j["control"]["equal"] is False and "L/m" in j["control"]["diff"][0]
+
+
+# ---- безопасный перезапуск: остановка на границе раунда, возобновление, сборщик признаков ----------------------------------------------------
+
+class env_var:
+    """Временная переменная окружения (None — снять)."""
+
+    def __init__(self, name, value):
+        self.name, self.value = name, value
+
+    def __enter__(self):
+        self.old = os.environ.get(self.name)
+        if self.value is None:
+            os.environ.pop(self.name, None)
+        else:
+            os.environ[self.name] = self.value
+
+    def __exit__(self, *exc):
+        if self.old is None:
+            os.environ.pop(self.name, None)
+        else:
+            os.environ[self.name] = self.old
+
+
+def test_ftab_build_resumes_per_window_and_records_builder():
+    with tempfile.TemporaryDirectory() as tmp:
+        ctx, srv = make(tmp, World())
+        need = rf.FtabNeed("L", rf.cfg_keys(SPEC, "L", {}))
+        wc = rf.WINDOWS[-1]
+        fb = os.path.join(tmp, "alpha-feat")
+        open(fb, "wb").write(b"feat")
+        with env_var("P42_FEAT_BIN", "/no/such/alpha-feat"):
+            assert "P42_FEAT_BIN" in raises(rr.GuardError, ctx.store.build, [need])                    # сборщик задан, но файла нет — остановка, не молчаливый Python
+        assert not ctx.store.ready(need)
+        with env_var("P42_FEAT_BIN", fb):
+            ctx.store.build([need])
+        builds = [e for c, e in srv.calls if c[0] == sys.executable]
+        assert len(builds) == 3 and all(e["P42_FEAT_BIN"] == fb for e in builds)                         # переменная явно в окружении вызова (видна в журнале)
+        by = json.load(open(os.path.join(ctx.paths.need_dir("wa", need), "built-by.json"), encoding="utf-8"))
+        assert by == {"feat_bin": fb, "feat_bin_md5": hashlib.md5(b"feat").hexdigest()}
+        os.remove(ctx.paths.ready("wc", need))                                                           # «остановка во время сборки таблицы wc»
+        n = len(srv.calls)
+        with env_var("P42_FEAT_BIN", None):
+            ctx.store.build([need])
+        new = srv.calls[n:]
+        assert [e["P42_T0"] for c, e in new if e.get("P42_SIGSX_ONLY")] == [wc.t0]                      # сигнальный дамп и сборка — только для окна без метки
+        assert [e for c, e in new if c[0] == sys.executable] and len([1 for c, e in new if c[0] == sys.executable]) == 1 and srv.base_dates[-1] == wc.t0
+        assert ctx.store.ready(need)
+        assert json.load(open(os.path.join(ctx.paths.need_dir("wc", need), "built-by.json"), encoding="utf-8")) == {"feat_bin": "python", "feat_bin_md5": ""}
+        assert json.load(open(os.path.join(ctx.paths.need_dir("wa", need), "built-by.json"), encoding="utf-8"))["feat_bin"] == fb       # кто собрал каждую таблицу — различимо
+
+
+def test_stop_at_round_boundary_resume_repeats_no_engine_work():
+    """Остановка по STOP между раундами + оборванный npz: перезапуск не повторяет ни одного запуска движка (сумма запусков = запуск без остановки), результат тот же."""
+    def eff(k, s, d):
+        return 1.5 if (k.get("rr") == "3" and k.get("rs") != "2") else 0.0
+    c595 = {"L_C": rf.cfg_keys(SPEC, "L", {}), "S_C": rf.cfg_keys(SPEC, "S", {})}
+    with rf.min_trades_override(10):                                                                     # порог 10: процедура принимает шаги, раундов много
+        with tempfile.TemporaryDirectory() as t1:
+            ctx1, srv1 = make(t1, thin_world(eff))
+            full = rr.run_all(ctx1, rr.gate5(ctx1.store, ctx1.spec), None, c595)
+            total = srv1.engine_variants
+        with tempfile.TemporaryDirectory() as t2:
+            ctxA, srvA = make(t2, thin_world(eff))
+            gA = rr.gate5(ctxA.store, ctxA.spec)
+            rounds, orig = [], ctxA.ev.fulfil
+            ctxA.ev.fulfil = lambda reqs: (rounds.append(len(reqs)), orig(reqs))[1]
+            ctxA.stop = lambda: len(rounds) >= 4                                                           # STOP после четвёртого раунда (step0 — первый)
+            raises(rf.StopRequested, rr.run_all, ctxA, gA, None, c595)
+            assert len(rounds) == 4 and 0 < srvA.engine_variants < total
+            files = sorted(os.listdir(ctxA.paths.npz))
+            assert files and not [f for f in files if f.endswith(".tmp.npz")]
+            open(os.path.join(ctxA.paths.npz, files[0]), "wb").write(b"PK-oborvan")                       # остановка посреди записи серии
+            ctxB, srvB = make(t2, thin_world(eff))
+            part = rr.run_all(ctxB, rr.gate5(ctxB.store, ctxB.spec), None, c595)
+            assert srvA.engine_variants + srvB.engine_variants == total                                    # ни одного повторного запуска движка
+            assert rr.same_summary(rr.jsonable(rr.summary(full, ctx1.spec)), rr.jsonable(rr.summary(part, ctxB.spec))) == []
+            assert part["freeze"]["L"][0] == "C*"                                                          # процедура принимала шаги — проверка не пустая
+
+
+def test_run_gates_reuse_and_stop_exit_code():
+    with tempfile.TemporaryDirectory() as tmp:
+        ctx, srv = make(tmp, World())
+        old12, old3, oldrun = rr.gate12, rr.gate3, rr.cmd_run
+        calls = []
+        rr.gate12 = lambda *a, **k: {"fail": []}
+        rr.gate3 = lambda *a, **k: calls.append(1) or {}
+        try:
+            saved = {"G3": {"L": {"diff": [], "conv": [], "forced_ok": 0}}, "G5": {"L": {"maxmv1": {"ok": True, "fo": "lo", "shares": [1.0] * 5}}}}
+            g = rr.run_gates(ctx, reuse=saved)
+            assert g["G3"] == saved["G3"] and g["G5"] == saved["G5"] and g["G12"] == {"fail": []} and calls == []        # G3 заново не считается
+            raises(rr.GuardError, rr.run_gates, ctx, reuse={"G3": {}, "G5": {}})
+            raises(rr.GuardError, rr.run_gates, ctx, reuse={"G3": {"L": {"diff": ["wa–wb: x"], "conv": []}}, "G5": {"L": {"a": 1}}})
+            rr.gate12 = lambda *a, **k: {"fail": ["G1_bin_md5"]}
+            raises(rr.GuardError, rr.run_gates, ctx, reuse=saved)                                         # G1/G2 всегда заново
+            def stopped(a):
+                raise rf.StopRequested("x")
+            rr.cmd_run = stopped
+            assert rr.main(["run", "--reuse-gates"]) == 75                                                # код 75: остановка по STOP, не ошибка
+        finally:
+            rr.gate12, rr.gate3, rr.cmd_run = old12, old3, oldrun
+        assert rr.Paths("/r").stop == "/r/STOP" and ctx.stop() is False
+        os.makedirs(ctx.paths.root, exist_ok=True)
+        open(ctx.paths.stop, "w").close()
+        assert ctx.stop() is True
+
+
+def test_replay_trace_equal_frontier_and_patches_restored():
+    """Сухой повтор по кэшу (критик, условие 3): след равен при повторе; без движка; на недостающей серии — граница; подмены `rf` возвращаются; различие следов находится."""
+    def eff(k, s, d):
+        return 1.5 if (k.get("rr") == "3" and k.get("rs") != "2") else 0.0
+    c595 = {"L_C": rf.cfg_keys(SPEC, "L", {}), "S_C": rf.cfg_keys(SPEC, "S", {})}
+    orig = (rf.eval_axis, rf.run_joint)
+    with rf.min_trades_override(10):
+        with tempfile.TemporaryDirectory() as t:
+            ctx1, srv1 = make(t, thin_world(eff))
+            g5 = rr.gate5(ctx1.store, ctx1.spec)
+            rr.run_all(ctx1, g5, None, c595)
+            ctx2, srv2 = make(t, thin_world(eff))
+            a = trp.replay_trace(rf, rr, ctx2, g5, c595)
+            assert a["done"] and a["frontier"] is None and len(a["steps"]) >= 50 and srv2.engine_variants == 0
+            assert any(s["kind"] == "axis" and s["accepted"] for s in a["steps"]) and (rf.eval_axis, rf.run_joint) == orig
+            ctx3, srv3 = make(t, thin_world(eff))
+            b = trp.replay_trace(rf, rr, ctx3, g5, c595)
+            assert trp.compare_traces(a, b) == [] and a["digest"] == b["digest"]
+            assert a["depth"]["ok"] and a["depth"]["steps"] == len(a["steps"]) and a["depth"]["last"]["kind"] in ("axis", "joint") and a["ingested"] == 0
+            files = sorted(os.listdir(ctx3.paths.npz))
+            victim = os.path.join(ctx3.paths.npz, files[len(files) // 2])
+            os.remove(victim)                                                                    # серия без npz, но с DONE: возобновление возьмёт её из выходов движка — повтор тоже, только чтением
+            ctxI, srvI = make(t, thin_world(eff))
+            ing = trp.replay_trace(rf, rr, ctxI, g5, c595)
+            assert ing["done"] and ing["ingested"] == 1 and srvI.engine_variants == 0 and not os.path.exists(victim)
+            assert sorted(s["digest"] for s in ing["steps"]) == sorted(s["digest"] for s in a["steps"])                   # порядок завершения шагов зависит от того, кто ждал данных
+            assert "ingested: 0 ≠ 1" in trp.compare_traces(a, ing)
+            for dp, _, fs in os.walk(os.path.join(t, "root", "out")):                            # теперь и меток DONE нет: прогона нет в кэше — настоящая граница
+                for f in fs:
+                    if f == rr.DONE_MARK:
+                        os.remove(os.path.join(dp, f))
+            ctx4, srv4 = make(t, thin_world(eff))
+            c = trp.replay_trace(rf, rr, ctx4, g5, c595)
+            assert not c["done"] and c["frontier"] and c["frontier"]["missing"] >= 1 and c["frontier"]["genuine"] and srv4.engine_variants == 0 and (rf.eval_axis, rf.run_joint) == orig
+            assert len(c["steps"]) < len(a["steps"]) and trp.compare_traces(a, c) and c["depth"]["ok"] and c["depth"]["frontier_genuine"] is True
+            assert not os.path.exists(victim)                                                    # повтор ничего не записал
+            z = trp.depth_of({"steps": [], "frontier": {"genuine": True, "round": 0, "missing": 1}, "done": False})
+            assert not z["ok"] and z["steps"] == 0                                               # ноль шагов — не зачёт
+            early = trp.depth_of({"steps": a["steps"][:3], "frontier": {"genuine": False, "round": 1, "missing": 1}, "done": False})
+            assert not early["ok"] and early["frontier_genuine"] is False                        # ложная граница (прогон в кэше есть) — ранняя остановка, не зачёт
+            a2 = json.loads(json.dumps(a))
+            a2["steps"][0]["digest"] = "0" * 64
+            assert any(d.startswith("steps[0]") for d in trp.compare_traces(a, a2))
+
+
+def test_shadow_rebuild_command_python_only_and_bytewise_compare():
+    """Теневая пересборка (критик, условие 4): команда — Python-сборщик в каталог shadow/ без P42_FEAT_BIN; результат — побайтное сравнение с боевой таблицей."""
+    code_root = os.path.abspath(os.path.join(HERE, "..", "..", ".."))
+    with tempfile.TemporaryDirectory() as t:
+        ctx, _ = make(t, None)
+        root = ctx.paths.root
+        vid = "s1234567890ab"
+        d = os.path.join(root, "ftab", "wa", vid)
+        os.makedirs(d)
+        open(os.path.join(d, "eps-S.parquet"), "wb").close()
+        open(os.path.join(d, "ftab.csv"), "w").write("sym,sig_ms,oi_c24\nAAAUSDT,1,0.5\n")
+        json.dump({"feat_bin": "/x/alpha-feat", "feat_bin_md5": "abc"}, open(os.path.join(d, "built-by.json"), "w"))
+        seen = {}
+
+        def fake_run(cmd, env=None, check=False):
+            seen["cmd"], seen["env"] = cmd, env
+            out = cmd[cmd.index("--out") + 1]
+            open(out, "w").write(seen.get("body", "sym,sig_ms,oi_c24\nAAAUSDT,1,0.5\n"))
+            return types.SimpleNamespace(returncode=0)
+        real = trp.subprocess.run
+        trp.subprocess.run = fake_run
+        try:
+            with env_var("P42_FEAT_BIN", "/x/alpha-feat"):
+                assert trp.main(["shadow", code_root, "wa", vid, "--root", root, "--procs", "2"]) == 0
+                cmd, env = seen["cmd"], seen["env"]
+                assert cmd[2:4] == ["build", "S"] and "P42_FEAT_BIN" not in env and "--bin" not in cmd
+                sh = os.path.join(root, "shadow", "wa", vid)
+                assert cmd[cmd.index("--work") + 1] == os.path.join(sh, "work") and cmd[cmd.index("--out") + 1] == os.path.join(sh, "ftab.csv")
+                assert cmd[cmd.index("--sigsx") + 1].endswith(os.path.join("sx", "wa", vid, "short-sigsx.csv")) and cmd[cmd.index("--procs") + 1] == "2"
+                r = json.load(open(os.path.join(sh, "result.json"), encoding="utf-8"))
+                assert r["equal"] is True and r["md5_ref"] == r["md5_shadow"] and r["reference_built_by"]["feat_bin_md5"] == "abc"
+                seen["body"] = "sym,sig_ms,oi_c24\nAAAUSDT,1,0.5000000001\n"
+                assert trp.main(["shadow", code_root, "wa", vid, "--root", root]) == 1
+                assert json.load(open(os.path.join(sh, "result.json"), encoding="utf-8"))["equal"] is False
+        finally:
+            trp.subprocess.run = real
 
 
 def test_level_rows_and_sigma():

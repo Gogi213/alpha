@@ -57,6 +57,10 @@ class GuardError(Exception):
     """Охрана нарезки / сумм / окон сработала — остановка, сообщение координатору."""
 
 
+class StopRequested(Exception):
+    """Запрошена остановка на границе раунда (файл STOP драйвера): всё посчитанное лежит на диске (npz, метки DONE/ready), перезапуск продолжает с него."""
+
+
 # ---- окна ----------------------------------------------------------------------------------------------------------------
 
 @dataclasses.dataclass(frozen=True)
@@ -724,10 +728,13 @@ def _need(ev, reqs):
         yield miss
 
 
-def drive(gens, ev):
-    """Раздача: каждый генератор отдаёт список недостающих прогонов или заканчивается (значение — результат). За раунд — один общий пакет без повторов."""
+def drive(gens, ev, stop=None):
+    """Раздача: каждый генератор отдаёт список недостающих прогонов или заканчивается (значение — результат). За раунд — один общий пакет без повторов.
+    `stop()` — проверяется ПЕРЕД каждым раундом (после записи серий предыдущего): истина ⇒ StopRequested, посчитанные раунды остаются в кэше."""
     live, res = dict(gens), {}
     while live:
+        if stop is not None and stop():
+            raise StopRequested("остановка на границе раунда")
         batch = []
         for name in list(live):
             try:
@@ -792,16 +799,34 @@ class OutDirEvaluator(Evaluator):
                     miss.append(r)
                 continue
             p = self._npz(r)
-            if p and os.path.exists(p):
-                z = np.load(p)
-                if self.allowed_md5 is not None:
-                    got = str(z["bin_md5"]) if "bin_md5" in z.files else self.legacy_md5
-                    if got not in self.allowed_md5:
-                        raise GuardError("%s: серия посчитана бинарём md5 %s — не из допустимых %s" % (p, got, sorted(self.allowed_md5)))
-                self.cache[r.hash] = Series(z["day"], z["sym"], z["val"], z["fund"], z["fb"], z["t_in"], z["t_out"])
-            else:
+            ser = self._load_npz(p) if p and os.path.exists(p) else None
+            if ser is not None and self.allowed_md5 is not None:
+                self._check_bin(p)
+            if ser is None:
                 miss.append(r)
+            else:
+                self.cache[r.hash] = ser
         return miss
+
+    def _check_bin(self, p):
+        """§13.24.6: серия несёт md5 бинаря (нет поля — посчитана записанным в протоколе); не из допустимых — GuardError."""
+        with np.load(p) as z:
+            got = str(z["bin_md5"]) if "bin_md5" in z.files else self.legacy_md5
+        if got not in self.allowed_md5:
+            raise GuardError("%s: серия посчитана бинарём md5 %s — не из допустимых %s" % (p, got, sorted(self.allowed_md5)))
+
+    @staticmethod
+    def _load_npz(p):
+        """Серия из кэша; оборванный файл (остановка во время записи) — не ошибка: удаляется, серия пересоберётся из выходов движка (метки DONE на месте — движок не запускается)."""
+        try:
+            with np.load(p) as z:
+                return Series(z["day"], z["sym"], z["val"], z["fund"], z["fb"], z["t_in"], z["t_out"])
+        except (OSError, ValueError, EOFError, KeyError, zipfile.BadZipFile):
+            try:
+                os.remove(p)
+            except OSError:
+                pass
+            return None
 
     def fulfil(self, reqs):
         reqs = self.missing(reqs)
@@ -826,8 +851,10 @@ class OutDirEvaluator(Evaluator):
             self.cache[r.hash] = s
             p = self._npz(r)
             if p:
+                tmp = p[:-len(".npz")] + ".tmp.npz"                                       # запись целиком или никак: остановка посреди np.savez не оставляет обрывок под настоящим именем
                 extra = {"bin_md5": np.array(self.bin_md5)} if self.bin_md5 else {}
-                np.savez(p, day=s.day, sym=s.sym, val=s.val, fund=s.fund, fb=s.fb, t_in=s.t_in, t_out=s.t_out, **extra)
+                np.savez(tmp, day=s.day, sym=s.sym, val=s.val, fund=s.fund, fb=s.fb, t_in=s.t_in, t_out=s.t_out, **extra)
+                os.replace(tmp, p)
 
 
 # ---- шаг по оси ---------------------------------------------------------------------------------------------------------------

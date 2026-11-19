@@ -1,0 +1,116 @@
+{
+ "version": "tk599-frozen-1",
+ "protocol": "П-42 §13.24 + §13.24.1 + §13.24.2",
+ "meta": {
+  "commit": "91bc1714c7531fc2daabede4b5f6baf7b15533b3",
+  "grids_sha256": "e1d6bded92ddd44c68c130b98187756f9f3eaa36759291a619435e0e9a369e5d",
+  "bin_md5": [
+   "a03c91df5a70c8eb32cbb7122943b8f9",
+   "a112684a495e61cf5219610e4eecff22"
+  ],
+  "bin_md5_series": {
+   "a03c91df5a70c8eb32cbb7122943b8f9": 319,
+   "a112684a495e61cf5219610e4eecff22": 71
+  },
+  "ftab_builders": {
+   "wa": {
+    "alpha-feat:f65d958366d5de65ba699bd1aa4ccc7d": 14,
+    "alpha-feat:04714685c4d1d7afedfcec1b55ae3109": 22,
+    "python": 11
+   },
+   "wb": {
+    "alpha-feat:f65d958366d5de65ba699bd1aa4ccc7d": 13,
+    "alpha-feat:04714685c4d1d7afedfcec1b55ae3109": 23,
+    "python": 11
+   },
+   "wc": {
+    "alpha-feat:f65d958366d5de65ba699bd1aa4ccc7d": 13,
+    "alpha-feat:04714685c4d1d7afedfcec1b55ae3109": 23,
+    "python": 11
+   }
+  },
+  "ftab_relabeled": [
+   "wa/fe9ff65a4555e"
+  ],
+  "npz_dir": "/data/p42-tk599/npz",
+  "date": "2026-11-19",
+  "nboot": 20000
+ },
+ "scope": "Ограничение области: сочетания двух и более признаков не проверялись (движок v21 — один фильтр на вариант); вывод „признаки F не улучшают сетап“ относится только к одному признаку на конфигурацию.",
+ "sides": {
+  "L": {
+   "decision": "база",
+   "note": "Δ вперёд ≤ 0 или проход 2 не сошёлся",
+   "axes": {},
+   "patches": {},
+   "keys": "lat=4 latx=4 pk=1 pb=1 fh=4 fk=120 fm=50 fb=0.5 ew=5 ex=0 rf=0.2 rs=20",
+   "base_keys": "lat=4 latx=4 pk=1 pb=1 fh=4 fk=120 fm=50 fb=0.5 ew=5 ex=0 rf=0.2 rs=20",
+   "converged_full": true,
+   "m": 544,
+   "folds": [
+    {
+     "e": "e_0.1"
+    },
+    {},
+    {},
+    {}
+   ],
+   "diverge": {},
+   "confirmed": false,
+   "forward": {
+    "d": -0.04413939625763744,
+    "se": 0.1449034976729567,
+    "z": -0.3046123590284816,
+    "lower": -0.25718729505321525,
+    "dsum": -27.940015999999986,
+    "se_sum": 68.4949910374093,
+    "s_c": 107.709393,
+    "s_r": 135.649409
+   },
+   "own_wf": {
+    "verdict": "не ясно",
+    "mean": 0.23213231250000002,
+    "lower": -0.3924692628123055,
+    "p": 0.26508674566271684
+   }
+  },
+  "S": {
+   "decision": "C*",
+   "note": "процедура вперёд не подтверждена",
+   "axes": {},
+   "patches": {},
+   "keys": "lat=4 latx=4 pk=1 pb=1 fh=4 fk=120 fm=50 fb=0.5 ew=5 ex=0 tt=20 tb=0.1 rf=0.2 rs=2 bm=1 e=0.15 e2=0.05",
+   "base_keys": "lat=4 latx=4 pk=1 pb=1 fh=4 fk=120 fm=50 fb=0.5 ew=5 ex=0 tt=20 tb=0.1 rf=0.2 rs=2 bm=1 e=0.15 e2=0.05",
+   "converged_full": true,
+   "m": 593,
+   "folds": [
+    {
+     "rf": "rf_0.3"
+    },
+    {
+     "F": "F_cons60_hi_25"
+    },
+    {},
+    {}
+   ],
+   "diverge": {},
+   "confirmed": false,
+   "forward": {
+    "d": 0.1383011788762608,
+    "se": 0.0973670523349287,
+    "z": 1.4204104526090056,
+    "lower": -0.003002801646476333,
+    "dsum": 40.734095999999994,
+    "se_sum": 30.34322938075325,
+    "s_c": 228.76915599999998,
+    "s_r": 188.03506
+   },
+   "own_wf": {
+    "verdict": "подтверждено",
+    "mean": 0.699599865443425,
+    "lower": 0.3073702964830212,
+    "p": 0.002049897505124744
+   }
+  }
+ }
+}
