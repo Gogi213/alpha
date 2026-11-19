@@ -91,7 +91,7 @@ def strata_table(T, var, title, edges=None, q=4, fmt="%.2f", scale=1.0, sets=("L
         if all(c.startswith("0 /") for c in r[1:]):
             continue
         rows.append(r)
-    return "#### %s\n\n(n / Σ $ / $ на сделку [95 % блочный бутстреп по суткам])\n\n" % title + md(rows, ["корзина"] + list(sets))
+    return "#### %s\n\n(n / Σ $ / $ на сделку [95 %% блочный бутстреп по суткам])\n\n" % title + md(rows, ["корзина"] + list(sets))
 
 
 def month_strata(T, var, title, sets=("L_base", "S_base"), **kw):
