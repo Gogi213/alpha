@@ -1,0 +1,80 @@
+
+== gate566 long  (n, sum $, mean $/trade, sum %margin, maxDD $ / %margin, loss streak / sum, stops n/day, coins)
+ jul n= 130 S=  -128.59 mean= -0.989 S%=   -51.4 dd= -128.59/ -51.4% streak= 8/ -53.33 stops= 11/0.355/d coins= 93 tradfi n=46 S=-12.93 forced=0
+ aug n= 131 S=   124.86 mean=  0.953 S%=    49.9 dd=  -52.11/ -20.8% streak= 8/ -26.54 stops=  3/0.097/d coins= 94 tradfi n=35 S=11.28 forced=0
+ sep n= 152 S=     6.80 mean=  0.045 S%=     2.7 dd= -105.52/ -42.2% streak= 6/ -87.49 stops= 10/0.333/d coins=112 tradfi n=28 S=-57.36 forced=0
+ oct n= 143 S=   -95.47 mean= -0.668 S%=   -38.2 dd= -181.96/ -72.8% streak= 7/ -56.79 stops= 12/0.387/d coins=109 tradfi n=36 S=-95.19 forced=0
+ nov n=  65 S=    99.46 mean=  1.530 S%=    39.8 dd=  -31.71/ -12.7% streak= 7/ -29.25 stops=  1/0.077/d coins= 57 tradfi n=26 S=13.71 forced=0
+ all n= 621 S=     7.06 mean=  0.011 S%=     2.8 dd= -231.75/ -92.7% streak= 8/ -87.49 stops= 37/0.272/d coins=282 tradfi n=171 S=-140.49 forced=0
+
+== gate566 short  (n, sum $, mean $/trade, sum %margin, maxDD $ / %margin, loss streak / sum, stops n/day, coins)
+ jul n=  96 S=    71.11 mean=  0.741 S%=    28.4 dd=  -57.24/ -22.9% streak=12/ -29.27 stops=  5/0.161/d coins= 70 tradfi n=46 S=39.49 forced=0
+ aug n= 108 S=    77.46 mean=  0.717 S%=    31.0 dd=  -33.02/ -13.2% streak=16/ -19.67 stops=  1/0.032/d coins= 78 tradfi n=53 S=43.61 forced=0
+ sep n=  92 S=   -22.88 mean= -0.249 S%=    -9.2 dd=  -44.02/ -17.6% streak= 6/ -27.04 stops=  3/0.100/d coins= 75 tradfi n=38 S=-43.46 forced=0
+ oct n=  95 S=   110.61 mean=  1.164 S%=    44.2 dd=  -27.75/ -11.1% streak=10/ -15.37 stops=  4/0.129/d coins= 83 tradfi n=33 S=18.96 forced=0
+ nov n=  40 S=    22.85 mean=  0.571 S%=     9.1 dd=  -11.51/  -4.6% streak=10/ -11.51 stops=  0/0.000/d coins= 37 tradfi n=20 S=15.87 forced=0
+ all n= 431 S=   259.14 mean=  0.601 S%=   103.7 dd=  -57.32/ -22.9% streak=16/ -29.27 stops= 13/0.096/d coins=222 tradfi n=190 S=74.46 forced=0
+
+== old566_t24 long  (n, sum $, mean $/trade, sum %margin, maxDD $ / %margin, loss streak / sum, stops n/day, coins)
+ jul n=  93 S=   -13.31 mean= -0.143 S%=    -5.3 dd=  -54.15/ -21.7% streak= 7/ -53.33 stops=  6/0.194/d coins= 67 tradfi n=35 S=33.51 forced=0
+ aug n=  89 S=    75.65 mean=  0.850 S%=    30.3 dd=  -51.63/ -20.7% streak= 4/ -25.55 stops=  2/0.065/d coins= 63 tradfi n=25 S=-26.91 forced=0
+ sep n= 100 S=    61.82 mean=  0.618 S%=    24.7 dd=  -56.34/ -22.5% streak= 4/ -54.87 stops=  5/0.167/d coins= 75 tradfi n=22 S=-41.68 forced=0
+ oct n=  92 S=   -20.79 mean= -0.226 S%=    -8.3 dd= -106.67/ -42.7% streak= 5/ -55.06 stops=  7/0.226/d coins= 69 tradfi n=26 S=-91.76 forced=0
+ nov n=  49 S=    64.50 mean=  1.316 S%=    25.8 dd=  -26.59/ -10.6% streak= 7/ -25.67 stops=  1/0.077/d coins= 43 tradfi n=24 S=15.59 forced=0
+ all n= 423 S=   167.87 mean=  0.397 S%=    67.1 dd= -107.96/ -43.2% streak= 7/ -55.06 stops= 21/0.154/d coins=198 tradfi n=132 S=-111.24 forced=0
+
+== old566_t24 short  (n, sum $, mean $/trade, sum %margin, maxDD $ / %margin, loss streak / sum, stops n/day, coins)
+ jul n=  72 S=    53.88 mean=  0.748 S%=    21.6 dd=  -51.83/ -20.7% streak= 7/ -27.45 stops=  4/0.129/d coins= 54 tradfi n=37 S=29.08 forced=0
+ aug n=  80 S=    51.65 mean=  0.646 S%=    20.7 dd=  -22.81/  -9.1% streak=20/ -22.78 stops=  1/0.032/d coins= 60 tradfi n=40 S=30.2 forced=0
+ sep n=  67 S=     2.83 mean=  0.042 S%=     1.1 dd=  -27.03/ -10.8% streak= 9/ -27.03 stops=  1/0.033/d coins= 54 tradfi n=28 S=-33.12 forced=0
+ oct n=  65 S=    70.88 mean=  1.091 S%=    28.4 dd=  -16.78/  -6.7% streak=11/ -15.37 stops=  1/0.032/d coins= 56 tradfi n=25 S=23.11 forced=0
+ nov n=  29 S=    26.42 mean=  0.911 S%=    10.6 dd=   -6.29/  -2.5% streak= 5/  -5.47 stops=  0/0.000/d coins= 27 tradfi n=17 S=19.4 forced=0
+ all n= 313 S=   205.65 mean=  0.657 S%=    82.3 dd=  -55.81/ -22.3% streak=20/ -27.45 stops=  7/0.051/d coins=161 tradfi n=147 S=68.67 forced=0
+
+== all_t24 long  (n, sum $, mean $/trade, sum %margin, maxDD $ / %margin, loss streak / sum, stops n/day, coins)
+ jul n=  96 S=    -4.15 mean= -0.043 S%=    -1.7 dd=  -54.46/ -21.8% streak= 6/ -53.33 stops=  6/0.194/d coins= 68 tradfi n=35 S=33.51 forced=0
+ aug n=  91 S=    91.79 mean=  1.009 S%=    36.7 dd=  -51.63/ -20.7% streak= 4/ -25.55 stops=  2/0.065/d coins= 65 tradfi n=25 S=-26.91 forced=0
+ sep n= 100 S=    61.82 mean=  0.618 S%=    24.7 dd=  -56.34/ -22.5% streak= 4/ -54.87 stops=  5/0.167/d coins= 75 tradfi n=22 S=-41.68 forced=0
+ oct n=  92 S=   -20.79 mean= -0.226 S%=    -8.3 dd= -106.67/ -42.7% streak= 5/ -55.06 stops=  7/0.226/d coins= 69 tradfi n=26 S=-91.76 forced=0
+ nov n=  49 S=    64.50 mean=  1.316 S%=    25.8 dd=  -26.59/ -10.6% streak= 7/ -25.67 stops=  1/0.077/d coins= 43 tradfi n=24 S=15.59 forced=0
+ all n= 428 S=   193.17 mean=  0.451 S%=    77.3 dd= -107.96/ -43.2% streak= 7/ -55.06 stops= 21/0.154/d coins=200 tradfi n=132 S=-111.24 forced=0
+
+== all_t24 short  (n, sum $, mean $/trade, sum %margin, maxDD $ / %margin, loss streak / sum, stops n/day, coins)
+ jul n=  77 S=    69.77 mean=  0.906 S%=    27.9 dd=  -51.83/ -20.7% streak= 4/ -27.45 stops=  4/0.129/d coins= 57 tradfi n=37 S=29.08 forced=0
+ aug n=  81 S=    53.25 mean=  0.657 S%=    21.3 dd=  -22.81/  -9.1% streak=20/ -22.78 stops=  1/0.032/d coins= 61 tradfi n=40 S=30.2 forced=0
+ sep n=  67 S=     2.83 mean=  0.042 S%=     1.1 dd=  -27.03/ -10.8% streak= 9/ -27.03 stops=  1/0.033/d coins= 54 tradfi n=28 S=-33.12 forced=0
+ oct n=  65 S=    70.88 mean=  1.091 S%=    28.4 dd=  -16.78/  -6.7% streak=11/ -15.37 stops=  1/0.032/d coins= 56 tradfi n=25 S=23.11 forced=0
+ nov n=  29 S=    26.42 mean=  0.911 S%=    10.6 dd=   -6.29/  -2.5% streak= 5/  -5.47 stops=  0/0.000/d coins= 27 tradfi n=17 S=19.4 forced=0
+ all n= 319 S=   223.14 mean=  0.700 S%=    89.3 dd=  -55.81/ -22.3% streak=20/ -27.45 stops=  7/0.051/d coins=165 tradfi n=147 S=68.67 forced=0
+
+== crypto_t24 long  (n, sum $, mean $/trade, sum %margin, maxDD $ / %margin, loss streak / sum, stops n/day, coins)
+ jul n=  61 S=   -37.66 mean= -0.617 S%=   -15.1 dd=  -53.33/ -21.3% streak= 6/ -53.33 stops=  5/0.161/d coins= 44 tradfi n=0 S=0 forced=0
+ aug n=  66 S=   118.69 mean=  1.798 S%=    47.5 dd=  -11.15/  -4.5% streak= 3/ -10.25 stops=  0/0.000/d coins= 45 tradfi n=0 S=0 forced=0
+ sep n=  78 S=   103.50 mean=  1.327 S%=    41.4 dd=  -26.84/ -10.7% streak= 3/ -26.13 stops=  3/0.100/d coins= 57 tradfi n=0 S=0 forced=0
+ oct n=  66 S=    70.97 mean=  1.075 S%=    28.4 dd=  -70.97/ -28.4% streak= 5/ -55.49 stops=  3/0.097/d coins= 48 tradfi n=0 S=0 forced=0
+ nov n=  27 S=    48.61 mean=  1.800 S%=    19.4 dd=   -3.96/  -1.6% streak= 4/  -3.94 stops=  0/0.000/d coins= 23 tradfi n=0 S=0 forced=0
+ all n= 298 S=   304.12 mean=  1.021 S%=   121.6 dd=  -70.97/ -28.4% streak= 6/ -55.49 stops= 11/0.081/d coins=155 tradfi n=0 S=0 forced=0
+
+== crypto_t24 short  (n, sum $, mean $/trade, sum %margin, maxDD $ / %margin, loss streak / sum, stops n/day, coins)
+ jul n=  40 S=    40.69 mean=  1.017 S%=    16.3 dd=  -27.08/ -10.8% streak= 3/ -25.18 stops=  1/0.032/d coins= 32 tradfi n=0 S=0 forced=0
+ aug n=  41 S=    23.05 mean=  0.562 S%=     9.2 dd=  -24.68/  -9.9% streak= 6/ -17.49 stops=  1/0.032/d coins= 37 tradfi n=0 S=0 forced=0
+ sep n=  39 S=    35.94 mean=  0.922 S%=    14.4 dd=   -8.18/  -3.3% streak= 4/  -7.92 stops=  0/0.000/d coins= 33 tradfi n=0 S=0 forced=0
+ oct n=  40 S=    47.77 mean=  1.194 S%=    19.1 dd=  -18.62/  -7.4% streak= 7/ -18.62 stops=  1/0.032/d coins= 35 tradfi n=0 S=0 forced=0
+ nov n=  12 S=     7.02 mean=  0.585 S%=     2.8 dd=   -9.18/  -3.7% streak= 7/  -9.18 stops=  0/0.000/d coins= 12 tradfi n=0 S=0 forced=0
+ all n= 172 S=   154.47 mean=  0.898 S%=    61.8 dd=  -31.72/ -12.7% streak= 7/ -29.35 stops=  3/0.022/d coins=117 tradfi n=0 S=0 forced=0
+
+== tradfi_t24 long  (n, sum $, mean $/trade, sum %margin, maxDD $ / %margin, loss streak / sum, stops n/day, coins)
+ jul n=  35 S=    33.51 mean=  0.957 S%=    13.4 dd=  -36.29/ -14.5% streak= 5/ -36.29 stops=  1/0.032/d coins= 24 tradfi n=35 S=33.51 forced=0
+ aug n=  25 S=   -26.91 mean= -1.076 S%=   -10.8 dd=  -55.72/ -22.3% streak= 4/ -50.91 stops=  2/0.065/d coins= 20 tradfi n=25 S=-26.91 forced=0
+ sep n=  22 S=   -41.68 mean= -1.895 S%=   -16.7 dd=  -43.71/ -17.5% streak= 4/ -29.88 stops=  2/0.067/d coins= 18 tradfi n=22 S=-41.68 forced=0
+ oct n=  26 S=   -91.76 mean= -3.529 S%=   -36.7 dd= -107.78/ -43.1% streak= 6/ -52.47 stops=  4/0.129/d coins= 21 tradfi n=26 S=-91.76 forced=0
+ nov n=  28 S=    15.06 mean=  0.538 S%=     6.0 dd=  -27.11/ -10.8% streak= 5/ -27.11 stops=  1/0.077/d coins= 25 tradfi n=28 S=15.06 forced=0
+ all n= 136 S=  -111.77 mean= -0.822 S%=   -44.7 dd= -189.89/ -76.0% streak= 6/ -52.47 stops= 10/0.074/d coins= 47 tradfi n=136 S=-111.77 forced=0
+
+== tradfi_t24 short  (n, sum $, mean $/trade, sum %margin, maxDD $ / %margin, loss streak / sum, stops n/day, coins)
+ jul n=  37 S=    29.08 mean=  0.786 S%=    11.6 dd=  -25.98/ -10.4% streak= 9/ -25.98 stops=  3/0.097/d coins= 25 tradfi n=37 S=29.08 forced=0
+ aug n=  40 S=    30.20 mean=  0.755 S%=    12.1 dd=  -17.66/  -7.1% streak=14/ -16.79 stops=  0/0.000/d coins= 24 tradfi n=40 S=30.2 forced=0
+ sep n=  28 S=   -33.12 mean= -1.183 S%=   -13.2 dd=  -33.52/ -13.4% streak=10/ -28.65 stops=  1/0.033/d coins= 21 tradfi n=28 S=-33.12 forced=0
+ oct n=  25 S=    23.11 mean=  0.924 S%=     9.2 dd=   -6.40/  -2.6% streak= 5/  -6.40 stops=  0/0.000/d coins= 21 tradfi n=25 S=23.11 forced=0
+ nov n=  17 S=    19.40 mean=  1.141 S%=     7.8 dd=   -8.64/  -3.5% streak= 8/  -8.64 stops=  0/0.000/d coins= 15 tradfi n=17 S=19.4 forced=0
+ all n= 147 S=    68.67 mean=  0.467 S%=    27.5 dd=  -39.51/ -15.8% streak=14/ -28.65 stops=  4/0.029/d coins= 48 tradfi n=147 S=68.67 forced=0
