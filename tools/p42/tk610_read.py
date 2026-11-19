@@ -26,7 +26,8 @@ import tk598_lib as L598  # noqa: E402
 import tk610_data as D  # noqa: E402
 import tk610_lib as T  # noqa: E402
 
-GATES_REQUIRED = ("G1", "G2", "G3", "G4", "G5", "G9")
+GATES_REQUIRED = ("G1", "G2", "G3", "G4", "G5", "G9", "F12CMP")
+F12CMP_FILES = tuple("f12cmp-%s-%s" % (w, s) for w in ("wa", "wb", "wc") for s in ("L", "S"))    # Rust f12 = Python побитово на всех кандидатах окна (§13.27 п. 11.11); принять нельзя
 VERSION = "tk610-frozen-1"
 
 
@@ -80,6 +81,11 @@ def load_gates(gates_dir):
         hits = [k for k in g if k.upper().startswith(need)]
         if not hits:
             raise T.GuardError("нет файла ворот %s в %s" % (need, gates_dir))
+        if need == "F12CMP":
+            for k in F12CMP_FILES:
+                if k not in g or g[k].get("ok") is not True or "accepted" in g[k]:
+                    raise T.GuardError("%s: нужны все шесть %s.json с ok = true, без `accepted` (расхождение — вся работа на Python, п. 11.11)" % (k, "f12cmp-<окно>-<сторона>"))
+            continue
         for k in hits:
             if not gate_green(g[k]):
                 raise T.GuardError("ворота %s красные: %s — заморозка запрещена" % (k, json.dumps(g[k], ensure_ascii=False)[:300]))

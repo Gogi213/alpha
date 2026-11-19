@@ -237,12 +237,36 @@ class SealTests(unittest.TestCase):
             with self.assertRaises(T.GuardError):
                 RD.take_marker(td)
 
+    @staticmethod
+    def _green(td, f12=True):
+        for n in RD.GATES_REQUIRED:
+            if n != "F12CMP":
+                json.dump({"ok": True}, open(os.path.join(td, n + ".json"), "w"))
+        for k in RD.F12CMP_FILES if f12 else ():
+            json.dump({"ok": True}, open(os.path.join(td, k + ".json"), "w"))
+
+    def test_freeze_requires_f12cmp_all_six(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._green(td, f12=False)
+            with self.assertRaises(T.GuardError):
+                RD.load_gates(td)                                                       # f12cmp нет вовсе
+            self._green(td)
+            RD.load_gates(td)
+            os.remove(os.path.join(td, "f12cmp-wa-S.json"))
+            with self.assertRaises(T.GuardError):
+                RD.load_gates(td)                                                       # одного из шести нет
+            json.dump({"ok": False}, open(os.path.join(td, "f12cmp-wa-S.json"), "w"))
+            with self.assertRaises(T.GuardError):
+                RD.load_gates(td)                                                       # красный
+            json.dump({"ok": False, "accepted": {"by": "x", "why": "y", "critic_sha": "4756b5f29"}}, open(os.path.join(td, "f12cmp-wa-S.json"), "w"))
+            with self.assertRaises(T.GuardError):
+                RD.load_gates(td)                                                       # принять нельзя
+
     def test_freeze_requires_green_gates(self):
         with tempfile.TemporaryDirectory() as td:
             with self.assertRaises(T.GuardError):
                 RD.load_gates(td)
-            for n in RD.GATES_REQUIRED:
-                json.dump({"ok": True}, open(os.path.join(td, n + ".json"), "w"))
+            self._green(td)
             RD.load_gates(td)
             json.dump({"ok": False}, open(os.path.join(td, "G5-wa-L.json"), "w"))
             with self.assertRaises(T.GuardError):
@@ -250,8 +274,7 @@ class SealTests(unittest.TestCase):
 
     def test_freeze_accepted_g4_deviation(self):
         with tempfile.TemporaryDirectory() as td:
-            for n in RD.GATES_REQUIRED:
-                json.dump({"gate": n, "ok": True}, open(os.path.join(td, n + ".json"), "w"))
+            self._green(td)
             json.dump({"gate": "G4", "ok": False, "common_keys": 174}, open(os.path.join(td, "G4-S-ep_u0.json"), "w"))
             with self.assertRaises(T.GuardError):
                 RD.load_gates(td)                                                       # красный G4 без `accepted`
