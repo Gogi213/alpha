@@ -4,7 +4,7 @@
  "supersedes": {
   "file": "docs/research/freeze/tk616-frozen.json",
   "commit": "96e302480",
-  "sha256": "294c5cad008cf9bbc828fdcd48969cd0b0bc58afac9f1cab25729c210fa63f2a",
+  "sha256": "78bf8b5ca2a02aeb58fd126196f44f74bdf60c3e0e0061ed8acf8584fd4ce99c",
   "version": "tk616-frozen-1"
  },
  "binary": {
@@ -33,7 +33,11 @@
     "n": 236
    }
   },
-  "contracts_sha256": "94fa212a9005620c0086efc8e3998a4a3bc088ec59b7b5c1d9bfad7efef16bd3",
+  "contracts_sha256": "4b51e9aad05b4652c50bc6030ba11aaa1fa362ecf5e3b877b1bac735e514d328",
+  "contracts_files": {
+   "git": "docs/findings/p42-honest-universe-2026-11-19/contracts.csv",
+   "srv": "/data/p42-tk621/universe/contracts.csv"
+  },
   "listing_after": "2026-11-13",
   "t24": "12"
  },
