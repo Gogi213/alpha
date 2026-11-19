@@ -1,0 +1,9 @@
+[Unit]
+Description=TK-608: раз в час (на 47-й минуте, через 30 мин после collector-day-upload) удалить сверенные на боксе закрытые сутки коллекторов
+
+[Timer]
+OnCalendar=*:47
+Persistent=true
+
+[Install]
+WantedBy=timers.target

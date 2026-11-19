@@ -503,6 +503,28 @@ printenv BYBIT_API_KEY BYBIT_API_SECRET | ssh -i ~/.ssh/id_rsa ubuntu@139.99.91.
 - Остаток теста: `/opt/alpha/root-test-top20-1725` (10-минутный прогон), можно удалить.
 - Соседние хосты из `~/.ssh/config`: `my-server` (34.84.161.193) и `singapore-server` (38.54.17.37) —
   таймаут; `tokyo-agent` (149.104.78.63) отвечает **сменившимся host key** (доступов нет).
+
+## srv — диск: сырьё коллекторов уходит на Storage Box само (TK-608, В-155)
+
+Цепочка: `collector-day-upload.timer` (каждый час, :17) → бокс `alpha/collect/<биржа>/<день>/` (sha256 каждого файла) →
+**`collector-offload-delete.timer` (каждый час, :47)** удаляет на srv закрытые сутки, сверенные на боксе. Скрипт
+`/opt/day-upload/offload-delete.py --keep-hours 37 --sample 20 --go` (репо `tools/srv-offload-delete.py`, юниты
+`tools/collector-offload-delete.{service,timer}`; до TK-608 — раз в сутки в 02:30 и «оставить 3 суток»).
+- **Что остаётся на srv:** текущие сутки (≈ 17 ГБ к концу дня) и сутки, в которых есть данные моложе 37 ч (живой счёт `arb-live`
+  читает окно 36 ч назад, `arb_daemon.py`: 24 ч окна + прогрев 90 мин). Итого в среднем текущие + 1–2 закрытых суток.
+- **Удаление суток — только при всех условиях:** `.ok` в `/data/upload-state/<биржа>/` равен локальным файлам (размер + mtime), на
+  боксе совпали имена, размеры, число файлов и сумма байт, у случайных 20 файлов sha256 пересчитан заново и равен `sha256sum` на
+  боксе, нет файла моложе 15 мин. Коллекторы не трогаются (останавливать/перезапускать не нужно).
+- **Журнал:** `journalctl -u collector-offload-delete` (строки `DEL`/`SKIP`, байты, `свободно сейчас`). План без удаления:
+  `systemd-run --wait --pipe -p Nice=19 -p IOSchedulingClass=idle python3 /opt/day-upload/offload-delete.py --keep-hours 37`.
+  Выключить: `systemctl disable --now collector-offload-delete.timer`.
+- **Вернуть сутки с бокса:** `rsync -a box:alpha/collect/<биржа>/<день>/ /data/collect/<биржа>/data/<день>/` (для `bybit` корень —
+  `/data/turbo-probe/soak-bybit/data`).
+- **Холодные каталоги `/data/<имя>`** (не коллекторы текущего сбора): `tools/srv-offload-dirs.py` — один `rsync -aH` на набор
+  (жёсткие ссылки сохраняются), сверка (число файлов/ссылок, байты, повторный `rsync -n`, sha256 выборки), `--delete` только после
+  сверки; отказывает на защищённых каталогах и на занятых (запущенный юнит / процесс). Запуск только через `systemd-run`.
+  Манифест 18.11 — `docs/findings/srv-offload-2026-11-18.md` (каталог → путь на боксе `/home/offload-srv-2026-11-18/<каталог>`).
+
 ## VPS София — диск (TK-075)
 
 Сборка идёт через `/opt/alpha-compute/sweep.sh run <target> <cmd>` (репо: `tools/vps-sweep.sh`): под `.build.lock` чистит осиротевшие `target-*`, отказывает (rc 75 + тревога `диск.софия` → CEO) при области+3 ГБ > 12 или свободно−3 < 20 ГБ, общий постоянный `shared-target` (TK-169) живёт между сборками и сбрасывается при свободном < 10 ГБ (`SWEEP_SHARED_FLOOR_GB`); одноразовые `target-*` удаляет после сборки. Таймер каждые 15 мин — транзиентный, **после перезагрузки VPS поднять**:
