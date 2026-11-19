@@ -1,0 +1,37 @@
+== wa 09:59:01
+  rc=0 за 11 с: alpha-l1 wa wa
+  DIFF ref(a112684a) L_base meta.json vs TK-599(a03c91df)
+  DIFF ref(a112684a) S_base meta.json vs TK-599(a03c91df)
+GATE DIFF a112684a-vs-a03c91df wa вариантов=2 файлов=18 различий=2
+  rc=0 за 9 с: alpha-mk.5b2d4e6a wa wa
+GATE OK mk0-cold wa вариантов=3 файлов=33 различий=0
+  rc=0 за 8 с: alpha-mk.5b2d4e6a wa wa
+GATE OK mk0-warm wa вариантов=3 файлов=33 различий=0
+  rc=0 за 64 с: alpha-mk.5b2d4e6a wa wa
+  rc=0 за 103 с: alpha-mk.5b2d4e6a wa wa
+GATE OK mk-cold-vs-warm wa вариантов=4 файлов=48 различий=0
+== wb 10:02:16
+  rc=0 за 27 с: alpha-l1 wb wb
+  DIFF ref(a112684a) L_base meta.json vs TK-599(a03c91df)
+  DIFF ref(a112684a) S_base meta.json vs TK-599(a03c91df)
+GATE DIFF a112684a-vs-a03c91df wb вариантов=2 файлов=18 различий=2
+  rc=0 за 13 с: alpha-mk.5b2d4e6a wb wb
+GATE OK mk0-cold wb вариантов=3 файлов=33 различий=0
+  rc=0 за 12 с: alpha-mk.5b2d4e6a wb wb
+GATE OK mk0-warm wb вариантов=3 файлов=33 различий=0
+  rc=0 за 74 с: alpha-mk.5b2d4e6a wb wb
+  rc=0 за 61 с: alpha-mk.5b2d4e6a wb wb
+GATE OK mk-cold-vs-warm wb вариантов=4 файлов=48 различий=0
+== wc 10:05:25
+  rc=0 за 17 с: alpha-l1 wc wc
+  DIFF ref(a112684a) L_base meta.json vs TK-599(a03c91df)
+  DIFF ref(a112684a) S_base meta.json vs TK-599(a03c91df)
+GATE DIFF a112684a-vs-a03c91df wc вариантов=2 файлов=18 различий=2
+  rc=0 за 8 с: alpha-mk.5b2d4e6a wc wc
+GATE OK mk0-cold wc вариантов=3 файлов=33 различий=0
+  rc=0 за 8 с: alpha-mk.5b2d4e6a wc wc
+GATE OK mk0-warm wc вариантов=3 файлов=33 различий=0
+  rc=0 за 50 с: alpha-mk.5b2d4e6a wc wc
+  rc=0 за 34 с: alpha-mk.5b2d4e6a wc wc
+GATE OK mk-cold-vs-warm wc вариантов=4 файлов=48 различий=0
+== done 10:07:24

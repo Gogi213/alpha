@@ -1,0 +1,31 @@
+== wa 10:37:04
+  rc=0 за 17 с: alpha-l1 wa wa
+GATE OK a112684a-vs-a03c91df wa вариантов=2 файлов=18 различий=0
+  rc=0 за 15 с: alpha-mk.396989e9 wa wa
+GATE OK mk0-cold wa вариантов=3 файлов=33 различий=0
+  rc=0 за 15 с: alpha-mk.396989e9 wa wa
+GATE OK mk0-warm wa вариантов=3 файлов=33 различий=0
+  rc=0 за 142 с: alpha-mk.396989e9 wa wa
+  rc=0 за 166 с: alpha-mk.396989e9 wa wa
+GATE OK mk-cold-vs-warm wa вариантов=4 файлов=48 различий=0
+== wb 10:43:00
+  rc=0 за 23 с: alpha-l1 wb wb
+GATE OK a112684a-vs-a03c91df wb вариантов=2 файлов=18 различий=0
+  rc=0 за 23 с: alpha-mk.396989e9 wb wb
+GATE OK mk0-cold wb вариантов=3 файлов=33 различий=0
+  rc=0 за 19 с: alpha-mk.396989e9 wb wb
+GATE OK mk0-warm wb вариантов=3 файлов=33 различий=0
+  rc=0 за 115 с: alpha-mk.396989e9 wb wb
+  rc=0 за 99 с: alpha-mk.396989e9 wb wb
+GATE OK mk-cold-vs-warm wb вариантов=4 файлов=48 различий=0
+== wc 10:47:40
+  rc=0 за 25 с: alpha-l1 wc wc
+GATE OK a112684a-vs-a03c91df wc вариантов=2 файлов=18 различий=0
+  rc=0 за 19 с: alpha-mk.396989e9 wc wc
+GATE OK mk0-cold wc вариантов=3 файлов=33 различий=0
+  rc=0 за 15 с: alpha-mk.396989e9 wc wc
+GATE OK mk0-warm wc вариантов=3 файлов=33 различий=0
+  rc=0 за 126 с: alpha-mk.396989e9 wc wc
+  rc=0 за 131 с: alpha-mk.396989e9 wc wc
+GATE OK mk-cold-vs-warm wc вариантов=4 файлов=48 различий=0
+== done 10:52:57

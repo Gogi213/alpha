@@ -2853,6 +2853,465 @@ fn sig_mode_off_values_disable_every_portfolio_limit_and_each_one_alone_binds() 
     assert_eq!((r.trades.len(), r.rej[1]), (1, 4), "busy = 1: «занята»");
 }
 
+// ───────────────────────── §13.28: вход лимиткой (`mk`) ─────────────────────────
+
+use super::tick::{mk_decision, run_tick_mk, tick_at};
+
+/// 100 сделок суток `EDAY` в первые 100 мс на сетке 0,01 (цены 98,00 / 98,01): тик 0,01 и ≥ 100 сделок до сигнала.
+fn mk_fill() -> Vec<Tick> {
+    (0..100u32)
+        .map(|i| et(i, if i % 2 == 0 { 98.00 } else { 98.01 }, i % 3 == 0))
+        .collect()
+}
+
+/// Решение мейкера для сигнала на сделке `extra[0]` (1000 мс), уровень `lp` (рама), заявка `mode`.
+fn mk_run(extra: Vec<Tick>, side: Side, lp: i64, mode: u8) -> EntryDec {
+    let mut v = mk_fill();
+    let k = v.len();
+    v.extend(extra);
+    let src = esrc(v);
+    let mut sg = esig(k, 0.0);
+    sg.lp = lp;
+    let ex = etape_cfg(100, 0);
+    let sym = esym();
+    let mut cache = HashMap::new();
+    let mut tick_of = |t: i64| tick_at(&src, &sym.name, 0, t, &mut cache);
+    mk_decision(&src, &sym, side, &sg, &ex, mode, &mut tick_of)
+}
+
+const MK_DAY: i64 = EDAY as i64 * DAY_MS;
+
+fn fill(off: i64, price: f64) -> EntryDec {
+    EntryDec::Fill {
+        ms: MK_DAY + off,
+        p0: px(price),
+    }
+}
+
+fn rej(why: EntryRej) -> EntryDec {
+    EntryDec::Reject(why)
+}
+
+#[test]
+fn mk1_limit_is_ask_minus_tick_and_fills_only_on_a_trade_strictly_through() {
+    let run = |tail: Vec<Tick>| {
+        let mut e = vec![et(1000, 99.50, false)];
+        e.extend(tail);
+        mk_run(e, Side::Long, px(100.0), 1)
+    };
+    // лимит 99,49; сделка ровно на лимите не заполняет, 99,48 — заполняет по цене лимита в момент сделки
+    assert_eq!(
+        run(vec![et(1010, 99.49, true), et(1020, 99.50, false)]),
+        rej(EntryRej::Unfilled)
+    );
+    assert_eq!(
+        run(vec![et(1010, 99.49, true), et(1030, 99.48, true)]),
+        fill(1030, 99.49)
+    );
+    // заявка встаёт в T = 1004: сделка в T и раньше не заполняет
+    assert_eq!(run(vec![et(1004, 99.40, true)]), rej(EntryRej::Unfilled));
+    // жизнь — до конца минуты, содержащей T
+    assert_eq!(
+        run(vec![et(59_999, 99.40, true)]),
+        fill(59_999, 99.49),
+        "последняя миллисекунда минуты"
+    );
+    assert_eq!(
+        run(vec![et(60_000, 99.40, true)]),
+        rej(EntryRej::Unfilled),
+        "следующая минута — заявки нет"
+    );
+}
+
+#[test]
+fn mk1_is_cancelled_by_a_trade_at_or_beyond_the_level_but_only_before_the_fill() {
+    let run = |tail: Vec<Tick>| {
+        let mut e = vec![et(1000, 99.50, false)];
+        e.extend(tail);
+        mk_run(e, Side::Long, px(100.0), 1)
+    };
+    assert_eq!(
+        run(vec![et(1010, 100.00, false), et(1020, 99.40, true)]),
+        rej(EntryRej::Touched),
+        "сделка на уровне снимает заявку"
+    );
+    assert_eq!(
+        run(vec![et(1010, 100.01, false)]),
+        rej(EntryRej::Touched),
+        "за уровнем — тоже"
+    );
+    assert_eq!(
+        run(vec![et(1010, 99.48, true), et(1020, 100.00, false)]),
+        fill(1010, 99.49),
+        "касание после заполнения заявку не трогает"
+    );
+}
+
+#[test]
+fn mk1_short_mirrors_the_long_in_the_frame() {
+    // шорт: уровень 98,0 (рама −98,0); сигнальная — продавец-тейкер 98,90; лимит = bid + тик = 98,91 (рама −98,91)
+    let run = |tail: Vec<Tick>| {
+        let mut e = vec![et(1000, 98.90, true)];
+        e.extend(tail);
+        mk_run(e, Side::Short, -px(98.0), 1)
+    };
+    let short = |off: i64, price: f64| EntryDec::Fill {
+        ms: MK_DAY + off,
+        p0: -px(price),
+    };
+    assert_eq!(
+        run(vec![et(1010, 98.91, false), et(1020, 98.92, false)]),
+        short(1020, 98.91),
+        "сквозь — цена выше лимита; ровно на лимите не заполняет"
+    );
+    assert_eq!(run(vec![et(1010, 98.91, false)]), rej(EntryRej::Unfilled));
+    assert_eq!(
+        run(vec![et(1010, 98.00, true), et(1020, 98.95, false)]),
+        rej(EntryRej::Touched),
+        "сделка на уровне (рама ≥ −98,0) снимает заявку"
+    );
+}
+
+#[test]
+fn mk2_rests_at_the_level_after_the_breakout_and_fills_on_the_retest_through_it() {
+    let run = |tail: Vec<Tick>, lp: f64| {
+        let mut e = vec![et(1000, 99.50, false)];
+        e.extend(tail);
+        mk_run(e, Side::Long, px(lp), 2)
+    };
+    // пробой (≥ 100,00) в 1010 → рабочая с 1014; сделка в 1012 ниже лимита ещё не заполняет, в 1020 — заполняет по 100,00
+    assert_eq!(
+        run(
+            vec![
+                et(1010, 100.00, false),
+                et(1012, 99.99, true),
+                et(1020, 99.99, true)
+            ],
+            100.0
+        ),
+        fill(1020, 100.00)
+    );
+    // ровно на лимите — нет
+    assert_eq!(
+        run(vec![et(1010, 100.01, false), et(1020, 100.00, true)], 100.0),
+        rej(EntryRej::Unfilled)
+    );
+    // без пробоя — нет; пробой без ретеста — нет
+    assert_eq!(
+        run(vec![et(1010, 99.99, false), et(1020, 99.98, true)], 100.0),
+        rej(EntryRej::Unfilled)
+    );
+    assert_eq!(
+        run(vec![et(1010, 100.20, false), et(1020, 100.10, true)], 100.0),
+        rej(EntryRej::Unfilled)
+    );
+    // жизнь — до конца минуты сигнала
+    assert_eq!(
+        run(
+            vec![et(1010, 100.00, false), et(60_000, 99.99, true)],
+            100.0
+        ),
+        rej(EntryRej::Unfilled)
+    );
+    // уровень 100,004 не на тике: лимит округлён вниз до 100,00; сделка на 100,00 — ещё не пробой (< 100,004)
+    assert_eq!(
+        run(
+            vec![et(1010, 100.01, false), et(1020, 99.99, true)],
+            100.004
+        ),
+        fill(1020, 100.00)
+    );
+    assert_eq!(
+        run(
+            vec![et(1010, 100.00, false), et(1020, 99.99, true)],
+            100.004
+        ),
+        rej(EntryRej::Unfilled)
+    );
+    // шорт: уровень 98,004 (рама −98,004) → лимит продажи 98,01 (округлён вверх); пробой — сделка ≤ 98,004, ретест — выше 98,01
+    let mut e = vec![et(1000, 98.90, true)];
+    e.extend([et(1010, 98.00, true), et(1020, 98.02, false)]);
+    assert_eq!(
+        mk_run(e, Side::Short, -px(98.004), 2),
+        EntryDec::Fill {
+            ms: MK_DAY + 1020,
+            p0: -px(98.01)
+        }
+    );
+}
+
+#[test]
+fn tick_is_causal_windowed_and_falls_back_to_the_last_defined_one() {
+    let t = MK_DAY + 1000;
+    let on_grid = |n: u32, step: f64| -> Vec<Tick> {
+        (0..n)
+            .map(|i| et(i, 98.00 + step * f64::from(i % 3), false))
+            .collect()
+    };
+    let tick = |today: Vec<Tick>, old: Vec<(usize, Vec<Tick>)>| {
+        let mut m = HashMap::new();
+        m.insert(("TEST".to_string(), EDAY), Arc::new(today));
+        for (d, v) in old {
+            m.insert(("TEST".to_string(), d), Arc::new(v));
+        }
+        tick_at(&MemSrc(m), "TEST", 0, t, &mut HashMap::new())
+    };
+    // сегодня 100 сделок на сетке 0,02 → 0,02; сделки после T тик не меняют
+    let mut later = on_grid(100, 0.02);
+    assert_eq!(tick(later.clone(), vec![]), Some(2_000_000));
+    later.push(et(5000, 98.01, false));
+    later.push(et(6000, 98.015, false));
+    assert_eq!(
+        tick(later, vec![]),
+        Some(2_000_000),
+        "сделки после T не читаются"
+    );
+    // окно: сутки EDAY−7 на сетке 0,03 входят (НОД 0,01), EDAY−8 — нет
+    assert_eq!(
+        tick(on_grid(100, 0.02), vec![(EDAY - 7, on_grid(10, 0.03))]),
+        Some(1_000_000)
+    );
+    assert_eq!(
+        tick(on_grid(100, 0.02), vec![(EDAY - 8, on_grid(10, 0.03))]),
+        Some(2_000_000)
+    );
+    // меньше 100 сделок в окне → последний определённый тик (EDAY−12: сетка 0,05)
+    assert_eq!(
+        tick(on_grid(50, 0.02), vec![(EDAY - 12, on_grid(150, 0.05))]),
+        Some(5_000_000)
+    );
+    // нигде нет 100 сделок → тика нет; мейкер отказывает `notick`, тейкер по тому же сигналу входит
+    assert_eq!(tick(on_grid(50, 0.02), vec![]), None);
+    let mut v = on_grid(50, 0.02);
+    v.push(et(1000, 99.50, false));
+    let src = esrc(v);
+    let sg = esig(50, 100.0);
+    let ex = etape_cfg(100, 0);
+    let sym = esym();
+    let mut cache = HashMap::new();
+    let mut tick_of = |t: i64| tick_at(&src, &sym.name, 0, t, &mut cache);
+    assert_eq!(
+        mk_decision(&src, &sym, Side::Long, &sg, &ex, 1, &mut tick_of),
+        rej(EntryRej::NoTick)
+    );
+    assert!(matches!(
+        entry_decision(&src, &sym, Side::Long, &sg, &ex),
+        EntryDec::Fill { .. }
+    ));
+}
+
+#[test]
+fn mk_key_parses_validates_and_keeps_the_params_debug_string_at_mk0() {
+    use super::params::parse_variant;
+    let (_, p0) = parse_variant("x ew=5").expect("разбор");
+    assert_eq!(p0.mk, 0);
+    for (line, mk) in [("x ew=5 mk=1", 1), ("x ew=5 mk=2", 2)] {
+        assert_eq!(parse_variant(line).expect("разбор").1.mk, mk);
+    }
+    assert!(parse_variant("x mk=1").is_err(), "mk требует ew");
+    assert!(parse_variant("x ew=5 mk=3").is_err());
+    // при mk = 0 строка `params` в meta.json — как у производного Debug до §13.28
+    let d = format!("{p0:?}");
+    assert!(!d.contains("mk: "));
+    assert_eq!(
+        d,
+        format!(
+            "Params {{ sig: {:?}, exit: {:?}, port: {:?}, filt: {:?} }}",
+            p0.sig, p0.exit, p0.port, p0.filt
+        )
+    );
+    let (_, p1) = parse_variant("x ew=5 mk=1").expect("разбор");
+    assert!(format!("{p1:?}").ends_with(", mk: 1 }"));
+    assert!(super::cli::reject_tick_only(&p1, "x").is_err());
+}
+
+impl E2World {
+    /// `run_tick_mk` для сигнала как в `run`, но с 100 заполняющими сделками на сетке 0,01 за 5 с до сценария (тик и окно ≥ 100 сделок).
+    fn run_mk(
+        &self,
+        ex: &super::params::ExitCfg,
+        ticks: &[(i64, f64, bool)],
+        mk: u8,
+    ) -> super::tick::TickResult {
+        let mut v: Vec<Tick> = (0..100u32)
+            .map(|i| Tick {
+                px: px(if i % 2 == 0 { 99.40 } else { 99.41 }),
+                off: (self.base - 5000) as u32 + i,
+                bm: i % 3 == 0,
+            })
+            .collect();
+        v.extend(ticks.iter().map(|&(off, price, bm)| Tick {
+            px: px(price),
+            off: (self.base + off) as u32,
+            bm,
+        }));
+        let mut m = HashMap::new();
+        m.insert(("TEST".to_string(), self.t1 / 1440), Arc::new(v));
+        let src = MemSrc(m);
+        let sg = TSig {
+            ms: (self.t1 as i64 / 1440) * DAY_MS + self.base + 10_000,
+            sym: 0,
+            level: 0,
+            dist: 0,
+            t: self.t1 as u32,
+            day: (self.t1 / 1440) as u16,
+            idx: 101,
+            lp: px(100.0),
+            far: px(99.9),
+            ws: false,
+        };
+        run_tick_mk(&self.syms, &[sg], Side::Long, ex, &self.port, &src, mk)
+    }
+}
+
+#[test]
+fn mk_entry_is_maker_without_slippage_and_exit_clocks_run_from_the_fill() {
+    let w = e2_world();
+    let mut ex = w.ex.clone();
+    ex.e2_pm = 0;
+    ex.slip_bps = 1;
+    ex.tx_min = 1; // выход по времени: 1 мин от первой после заполнения сделки ≥ L
+    ex.tx_x_pm = 500; // «пробой» — 100,5
+    let scen = [
+        (0, 99.60, false),
+        (10_000, 99.70, false),  // сигнал
+        (10_100, 100.00, false), // пробой до заполнения (mk2)
+        (10_200, 99.99, true),   // ретест → заполнение по 100,00
+        (10_300, 100.00, false), // первое «пересекли» после заполнения
+        (70_100, 99.95, true),   // 1 мин от пробоя до заполнения — выхода быть не должно
+        (70_300, 99.95, true),   // 1 мин от (10 300) → выход по времени
+    ];
+    let r = w.run_mk(&ex, &scen, 2);
+    assert_eq!((r.trades.len(), r.mk), (1, [1, 0, 0]));
+    let t = &r.trades[0];
+    assert_eq!(
+        (t.entry_ms, t.entry_px),
+        (w.abs(10_200), px(100.00)),
+        "цена лимита, проскальзывание входа 0"
+    );
+    assert_eq!((t.kind, t.exit_ms), (ExitKind::TimeExit, w.abs(70_300)));
+    let fee = |taker| crate::lob::costs::leg_fee_bps(taker) / 1e4;
+    let want = 500.0 * fee(false) + 500.0 * (99.95 * (1.0 - 1e-4) / 100.0) * fee(true);
+    assert!(
+        (t.fees - want).abs() < 1e-6,
+        "комиссии {} против {}: вход мейкер, выход тейкер со своим проскальзыванием",
+        t.fees,
+        want
+    );
+    // тейкер на том же потоке: вход со своим проскальзыванием 1 бп
+    let r0 = w.run_mk(&ex, &scen, 0);
+    let t0 = &r0.trades[0];
+    assert_eq!(t0.entry_px, px(99.70) + px(99.70) / 10_000, "99,70 + 1 бп");
+    assert_eq!(r0.mk, [0, 0, 0]);
+}
+
+#[test]
+fn mk1_unfilled_and_touched_orders_are_rejects_that_do_not_consume_the_level() {
+    let w = e2_world();
+    let mut ex = w.ex.clone();
+    ex.e2_pm = 0;
+    // не заполнилась: сделок ниже лимита 99,69 нет
+    let r = w.run_mk(
+        &ex,
+        &[
+            (0, 99.60, false),
+            (10_000, 99.70, false),
+            (20_000, 99.80, false),
+        ],
+        1,
+    );
+    assert!(r.trades.is_empty());
+    assert_eq!((r.mk, r.rej[0], r.rej[5]), ([0, 1, 0], 0, 1));
+    assert_eq!(r.entry_rej.len(), 1);
+    assert_eq!(r.entry_rej[0].3, EntryRej::Unfilled);
+    // сорван уровень
+    let r = w.run_mk(
+        &ex,
+        &[
+            (0, 99.60, false),
+            (10_000, 99.70, false),
+            (20_000, 100.00, false),
+        ],
+        1,
+    );
+    assert_eq!(r.mk, [0, 0, 1]);
+    assert_eq!(r.entry_rej[0].3, EntryRej::Touched);
+}
+
+#[test]
+fn mk_second_lot_is_immediate_late_or_cancelled_and_follows_mk2_with_lot1() {
+    let w = e2_world();
+    // сразу: заменитель 99,95 → лимит 99,94 ≥ L − d = 99,90; лот 2 — тем же событием и по той же цене
+    let r = w.run_mk(
+        &w.ex,
+        &[
+            (0, 99.60, false),
+            (10_000, 99.95, false),
+            (10_100, 99.93, true),
+            (40_000, 85.0, true),
+        ],
+        1,
+    );
+    assert_eq!(r.lot2, [1, 0, 0, 0]);
+    let t = &r.trades[0];
+    let l2 = t.lot2.as_ref().expect("второй лот");
+    assert_eq!((t.entry_ms, t.entry_px), (w.abs(10_100), px(99.94)));
+    assert_eq!((l2.entry_ms, l2.entry_px), (t.entry_ms, t.entry_px));
+    // позже: лимит лота 1 99,69 (заполнен в 10 100 по 99,69), подход к 99,92 в 20 000 → заявка 99,91, заполнена в 20 100
+    let r = w.run_mk(
+        &w.ex,
+        &[
+            (0, 99.60, false),
+            (10_000, 99.70, false),
+            (10_100, 99.68, true),
+            (20_000, 99.92, false),
+            (20_100, 99.90, true),
+            (40_000, 85.0, true),
+        ],
+        1,
+    );
+    assert_eq!(r.lot2, [0, 1, 0, 0]);
+    let l2 = r.trades[0].lot2.as_ref().expect("второй лот");
+    assert_eq!((l2.entry_ms, l2.entry_px), (w.abs(20_100), px(99.91)));
+    // отмена: уровень сорван до заполнения
+    let touched = [
+        (0, 99.60, false),
+        (10_000, 99.70, false),
+        (10_100, 99.68, true),
+        (20_000, 99.92, false),
+        (20_050, 100.00, false),
+        (40_000, 85.0, true),
+    ];
+    assert_eq!(w.run_mk(&w.ex, &touched, 1).lot2, [0, 0, 1, 0]);
+    // отмена: заполняющая сделка пришла на выходе лота 1 — заявка живёт не дольше его
+    let late = [
+        (0, 99.60, false),
+        (10_000, 99.70, false),
+        (10_100, 99.68, true),
+        (20_000, 99.92, false),
+        (40_000, 85.0, true),
+    ];
+    let r = w.run_mk(&w.ex, &late, 1);
+    assert_eq!(r.lot2, [0, 0, 1, 0]);
+    assert!(r.trades[0].lot2.is_none());
+    // mk2: лот 2 заполняется тем же событием, что лот 1
+    let r = w.run_mk(
+        &w.ex,
+        &[
+            (0, 99.60, false),
+            (10_000, 99.70, false),
+            (10_100, 100.00, false),
+            (10_200, 99.99, true),
+            (40_000, 85.0, true),
+        ],
+        2,
+    );
+    assert_eq!(r.lot2, [1, 0, 0, 0]);
+    let t = &r.trades[0];
+    let l2 = t.lot2.as_ref().expect("второй лот");
+    assert_eq!((l2.entry_ms, l2.entry_px), (t.entry_ms, px(100.00)));
+}
+
 // ───────────────────────────── v22 (`tl`): трейл лимиткой (TK-603) ─────────────────────────────
 
 /// Трейл взводится при +0,5 (1 NATR) и держит откат 0,5: вход 100,0 → максимум 100,6 → уровень трейла 100,1; тейки далеко (102,0 / 102,5), безубыток выкл.
