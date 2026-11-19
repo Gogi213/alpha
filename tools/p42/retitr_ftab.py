@@ -208,8 +208,35 @@ def _init(cfg):
     _SR._W = _CAND(cfg)
 
 
+def build_episodes_rust(side, sigsx, out, procs, feat_bin):
+    """TK-609: те же эпизоды Rust-бинарём `alpha-feat f12` (порт TK-611: признаки и служебные столбцы, 66 колонок; метки/контроли не портированы
+    и ниже по `build` не читаются). Окно — из окружения `load_prod` (`SIGFEAT_*`); склад суток — `TK594_STORE` (только чтение), как у `run_tk594`."""
+    import pandas as pd
+    e = os.environ
+    csv_path = out + ".f12.csv"
+    cmd = [feat_bin, "f12", "--sigsx", sigsx, "--side", side, "--out", csv_path, "--cache", e["SIGFEAT_CACHE"],
+           "--trades", e["SIGFEAT_TRADES"], "--base-date", e["SIGFEAT_BASE_DATE"], "--days", e["SIGFEAT_DAYS"], "--threads", str(procs)]
+    if e.get("TK594_STORE"):
+        cmd += ["--store", e["TK594_STORE"], "--store-cap-gb", "0"]
+    print("запуск:", " ".join(cmd), flush=True)
+    r = subprocess.run(cmd, check=True, stdout=subprocess.PIPE, text=True)
+    st = json.loads(r.stdout.strip().splitlines()[-1])
+    ep = pd.read_csv(csv_path, dtype={"sym": str}, float_precision="round_trip")   # точный разбор: быстрый даёт ±ULP
+    if ep["tick_ok"].dtype != bool:
+        ep["tick_ok"] = ep["tick_ok"].astype(str).str.lower().isin(["true", "1"])
+    ep.to_parquet(out)
+    tot = {k: st[k] for k in ("locate_fail", "natr_mismatch", "unsorted_days", "irregular_days")}
+    tot.update(episodes=int(len(ep)), coins=int(st["coins"]), engine="alpha-feat f12")
+    json.dump({"total": tot}, open(out + ".stats.json", "w"), ensure_ascii=False)
+    print(json.dumps(tot, ensure_ascii=False), flush=True)
+    return tot
+
+
 def build_episodes(side, sigsx, out, procs):
-    """Таблица «эпизодов из одного сигнала» по потоку sigsx стороны (производственный Worker); parquet со всеми колонками `ep_u0`."""
+    """Таблица «эпизодов из одного сигнала» по потоку sigsx стороны (производственный Worker); parquet со всеми колонками `ep_u0`.
+    TK-609: при `P42_F12_BIN=<путь alpha-feat>` считает Rust (`build_episodes_rust`); без переменной путь прежний."""
+    if os.environ.get("P42_F12_BIN"):
+        return build_episodes_rust(side, sigsx, out, procs, os.environ["P42_F12_BIN"])
     import multiprocessing as mp
     import pandas as pd
     sr = _SR
