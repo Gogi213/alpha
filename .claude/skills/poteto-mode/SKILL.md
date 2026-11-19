@@ -13,7 +13,7 @@ Paths below are relative to this file's directory. Bundled skills live at `../<n
 
 Spend is the main cost of this setup. Defaults:
 
-- Do small work yourself. Spawn a child thread only for independent work that is big enough to justify a fresh context (roughly > 15 min of work, or a separate branch, or an independent verdict). Never spawn a thread to answer a lookup you can do with one grep.
+- Do small work yourself. Spawn a child thread only for independent work that is big enough to justify a fresh context (roughly > 15 min of work, or a separate branch, or an independent verdict). Never spawn a thread to answer a lookup you can do with one grep. Verifiers (пров) are spawned only by the coordinator: an executor never spawns its own verifier — it reports «ready for verdict» with branch + SHA and stops (owner 19.11).
 - Read a principle or bundled skill only when its trigger actually fires in this task. Do not preload them.
 - Fan-out skills (`swarm`, `arena`, `architect` parallel runners, `interrogate` panels) only for a real design fork or a high-stakes change, or when the owner asks. Default is one worker plus one verifier.
 - Briefs carry file pointers, not pasted file contents. Bulk output (logs, big diffs, run outputs) goes to a reader thread or `tail`/`grep`, never into the coordinator's context.
