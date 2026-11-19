@@ -35,7 +35,7 @@ function g4(ts, nowMs) {
   const state = () => page.evaluate(() => ({hash: location.hash, selected: [...document.querySelectorAll('#toptabs button[aria-selected="true"]')].map(b => b.dataset.tab), visible: [...document.querySelectorAll('.pane')].filter(p => !p.hidden).map(p => p.id)}));
   const nowRows = () => page.evaluate(() => [...document.querySelectorAll('#lv-now .lv-row')].map(r => {
     const t = f => { const n = r.querySelector(`[data-f=${f}]`); return n ? n.innerText.replace(/\s+/g, ' ').trim() : null; };
-    return {tk: r.dataset.task, state: r.dataset.state, badge: t('state'), name: r.querySelector('.lv-name span').innerText, role: t('role'), start: t('start'), upd: t('upd')};
+    return {tk: r.dataset.task, state: r.dataset.state, badge: t('state'), name: r.querySelector('.lv-name span').innerText, role: t('role'), start: t('start'), end: t('end')};
   }));
   const unitRows = () => page.evaluate(() => [...document.querySelectorAll('#lv-units .lv-row')].map(r => {
     const t = f => { const n = r.querySelector(`[data-f=${f}]`); return n ? n.innerText.replace(/\s+/g, ' ').trim() : null; };
@@ -58,16 +58,16 @@ function g4(ts, nowMs) {
   eq('по умолчанию: выбрана и видна', [st0.hash, st0.selected, st0.visible], ['#live', ['live'], ['pane-live']]);
 
   // ── строки против JSON
-  const NW = J.now.threads, UN = J.units;
+  const NW = J.now.tasks, UN = J.units;
   const RN = await nowRows();
   eq('«Сейчас идёт»: задачи и порядок', RN.map(r => r.tk), NW.map(t => t.tk || t.id));
   NW.forEach((t, i) => {
     const r = RN[i], k = t.tk || t.id;
     eq(`${k} состояние`, r.badge, {run: 'идёт', done: 'готово', fail: 'ошибка'}[t.state]);
     eq(`${k} название`, r.name, t.name);
-    eq(`${k} роль`, r.role, t.role ? t.role + (t.version > 1 ? ' · v' + t.version : '') : '—');
+    eq(`${k} кто`, r.role, t.chain.length ? t.chain.join(' → ') : '—');
     eq(`${k} начато (GMT+4)`, t.started_ts ? r.start.startsWith(g4(t.started_ts, nowMs)) : r.start, t.started_ts ? true : '—');
-    eq(`${k} последнее действие (GMT+4)`, t.updated_ts ? r.upd.startsWith(g4(t.updated_ts, nowMs)) : r.upd, t.updated_ts ? true : '—');
+    eq(`${k} закончено (GMT+4)`, t.state !== 'run' && t.end_ts ? r.end.startsWith(g4(t.end_ts, nowMs)) : r.end, t.state !== 'run' && t.end_ts ? true : '—');
   });
   eq('«Сейчас идёт»: пустой список — подпись', NW.length ? (await empties()).filter(x => x.startsWith('Сейчас')).length : (await empties())[0], NW.length ? 0 : 'Сейчас никто не работает.');
   const RU = await unitRows();
@@ -80,6 +80,8 @@ function g4(ts, nowMs) {
   });
   eq('«Расчёты на сервере»: пустой список — подпись', (await empties()).filter(x => x.startsWith('Расчётов')).length, UN.length ? 0 : 1);
   eq('нет старых задач TK-599/607/609/611/610', await page.evaluate(() => /TK-(599|607|609|611|610)/.test(document.getElementById('live').innerText)), false);
+  eq('одна строка на задачу', RN.length, new Set(RN.map(r => r.tk)).size);
+  eq('нет колонки «Последнее действие»', await page.evaluate(() => document.getElementById('live').innerText.includes('Последнее действие')), false);
   const meta = await page.evaluate(() => document.getElementById('lv-meta').innerText.replace(/\s+/g, ' '));
   eq('нагрузка в строке srv', meta.includes('загрузка ' + J.host.load.map(x => ru(x, 1)).join(' / ')), true);
   eq('диск в строке srv', meta.includes('свободно ' + ru(J.host.disk.free_gb, 1) + ' ГБ'), true);
@@ -95,27 +97,28 @@ function g4(ts, nowMs) {
   // ── синтетика: все состояния строк, устаревшая передача ПК, пустые списки
   const T0 = nowMs / 1000;
   const fake = {generated_ts: T0 - 20, units_ok: true, host: J.host,
-    now: {ok: true, pushed_ts: T0 - 900, threads: [
-      {id: 't1', tk: 'TK-901', name: 'Проверка бегущей задачи', named: true, role: 'исполнитель', version: 1, state: 'run', started_ts: T0 - 7500, updated_ts: T0 - 40},
-      {id: 't2', tk: 'TK-902', name: 'topic words only', named: false, role: 'проверяющий', version: 3, state: 'fail', started_ts: T0 - 4000, updated_ts: T0 - 3000},
-      {id: 't3', tk: null, name: 'не по формату', named: false, role: null, version: null, state: 'done', started_ts: null, updated_ts: T0 - 600}]},
+    now: {ok: true, pushed_ts: T0 - 900, tasks: [
+      {id: 'TK-901', tk: 'TK-901', name: 'Проверка бегущей задачи', named: true, state: 'run', chain: ['исполнитель', 'проверяющий'], threads: 2, started_ts: T0 - 7500, end_ts: null},
+      {id: 'TK-902', tk: 'TK-902', name: 'topic words only', named: false, state: 'fail', chain: ['исполнитель', 'исполнитель v2'], threads: 2, started_ts: T0 - 4000, end_ts: T0 - 3000},
+      {id: 't3', tk: null, name: 'не по формату', named: false, state: 'done', chain: [], threads: 1, started_ts: null, end_ts: T0 - 600}]},
     units: [{name: 'tk901-run', state: 'run', since_ts: T0 - 3600, end_ts: null, rc: null}, {name: 'tk902-job', state: 'fail', since_ts: T0 - 1800, end_ts: T0 - 1200, rc: 3},
             {name: 'tk903-done', state: 'done', since_ts: T0 - 1800, end_ts: T0 - 600, rc: 0}]};
   await page.route('**/data/tasks.json*', route => route.fulfill({json: fake}));
   await page.evaluate(() => loadLive()); await page.waitForTimeout(500);
   const FN = await nowRows(), FU = await unitRows();
-  eq('синтетика: строки задач', FN.map(r => [r.tk, r.state, r.badge, r.name, r.role]), [['TK-901', 'run', 'идёт', 'Проверка бегущей задачи', 'исполнитель'], ['TK-902', 'fail', 'ошибка', 'topic words only', 'проверяющий · v3'], ['t3', 'done', 'готово', 'не по формату', '—']]);
+  eq('синтетика: строки задач', FN.map(r => [r.tk, r.state, r.badge, r.name, r.role]), [['TK-901', 'run', 'идёт', 'Проверка бегущей задачи', 'исполнитель → проверяющий'], ['TK-902', 'fail', 'ошибка', 'topic words only', 'исполнитель → исполнитель v2'], ['t3', 'done', 'готово', 'не по формату', '—']]);
   eq('синтетика: «идёт 2 ч 05 мин» у бегущей', FN[0].start.includes('идёт 2 ч 05 мин'), true);
-  eq('синтетика: время «последнее действие» бегущей', FN[0].upd.startsWith(g4(T0 - 40, nowMs)), true);
+  eq('синтетика: у бегущей нет «закончено», у остальных есть', FN.map(r => r.end.startsWith('—')), [true, false, false]);
+  eq('синтетика: закончено у ошибки', FN[1].end.startsWith(g4(T0 - 3000, nowMs)), true);
   eq('синтетика: юниты', FU.map(r => [r.name, r.state, r.badge, r.rc]), [['tk901-run', 'run', 'идёт', '—'], ['tk902-job', 'fail', 'ошибка', '3'], ['tk903-done', 'done', 'завершён', '0']]);
   eq('синтетика: у бегущего юнита нет «завершён»', FU[0].end, '—');
   eq('предупреждение «ПК не передаёт»', (await page.locator('.lv-warn').allInnerTexts()).some(x => x.includes('Список задач не обновлялся') && x.includes('ПК не передаёт')), true);
   await page.screenshot({path: `${out}/live-synthetic-${W}.png`, fullPage: true});
-  fake.now.threads = []; fake.units = []; fake.now.pushed_ts = T0 - 10;
+  fake.now.tasks = []; fake.units = []; fake.now.pushed_ts = T0 - 10;
   await page.evaluate(() => loadLive()); await page.waitForTimeout(500);
   eq('пусто: подписи', await empties(), ['Сейчас никто не работает.', 'Расчётов (юнитов tk6*) на сервере сейчас нет.']);
   eq('пусто: предупреждений нет', await page.locator('.lv-warn').count(), 0);
-  fake.now = {ok: false, err: 'x', pushed_ts: null, threads: []};
+  fake.now = {ok: false, err: 'x', pushed_ts: null, tasks: []};
   await page.evaluate(() => loadLive()); await page.waitForTimeout(500);
   eq('now.json нет: предупреждение', (await page.locator('.lv-warn').allInnerTexts()).some(x => x.includes('Список задач ещё не получен')), true);
   await page.unroute('**/data/tasks.json*');
@@ -145,7 +148,7 @@ function g4(ts, nowMs) {
   eq('на другой вкладке запросов нет', reqs - r1, 0);
   await page.click('#toptabs button[data-tab="live"]'); await page.waitForTimeout(600);
   eq('возврат на «Прогресс»: сразу перечитывает', reqs - r1, 1);
-  eq('после возврата строки на месте', (await nowRows()).length, (await page.evaluate(() => LV.data.now.threads.length)));
+  eq('после возврата строки на месте', (await nowRows()).length, (await page.evaluate(() => LV.data.now.tasks.length)));
 
   // ── хеши и остальные вкладки
   for (const k of ['progress', 'targets', 'equity', 'features', 'model', 'live']) {

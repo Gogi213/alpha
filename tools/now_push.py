@@ -31,19 +31,21 @@ def parse_title(title):
 
 
 def build(threads, now_ms, done_hours=DONE_HOURS):
-    """Список тредов bb (bb thread list --json) → строки now.json: идут (run), с ошибкой (fail), закрытые за done_hours (done); новее — выше."""
-    out = []
+    """Список тредов bb (bb thread list --json) → строки now.json (по треду). Берутся: идут (run), с ошибкой (fail), закрытые за done_hours (done);
+    к ним добавляются остальные неархивные треды того же TK (цепочка исполнитель → проверяющий для страницы). Порядок: состояние, новее выше."""
+    rows = []
     for t in threads:
         st = STATE.get(t.get("status"))
         if not st or t.get("archivedAt") or t.get("deletedAt"):
             continue
         upd = t.get("updatedAt") or t.get("createdAt")
-        if st == "done" and (not upd or now_ms - upd > done_hours * 3600e3):
-            continue
         p = parse_title(t.get("title"))
-        out.append({"id": t["id"], "state": st, "title": t.get("title") or "", "tk": p and p["tk"], "topic": p["topic"] if p else None,
-                    "role": p and p["role"], "version": p and p["version"],
-                    "started_ts": t["createdAt"] / 1000 if t.get("createdAt") else None, "updated_ts": upd / 1000 if upd else None})
+        rows.append(({"id": t["id"], "state": st, "title": t.get("title") or "", "tk": p and p["tk"], "topic": p["topic"] if p else None,
+                      "role": p and p["role"], "version": p and p["version"],
+                      "started_ts": t["createdAt"] / 1000 if t.get("createdAt") else None, "updated_ts": upd / 1000 if upd else None},
+                     st != "done" or bool(upd and now_ms - upd <= done_hours * 3600e3)))
+    live = {r["tk"] for r, hit in rows if hit and r["tk"]}
+    out = [r for r, hit in rows if hit or r["tk"] in live]
     order = {"run": 0, "fail": 1, "done": 2}
     out.sort(key=lambda r: (order[r["state"]], -(r["updated_ts"] or 0)))
     return out

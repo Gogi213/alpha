@@ -197,7 +197,7 @@ section.ft-set{margin-top:22px;scroll-margin-top:118px}
 .lv-hl{display:flex;flex-wrap:wrap;gap:2px 18px}
 .lv-warn{margin:0 0 12px;padding:8px 12px;border:1px solid var(--fg);border-radius:8px;font-size:13px;font-weight:600}
 .lv-h3{margin:20px 0 8px;font-size:15px;font-weight:650}
-.lv-head,.lv-row{display:grid;grid-template-columns:minmax(220px,2fr) 92px minmax(110px,1fr) 112px 112px;gap:6px 18px;align-items:start}
+.lv-head,.lv-row{display:grid;grid-template-columns:minmax(220px,2fr) 92px minmax(170px,1.4fr) 112px 112px;gap:6px 18px;align-items:start}
 .lv-head{padding:0 16px 8px;color:var(--mfg);font-size:12px;font-weight:500}
 .lv-row{background:#fff;border:1px solid var(--border);border-radius:var(--r);box-shadow:0 1px 2px rgba(0,0,0,.04);padding:12px 16px;margin-bottom:8px}
 .lv-name b{display:block;font-size:13px;color:var(--z600)}
@@ -1151,12 +1151,13 @@ const LV_BADGE = {run: 'run', done: 'ok', fail: 'fail'};
 const LV_TXT = {run: 'идёт', done: 'готово', fail: 'ошибка'};
 const lvAge = (ts, now) => ts ? [g4(ts), h('small', {}, dur(now - ts) + ' назад')] : '—';
 function nowRow(t, now) {
+  const run = t.state === 'run';
   return h('div', {class: 'lv-row', 'data-task': t.tk || t.id, 'data-state': t.state}, [
     h('div', {class: 'lv-c lv-name'}, [h('b', {}, t.tk || 'без номера'), h('span', {title: t.named ? null : 'русского названия в таблице нет — тема треда'}, t.name)]),
     h('div', {class: 'lv-c', 'data-l': 'Состояние'}, h('span', {class: 'badge ' + LV_BADGE[t.state], 'data-f': 'state'}, LV_TXT[t.state])),
-    h('div', {class: 'lv-c', 'data-l': 'Роль', 'data-f': 'role'}, t.role ? t.role + (t.version > 1 ? ' · v' + t.version : '') : '—'),
-    h('div', {class: 'lv-c', 'data-l': 'Начато', 'data-f': 'start'}, t.started_ts ? [g4(t.started_ts), h('small', {}, (t.state === 'run' ? 'идёт ' + dur(now - t.started_ts) : dur(now - t.started_ts) + ' назад'))] : '—'),
-    h('div', {class: 'lv-c', 'data-l': t.state === 'run' ? 'Последнее действие' : 'Закончено', 'data-f': 'upd'}, lvAge(t.updated_ts, now))]);
+    h('div', {class: 'lv-c', 'data-l': 'Кто', 'data-f': 'role'}, t.chain.length ? t.chain.join(' → ') : '—'),
+    h('div', {class: 'lv-c', 'data-l': 'Начато', 'data-f': 'start'}, t.started_ts ? [g4(t.started_ts), h('small', {}, run ? 'идёт ' + dur(now - t.started_ts) : dur(now - t.started_ts) + ' назад')] : '—'),
+    h('div', {class: 'lv-c', 'data-l': 'Закончено', 'data-f': 'end'}, !run && t.end_ts ? lvAge(t.end_ts, now) : '—')]);
 }
 function unitRow(u, now) {
   return h('div', {class: 'lv-row', 'data-unit': u.name, 'data-state': u.state}, [
@@ -1172,9 +1173,9 @@ function renderLive() {
   if (!root.childElementCount) {
     root.append(h('div', {class: 'prog-h'}, [h('h2', {}, 'Прогресс'), h('span', {class: 'muted small', id: 'lv-sub'})]),
       h('div', {class: 'lv-meta', id: 'lv-meta'}), h('div', {id: 'lv-warn'}),
-      h('h3', {class: 'lv-h3'}, 'Сейчас идёт'), lvHead(['Задача', 'Состояние', 'Роль', 'Начато', 'Последнее действие']), h('div', {id: 'lv-now'}),
+      h('h3', {class: 'lv-h3'}, 'Сейчас идёт'), lvHead(['Задача', 'Состояние', 'Кто', 'Начато', 'Закончено']), h('div', {id: 'lv-now'}),
       h('h3', {class: 'lv-h3'}, 'Расчёты на сервере'), lvHead(['Юнит', 'Состояние', 'Запущен', 'Завершён', 'Код возврата']), h('div', {id: 'lv-units'}),
-      h('p', {class: 'lv-foot'}, 'Задачи — треды координатора (передаёт ПК раз в минуту), расчёты — юниты tk6* на srv. Страница перечитывает данные сама. Время — GMT+4.'));
+      h('p', {class: 'lv-foot'}, 'Задачи — треды координатора, по строке на задачу (передаёт ПК раз в минуту), расчёты — юниты tk6* на srv. Страница перечитывает данные сама. Время — GMT+4.'));
   }
   const d = LV.data, now = Date.now() / 1000;
   const warn = [], nw = d && d.now;
@@ -1193,7 +1194,7 @@ function renderLive() {
     h('div', {class: 'lv-hl'}, so && so.ok ? hostLine('София', so, 'sofia') : [h('span', {'data-f': 'sofia-load'}, 'София: нет данных' + (so && so.err ? ' (' + so.err + ')' : ''))]),
     ho.builds ? h('div', {class: 'lv-hl'}, h('span', {'data-f': 'builds'}, 'Сборки: ' + ho.builds.text)) : null].filter(Boolean) : []));
   const empty = txt => h('div', {class: 'lv-empty', 'data-f': 'empty'}, txt);
-  const th = nw ? nw.threads : [];
+  const th = nw ? nw.tasks : [];
   document.getElementById('lv-now').replaceChildren(...(!d ? [] : th.length ? th.map(t => nowRow(t, now)) : [empty(nw && nw.ok ? 'Сейчас никто не работает.' : 'Нет данных.')]));
   const un = d ? d.units : [];
   document.getElementById('lv-units').replaceChildren(...(!d ? [] : un.length ? un.map(u => unitRow(u, now)) : [empty('Расчётов (юнитов tk6*) на сервере сейчас нет.')]));

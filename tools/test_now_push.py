@@ -43,7 +43,18 @@ assert by["c"]["started_ts"] == (NOW - 1 * H) / 1000 and by["c"]["updated_ts"] =
 assert by["h"]["tk"] is None and by["h"]["topic"] is None and by["h"]["title"] == "не по формату"
 assert n.build([th("x", "исп · TK-9 · t · v1", "idle", upd_h_ago=2)], NOW, done_hours=1) == []
 
-# 3. пустой и «битый» ввод не роняет
+# 3. цепочка задачи: у задачи с живым/свежим тредом в now.json попадают и остальные неархивные треды этого TK (даже старые закрытые)
+rows = n.build([
+    th("e1", "исп · TK-10 · chain · v1", "idle", upd_h_ago=9, created_h_ago=12),             # старый исполнитель той же задачи
+    th("v1", "пров · TK-10 · chain · v1", "active", upd_h_ago=0.1, created_h_ago=1),         # проверяющий идёт
+    th("e2", "исп · TK-10 · chain · v1", "idle", upd_h_ago=8, created_h_ago=9, archivedAt=5),  # архивный — не входит
+    th("o1", "исп · TK-11 · old-pair · v1", "idle", upd_h_ago=9),                            # вся задача давно закрыта — нет
+    th("o2", "пров · TK-11 · old-pair · v1", "idle", upd_h_ago=8),
+    th("n1", "не по формату", "idle", upd_h_ago=9),                                          # без номера — по себе, не по задаче
+], NOW)
+assert [r["id"] for r in rows] == ["v1", "e1"], [r["id"] for r in rows]
+
+# 4. пустой и «битый» ввод не роняет
 assert n.build([], NOW) == []
 assert n.build([{"id": "z", "title": None, "status": "active", "createdAt": None, "updatedAt": None}], NOW)[0]["started_ts"] is None
 print("test_now_push: OK")

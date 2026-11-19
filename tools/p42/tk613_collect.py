@@ -4,7 +4,7 @@
 Раз в минуту (таймер tk613-progress.timer) читает файлы и юниты srv — только чтение, ничего не трогает — и пишет один JSON
 /data/pages/ml/data/tasks.json (его читает страница). Источники:
   now.json   /data/pages/ml/data/now.json — дочерние треды координатора bb (ПК владельца, tools/now_push.py раз в минуту): TK, тема, роль, статус;
-             русское имя задачи — по TK из tk_names.json (нет — тема треда словами)
+             строка на задачу (исполнитель → проверяющий), русское имя — по TK из tk_names.json (нет — тема треда словами)
   юниты srv  systemd tk6*.service (кроме самого сборщика): имя, с какого времени, код возврата
   srv        нагрузка, место на /; сборки — очередь rbuild (/opt/rbuild, процессы run-srv.sh)
   София      нагрузка и место на / по ssh (ключ только на команду чтения, см. sofia_probe)
@@ -111,22 +111,40 @@ def list_units(now):
 
 
 # ── что идёт сейчас: треды bb ──────────────────────────────────────────────────────────────────────────────────────────────────────────
+def group_tasks(threads, names):
+    """Треды (строки now.json) → по одной строке на задачу TK: цепочка ролей по порядку старта («исполнитель → проверяющий»), состояние — «идёт», если идёт любой тред
+    задачи, иначе состояние последнего по старту; конец — когда закрылся последний тред (только для готово/ошибка). Тред без номера — своя строка."""
+    groups = {}
+    for t in threads:
+        if isinstance(t, dict) and t.get("state") in ("run", "fail", "done"):
+            groups.setdefault(t.get("tk") or t.get("id"), []).append(t)
+    out = []
+    for key, g in groups.items():
+        g.sort(key=lambda t: (t.get("started_ts") or 0, t.get("updated_ts") or 0))
+        last = g[-1]
+        st = "run" if any(t["state"] == "run" for t in g) else last["state"]
+        chain = []
+        for t in g:
+            lab = ROLES.get(t.get("role"), t.get("role"))
+            lab = lab and lab + (f" v{t['version']}" if (t.get("version") or 1) > 1 else "")
+            if lab and (not chain or chain[-1] != lab):
+                chain.append(lab)
+        tk, topic = last.get("tk"), last.get("topic")
+        starts = [t["started_ts"] for t in g if t.get("started_ts")]
+        out.append({"id": key, "tk": tk, "name": names.get(tk) or (topic.replace("-", " ") if topic else last.get("title") or key), "named": bool(names.get(tk)),
+                    "state": st, "chain": chain, "threads": len(g), "started_ts": min(starts) if starts else None,
+                    "end_ts": None if st == "run" else last.get("updated_ts")})
+    out.sort(key=lambda r: ({"run": 0, "fail": 1, "done": 2}[r["state"]], -(r["started_ts"] or 0)))
+    return out
+
+
 def now_block(now, path=None, names_path=None):
-    """now.json (его кладёт ПК) → {ok, pushed_ts, threads[{id, tk, name, role, version, state, started_ts, updated_ts}]}; name — русское по TK."""
+    """now.json (его кладёт ПК) → {ok, pushed_ts, tasks[{id, tk, name, named, state, chain, threads, started_ts, end_ts}]}; name — русское по TK."""
     d = jload(path or NOW)
     if not isinstance(d, dict) or not isinstance(d.get("threads"), list):
-        return {"ok": False, "err": "файл now.json не найден или не читается", "pushed_ts": None, "threads": []}
+        return {"ok": False, "err": "файл now.json не найден или не читается", "pushed_ts": None, "tasks": []}
     names = jload(names_path or NAMES)
-    names = names if isinstance(names, dict) else {}
-    out = []
-    for t in d["threads"]:
-        if not isinstance(t, dict) or t.get("state") not in ("run", "fail", "done"):
-            continue
-        tk, topic, role = t.get("tk"), t.get("topic"), t.get("role")
-        name = names.get(tk) or (topic.replace("-", " ") if topic else t.get("title") or t.get("id"))
-        out.append({"id": t.get("id"), "tk": tk, "name": name, "named": bool(names.get(tk)), "role": ROLES.get(role, role), "version": t.get("version"),
-                    "state": t["state"], "started_ts": t.get("started_ts"), "updated_ts": t.get("updated_ts")})
-    return {"ok": True, "pushed_ts": d.get("generated_ts"), "threads": out}
+    return {"ok": True, "pushed_ts": d.get("generated_ts"), "tasks": group_tasks(d["threads"], names if isinstance(names, dict) else {})}
 
 
 # ── сборки, нагрузка, диск ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -205,7 +223,7 @@ def main():
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, allow_nan=False, separators=(",", ":"))
     os.replace(tmp, OUT)
-    print(OUT, f"треды {len(data['now']['threads'])}, юниты {len(data['units'])}")
+    print(OUT, f"задач {len(data['now']['tasks'])}, юниты {len(data['units'])}")
 
 
 if __name__ == "__main__":
