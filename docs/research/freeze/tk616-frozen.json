@@ -1,0 +1,174 @@
+{
+ "version": "tk616-frozen-1",
+ "protocol": "П-42 §13.28 п. 7–8",
+ "binary": {
+  "md5": "396989e9d0ad34d19f9b512a659c8e8e",
+  "sha256": "470046d924392f0eab60ee730c43eb943c17913463857458e93b702127ac7fe0",
+  "path": "/data/p42-tk616/alpha-mk.396989e9"
+ },
+ "symbols_sha256": "25c9ad8caab30af583b18f0678189f381282cce23b5d42c043471481bf0eaae0",
+ "cells": {
+  "S_base": {
+   "side": "S",
+   "keys": "lat=4 latx=4 pk=1 pb=1 fh=4 fk=120 fm=50 fb=0.5 ew=5 ex=0 tt=20 tb=0.1 rf=0.2 rs=2 bm=1 e=0.15 e2=0.05",
+   "vid": "c10fbba7be522",
+   "family": true
+  },
+  "S_mk1": {
+   "side": "S",
+   "keys": "lat=4 latx=4 pk=1 pb=1 fh=4 fk=120 fm=50 fb=0.5 ew=5 ex=0 tt=20 tb=0.1 rf=0.2 rs=2 bm=1 e=0.15 e2=0.05 mk=1",
+   "vid": "c934346e168dd",
+   "family": true
+  },
+  "L_base": {
+   "side": "L",
+   "keys": "lat=4 latx=4 pk=1 pb=1 fh=4 fk=120 fm=50 fb=0.5 ew=5 ex=0 rf=0.2 rs=20",
+   "vid": "c53a116125b39",
+   "family": false
+  }
+ },
+ "alpha": {
+  "S_base": 0.03,
+  "S_mk1": 0.01
+ },
+ "point_shares": {
+  "L2": 0.04,
+  "L3": 0.1,
+  "L4": 0.2,
+  "L5": 0.66
+ },
+ "points": [
+  {
+   "id": "L1",
+   "d": "2026-11-30",
+   "entries_to": "2026-11-26",
+   "windows": [
+    "w1"
+   ],
+   "decision": false
+  },
+  {
+   "id": "L2",
+   "d": "2026-12-31",
+   "entries_to": "2026-12-27",
+   "windows": [
+    "w1",
+    "w2"
+   ],
+   "decision": true
+  },
+  {
+   "id": "L3",
+   "d": "2027-01-31",
+   "entries_to": "2027-01-27",
+   "windows": [
+    "w1",
+    "w2"
+   ],
+   "decision": true
+  },
+  {
+   "id": "L4",
+   "d": "2027-02-28",
+   "entries_to": "2027-02-24",
+   "windows": [
+    "w1",
+    "w2",
+    "w3"
+   ],
+   "decision": true
+  },
+  {
+   "id": "L5",
+   "d": "2027-03-31",
+   "entries_to": "2027-03-27",
+   "windows": [
+    "w1",
+    "w2",
+    "w3",
+    "w4"
+   ],
+   "decision": true
+  }
+ ],
+ "windows": [
+  {
+   "name": "w1",
+   "t0": "2026-10-16",
+   "lo": "2026-11-17",
+   "hi": "2026-12-24"
+  },
+  {
+   "name": "w2",
+   "t0": "2026-11-23",
+   "lo": "2026-12-25",
+   "hi": "2027-01-31"
+  },
+  {
+   "name": "w3",
+   "t0": "2026-12-31",
+   "lo": "2027-02-01",
+   "hi": "2027-03-10"
+  },
+  {
+   "name": "w4",
+   "t0": "2027-02-07",
+   "lo": "2027-03-11",
+   "hi": "2027-04-17"
+  },
+  {
+   "name": "w5",
+   "t0": "2027-03-17",
+   "lo": "2027-04-18",
+   "hi": "2027-05-25"
+  }
+ ],
+ "alpha_split_rule": "§13.28 п. 7: α(S_base) + Σ α(мейкеры TK-616) + Σ α(кандидаты TK-618) ≤ 0,05 при любом составе; кандидаты TK-618 берут α только из доли α(S_base); вердикт TK-618 и tk618-frozen.json — до чтения точки L1 (30.11)",
+ "gmk": {
+  "L_mk1": {
+   "side": "L",
+   "sum": -3.25984499999997,
+   "n": 560,
+   "mean": -0.0058211517857142325,
+   "p": 0.5077049229507705,
+   "holm_threshold": 0.05,
+   "holm_reject": false,
+   "positive_months": 2,
+   "counted_months": 5
+  },
+  "L_mk2": {
+   "side": "L",
+   "sum": 158.26974899999996,
+   "n": 451,
+   "mean": 0.3509307073170731,
+   "p": 0.06690933090669093,
+   "holm_threshold": 0.025,
+   "holm_reject": false,
+   "positive_months": 4,
+   "counted_months": 5
+  },
+  "S_mk1": {
+   "side": "S",
+   "sum": 248.053809,
+   "n": 372,
+   "mean": 0.6668113145161291,
+   "p": 0.0025899741002589974,
+   "holm_threshold": 0.0125,
+   "holm_reject": true,
+   "positive_months": 4,
+   "counted_months": 5
+  },
+  "S_mk2": {
+   "side": "S",
+   "sum": 194.59595099999999,
+   "n": 318,
+   "mean": 0.6119369528301887,
+   "p": 0.03564964350356496,
+   "holm_threshold": 0.016666666666666666,
+   "holm_reject": false,
+   "positive_months": 4,
+   "counted_months": 5
+  }
+ },
+ "results_sha256": "dab206c85e1458ed6568247a0fa6faae5f975cb29d1d919f2c7d24f86c5f2c1a"
+}
