@@ -25,7 +25,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).parent))
 import core  # noqa: E402
 import maker_run  # noqa: E402
-from hold_common import CAP_MS, CENTRE_MIN, EX5, FEE_RT_BPS, THETAS, build_coins, day_edges, unit_of  # noqa: E402
+from hold_common import CAP_MS, CENTRE_MIN, EX5, FEE_RT_BPS, THETAS, build_coins, day_edges, rolling_centre, unit_of  # noqa: E402
 
 COLS = ("t", "dur", "side", "open", "i0", "ageA", "ageB", "nA", "nB", "size0", "sizemin", "edge0", "edgemax", "c0", "trend", "price", "priceB", "spA", "spB", "npts", "ndip", "tdip")
 CI = {c: i for i, c in enumerate(COLS)}
@@ -76,7 +76,7 @@ def scan_pair(A, B, t0, t1, thetas=THETAS, tol=None, sim=None):
     """-> dict {eps: {(θ, вид): массив (n, len(COLS))}, nruns: {(θ, вид): участков ≥ SHORT_MS мс}, sim: {(θ, вид): {(d, выход): массив (n, SIM_COLS)}}, …} или None."""
     tol = TOL_MS if tol is None else tol
     sim = DO_SIM if sim is None else sim
-    T, S, Bu, ia, ib = core.pair_series(A, B, t1)
+    T, S, Bu, ia, ib = core.pair_series(A, B, t1, stale_ms=None)
     n = len(T)
     if n < 50:
         return None
@@ -85,7 +85,7 @@ def scan_pair(A, B, t0, t1, thetas=THETAS, tol=None, sim=None):
     if valid.sum() < 50:
         return None
     mins, _, sb, bb = core.minute_bars(T[valid], S[valid], Bu[valid])
-    m0, cen = core.rolling_centre(mins, sb, bb, CENTRE_MIN, CENTRE_MIN // 2)
+    m0, cen = rolling_centre(mins, sb, bb, CENTRE_MIN, CENTRE_MIN // 2)
     cT = cen[np.clip(T // 60000 - m0, 0, len(cen) - 1)]
     mid_min = np.full(len(cen), np.nan)
     mid_min[mins - m0] = (sb[3] + bb[3]) / 2

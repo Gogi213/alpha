@@ -204,7 +204,7 @@ def bridged(cond, T, Tn, tol):
 def grid_report(A, B, t0, t1, th, side, ns=(5, 10, 30, 60)):
     """-> строки сверки для одной стороны: {N: {...}} и все интервалы."""
     import core
-    T, S, Bu, ia, ib = core.pair_series(A, B, t1)
+    T, S, Bu, ia, ib = core.pair_series(A, B, t1, stale_ms=None)
     Tn = np.r_[T[1:], t1]
     e = S if side == 1 else -Bu
     cond = (T >= t0) & (e >= th)

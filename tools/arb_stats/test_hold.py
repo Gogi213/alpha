@@ -135,7 +135,8 @@ def test_rolling_centre_window_params():
     sb = np.zeros((4, 60))
     bb = np.zeros((4, 60))
     bb[3, 30:] = 100.0 * 2                                       # середина закрытия: 0 до 30-й минуты, потом 100 bps (сдвиг уровня)
-    m0, c30 = core.rolling_centre(mins, sb, bb, 30, 15)
+    from hold_common import rolling_centre
+    m0, c30 = rolling_centre(mins, sb, bb, 30, 15)
     m0, c60 = core.rolling_centre(mins, sb, bb)
     assert m0 == 100 and c30[59] == 100.0 and c60[59] == 0.0      # к 59-й минуте медиана 30-минутного окна — новый уровень, 60-минутного — старый
     assert np.isnan(c30[10]) and not np.isnan(c30[16])           # нужно ≥ 15 баров

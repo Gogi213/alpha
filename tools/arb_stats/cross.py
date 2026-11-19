@@ -248,7 +248,7 @@ def prep_mk_x(M, H, tr_e, tr_p, t0, t1, d_ms=maker.D_MS):
     P = maker.prep(M, H, tr_e, tr_p, t0, t1, d_ms)
     if P is None:
         return None
-    T, S, Bu, _, _ = core.pair_series(M, H, t1)
+    T, S, Bu, _, _ = core.pair_series(M, H, t1, stale_ms=None)
     mins, _, sb, bb = core.minute_bars(T, S, Bu)
     m0, cen = core.rolling_centre(mins, sb, bb)
     cT = cen[np.clip(T // 60000 - m0, 0, len(cen) - 1)]
