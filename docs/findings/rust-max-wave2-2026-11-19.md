@@ -1,6 +1,6 @@
 # TK-609 · Rust max · отчёт волны 2 (эпизоды Rust, свёртка суток, полный проход) — 19.11.2026
 
-Ветка `bb/tk-609-rust-max-v6-thr_etsm3usqdr` (от master `01ddc205e`). Продолжение `docs/findings/rust-max-wave1-2026-11-19.md`. Дополнение к протоколу — `docs/plan/tk609-switch-addendum-draft-2026-11-18.md` п. 6 (§13.24.7; PASS критика `thr_gbepkykk5x`, правки критика внесены в `0c04e013e`).
+Ветка `bb/tk-609-rust-max-v6-thr_etsm3usqdr` (от master `01ddc205e`). Продолжение `docs/findings/rust-max-wave1-2026-11-19.md`. Дополнение к протоколу — `docs/archive/tk609-switch-addendum-draft-2026-11-18.md` п. 6 (§13.24.7; PASS критика `thr_gbepkykk5x`, правки критика внесены в `0c04e013e`).
 
 ## 1. Итог
 

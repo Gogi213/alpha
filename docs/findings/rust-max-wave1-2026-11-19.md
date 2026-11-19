@@ -1,6 +1,6 @@
 # TK-609 · Rust max · отчёт волны 1 (порт `tk594_feat` → `alpha-feat`) — 19.11.2026
 
-Ветка `bb/tk-609-rust-max-v1-thr_u9qqxbtn4w`. План — `docs/findings/rust-max-plan-2026-11-18.md` §4.3. Дополнение к протоколу — `docs/plan/tk609-switch-addendum-draft-2026-11-18.md` (§13.24.7, PASS критика `thr_gbepkykk5x` на `fed7bfab5`).
+Ветка `bb/tk-609-rust-max-v1-thr_u9qqxbtn4w`. План — `docs/findings/rust-max-plan-2026-11-18.md` §4.3. Дополнение к протоколу — `docs/archive/tk609-switch-addendum-draft-2026-11-18.md` (§13.24.7, PASS критика `thr_gbepkykk5x` на `fed7bfab5`).
 
 ## 1. Итог
 
