@@ -1,0 +1,30 @@
+    10.59%  [.] <alpha::breakout::tick::ZipSrc as alpha::breakout::tick::TradeSrc>::day                           -      -            
+     5.61%  [.] alpha::breakout::data::parse_dec                                                                  -      -            
+     4.13%  [.] compiler_builtins::int::specialized_div_rem::u128_div_rem                                         -      -            
+     3.36%  [.] core::slice::memchr::memchr_aligned                                                               -      -            
+     2.60%  [.] alpha::breakout::tick::candidates                                                                 -      -            
+     1.79%  [.] __divti3                                                                                          -      -            
+     1.64%  [.] alpha::breakout::data::natr_series                                                                -      -            
+     1.37%  [k] rep_movs_alternative                                                                              -      -            
+     1.35%  [.] std::io::read_until                                                                               -      -            
+     1.33%  [k] clear_page_erms                                                                                   -      -            
+     0.89%  [.] alpha::breakout::tick::parse_px                                                                   -      -            
+     0.61%  [.] alpha::breakout::data::build_bars                                                                 -      -            
+     0.38%  [.] alpha::breakout::tick::sim_fill_lc::_$u7b$$u7b$closure$u7d$$u7d$::h6191cb1484f3146e               -      -            
+     0.36%  [.] <alloc::vec::Vec<T> as alloc::vec::spec_from_iter_nested::SpecFromIterNested<T,I>>::from_iter     -      -            
+     0.34%  [k] __irqentry_text_end                                                                               -      -            
+     0.33%  [.] alpha::breakout::tick::Cursor::next_tick                                                          -      -            
+     0.31%  [.] alpha::breakout::tick::sim_tail                                                                   -      -            
+     0.31%  [.] 0x000000000016be13                                                                                -      -            
+     0.27%  [k] asm_exc_page_fault                                                                                -      -            
+     0.21%  [k] __list_del_entry_valid_or_report                                                                  -      -            
+     0.19%  [k] try_charge_memcg                                                                                  -      -            
+     0.16%  [k] entry_SYSRETQ_unsafe_stack                                                                        -      -            
+     0.14%  [k] __schedule                                                                                        -      -            
+     0.14%  [.] 0x000000000016b2e1                                                                                -      -            
+     0.14%  [k] __rcu_read_lock                                                                                   -      -            
+     0.14%  [k] page_counter_uncharge                                                                             -      -            
+     0.14%  [k] pvclock_clocksource_read_nowd                                                                     -      -            
+     0.13%  [k] update_load_avg                                                                                   -      -            
+     0.13%  [k] _raw_spin_lock                                                                                    -      -            
+     0.12%  [k] __rcu_read_unlock                                                                                 -      -            

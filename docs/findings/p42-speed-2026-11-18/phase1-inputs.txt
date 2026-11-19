@@ -1,0 +1,185 @@
+P-42 / TK-607 — фаза 1 `alpha breakout tick` (`signals_for_coin`): аудит ВСЕХ входов для ключа кэша сигналов (L2)
+===========================================================================================================
+Дата аудита: 2026-11-18. Ветка bb/tk-607-p42-ultra-speed-v1-thr_j667egy23c, HEAD 5c8a095c + НЕЗАКОММИЧЕННЫЕ правки
+(src/breakout/{tick,tick_cli,data,mod,cli}.rs изменены; store.rs, store_tests.rs — новые). Номера строк (file:line) — по рабочему
+дереву на момент аудита; любая правка этих файлов их сдвигает — пересверить перед реализацией. Код только читался (Read/grep).
+
+Обозначения в строках таблиц:
+  in key: yes   — входит в планируемый ключ (§0) и должен;
+  in key: no    — не входит и не должен (на результат фазы 1 не влияет);
+  in key: n.a.  — не вход (константа кода под K1, выход, диагностика).
+Строки-выводы помечены GAP: / WEAK: / TRAP: / DIAG: / NOTE: — собраны в §H.
+Формат строки: <ID> | что | file:line | прочитано в фазе 1? | in key | пояснение.
+
+§0. Планируемый ключ (из задания): sha256 от
+  K1 md5/sha исполняемого файла · K2 версия формата кэша · K3 Debug(SigCfg) (с LevelCfg) · K4 side · K5 t0_ms (P42_T0)
+  K6 START_DAY, START_MIN, COUNT_DAYS, HALF_DAYS, N_MIN, DAYS_TOTAL, SCALE, NATR_PERIODS, TF_MINUTES, DAY_MS, AP_LOOKBACK_DAYS
+  K7 список монет + отпечаток (имя, size, mtime) каждого .b42   K8 версия формата склада сделок (STORE_VERSION)
+  K9 (при записи) отпечатки (size, mtime) каждого суточного zip, прочитанного фазой 1, включая «файла нет».
+  Задания с SigCfg.ap != 0 не кэшируются.
+
+§1. Что достижимо из фазы 1 (граф чтения)
+  tick_cli.rs:361-367  par_map по монетам → signals_for_coin(&syms[i], i as u16, &jobs, &src, outs, ctrs)
+  tick.rs:551-611  signals_for_coin
+    ├ build_levels_far(sym, &cfg.lv, side)        levels.rs:145-147 → build_levels_impl(track=true,count=true) levels.rs:172-321
+    │    ├ sym.bars_for(tf_min)                    data.rs:429-433 → bars_of data.rs:307-336 (минутки o,h,l,c)
+    │    └ find_pivots levels.rs:89-129 · group_ok :72-80 · pk_violated :84-87 · Level::far_edge :152-159
+    ├ candidates(sym, levels, cfg, side, &mut cs)  tick.rs:424-506
+    │    ├ sym.natr_for(natr_p)                    data.rs:421-427 → natr_of data.rs:344-380
+    │    ├ sym.o/h/l/c, sym.pq                     data.rs:382-395, from_cols :398-415
+    │    └ fresh_ok                                tick.rs:382-418
+    ├ src.day(&sym.name, day)                      tick.rs:573 (и :642 только ap != 0) → ZipSrc::day tick.rs:285-321
+    │    ├ LRU                                     tick.rs:204-208, :286-291, :302-319
+    │    ├ fs::metadata + SrcMeta::of              tick.rs:246-249, store.rs:34-49
+    │    ├ TickStore::read / ::write               store.rs:310-332 / :335-381 (tick.rs:250-257, :274-276)
+    │    └ `unzip -p` + parse_trades               tick.rs:258-267, :137-202 (parse_px :91-134, parse_dec data.rs:56-95)
+    ├ minute_range tick.rs:541-548 · first_signal tick.rs:511-538
+    └ came_from_above tick.rs:617-649 (только ap != 0)
+  tick_cli.rs:368-378  слияние по монетам (индексный порядок) + sort_tsigs (tick.rs:652-654)
+  Фаза 1 заканчивается на tick_cli.rs:378; :379-413 — печать в stderr; фаза 2 — с tick_cli.rs:414.
+
+§A. Поля LevelCfg и SigCfg (params.rs:9-49). ВСЕ поля читаются фазой 1; все входят в key через Debug(SigCfg)
+    (derive(Debug) на SigCfg params.rs:22 и LevelCfg params.rs:9 печатает все поля, включая вложенный lv).
+-----------------------------------------------------------------------------------------------------------
+A01 | LevelCfg.tf_min   | levels.rs:179 (bars_for), :188; tick.rs:389 (fresh_ok)                  | read: yes | in key: yes (K3, lv) | таймфрейм баров уровней; ∈ TF_MINUTES data.rs:27
+A02 | LevelCfg.k        | levels.rs:91 (`let k = cfg.k`, далее :93, :96-104)                       | read: yes | in key: yes (K3, lv) | ширина пивота
+A03 | LevelCfg.d_pm     | levels.rs:108                                                            | read: yes | in key: yes (K3, lv) | глубина отскока
+A04 | LevelCfg.n        | levels.rs:204, :284                                                      | read: yes | in key: yes (K3, lv) | минимум отскоков
+A05 | LevelCfg.tau_pm   | levels.rs:209, :217, :241, :252, :278, :287, :291; tick.rs:387, :490     | read: yes | in key: yes (K3, lv) | допуск группы и прокола
+A06 | LevelCfg.l_days   | levels.rs:189                                                            | read: yes | in key: yes (K3, lv) | окно L, суток (×1440 литерал)
+A07 | LevelCfg.pk       | levels.rs:215, :250, :290; tick.rs:490                                   | read: yes | in key: yes (K3, lv) | прокол убивает уровень (§13.11)
+A08 | SigCfg.lv         | tick.rs:563 (ключ HashMap уровней, clone), :564 (build_levels_far)       | read: yes | in key: yes (K3)     | вложенная структура = A01-A07
+A09 | SigCfg.natr_p     | tick.rs:426                                                              | read: yes | in key: yes (K3)     | период NATR пула; ∈ NATR_PERIODS; не из набора → candidates пусто (tick.rs:426-428)
+A10 | SigCfg.natr_min_pm| tick.rs:430 (использование :459)                                         | read: yes | in key: yes (K3)     |
+A11 | SigCfg.t1h_u      | tick.rs:460                                                              | read: yes | in key: yes (K3)     | оборот за 60 мин (pq)
+A12 | SigCfg.t24_u      | tick.rs:461                                                              | read: yes | in key: yes (K3)     | 0 = фильтра нет
+A13 | SigCfg.track_pm   | tick.rs:429, :582                                                        | read: yes | in key: yes (K3)     | dmax = min(e_pm, track_pm)·1000
+A14 | SigCfg.e_pm       | tick.rs:429, :582                                                        | read: yes | in key: yes (K3)     |
+A15 | SigCfg.color      | tick.rs:583 (→ first_signal :532)                                        | read: yes | in key: yes (K3)     |
+A16 | SigCfg.f_pm       | tick.rs:484 (только если ban, :483)                                      | read: yes (условно) | in key: yes (K3) | при ban=false мёртвое поле: ключ консервативен
+A17 | SigCfg.r_min      | tick.rs:476                                                              | read: yes | in key: yes (K3)     |
+A18 | SigCfg.ban        | tick.rs:483                                                              | read: yes | in key: yes (K3)     |
+A19 | SigCfg.ap         | tick.rs:586, :590                                                        | read: yes | in key: yes (K3)     | != 0 → came_from_above (читает до AP_LOOKBACK_DAYS ранних суток, tick.rs:638-646) → НЕ кэшируется
+A20 | SigCfg.pb         | tick.rs:498                                                              | read: yes | in key: yes (K3)     |
+A21 | SigCfg.fr_h_min   | tick.rs:386, :389; через fresh_on() params.rs:167 (вызов tick.rs:383)    | read: yes | in key: yes (K3)     |
+A22 | SigCfg.fr_k       | tick.rs:397, :400 (только при fr_share > 0, :395)                        | read: yes (условно) | in key: yes (K3) | при fr_share=0 мёртвое поле: ключ консервативен
+A23 | SigCfg.fr_share   | tick.rs:395, :397; params.rs:167                                         | read: yes | in key: yes (K3)     |
+A24 | SigCfg.fr_b_pm    | tick.rs:396 (только при fr_share > 0)                                    | read: yes (условно) | in key: yes (K3) | то же
+A25 | SigCfg целиком    | tick_cli.rs:337-347 (jobs: (p.sig.clone(), side)); params.rs:22 (Debug, PartialEq, Eq, Hash) | n.a. | in key: yes (K3) | Debug печатает все поля — новое поле попадёт в ключ само; реализацию ключа делать исчерпывающим destructure (ошибка компиляции при новом поле)
+A26 | Side              | tick.rs:561-566 (side.s() знак рамы), :581-583; mod.rs:41-62            | read: yes | in key: yes (K4)     | Long/Short; Debug-имя или s()
+
+§B. Params / ExitCfg / PortCfg / FilterCfg в фазе 1 — НЕ читаются (проверено)
+-----------------------------------------------------------------------------------------------------------
+B01 | Params.sig → SigCfg | tick_cli.rs:337-347; сигнатура signals_for_coin tick.rs:551-558 принимает только (SigCfg, Side) | read: yes (как A) | in key: yes (K3) | единственная часть Params, доходящая до фазы 1
+B02 | Params.exit / ExitCfg (все поля: natr_p, n_tp, t_low_m, t_high_m, q_pct, be, a_m, r_m, s_pm, slip_bps, best_order, lat_ms, lat_exit_ms, tp_gamma_m, tp_kappa_m, natr_src, ent_w_ms, ent_x_bp, ls_m, tx_min, tx_x_pm, rt_f_pm, rt_s, be_mode, e2_pm, sn_m, sg, sb_m, sr_m, sd_m, tj_m) | params.rs:51-112; grep `ExitCfg|PortCfg|FilterCfg|Params|\.exit\b|\.port\b|\.filt\b` по tick.rs:1-660, levels.rs, data.rs, store.rs, mod.rs → единственное попадание tick.rs:17 (use; используется с фазы 2, tick.rs:681+) | read: NO | in key: no | при ключе по SigCfg результат фазы 1 не зависит от выхода
+B03 | Params.port / PortCfg (cool_min, m_stops, mm_min, s_glob, w_min, ww_min, p, reentry, busy) | params.rs:132-149; тот же grep — нет | read: NO | in key: no |
+B04 | Params.filt / FilterCfg (name, hi, v) | params.rs:117-130; тот же grep — нет; применяется в tick_cli.rs:433-447 (filter_sigs, фаза 2) | read: NO | in key: no | фильтр отбрасывает кандидатов ПОСЛЕ фазы 1; кэш хранит полный поток кандидатов
+B05 | FeatTab / --ftab | tick_cli.rs:306-334 (грузится до фазы 1, но потребляется в фазе 2 tick_cli.rs:436); cli.rs:68 | read: NO | in key: no |
+B06 | текст варианта → SigCfg | tick_cli.rs:294-302; params.rs:283-371 (set), :471-485 (parse_variant); f64 только при разборе (params.rs:160-162, :300-358) | n.a. | in key: yes (K3 — по РАЗОБРАННОМУ SigCfg, не по тексту) | «e=0.3» и «e=0.30» дают один SigCfg
+
+§C. Переменные окружения (std::env::var / var_os) — по всему src/breakout и достижимым из него модулям
+-----------------------------------------------------------------------------------------------------------
+C01 | P42_T0 | data.rs:36 (в grid_start(), OnceLock data.rs:34 — читается один раз за процесс; неверная дата → panic data.rs:38). Потребители из фазы 1: day_string data.rs:199-205 ← tick.rs:241 (имя zip); t0_ms data.rs:51-53 ← tick.rs:138 (base в parse_trades). Не из фазы 1: data.rs:126 (parse_day), :170 (parse_funding), :240, :288 (convert) | порядок: первый вызов grid_start() — внутри фазы 1 (tick.rs:241) либо раньше, если строитель ключа вызовет data::t0_ms(); до этого в run() не вызывается (grep t0_ms|day_string|grid_start) | read: yes | in key: yes (K5) | брать РАЗРЕШЁННОЕ значение data::t0_ms(), не сырую строку (unset ≡ "2026-09-01")
+C02 | P42_SIGSX_ONLY | tick_cli.rs:450 | ПОСЛЕ фазы 1 (внутри замыкания фазы 2, tick_cli.rs:420-523; фаза 1 кончилась на :378) | read: no | in key: no | пропускает run_tick; фазу 1 не меняет
+C03 | P42_SIGS | tick_cli.rs:459 | после фазы 1 | read: no | in key: no | пишет <side>-sigs.csv из готовых sigs[j]
+C04 | P42_SIGSX | tick_cli.rs:465 | после фазы 1 | read: no | in key: no | пишет <side>-sigsx.csv; строит уровни заново build_levels_tracked(.., true) — нумерация уровней та же (levels.rs:166-169: track/count на цены, рождение и конец не влияют)
+C05 | P42_LEVELS | tick_cli.rs:471 | после фазы 1 | read: no | in key: no |
+C06 | P42_DETAIL | tick_cli.rs:474 | после фазы 1 | read: no | in key: no |
+C07 | остальные env в крейте | src/bybit/*, src/lob/{c3,strategy}.rs, src/commands/lob/* (grep var(|var_os( ) | из breakout достижим только crate::lob::costs::leg_fee_bps (tick.rs:22; вызовы tick.rs:1411, :1418 — фаза 2); costs.rs env не читает | read: no | in key: n.a. | clap без `env =` атрибутов (cli.rs: grep пуст); тестовое чтение P42_T0 breakout/tests.rs:567 — не прод
+C08 | env дочерних процессов | `unzip -p` tick.rs:258 наследует окружение процесса (у Info-ZIP unzip есть собственные переменные UNZIP/UNZIPOPT); `df` store.rs:249 (только политика записи склада) | read: косвенно (через unzip) | in key: no | см. GAP-3 (низкий риск)
+
+§D. static / const / atomic / thread_local / OnceLock, достижимые из фазы 1
+-----------------------------------------------------------------------------------------------------------
+Атомики-счётчики (только fetch_add в фазе 1 и load в печати; в условиях логики не читаются → на результат НЕ влияют, диагностика в stderr):
+D01 | PK_MINUTE_KILLED | объявлен tick.rs:33; инкремент tick.rs:493; печать tick_cli.rs:385 (при любом p.sig.lv.pk, :379) | считается на (монета × задание), глобальный | in key: n.a. | DIAG-1
+D02 | FR_REJECTED      | tick.rs:36; инкремент tick.rs:471; печать tick_cli.rs:397 (при fresh_on, :394) | (монета × задание), глобальный | in key: n.a. | DIAG-1
+D03 | PB_KILLED        | tick.rs:39; инкремент tick.rs:500; печать tick_cli.rs:391 (при pb, :388) | (монета × задание), глобальный | in key: n.a. | DIAG-1
+D04 | PK_BIRTH_BLOCKED | levels.rs:22; инкремент levels.rs:295 (только count=true, т.е. build_levels_far); печать tick_cli.rs:383 | (монета × (LevelCfg, Side)) — считается ОДИН раз на общий уровень разных заданий (tick.rs:559-564) | in key: n.a. | DIAG-1
+D05 | PK_RETRO_KILLED  | levels.rs:23; инкремент levels.rs:219, :255; печать tick_cli.rs:384 | то же, что D04 | in key: n.a. | DIAG-1
+Прочие статики:
+D06 | static G: OnceLock (grid_start) | data.rs:34 | влияет на результат (t0) | in key: yes (K5) | см. C01
+D07 | Sym.natr[3], Sym.bars[3]: OnceLock | data.rs:392-393, :421-433 | ленивый кэш чистой функции (o,h,l,c, период/ТФ) | in key: n.a. | в фазе 1 монета обрабатывается одним потоком; при попадании в кэш сигналов эти ряды не прогреваются — фаза 2 строит их сама (data.rs:424, :431; tick.rs:719)
+D08 | thread_local / static mut / lazy_static / unsafe | grep по src/breakout/*.rs (без tests): совпадений нет; все статики модуля — tick.rs:33, :36, :39, levels.rs:22-23, data.rs:34 (D01-D06) | n.a. | n.a. |
+Константы (все под K1; в K6 перечислены не все):
+D09 | N_MIN = DAYS_TOTAL·1440 | data.rs:18-19; чтение: tick.rs:432, data.rs:308, :345, :399, :442 | read: yes | in key: yes (K6 N_MIN, DAYS_TOTAL) |
+D10 | START_DAY / START_MIN | data.rs:21-22; чтение: tick.rs:375 (half_of_day), :454 | read: yes | in key: yes (K6) |
+D11 | HALF_DAYS | data.rs:24; tick.rs:375 | read: yes | in key: yes (K6) | делит счётчик ctrs[j].signals[0|1], tick.rs:607
+D12 | COUNT_DAYS | data.rs:23; в фазе 1 НЕ читается (tick.rs:1518, :1532, :1560 — фаза 2) | read: NO | in key: yes (K6) | избыточен (безвреден)
+D13 | SCALE | data.rs:25; tick.rs:455, :531, :632; data.rs:374-375 | read: yes | in key: yes (K6) |
+D14 | NATR_PERIODS / TF_MINUTES | data.rs:26-27; чтение data.rs:422, :430 | read: yes | in key: yes (K6) |
+D15 | DAY_MS | tick.rs:44; чтение tick.rs:138, :181, :596 | read: yes | in key: yes (K6) |
+D16 | AP_LOOKBACK_DAYS | tick.rs:42; чтение tick.rs:638 (только ap != 0) | read: yes (только некэшируемые задания) | in key: yes (K6) | для кэшируемых заданий не влияет
+D17 | MIN_MS | data.rs:17; чтение tick.rs:542, :544 (minute_range) | read: yes | in key: n.a. (только K1) | в K6 не перечислен — см. NOTE-1
+D18 | T0_MS, T0_DATE | data.rs:15-16; умолчание сетки data.rs:40, :45 | read: yes (при unset P42_T0) | in key: n.a. (только K1; значение сетки — K5) | см. NOTE-1
+D19 | MAGIC .b42 | data.rs:28, :438 | read: yes | in key: n.a. (K1) | формат .b42; T0 в заголовок НЕ пишется (data.rs:219-220) — сетку конвертации по файлу не проверить
+D20 | STORE_VERSION, MAGIC .tk, HEAD_LEN, ZSTD_LEVEL, DF_EVERY | store.rs:25-30 | read: yes (косвенно: склад отдаёт те же Vec<Tick>) | in key: yes (K8 STORE_VERSION; остальные K1) | склад — чистая функция байт zip (store.rs:4-6); K8 избыточен, но безвреден
+D21 | литералы «минут в сутках/часе», процентные масштабы | 1440: tick.rs:461, :542, :569; levels.rs:189; data.rs:19, :22 · 60: tick.rs:460 · 100_000: tick.rs:387, :396, :484, :490; levels.rs:77, :85, :108 · 1000: tick.rs:429-430 | read: yes | in key: n.a. (K1) |
+
+§E. Данные и файлы, из которых строится результат фазы 1
+-----------------------------------------------------------------------------------------------------------
+E01 | .b42: колонки o,h,l,c | data.rs:454-460 (read_cache), :488-506 (load_all); потребители: data.rs:307-336 (bars_of), :344-380 (natr_of); tick.rs:445-461, :390-409 (fresh_ok) | read: yes | in key: yes (K7, отпечаток) | см. WEAK-1
+E02 | .b42: колонка qv → pq (префиксные суммы) | data.rs:398-402; чтение tick.rs:460-461 | read: yes | in key: yes (K7) |
+E03 | .b42: фандинг (Sym.fund) | data.rs:461-483 (читается в память); потребители фандинга только в фазе 2: portfolio.rs:73, tick.rs:1425; печать cli.rs:306 | read: NO | in key: yes (K7, косвенно) | правка фандинга меняет размер/mtime .b42 → лишняя инвалидация кэша сигналов (безвредно, консервативно)
+E04 | .b42: заголовок | data.rs:438 (MAGIC), :441-444 (n == N_MIN) | read: yes | in key: yes (K7, K1) |
+E05 | список монет и их порядок | data.rs:488-500 (read_dir, фильтр `only` :494, files.sort() :500 — по имени, байтовый порядок String); tick_cli.rs:287 (--symbols), :361, :365 (индекс i = si) | read: yes | in key: yes (K7 — ПОЛНЫЙ список загруженных имён, не строка --symbols) | si → TSig.sym (tick.rs:598) и тай-брейк sort_tsigs (tick.rs:653); см. TRAP-2
+E06 | Sym.name (стем файла .b42) | data.rs:493; чтение tick.rs:573, :242-245 (путь zip) | read: yes | in key: yes (K7) |
+E07 | суточный zip: содержимое | tick.rs:240-281 (ZipSrc::load): `unzip -p` → parse_trades tick.rs:137-202 | read: yes | in key: yes (K9 отпечаток size+mtime) | Vec<Tick> — чистая функция (байты zip, дата суток); см. WEAK-2
+E08 | множество прочитанных суток | by_day tick.rs:560, :568-578: ключи = сутки с ≥1 кандидатом задания (для ap = 0 других чтений нет); для ap != 0 дополнительно day-1..day-3 (tick.rs:638-646) | read: yes | in key: yes (K9) | множество — следствие кандидатов (функция .b42 + SigCfg), хранить в значении записи
+E09 | «файла нет» | tick.rs:246-248 (fs::metadata Err → Ok(None) → None) → missing_days tick.rs:573-577 (на КАЖДОГО кандидата, а не на сутки) | read: yes | in key: yes (K9, «absent») | любая ошибка metadata трактуется как «нет файла»
+E10 | отпечаток zip | store.rs:34-49 (SrcMeta::of: size, mtime_s, mtime_ns; None, если mtime недоступен); взят один раз на сутки в tick.rs:249 | read: yes | in key: yes (K9) | см. TRAP-1, TRAP-3
+E11 | каталог --trades | cli.rs:54; tick_cli.rs:352; путь tick.rs:242-245 `<dir>/<name>/<name>-aggTrades-<дата>.zip` | read: yes | in key: no (сам путь), но отпечатки обязаны перепроверяться при ЧТЕНИИ записи в ТЕКУЩЕМ каталоге | см. GAP-2
+E12 | склад .tk (--tick-store) | tick.rs:250-257, :274-276; store.rs:205-246 (parse_file: SrcMeta == meta :223, STORE_VERSION :215), :310-332 | read: yes (косвенно) | in key: no | отдаёт Vec<Tick> байт-в-байт как zip-путь (store.rs:4-6); наличие/состояние склада на результат не влияет
+E13 | Tick.bm (is_buyer_maker) | разбор tick.rs:193; в фазе 1 НЕ читается (first_signal :522-536, came_from_above :627-634 — только px) | read: NO | in key: n.a. | нужен фазе 2 (тот же Vec<Tick>)
+E14 | соответствие сутки сетки → календарная дата | data.rs:199-205 (day_string), tick.rs:138 (base = t0_ms + day·DAY_MS) | read: yes | in key: yes (K5) |
+E15 | сутки без файла → пустой результат дня | tick.rs:573-578 | read: yes | in key: yes (K9) |
+
+§F. Прочие входы и источники недетерминизма
+-----------------------------------------------------------------------------------------------------------
+F01 | часы | в фазе 1 нет SystemTime::now; Instant::now — только тайминги в stderr (tick_cli.rs:286, :292, :330, :403, :517, :555); UNIX_EPOCH store.rs:22, :42 — перевод mtime zip (входной файл, E10) | read: no | in key: no |
+F02 | число потоков / порядок par_map | mod.rs:65-89 (результаты по индексу входа: slots mod.rs:71, :79-81, :85-88); --threads cli.rs:60 (по умолч. 6); слияние tick_cli.rs:370-375 (по индексу монеты); сложение TickCtr коммутативно (tick.rs:364-371) | read: no | in key: no | монеты независимы: signals_for_coin читает только syms[i] и дни той же монеты (tick.rs:573; :642 — name = sym.name)
+F03 | порядок после sort_tsigs: ничьи по (ms, dist, sym, level)? | tick.rs:652-654 (sort_unstable_by_key) | n.a. | in key: n.a. | НИЧЬИХ НЕТ: (ms, sym, level) уникально в пределах задания. (а) на пару (уровень li, минута t) — не более одного Cand: tick.rs:431-469 (push один раз за итерацию t); (б) на Cand — не более одного TSig: tick.rs:579-608; (в) ms ∈ [t·60000, (t+1)·60000) относительно сетки: tick.rs:541-548 + :596, поэтому разные t дают разные ms; (г) sym уникален на монету: tick_cli.rs:365. Один (sym, level, ms) ⇒ один (t) ⇒ один Cand ⇒ один TSig. Ключ — строгий полный порядок, результат не зависит ни от порядка входа, ни от неустойчивости сортировки
+F04 | порядок обхода HashMap | нигде не обходится: tick.rs:559-564 (только entry), LRU tick.rs:205, :286-318 (get/insert/remove; порядок вытеснения — VecDeque tick.rs:206), tick_cli.rs:337-347 (contains_key/insert), :427 (get); levels.rs и data.rs HashMap не используют. BTreeMap by_day (tick.rs:560, :572) — возрастание суток | n.a. | in key: no | детерминизм от порядка вставки/хэша не зависит
+F05 | float | в фазе 1 нет f64/f32 (grep по tick.rs:324-654, levels.rs, data.rs, store.rs: единственное — store.rs:405, печать summary); арифметика i64/i128, mul_div tick.rs:48-53 (быстрый путь i64, иначе i128; результат тот же) | n.a. | in key: no | f64 только при разборе варианта (params.rs:160-162, :300-358) и в фазе 2 — отсюда B06
+F06 | переполнение целых | в Cargo.toml нет [profile] → умолчания (dev: проверки, release: заворачивание); в фазе 1 явного wrapping — только декодер склада store.rs:158 | n.a. | in key: n.a. (K1) |
+F07 | внешняя программа `unzip` | tick.rs:258-264 (PATH, версия, UNZIP/UNZIPOPT); статус tick.rs:268-272 (код != 0 → Err) | read: yes (косвенно) | in key: no | GAP-3 (низкий)
+F08 | ошибка загрузки суток ≠ «нет файла» только в счётчиках | tick.rs:292-300 (Err → eprintln :295, stat.errors += 1 :296-298 → None) | read: yes | in key: no | в signals_for_coin результат неотличим от отсутствующего дня (tick.rs:573-577); итог — ненулевой код возврата tick_cli.rs:563-565, но выходы уже записаны → GAP-1
+F09 | LRU и --cap-gb | tick.rs:302-319; cli.rs:65; tick_cli.rs:352 | read: no | in key: no | только память; ошибка запоминается как None (tick.rs:302-308) — повторный запрос в процессе не пересчитывает ошибку; после вытеснения (:310-318) — повторит
+F10 | независимость заданий внутри одного вызова | by_day и lev общие (tick.rs:559-571), но результат задания j равен вызову с одним этим заданием: записи by_day несут индекс j, lev — чистая функция (LevelCfg, Side) | n.a. | in key: no | можно звать signals_for_coin только с некэшированным подмножеством заданий (outs/ctrs индексируются по срезу)
+F11 | печатные счётчики LoadStat | tick_cli.rs:400-410, :553-558; tick.rs:69-77 | n.a. | in key: n.a. | DIAG-1
+F12 | порядок/дедупликация заданий | tick_cli.rs:337-347 (jobs: по порядку вариантов, дубли SigCfg+Side сливаются) | n.a. | in key: no | запись кэша — на (SigCfg, Side), а не на индекс j
+
+§G. Выход фазы 1, который должен лежать в значении записи кэша (на задание и монету)
+-----------------------------------------------------------------------------------------------------------
+G01 | TSig.ms    | tick.rs:596 (day·DAY_MS + off)            | потребители: sort tick.rs:653; фаза 2; ftab tick_cli.rs:436
+G02 | TSig.sym   | tick.rs:598 (параметр si ← tick_cli.rs:365) | тай-брейк сортировки; syms[x.sym] во всех выводах — зависит от списка монет (E05)
+G03 | TSig.level | tick.rs:599 (индекс в Vec<Level> build_levels_far) | tick_cli.rs:160, :236 индексируют build_levels_tracked(..) — нумерация та же (levels.rs:166-169)
+G04 | TSig.dist  | tick.rs:600
+G05 | TSig.t     | tick.rs:601 (минута сетки)
+G06 | TSig.day   | tick.rs:602 (u16) ; потребители tick.rs:1176, :1345, :1384, :1646
+G07 | TSig.idx   | tick.rs:603 — индекс в Vec<Tick> суток; фаза 2 читает те же сутки Cursor::new(..sig.idx+1) (tick.rs:1176, :1345, :1384, :1646-1669) | валиден только при тех же байтах zip → K9 перепроверять при чтении
+G08 | TSig.lp    | tick.rs:603-604 (c.lp)
+G09 | TSig.far   | tick.rs:604 (c.far)
+G10 | TSig.ws    | tick.rs:605 | для кэшируемых (ap = 0) всегда false
+G11 | TickCtr.cands, .signals[2], .missing_days, .ap_wrong | tick.rs:567, :607, :575, :589; потребители tick_cli.rs:497-501 (meta.json) | ap_wrong для ap = 0 всегда 0
+G12 | после слияния монет: sort_tsigs по каждому заданию обязателен (tick_cli.rs:376-378); ctr[j].add (tick_cli.rs:373)
+
+§H. ИТОГ
+-----------------------------------------------------------------------------------------------------------
+GAP-1: load errors are not in the key and are invisible per coin. ZipSrc::day maps a load error (unzip failure, parse error, spawn failure; tick.rs:292-300, errors += 1 at :296-298) to None, which signals_for_coin treats exactly like an absent day (tick.rs:573-577, missing_days). The run then exits non-zero (tick_cli.rs:563-565), but a cached entry would replay the truncated signals as a success; the zip fingerprint of the same broken file would match forever. LoadStat is one global Mutex (tick.rs:215), so the error cannot be attributed to a coin under par_map. Rule needed: write no signal-cache entries when src.stat.errors > 0 after phase 1 (visible at tick_cli.rs:400) — or return a per-(coin, day) error flag from ZipSrc.
+GAP-2 (conditional on design): zip fingerprints (K9) are only effective if re-checked on READ against the CURRENT --trades dir (tick_cli.rs:352; path tick.rs:242-245), for every day recorded in the entry incl. "absent". The --trades dir path itself is not in the key; if the hit path trusts the key without re-stat, zip content / zip set / --trades dir are uncovered inputs.
+GAP-3 (low, external): the bytes parse_trades sees come from the external `unzip -p` (tick.rs:258-264): binary version, PATH and its own env (UNZIP/UNZIPOPT, inherited env C08) are not in the key. Accept (zip + exit-status check make it very unlikely) or add a hash of `unzip -v` to K1/K2.
+no other gaps: SigCfg+LevelCfg fully read and fully in K3 (A01-A25); Params.exit/port/filt NOT read (B02-B05); P42_T0 is the only env var read by phase 1 and is in K5 (C01); P42_SIGSX_ONLY / P42_SIGS / P42_SIGSX / P42_LEVELS / P42_DETAIL are read after phase 1 and do not affect it (C02-C06); no clock, no float, no HashMap iteration; sort_tsigs has no ties (F03); thread count/order irrelevant (F02).
+
+WEAK-1: the .b42 fingerprint (name, size, mtime) is weak on size: the file layout is fixed (8 + 5·8·N_MIN + 4 + 24·nf bytes; data.rs:219-231), so only mtime discriminates content; mtime restored with 1-second resolution (rsync -t, cp -p, tar) or a rewrite within one tick leaves the key unchanged. Cheap fix: hash the 5 column bytes (4,608,000 bytes per coin; the whole file is already in memory at data.rs:437). Funding-only changes also invalidate (E03) — harmless.
+WEAK-2: the zip fingerprint (size, mtime_s, mtime_ns) has the same property as the existing .tk store check (store.rs:223) — same-size, same-mtime, different-content replacement is not detected. Accept (precedent) or add the zip CRC from the central directory.
+
+TRAP-1: capture fingerprints PER REQUESTED (coin, day) of each job (by_day keys, tick.rs:568-578), not per physical load: ZipSrc memoizes in the LRU (tick.rs:286-291), so a second job of the same coin never triggers a load, and a hook on load/ZipSrc::day would leave its entry without fingerprints. Also: with the LRU a load is not repeated, so take the fingerprint from the same metadata the store used (tick.rs:246-249).
+TRAP-2: TSig.sym is the index in the alphabetically sorted LOADED coin list (data.rs:500; tick_cli.rs:361, :365). Per-coin entries must be keyed by the full loaded coin list (or store coin-relative and re-stamp si); keying a per-coin entry by that coin's .b42 alone returns stale sym after --symbols changes. Use the loaded names (data.rs:488-504), not the --symbols string.
+TRAP-3: SrcMeta::of returns None when mtime is unavailable (store.rs:41-48) — then no fingerprint exists: do not cache that day/entry.
+TRAP-4: P42_T0 must be keyed as the resolved data::t0_ms() (data.rs:51-53), not the raw env text; the first grid_start() call may panic on a bad date (data.rs:38) — call it before spawning workers.
+TRAP-5: after merging cached + fresh per-coin results, sort_tsigs (tick_cli.rs:376-378) and ctr[j].add (tick_cli.rs:373) must still run; the order is total (F03), so merge order does not matter.
+
+DIAG-1 (side effects that disappear on a cache hit): (a) stderr counters pk / pb / свежий уровень (tick_cli.rs:379-399; atomics D01-D05) and the LoadStat line "фаза 1 готова …; файлов N, строк N, не по порядку N, вне суток N, плохих строк N, ошибок N" (tick_cli.rs:400-410) are produced only by computing/loading; on a hit they under-count. They do not affect results or meta.json (tick_cli.rs:494-514), but tools/p42/tk607_gate.sh:37-39 compares exactly these lines against the reference log (REF_LOG) — a gate run with --sig-cache will show "DIFF счётчики журнала" unless the lines are replayed or excluded. Replay is additive for D01-D03 per (coin, job); NOT per job for D04-D05 (counted once per (coin, LevelCfg, Side), tick.rs:559-564) and for LoadStat (counted once per physical (coin, day) load, shared by jobs). All counters are global atomics/Mutex today (not per job), so replay needs them returned from signals_for_coin (e.g. in TickCtr) rather than read before/after.
+
+NOTE-1: constants not listed in K6 but read in phase 1: MIN_MS (data.rs:17; tick.rs:542), T0_MS/T0_DATE (data.rs:15-16; grid default), MAGIC .b42 (data.rs:28), and the literals in D21. All are covered by K1 (executable hash). If K1 is ever relaxed (e.g. keyed by source revision instead), add them to K6.
+NOTE-2: key over-coverage (harmless): COUNT_DAYS (not read in phase 1), STORE_VERSION (the store is a pure function of the zip), fr_k/fr_b_pm/f_pm (dead for some configs), .b42 funding bytes.

@@ -16,11 +16,13 @@ use super::data::{
 use super::levels::{build_levels_far, Level};
 use super::params::{ExitCfg, LevelCfg, PortCfg, SigCfg};
 use super::portfolio::Settled;
+use super::store::{DayTrades, QtyRaw, SrcMeta, TickStore};
 use super::trade::{frac, ExitKind, NOTIONAL_U};
 use super::Side;
 use crate::lob::costs::leg_fee_bps;
 use anyhow::{bail, Context, Result};
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
+use std::fs;
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
@@ -40,6 +42,15 @@ pub static PB_KILLED: AtomicU64 = AtomicU64::new(0);
 pub const AP_LOOKBACK_DAYS: usize = 3;
 
 pub const DAY_MS: i64 = 86_400_000;
+
+/// `a·b/d` с усечением к нулю — как прежнее `i128`-выражение; быстрый путь в `i64`, при переполнении (и делителе 0, `MIN/−1`) — `i128`.
+#[inline]
+pub fn mul_div(a: i64, b: i64, d: i64) -> i128 {
+    if let Some(q) = a.checked_mul(b).and_then(|x| x.checked_div(d)) {
+        return i128::from(q);
+    }
+    i128::from(a) * i128::from(b) / i128::from(d)
+}
 
 /// Одна агрегированная сделка: цена ×1e8, время — мс от начала суток файла, `bm` = `is_buyer_maker`
 /// (агрессор — продавец).
@@ -122,8 +133,81 @@ pub fn parse_px(b: &[u8]) -> Option<i64> {
     }
 }
 
+/// Неотрицательная десятичная строка (в том числе `1.5E-4`) → `(мантисса, знаков после точки)`: значение = мантисса / 10^знаков,
+/// хвостовые нули дробной части убраны; `None` — не число или не помещается в `u64`/`u8`.
+pub fn dec_parts(b: &[u8]) -> Option<(u64, u8)> {
+    let (m, e) = match b.iter().position(|&c| c == b'E' || c == b'e') {
+        Some(k) => (&b[..k], Some(&b[k + 1..])),
+        None => (b, None),
+    };
+    let mut exp = 0i32;
+    if let Some(e) = e {
+        let (neg, e) = match e.first()? {
+            b'-' => (true, &e[1..]),
+            b'+' => (false, &e[1..]),
+            _ => (false, e),
+        };
+        if e.is_empty() || e.len() > 3 {
+            return None;
+        }
+        for &c in e {
+            let d = c.wrapping_sub(b'0');
+            if d > 9 {
+                return None;
+            }
+            exp = exp * 10 + i32::from(d);
+        }
+        if neg {
+            exp = -exp;
+        }
+    }
+    let (mut mant, mut dec, mut dot, mut any) = (0u64, 0i32, false, false);
+    for &c in m {
+        if c == b'.' && !dot {
+            dot = true;
+            continue;
+        }
+        let d = c.wrapping_sub(b'0');
+        if d > 9 {
+            return None;
+        }
+        mant = mant.checked_mul(10)?.checked_add(u64::from(d))?;
+        dec += i32::from(dot);
+        any = true;
+    }
+    if !any {
+        return None;
+    }
+    dec -= exp;
+    while dec > 0 && mant % 10 == 0 {
+        mant /= 10;
+        dec -= 1;
+    }
+    if dec < 0 {
+        mant = mant.checked_mul(10u64.checked_pow(dec.unsigned_abs())?)?;
+        dec = 0;
+    }
+    u8::try_from(dec).ok().map(|d| (mant, d))
+}
+
 /// CSV суток (`agg_trade_id,price,quantity,first_trade_id,last_trade_id,transact_time,is_buyer_maker`) → сделки.
-pub fn parse_trades(mut rd: impl BufRead, day: usize, st: &mut LoadStat) -> Result<Vec<Tick>> {
+pub fn parse_trades(rd: impl BufRead, day: usize, st: &mut LoadStat) -> Result<Vec<Tick>> {
+    parse_rows(rd, day, st, None)
+}
+
+/// То же и количество (TK-609): сделки те же, что у `parse_trades`, плюс количество по строкам и флаги точности.
+pub fn parse_trades_full(rd: impl BufRead, day: usize, mut st: LoadStat) -> Result<DayTrades> {
+    let mut raw = QtyRaw::default();
+    let ticks = parse_rows(rd, day, &mut st, Some(&mut raw))?;
+    Ok(DayTrades::new(ticks, raw, st))
+}
+
+fn parse_rows(
+    mut rd: impl BufRead,
+    day: usize,
+    st: &mut LoadStat,
+    mut col: Option<&mut QtyRaw>,
+) -> Result<Vec<Tick>> {
     let base = super::data::t0_ms() + day as i64 * DAY_MS;
     let mut v: Vec<Tick> = Vec::new();
     let mut line: Vec<u8> = Vec::with_capacity(128);
@@ -138,7 +222,7 @@ pub fn parse_trades(mut rd: impl BufRead, day: usize, st: &mut LoadStat) -> Resu
             continue;
         }
         let mut f = line.split(|&c| c == b',');
-        let (_, Some(p), _, _, _, Some(t), Some(b)) = (
+        let (_, Some(p), q, _, _, Some(t), Some(b)) = (
             f.next(),
             f.next(),
             f.next(),
@@ -181,11 +265,17 @@ pub fn parse_trades(mut rd: impl BufRead, day: usize, st: &mut LoadStat) -> Resu
             off,
             bm: b.first() == Some(&b't'),
         });
+        if let Some(c) = col.as_deref_mut() {
+            c.push(p, px, q);
+        }
         st.rows += 1;
     }
     if unsorted {
         st.unsorted_files += 1;
-        v.sort_by_key(|x| x.off);
+        match col {
+            Some(c) => c.sort_with(&mut v),
+            None => v.sort_by_key(|x| x.off),
+        }
     }
     Ok(v)
 }
@@ -202,6 +292,8 @@ pub struct ZipSrc {
     cap_bytes: usize,
     lru: Mutex<Lru>,
     pub stat: Mutex<LoadStat>,
+    /// TK-607 (L1): склад разобранных суток; без него — прежний путь (`unzip` + CSV).
+    store: Option<Arc<TickStore>>,
 }
 
 impl ZipSrc {
@@ -215,16 +307,45 @@ impl ZipSrc {
                 bytes: 0,
             }),
             stat: Mutex::new(LoadStat::default()),
+            store: None,
         }
     }
 
-    fn load(&self, name: &str, day: usize) -> Result<Option<Vec<Tick>>> {
+    pub fn with_store(mut self, store: Arc<TickStore>) -> ZipSrc {
+        self.store = Some(store);
+        self
+    }
+
+    /// Сутки монеты со склада или из zip. `full` — вместе с количеством (TK-609, `read_day`); без него — путь движка: со склада
+    /// читается только блок сделок, а количество при первой загрузке разбирается лишь ради записи в склад и отбрасывается.
+    fn load_day(&self, name: &str, day: usize, full: bool) -> Result<Option<DayTrades>> {
+        let date = day_string(day);
         let p = self
             .dir
             .join(name)
-            .join(format!("{name}-aggTrades-{}.zip", day_string(day)));
-        if !p.exists() {
+            .join(format!("{name}-aggTrades-{date}.zip"));
+        let Ok(md) = fs::metadata(&p) else {
             return Ok(None);
+        };
+        let meta = SrcMeta::of(&md);
+        if let (Some(store), Some(meta)) = (&self.store, &meta) {
+            let hit = if full {
+                store.read_day(name, &date, meta)
+            } else {
+                store
+                    .read(name, &date, meta)
+                    .map(|(ticks, stat)| DayTrades {
+                        ticks,
+                        stat,
+                        ..DayTrades::default()
+                    })
+            };
+            if let Some(d) = hit {
+                if let Ok(mut g) = self.stat.lock() {
+                    g.add(&d.stat);
+                }
+                return Ok(Some(d));
+            }
         }
         let mut child = Command::new("unzip")
             .arg("-p")
@@ -234,18 +355,38 @@ impl ZipSrc {
             .spawn()
             .with_context(|| format!("unzip {}", p.display()))?;
         let out = child.stdout.take().context("unzip: нет stdout")?;
-        let mut st = LoadStat::default();
-        let v = parse_trades(BufReader::with_capacity(1 << 20, out), day, &mut st);
+        let rd = BufReader::with_capacity(1 << 20, out);
+        let parsed = if full || self.store.is_some() {
+            parse_trades_full(rd, day, LoadStat::default())
+        } else {
+            let mut st = LoadStat::default();
+            parse_trades(rd, day, &mut st).map(|ticks| DayTrades {
+                ticks,
+                stat: st,
+                ..DayTrades::default()
+            })
+        };
         let status = child.wait()?;
-        let v = v?;
+        let mut d = parsed?;
         if !status.success() {
             bail!("unzip {}: {status}", p.display());
         }
-        st.files = 1;
-        if let Ok(mut g) = self.stat.lock() {
-            g.add(&st);
+        d.stat.files = 1;
+        if let (Some(store), Some(meta)) = (&self.store, &meta) {
+            store.write(name, &date, meta, &d);
         }
-        Ok(Some(v))
+        if let Ok(mut g) = self.stat.lock() {
+            g.add(&d.stat);
+        }
+        if !full {
+            d.qty = Vec::new();
+        }
+        Ok(Some(d))
+    }
+
+    /// Сутки с количеством, без кэша (потребитель решает сам, что держать в памяти): со склада или из zip с записью в склад.
+    pub fn read_day(&self, name: &str, day: usize) -> Result<Option<DayTrades>> {
+        self.load_day(name, day, true)
     }
 }
 
@@ -257,8 +398,8 @@ impl TradeSrc for ZipSrc {
                 return v.clone();
             }
         }
-        let loaded = match self.load(sym, day) {
-            Ok(v) => v.map(Arc::new),
+        let loaded = match self.load_day(sym, day, false) {
+            Ok(v) => v.map(|d| Arc::new(d.ticks)),
             Err(e) => {
                 eprintln!("ОШИБКА загрузки {sym} день {day}: {e:#}");
                 if let Ok(mut g) = self.stat.lock() {
@@ -352,7 +493,7 @@ pub fn fresh_ok(sym: &Sym, cfg: &SigCfg, lv: &Level, s: i64, lp: i64, t: usize) 
         return true;
     }
     if cfg.fr_h_min > 0 {
-        let tau = (i128::from(lp.abs()) * i128::from(cfg.lv.tau_pm) / 100_000) as i64;
+        let tau = mul_div(lp.abs(), cfg.lv.tau_pm, 100_000) as i64;
         let band = lp - tau;
         let lo = (lv.first_bar as usize * cfg.lv.tf_min).max(t.saturating_sub(cfg.fr_h_min));
         let touch = |m: usize| sym.o[m] != 0 && (if s > 0 { sym.h[m] } else { -sym.l[m] }) >= band;
@@ -361,7 +502,7 @@ pub fn fresh_ok(sym: &Sym, cfg: &SigCfg, lv: &Level, s: i64, lp: i64, t: usize) 
         }
     }
     if cfg.fr_share > 0 {
-        let lim = (i128::from(lp.abs()) * i128::from(cfg.fr_b_pm) / 100_000) as i64;
+        let lim = mul_div(lp.abs(), cfg.fr_b_pm, 100_000) as i64;
         let need = cfg.fr_k * cfg.fr_share / 100;
         let mut n_in = 0usize;
         let mut beyond = false;
@@ -420,9 +561,7 @@ pub fn candidates(sym: &Sym, levels: &[Level], cfg: &SigCfg, side: Side, out: &m
                 (-sym.l[t], -sym.h[t])
             };
             if t >= START_MIN && !forbidden && lo < lp {
-                let zone_lo = lp
-                    - (i128::from(lp.abs()) * i128::from(dmax + 1) / i128::from(SCALE)) as i64
-                    - 1;
+                let zone_lo = lp - mul_div(lp.abs(), dmax + 1, SCALE) as i64 - 1;
                 let nv = i64::from(natr[t - 1]);
                 if hi >= zone_lo
                     && nv >= 0
@@ -451,16 +590,13 @@ pub fn candidates(sym: &Sym, levels: &[Level], cfg: &SigCfg, side: Side, out: &m
                 pend = Some(t);
             }
             if cfg.ban && pend.is_some() {
-                let back = lp - (i128::from(lp.abs()) * i128::from(cfg.f_pm) / 100_000) as i64;
+                let back = lp - mul_div(lp.abs(), cfg.f_pm, 100_000) as i64;
                 if s * sym.c[t] < back {
                     forbidden = true;
                 }
             }
             // §13.11 (`pk`): прокол цены версии больше чем на τ убивает уровень навсегда, со следующей минуты
-            if cfg.lv.pk
-                && !pk_dead
-                && hi > lp + (i128::from(lp.abs()) * i128::from(cfg.lv.tau_pm) / 100_000) as i64
-            {
+            if cfg.lv.pk && !pk_dead && hi > lp + mul_div(lp.abs(), cfg.lv.tau_pm, 100_000) as i64 {
                 pk_dead = true;
                 if !forbidden {
                     PK_MINUTE_KILLED.fetch_add(1, Ordering::Relaxed);
@@ -501,7 +637,7 @@ pub fn first_signal(
         if hi >= lp {
             return None;
         }
-        let dist = (i128::from(lp - p) * i128::from(SCALE) / i128::from(lp.abs())) as i64;
+        let dist = mul_div(lp - p, SCALE, lp.abs()) as i64;
         if dist > dmax || (color && p <= op) {
             continue;
         }
@@ -602,7 +738,7 @@ pub fn came_from_above(
         if p >= lp {
             return Some(true);
         }
-        let dist = (i128::from(lp - p) * i128::from(SCALE) / i128::from(lp.abs())) as i64;
+        let dist = mul_div(lp - p, SCALE, lp.abs()) as i64;
         (dist > dmax).then_some(false)
     };
     if let Some(r) = ticks[..k].iter().rev().find_map(decide) {
