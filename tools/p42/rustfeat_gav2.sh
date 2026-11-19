@@ -2,7 +2,7 @@
 # TK-609: ворота G-A1 / G-A3 / G-A2 на `alpha-feat` со СКЛАДОМ суток (StoreDaySrc), один сквозной прогон на srv (юнит systemd-run, nice 0, ≤ 4 процессов счёта).
 # Склад — общий, один на все окна (предзаливка TK-607): `/data/p42-tk599/tick-store`. Включается окружением (`TK594_STORE*`), как в боевом запуске TK-599, —
 # вызывающий код (`rustfeat_run.py` в `retitr_ftab`) не меняется.
-# Использование: rustfeat_gav2.sh <a|b> [BIN] [STORE]
+# Использование: rustfeat_gav2.sh <a|b> [BIN] [STORE]   (SCOPE=sw — только G-A1 и G-A3; SCOPE=ga2 — только G-A2; по умолчанию all)
 #   a — со `--store-verify` (каждые сутки сверены с разбором CSV, mismatch должен быть 0), склад пишется (потолок 40 ГБ, стоп при свободном < 40 ГБ — как у предзаливки):
 #       промах → разбор zip → атомарная запись (tmp+rename) тем же кодом, что у движка; прогон заодно заполняет склад;
 #   b — боевая конфигурация: без сверки, склад только читается (`TK594_STORE_CAP_GB=0`).
@@ -20,8 +20,11 @@ cd $R
 log() { echo "[$(date -u +%H:%M:%S)] $*"; }
 S=$TAG$PH
 log "фаза $PH ($TAG): бинарь $BIN md5 $(md5sum "$BIN" | cut -c1-12), склад $STORE, cap ${TK594_STORE_CAP_GB} ГБ, аргументы '${P42_FEAT_ARGS:-}'"
-log "G-A1";  OUT=$R/ga1-$S bash $R/ga1.sh > $R/ga1-$S.log 2>&1
-log "G-A3 (из таблиц G-A1)";  G1=$R/ga1-$S OUT=$R/ga3-$S bash $R/ga3.sh > $R/ga3-$S.log 2>&1
+if [ "${SCOPE:-all}" != ga2 ]; then
+  log "G-A1";  OUT=$R/ga1-$S bash $R/ga1.sh > $R/ga1-$S.log 2>&1
+  log "G-A3 (из таблиц G-A1)";  G1=$R/ga1-$S OUT=$R/ga3-$S bash $R/ga3.sh > $R/ga3-$S.log 2>&1
+fi
+[ "${SCOPE:-all}" = sw ] && { log "ГОТОВО $S (G-A1 + G-A3)"; echo done > $R/gav2-$S.done; exit 0; }
 log "G-A2 deriv"
 OUT=$R/ga2-$S bash $R/ga2.sh u0 deriv 2 > $R/ga2-$S-u0-deriv.log 2>&1 &
 OUT=$R/ga2-$S bash $R/ga2.sh aug deriv 2 > $R/ga2-$S-aug-deriv.log 2>&1 &
