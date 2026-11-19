@@ -119,19 +119,29 @@ pub(super) fn from_store(d: &StoredDay, abs_day: i64) -> Option<DayTrades> {
         return None;
     }
     let base = abs_day * DAY_MS;
-    let mut out = DayTrades {
-        t: Vec::with_capacity(n),
-        v: Vec::with_capacity(n),
-        buy: Vec::with_capacity(n),
-        unsorted: d.stat.unsorted_files > 0,
+    // три простых прохода по записям (без обращений по индексу): значения те же, что у `px_f64(i) * qty_f64(i)`
+    let p10 = if n == 0 {
+        1.0
+    } else {
+        QTY_P10[usize::from(d.qty_dec)]
     };
-    for (i, tk) in d.ticks.iter().enumerate() {
-        out.t.push(base + i64::from(tk.off));
-        out.v.push(d.px_f64(i) * d.qty_f64(i));
-        out.buy.push(!tk.bm);
-    }
-    Some(out)
+    Some(DayTrades {
+        t: d.ticks.iter().map(|tk| base + i64::from(tk.off)).collect(),
+        v: d.ticks
+            .iter()
+            .zip(&d.qty)
+            .map(|(tk, &q)| (tk.px as f64 / 1e8) * (q as f64 / p10))
+            .collect(),
+        buy: d.ticks.iter().map(|tk| !tk.bm).collect(),
+        unsorted: d.stat.unsorted_files > 0,
+    })
 }
+
+/// `10^k`, `k ≤ 18`, — как `POW10` склада (`DayTrades::qty_f64`).
+const QTY_P10: [f64; 19] = [
+    1e0, 1e1, 1e2, 1e3, 1e4, 1e5, 1e6, 1e7, 1e8, 1e9, 1e10, 1e11, 1e12, 1e13, 1e14, 1e15, 1e16,
+    1e17, 1e18,
+];
 
 fn same_day(a: &DayTrades, b: &DayTrades) -> bool {
     a.t == b.t

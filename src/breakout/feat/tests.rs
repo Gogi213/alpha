@@ -377,6 +377,57 @@ fn store_day_equals_csv_parse_bitwise() {
     );
 }
 
+/// `from_store` (три прохода по записям) побитово равен прежней формуле `px_f64(i) · qty_f64(i)` на любом масштабе количества 0…18,
+/// включая пустые сутки и количество у границы `2^53`.
+#[test]
+fn from_store_equals_px_qty_formula() {
+    use crate::breakout::store::DayTrades as StoredDay;
+    use crate::breakout::tick::Tick;
+    let mut st = 0x1234_5678_9ABC_DEF1u64;
+    let mut rnd = move || {
+        st ^= st << 13;
+        st ^= st >> 7;
+        st ^= st << 17;
+        st
+    };
+    for qty_dec in 0u8..=18 {
+        for n in [0usize, 1, 2, 1000] {
+            let ticks: Vec<Tick> = (0..n)
+                .map(|_| Tick {
+                    px: (rnd() % 100_000_000_000_000) as i64 + 1,
+                    off: (rnd() % 86_400_000) as u32,
+                    bm: rnd() & 1 == 1,
+                })
+                .collect();
+            let qty: Vec<u64> = (0..n)
+                .map(|k| match k % 4 {
+                    0 => rnd() % 1_000_000,
+                    1 => rnd() % (1u64 << 53),
+                    2 => 1u64 << 53,
+                    _ => rnd() % 100,
+                })
+                .collect();
+            let d = StoredDay {
+                ticks,
+                qty,
+                qty_dec,
+                ..StoredDay::default()
+            };
+            let got = from_store(&d, 20_000).expect("чистые сутки");
+            assert_eq!(got.v.len(), n);
+            for i in 0..n {
+                assert_eq!(
+                    got.v[i].to_bits(),
+                    (d.px_f64(i) * d.qty_f64(i)).to_bits(),
+                    "dec {qty_dec} i {i}"
+                );
+                assert_eq!(got.t[i], 20_000 * 86_400_000 + i64::from(d.ticks[i].off));
+                assert_eq!(got.buy[i], !d.ticks[i].bm);
+            }
+        }
+    }
+}
+
 #[test]
 fn store_file_round_trip_and_fallbacks() {
     let dir = tempfile::tempdir().expect("tmp");

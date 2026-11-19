@@ -5,7 +5,8 @@ use super::data::{
     build_bars, natr_series, Cols, Sym, DAYS_TOTAL, NATR_PERIODS, N_MIN, START_DAY, TF_MINUTES,
 };
 use super::store::{
-    decode, encode, DayTrades, SrcMeta, StoreOpts, TickStore, F_PX_INEXACT, F_QTY_BAD, F_QTY_F64,
+    decode, encode, get, DayTrades, SrcMeta, StoreOpts, TickStore, F_PX_INEXACT, F_QTY_BAD,
+    F_QTY_F64,
 };
 use super::tick::{
     dec_parts, first_signal, mul_div, parse_trades, parse_trades_full, LoadStat, Tick, TradeSrc,
@@ -92,6 +93,59 @@ fn codec_round_trip() {
         if !t.is_empty() {
             assert_eq!(decode(&raw[..raw.len() - 1], t.len()), None, "обрыв");
             assert_eq!(decode(&raw, t.len() - 1), None, "лишние байты");
+        }
+    }
+}
+
+/// Прежний побайтовый varint (до быстрого пути для одного байта) — эталон для `get`.
+fn get_ref(b: &[u8], i: &mut usize) -> Option<u64> {
+    let (mut r, mut s) = (0u64, 0u32);
+    loop {
+        let c = *b.get(*i)?;
+        *i += 1;
+        if s > 63 {
+            return None;
+        }
+        r |= u64::from(c & 0x7f) << s;
+        if c < 0x80 {
+            return Some(r);
+        }
+        s += 7;
+    }
+}
+
+/// `get` (однобайтовый случай в месте вызова + `get_multi`) даёт тот же результат и тот же курсор, что прежний цикл: граничные значения,
+/// обрывы, длиннее 10 байт, случайные байтовые строки.
+#[test]
+fn varint_get_matches_reference() {
+    let mut cases: Vec<Vec<u8>> = vec![
+        vec![],
+        vec![0],
+        vec![0x7f],
+        vec![0x80],
+        vec![0x80, 0x01],
+        vec![0xff; 10],
+        vec![0xff; 11],
+        vec![0x80; 10],
+        vec![0x80; 9],
+        vec![0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x01],
+        vec![0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x7f],
+    ];
+    let mut r = Lcg(0x5EED);
+    for _ in 0..20_000 {
+        let n = r.range(14) as usize;
+        let hi = [0x80u64, 0x100, 4][r.range(3) as usize];
+        cases.push((0..n).map(|_| r.range(hi) as u8).collect());
+    }
+    for b in &cases {
+        let (mut i, mut j) = (0usize, 0usize);
+        loop {
+            let (x, y) = (get(b, &mut i), get_ref(b, &mut j));
+            assert_eq!(x, y, "{b:02x?}");
+            if x.is_none() {
+                break;
+            }
+            assert_eq!(i, j, "курсор {b:02x?}");
         }
     }
 }
