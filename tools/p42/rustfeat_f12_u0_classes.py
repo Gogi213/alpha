@@ -27,8 +27,15 @@ out = [
     f"classes {side}: rows={len(j)}; ep_u0 episodes with n_sig_ep==1: {int(single.sum())}, merged (n_sig_ep>1): {int(multi.sum())}",
     f"  n_sig_ep  differs: single={int((ds & single).sum())} merged={int((ds & multi).sum())} (merged rows where it must differ: {int(multi.sum())})",
     f"  last_sig_ms differs: single={int((dl & single).sum())} merged={int((dl & multi).sum())} (merged rows with last_sig_ms != sig_ms: {int((multi & (j['last_sig_ms'] != j['sig_ms'])).sum())})",
-    f"  ep_no differs: {int(dn.sum())} of {len(j)} (ref = episode index per (sym, level) over all signals; port = candidate index per coin over supplied rows)",
+    f"  ep_no differs: {int(dn.sum())} of {len(j)}: single={int((dn & single).sum())} merged={int((dn & multi).sum())} (ref = episode index per (sym, level) over all signals; port = candidate index per coin over supplied rows)",
 ]
+# причина расхождения ep_no (TK-609 v7): порт нумерует поданные строки по монете в порядке (level, sig_ms), `ep_u0` — эпизоды по (sym, level) по всем сигналам
+j = j.sort_values(["sym", "level", "sig_ms"], kind="stable")
+exp_port = j.groupby("sym").cumcount()
+exp_ref = j.groupby(["sym", "level"]).cumcount()
+off_port = (j["ep_no__rs"] - exp_port).nunique()
+out.append(f"  port ep_no == rank per coin over (level, sig_ms) with one constant offset: {off_port == 1}; "
+           f"ref ep_no == rank per (sym, level) over supplied rows: {int((j['ep_no'] == exp_ref).sum())} of {len(j)}")
 ok = int((ds & single).sum()) == 0 and int((dl & single).sum()) == 0
 out.append("  CLASS-OK" if ok else "  CLASS-FAIL: n_sig_ep/last_sig_ms differ on single-signal episodes")
 print("\n".join(out))
