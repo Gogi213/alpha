@@ -22,6 +22,7 @@ import retitr_ftab as rfx  # noqa: E402
 import retitr_full as rf  # noqa: E402
 import retitr_full_report as rep  # noqa: E402
 import retitr_full_run as rr  # noqa: E402
+import tk599_posthoc as ph  # noqa: E402
 import tk599_replay as trp  # noqa: E402
 from test_retitr_full import World, raises  # noqa: E402
 
@@ -336,6 +337,31 @@ def test_stream_table_unique_key_guard():
         assert rr.stream_table(t)[0] == ["X", "Y"]
 
 
+def test_posthoc_compare_cells_and_restore_req():
+    """§13.24.6 п. 4: сравнение выходов (равны / различие / нет у одного, разбор `meta.json`) и восстановление запроса клетки по хэшу и строке варианта (в т. ч. сигнальный двойник с фильтром)."""
+    with tempfile.TemporaryDirectory() as tmp:
+        for root, meta in (("main", {"a": 1, "b": {"c": 2}}), ("audit", {"a": 1, "b": {"c": 3}})):
+            d = os.path.join(tmp, root, "wa", "c1")
+            os.makedirs(d)
+            for fn in ("long-trades.csv", "short-daily.csv"):
+                open(os.path.join(d, fn), "w").write("x\n")
+            json.dump(meta, open(os.path.join(d, "meta.json"), "w"))
+        open(os.path.join(tmp, "audit", "wa", "c1", "short-daily.csv"), "w").write("y\n")
+        os.remove(os.path.join(tmp, "audit", "wa", "c1", "long-trades.csv"))
+        r = ph.compare_cell(os.path.join(tmp, "main"), os.path.join(tmp, "audit"), "c1", ["wa"])["wa"]
+        assert r["long-trades.csv"] == "нет у одного" and r["short-daily.csv"] == "РАЗЛИЧИЕ" and r["meta.json"] == "РАЗЛИЧИЕ" and r["meta_diff"] == ["b.c: 2 ≠ 3"]
+        assert "long-daily.csv" not in r                                                         # нет ни там, ни там — не считается
+        s = ph.summarize([1], {"c1": {"wa": r}})
+        assert s["diffs"] == 3 and s["files_compared"] == 3 and s["windows"] == ["wa"]
+    base = SPEC.bases["S"]
+    for keys, sig in ((base, False), (base + " fa=cons60 fo=hi fv=25", False), (base + " fa=cons60 fo=hi fv=25", True)):
+        req = rf.Req("S", keys, sig)
+        side, rk, sg = ph._req_of(req.hash, req.engine_keys)
+        assert (side, sg) == ("S", sig) and rf.Req(side, rk, sg).hash == req.hash
+    assert ph._req_of("0" * 64, base) == (None, base, False)
+    assert "восстановить не удалось" in raises(rr.GuardError, ph._req_of, "0" * 64, base + " fa=cons60 fo=hi fv=25")
+
+
 def test_filter_call_reads_own_stream_table_and_checks_counts():
     """§13.24.8: `--ftab` каждого вызова = таблица ЕГО потока по vid, вызов на один поток; сверка счётчиков фильтра (no_key = 0, прошло = Python) до шага процедуры."""
     with tempfile.TemporaryDirectory() as tmp:
@@ -601,7 +627,20 @@ def test_end_to_end_run_all_report_and_frozen():
         assert rep.ftab_builders(ft) == ({"wa": {"python": 1, "alpha-feat:aaaa": 2}, "wb": {"python": 1, "alpha-feat:bbbb": 1}}, ["wa/v3"])
         raises(SystemExit, rep.main, [pkl, "--md", md, "--frozen", fz, "--npz", os.path.join(tmp, "net"), "--ftab", ft])
         raises(SystemExit, rep.main, [pkl, "--md", md, "--frozen", fz, "--npz", nz, "--ftab", os.path.join(tmp, "net")])
-        assert rep.main([pkl, "--md", md, "--frozen", fz, "--commit", "abc123", "--npz", nz, "--ftab", ft]) == 0
+        fcf, adf = os.path.join(tmp, "filtercheck.tsv"), os.path.join(tmp, "audit.json")
+        row = "\t".join
+        ok1, ok2 = row(["b0042", "wa", "fx", "v1", "S", "495", "495", "127", "127", "368", "368", "0"]), row(["b0043", "wa", "fy", "v2", "S", "10", "10", "3", "3", "7", "7", "0"])
+        open(fcf, "w").write(ok1 + "\n" + ok2 + "\n")
+        assert rep.filtercheck_summary(fcf) == {"rows": 2, "bad": 0, "streams": 2}
+        open(fcf, "a").write(row(["b0044", "wa", "fz", "v3", "S", "10", "10", "3", "4", "7", "6", "0"]) + "\n")
+        assert rep.filtercheck_summary(fcf)["bad"] == 1
+        open(fcf, "w").write(ok1 + "\n" + ok2 + "\n")
+        cell = {"vid": "c1", "side": "S", "why": ["итог полной процедуры, сторона S"], "bin_md5": "a03c91df" + "0" * 24}
+        json.dump({"old_bin_md5": "a03c91df" + "0" * 24, "old_bin_sha256": "f" * 64, "results_sha256": "e" * 64, "series_by_bin": {"a03c91df": 3}, "cells": [cell],
+                   "summary": {"cells": 1, "windows": ["wa", "wb", "wc"], "files_compared": 27, "diffs": 0, "diff_list": []},
+                   "compared": {"c1": {"wa": {"long-trades.csv": "равны"}}}}, open(adf, "w"))
+        assert rep.main([pkl, "--md", md, "--frozen", fz, "--commit", "abc123", "--npz", nz, "--ftab", ft, "--filtercheck", fcf, "--audit", adf,
+                         "--chrono", "f0389eef|06:45:57 +04|06:48:39 +04"]) == 0
         text = open(md, encoding="utf-8").read()
         for s in ("# П-42 §13.24", "Ограничение области: сочетания двух и более признаков не проверялись", "## Шаг 0", "F_maxmv1_lo_", "Проход 1", "Совместная сетка",
                   "Проверка процедуры вперёд", "Исход заморозки", "abc123", "Чтение вперёд 17–30.11 здесь не сделано", "§13.24.2", "G5", "**снят**"):
@@ -611,6 +650,11 @@ def test_end_to_end_run_all_report_and_frozen():
         assert j["meta"]["bin_md5"] == sorted([rep.LEGACY_BIN_MD5, "a112684a" + "0" * 24]) and j["meta"]["bin_md5_series"][rep.LEGACY_BIN_MD5] == 2 and "a112684a" in text
         assert j["meta"]["ftab_builders"] == {"wa": {"python": 1, "alpha-feat:aaaa": 2}, "wb": {"python": 1, "alpha-feat:bbbb": 1}} and j["meta"]["ftab_relabeled"] == ["wa/v3"]
         assert "wa: alpha-feat aaaa 2, python 1; wb: alpha-feat bbbb 1, python 1" in text and "wa/v3" in text
+        for s in ("(12) §13.24.8", "0 из 323", "расхождений 0", "## Пост-фактум аудит бинаря движка", "сравнено файлов 27, различий 0", "Различимость с измеренным σ", "`t24` не влияет",
+                  "метка формата файла", "заморозка закоммичена `f0389eef`", "06:48:39 +04"):
+            assert s in text, s
+        j0 = json.load(open(fz, encoding="utf-8"))                                                # аудит, сверка счётчиков и хронология в файл заморозки не попадают
+        assert "audit" not in j0["meta"] and "filtercheck" not in j0["meta"] and "chrono" not in j0["meta"]
         L, S = j["sides"]["L"], j["sides"]["S"]
         assert L["decision"] == "C*" and "rr=3" in L["keys"] and L["axes"]["rr"] == "rr_3" and L["axes"]["F"].startswith("F_maxmv1_lo_") and L["keys"].count("fa=") == 1
         assert S["decision"] == "база" and S["keys"] == S["base_keys"] and S["axes"] == {}
