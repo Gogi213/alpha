@@ -454,16 +454,20 @@ def build_side(u, side):
     return s5.SideCells(base, cells, len(u.coins()))
 
 
+CANDIDATE = "кандидат для вперёд"                                                                  # ЛЛ-обр (п. 6): не «работает»
+CANDIDATE_NOTE = "кандидат для вперёд (найдено на этих данных, прирост по построению отбора)"
+
+
 def unit_of(side, cid):
     return UNIT[(side, cid[0])]
 
 
 def unit_outcome(ev, repl, unit):
-    """Исход единицы (п. 6): «работает» — клетка прошла g1–g5 и повторилась на o566; «не работает» — все допущенные пробные клетки единицы (≥ 1) с Δ < 0; иначе «не ясно»."""
+    """Исход единицы (п. 6): «работает» — клетка прошла g1–g5 и повторилась на o566 (у ЛЛ-обр — не «работает», а «кандидат для вперёд»: срез найден по P&L на этих данных); «не работает» — все допущенные пробные клетки единицы (≥ 1) с Δ < 0; иначе «не ясно»."""
     works = [(s, cid) for s, cid in ev["passed"] if unit_of(s, cid) == unit and repl.get((s, cid), {}).get("repl")]
     adm = [r for s in SIDES for cid, r in ev["rows"][s].items() if r["trial"] and r["admitted"] and unit_of(s, cid) == unit]
     if works:
-        return "работает", [cid for _, cid in works]
+        return (CANDIDATE if unit == "ЛЛ-обр" else "работает"), [cid for _, cid in works]
     if adm and all(r["d"] < 0 for r in adm):
         return "не работает", []
     return "не ясно", []
@@ -471,11 +475,12 @@ def unit_outcome(ev, repl, unit):
 
 def answer_line(outcomes):
     names = [u for u, (o, _) in outcomes.items() if o == "работает"]
+    cand = "; ЛЛ-обр — %s" % CANDIDATE_NOTE if outcomes.get("ЛЛ-обр", ("",))[0] == CANDIDATE else ""
     if names:
-        return "работает (%s)" % ", ".join(names)
+        return "работает (%s)%s" % (", ".join(names), cand)
     if all(o == "не работает" for o, _ in outcomes.values()):
         return "не работает"
-    return "не ясно"
+    return "не ясно" + cand
 
 
 def joint_holm(ev, ps_old):
