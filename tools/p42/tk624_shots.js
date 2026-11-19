@@ -61,6 +61,9 @@ const base = url.split('#')[0];
   await top('where-top');
   await page.locator('#where').screenshot({path: `${out}/where-block.png`});
   await page.locator('#feature').screenshot({path: `${out}/feature-block.png`});
+  // TK-633: блок «История пробоев, раунд 2» (ответ + таблица единиц) — отдельный снимок
+  const rclip = await page.evaluate(() => { const a = document.querySelector('#feature [data-fround="0"]'), z = document.querySelector('#feature [data-rsec="0.0"]'); if (!a || !z) return null; const ra = a.getBoundingClientRect(), rz = z.getBoundingClientRect(); return {x: Math.max(0, ra.x - 8 + scrollX), y: ra.y - 8 + scrollY, width: Math.min(document.documentElement.scrollWidth, ra.width + 16), height: rz.bottom - ra.top + 16}; });
+  if (rclip) await page.screenshot({path: `${out}/feature-round2.png`, fullPage: true, clip: rclip});
   await page.evaluate(() => document.querySelectorAll('#feature details').forEach(d => { d.open = true; }));
   await page.waitForTimeout(150);
   await page.locator('#feature').screenshot({path: `${out}/feature-block-open.png`});
@@ -79,7 +82,11 @@ const base = url.split('#')[0];
         tables: [...w.querySelectorAll('table[data-utable]')].map(tb => ({side: tb.dataset.utable, rows: [...tb.querySelectorAll('tbody tr')].map(row)}))},
       legend: [...w.querySelectorAll('.legend span')].map(s => s.textContent), link: w.querySelector('a[data-wlink]').getAttribute('href'),
       feature: {title: t(f, '.card-h b'), badge: t(f, '.badge'), lead: t(f, '.wh-lead'), box: t(f, '[data-fbox="current"] h3'), text: t(f, '[data-fbox="current"] .ft-st'),
-        notes: [...f.querySelectorAll('.ft-notes li')].map(li => li.textContent), tables: f.querySelectorAll('table').length,
+        notes: [...f.querySelectorAll('[data-fbox="current"] .ft-notes li')].map(li => li.textContent), tables: f.querySelectorAll('table').length,
+        rounds: [...f.querySelectorAll('[data-fround]')].map(bx => ({i: bx.dataset.fround, title: t(bx, 'h3'), text: t(bx, '.ft-st'), notes: [...bx.querySelectorAll('.ft-notes li')].map(li => li.textContent)})),
+        rsections: [...f.querySelectorAll('[data-rsec]')].map(sc => ({k: sc.dataset.rsec, fold: sc.tagName === 'DETAILS', title: sc.tagName === 'DETAILS' ? sc.querySelector('summary').textContent : sc.querySelector('.wh-tt').textContent, note: t(sc, '.wh-tn'),
+          tables: [...sc.querySelectorAll('table[data-ftable]')].map(tb => ({overflow: tb.parentElement.scrollWidth - tb.parentElement.clientWidth, title: tb.parentElement.querySelector('.cap').textContent, cols: [...tb.querySelectorAll('thead th')].map(th => th.textContent),
+            rows: [...tb.querySelectorAll('tbody tr')].map(tr => ({bold: tr.classList.contains('base'), cells: [...tr.children].map(td => td.textContent)}))}))})),
         tableOverflow: Math.max(0, ...[...f.querySelectorAll('table')].map(tb => tb.parentElement.scrollWidth - tb.parentElement.clientWidth)),
         sections: [...f.querySelectorAll('[data-fsec]')].map(sc => ({fold: sc.tagName === 'DETAILS', title: sc.tagName === 'DETAILS' ? sc.querySelector('summary').textContent : sc.querySelector('.wh-tt').textContent,
           tables: [...sc.querySelectorAll('table[data-ftable]')].map(tb => ({title: tb.parentElement.querySelector('.cap').textContent, cols: [...tb.querySelectorAll('thead th')].map(th => th.textContent),
