@@ -1,6 +1,6 @@
 //! TK-611: признаки эпизода f12 — порт `sigfeat_run.Worker.episode` (+ `sigfeat_lib`) в маршруте U0 `retitr_ftab.CandWorker`, побитово.
 //!
-//! Область (приказ координатора, `docs/plan/tk609-handoff-2026-11-19-v4.md` п. 4): только признаки; метки, контроли (`controls`,
+//! Область (приказ координатора, `docs/archive/tk609-handoff-2026-11-19-v4.md` п. 4): только признаки; метки, контроли (`controls`,
 //! `default_rng`), `trade_feats` и пересечения не портируются. Каждая строка `<side>-sigsx.csv` — эпизод из одного сигнала
 //! (`ep_no` — номер в порядке `(level, sig_ms)` по монете, `n_sig_ep = 1`, `last_sig_ms = sig_ms`, `ep_id = U0|side|sym|level|ep_no`).
 //! Вход: `sigsx`, минутки `<cache>/<SYM>.b42` (+ `BTCUSDT`, `ETHUSDT` для корреляций), сутки сделок (только цена ×1e8 и время).

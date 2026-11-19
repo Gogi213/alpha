@@ -196,31 +196,21 @@ section.ft-set{margin-top:22px;scroll-margin-top:118px}
 .lv-meta{color:var(--mfg);font-size:12.5px;margin:4px 0 14px}
 .lv-hl{display:flex;flex-wrap:wrap;gap:2px 18px}
 .lv-warn{margin:0 0 12px;padding:8px 12px;border:1px solid var(--fg);border-radius:8px;font-size:13px;font-weight:600}
-.lv-head,.lv-row{display:grid;grid-template-columns:minmax(200px,1.5fr) 92px minmax(260px,2.2fr) 104px 130px 112px;gap:6px 18px;align-items:start}
+.lv-h3{margin:20px 0 8px;font-size:15px;font-weight:650}
+.lv-head,.lv-row{display:grid;grid-template-columns:minmax(220px,2fr) 92px minmax(170px,1.4fr) 112px 112px;gap:6px 18px;align-items:start}
 .lv-head{padding:0 16px 8px;color:var(--mfg);font-size:12px;font-weight:500}
-.lv-row{background:#fff;border:1px solid var(--border);border-radius:var(--r);box-shadow:0 1px 2px rgba(0,0,0,.04);padding:14px 16px;margin-bottom:10px}
+.lv-row{background:#fff;border:1px solid var(--border);border-radius:var(--r);box-shadow:0 1px 2px rgba(0,0,0,.04);padding:12px 16px;margin-bottom:8px}
 .lv-name b{display:block;font-size:13px;color:var(--z600)}
 .lv-name span{display:block;font-size:14.5px;font-weight:600;line-height:1.35}
-.lv-pct{font-weight:650;font-size:15px;margin-bottom:5px}
-.lv-bar{height:10px;border-radius:5px;background:var(--muted);overflow:hidden}
-.lv-bar i{display:block;height:100%;background:var(--accent);border-radius:5px}
-.lv-bar.unk i{width:100%;background:repeating-linear-gradient(90deg,var(--z300) 0 6px,transparent 6px 12px)}
-.lv-txt{color:var(--z600);font-size:12.5px;margin-top:6px;word-break:break-word}
-.lv-txt.lv-first{margin-top:0}
-.lv-chips{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}
-.lv-chip{font-size:11px;border:1px solid var(--border);border-radius:5px;padding:1px 6px;color:var(--mfg);white-space:nowrap}
-.lv-chip.done{border-color:var(--accent);color:var(--accent)}
-.lv-chip.run{border:1px dashed var(--accent);color:var(--accent)}
-.lv-chip.fail{background:var(--fg);border-color:var(--fg);color:#fff}
 .lv-c small{display:block;color:var(--mfg);font-size:11.5px}
 .lv-c.warn small{color:var(--fg);font-weight:600}
-.badge.wait{border-style:dashed}
+.lv-empty{color:var(--mfg);font-size:13.5px;padding:2px 0 6px}
 .badge.fail{background:var(--fg);border-color:var(--fg);color:#fff}
 .lv-foot{margin:14px 0 0;color:var(--mfg);font-size:12.5px}
 @media(max-width:900px){
 .lv-head{display:none}
 .lv-row{grid-template-columns:1fr 1fr;gap:10px 14px}
-.lv-name,.lv-prog{grid-column:1/-1}
+.lv-name{grid-column:1/-1}
 .lv-c[data-l]::before{content:attr(data-l);display:block;color:var(--mfg);font-size:11px}
 }
 /* TK-624: блок «Где мы» и вид «Базы» вкладки «Эквити» */
@@ -1139,7 +1129,7 @@ function renderFeatures() {
   root.append(h('p', {class: 'prog-foot', 'data-f': 'foot'}, FEAT.foot));
 }
 
-// ── вкладка «Прогресс» (TK-613): живые счётчики srv. data/tasks.json пишет tk613_collect.py (таймер tk613-progress, раз в 60 с), страница перечитывает его раз в 60 с
+// ── вкладка «Прогресс» (TK-613, TK-631): что идёт сейчас. data/tasks.json пишет tk613_collect.py (таймер tk613-progress, раз в 60 с; треды — из now.json от ПК), страница перечитывает его раз в 60 с
 const LV = {timer: null, busy: false, data: null, okAt: 0, tryAt: 0, err: null};
 const LV_MS = 60000;
 const p2 = v => String(v).padStart(2, '0');
@@ -1157,41 +1147,43 @@ function dur(sec) {
   const hh = Math.floor(m / 60);
   return hh < 48 ? hh + N + 'ч' + N + p2(m % 60) + N + 'мин' : Math.round(hh / 24) + N + 'сут';
 }
-const LV_BADGE = {run: 'run', done: 'ok', fail: 'fail', wait: 'wait', pause: '', nodata: ''};
-const LV_MARK = {done: '✓', run: '…', fail: '✗', todo: '–', pause: '–', info: ''};
-function lvRow(t, now) {
-  const unk = t.pct == null;
-  const age = t.updated_ts ? now - t.updated_ts : null;
-  const bar = h('div', {class: 'lv-bar' + (unk ? ' unk' : '')}, h('i', {style: unk ? null : `width:${t.pct}%` + (t.pct > 0 ? ';min-width:3px' : '')}));
-  const prog = h('div', {class: 'lv-c lv-prog'}, t.noprog ? [h('div', {class: 'lv-txt lv-first', 'data-f': 'text'}, t.text)] : [
-    h('div', {class: 'lv-pct', 'data-f': 'pct'}, unk ? 'всего: неизвестно' : num(t.pct, 1) + ' %'), bar,
-    h('div', {class: 'lv-txt', 'data-f': 'text'}, t.text)]);
-  if (t.stages) prog.append(h('div', {class: 'lv-chips'}, t.stages.map(s => h('span', {class: 'lv-chip ' + s.st}, (s.st in LV_MARK ? LV_MARK[s.st] : '–') + (LV_MARK[s.st] === '' ? '' : ' ') + s.name))));
-  let eta = '—', etaSub = null;
-  if (t.eta_ts) { eta = g4(t.eta_ts) + (t.eta_hi_ts ? '–' + g4(t.eta_hi_ts) : ''); etaSub = 'через ' + dur(t.eta_ts - now) + (t.eta_hi_ts ? ' … ' + dur(t.eta_hi_ts - now) : ''); }
-  const rate = t.rate ? num(t.rate, t.rate < 10 ? 1 : 0) + ' ' + t.rate_unit : '—';
-  const stale = t.stale_min != null;
-  return h('div', {class: 'lv-row', 'data-task': t.id, 'data-state': t.state}, [
-    h('div', {class: 'lv-c lv-name'}, [h('b', {}, t.id), h('span', {}, t.name)]),
-    h('div', {class: 'lv-c', 'data-l': 'Состояние'}, h('span', {class: 'badge ' + (LV_BADGE[t.state] || ''), 'data-f': 'state'}, t.state_text)),
-    prog,
-    h('div', {class: 'lv-c', 'data-l': 'Скорость', 'data-f': 'rate'}, rate),
-    h('div', {class: 'lv-c', 'data-l': 'Конец (GMT+4)', 'data-f': 'eta', title: t.eta_note || null}, [eta, etaSub ? h('small', {}, etaSub) : null]),
-    h('div', {class: 'lv-c' + (stale ? ' warn' : ''), 'data-l': 'Обновлено', 'data-f': 'upd', title: t.updated_src || null},
-      t.updated_ts ? [g4(t.updated_ts), h('small', {}, stale ? `не менялось ${dur(age)}` : dur(age) + ' назад')] : '—')]);
+const LV_BADGE = {run: 'run', done: 'ok', fail: 'fail'};
+const LV_TXT = {run: 'идёт', done: 'готово', fail: 'ошибка'};
+const lvAge = (ts, now) => ts ? [g4(ts), h('small', {}, dur(now - ts) + ' назад')] : '—';
+function nowRow(t, now) {
+  const run = t.state === 'run';
+  return h('div', {class: 'lv-row', 'data-task': t.tk || t.id, 'data-state': t.state}, [
+    h('div', {class: 'lv-c lv-name'}, [h('b', {}, t.tk || 'без номера'), h('span', {title: t.named ? null : 'русского названия в таблице нет — тема треда'}, t.name)]),
+    h('div', {class: 'lv-c', 'data-l': 'Состояние'}, h('span', {class: 'badge ' + LV_BADGE[t.state], 'data-f': 'state'}, LV_TXT[t.state])),
+    h('div', {class: 'lv-c', 'data-l': 'Кто', 'data-f': 'role'}, t.chain.length ? t.chain.join(' → ') : '—'),
+    h('div', {class: 'lv-c', 'data-l': 'Начато', 'data-f': 'start'}, t.started_ts ? [g4(t.started_ts), h('small', {}, run ? 'идёт ' + dur(now - t.started_ts) : dur(now - t.started_ts) + ' назад')] : '—'),
+    h('div', {class: 'lv-c', 'data-l': 'Закончено', 'data-f': 'end'}, !run && t.end_ts ? lvAge(t.end_ts, now) : '—')]);
 }
+function unitRow(u, now) {
+  return h('div', {class: 'lv-row', 'data-unit': u.name, 'data-state': u.state}, [
+    h('div', {class: 'lv-c lv-name'}, h('span', {}, u.name)),
+    h('div', {class: 'lv-c', 'data-l': 'Состояние'}, h('span', {class: 'badge ' + LV_BADGE[u.state], 'data-f': 'state'}, u.state === 'done' ? 'завершён' : LV_TXT[u.state])),
+    h('div', {class: 'lv-c', 'data-l': 'Запущен', 'data-f': 'since'}, u.since_ts ? [g4(u.since_ts), h('small', {}, u.state === 'run' ? 'идёт ' + dur(now - u.since_ts) : dur(now - u.since_ts) + ' назад')] : '—'),
+    h('div', {class: 'lv-c', 'data-l': 'Завершён', 'data-f': 'end'}, u.end_ts ? lvAge(u.end_ts, now) : '—'),
+    h('div', {class: 'lv-c', 'data-l': 'Код возврата', 'data-f': 'rc'}, u.rc == null ? '—' : String(u.rc))]);
+}
+function lvHead(cols) { return h('div', {class: 'lv-head'}, cols.map(x => h('span', {}, x))); }
 function renderLive() {
   const root = document.getElementById('live');
   if (!root.childElementCount) {
     root.append(h('div', {class: 'prog-h'}, [h('h2', {}, 'Прогресс'), h('span', {class: 'muted small', id: 'lv-sub'})]),
-      h('div', {class: 'lv-meta', id: 'lv-meta'}), h('div', {id: 'lv-warn'}), h('div', {class: 'lv-head'}, ['Задача', 'Состояние', 'Прогресс', 'Скорость', 'Конец (GMT+4)', 'Обновлено'].map(x => h('span', {}, x))),
-      h('div', {id: 'lv-rows'}), h('p', {class: 'lv-foot'}, 'Счётчики и юниты srv, раз в минуту; страница перечитывает их сама. Время — GMT+4.'));
+      h('div', {class: 'lv-meta', id: 'lv-meta'}), h('div', {id: 'lv-warn'}),
+      h('h3', {class: 'lv-h3'}, 'Сейчас идёт'), lvHead(['Задача', 'Состояние', 'Кто', 'Начато', 'Закончено']), h('div', {id: 'lv-now'}),
+      h('h3', {class: 'lv-h3'}, 'Расчёты на сервере'), lvHead(['Юнит', 'Состояние', 'Запущен', 'Завершён', 'Код возврата']), h('div', {id: 'lv-units'}),
+      h('p', {class: 'lv-foot'}, 'Задачи — треды координатора, по строке на задачу (передаёт ПК раз в минуту), расчёты — юниты tk6* на srv. Страница перечитывает данные сама. Время — GMT+4.'));
   }
   const d = LV.data, now = Date.now() / 1000;
-  const warn = [];
+  const warn = [], nw = d && d.now;
   if (LV.err) warn.push(`Нет связи с сервером (попытка в ${g4(LV.tryAt / 1000)}): ${LV.err}.` + (d ? ` Показаны данные от ${g4(d.generated_ts)}.` : ''));
   if (d && now - d.generated_ts > 180) warn.push(`Сборщик не обновлял данные ${dur(now - d.generated_ts)} — цифры ниже устарели.`);
-  if (d && d.units_ok === false) warn.push('Сборщик не смог прочитать список юнитов (systemctl) — состояния «идёт» могут быть неточны.');
+  if (nw && !nw.ok) warn.push('Список задач ещё не получен: ПК не передал файл.');
+  else if (nw && now - nw.pushed_ts > 300) warn.push(`Список задач не обновлялся ${dur(now - nw.pushed_ts)} (последняя передача в ${g4(nw.pushed_ts)}) — ПК не передаёт данные.`);
+  if (d && d.units_ok === false) warn.push('Сборщик не смог прочитать список юнитов (systemctl) — расчёты на сервере показаны неполно.');
   document.getElementById('lv-warn').replaceChildren(...warn.map(w => h('div', {class: 'lv-warn'}, w)));
   document.getElementById('lv-sub').textContent = d ? `данные от ${g4(d.generated_ts)} GMT+4 · ${dur(now - d.generated_ts)} назад · обновление раз в 60 с` : 'загрузка…';
   const meta = document.getElementById('lv-meta'), ho = d && d.host, so = ho && ho.sofia;
@@ -1199,8 +1191,13 @@ function renderLive() {
     x.load ? h('span', {'data-f': f + '-load'}, `${lbl}: загрузка ${x.load.map(v => num(v, 1)).join(' / ')} (ядер ${x.cpus})`) : null,
     x.disk ? h('span', {'data-f': f + '-disk'}, `на / свободно ${num(x.disk.free_gb, 1)} ГБ из ${num(x.disk.total_gb, 0)} (занято ${num(x.disk.used_pct, 0)} %)`) : null].filter(Boolean);
   meta.replaceChildren(...(ho ? [h('div', {class: 'lv-hl'}, hostLine('srv', ho, 'srv')),
-    h('div', {class: 'lv-hl'}, so && so.ok ? hostLine('София', so, 'sofia') : [h('span', {'data-f': 'sofia-load'}, 'София: нет данных' + (so && so.err ? ' (' + so.err + ')' : ''))])] : []));
-  document.getElementById('lv-rows').replaceChildren(...(d ? d.tasks.map(t => lvRow(t, now)) : []));
+    h('div', {class: 'lv-hl'}, so && so.ok ? hostLine('София', so, 'sofia') : [h('span', {'data-f': 'sofia-load'}, 'София: нет данных' + (so && so.err ? ' (' + so.err + ')' : ''))]),
+    ho.builds ? h('div', {class: 'lv-hl'}, h('span', {'data-f': 'builds'}, 'Сборки: ' + ho.builds.text)) : null].filter(Boolean) : []));
+  const empty = txt => h('div', {class: 'lv-empty', 'data-f': 'empty'}, txt);
+  const th = nw ? nw.tasks : [];
+  document.getElementById('lv-now').replaceChildren(...(!d ? [] : th.length ? th.map(t => nowRow(t, now)) : [empty(nw && nw.ok ? 'Сейчас никто не работает.' : 'Нет данных.')]));
+  const un = d ? d.units : [];
+  document.getElementById('lv-units').replaceChildren(...(!d ? [] : un.length ? un.map(u => unitRow(u, now)) : [empty('Расчётов (юнитов tk6*) на сервере сейчас нет.')]));
 }
 async function loadLive() {
   if (LV.busy) return;

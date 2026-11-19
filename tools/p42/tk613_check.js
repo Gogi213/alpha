@@ -1,8 +1,8 @@
-// П-42 TK-613: клик-тест вкладки «Прогресс» на VPS София (node18, playwright-core 1.48.2), НЕ на ПК владельца.
+// П-42 TK-613 / TK-631: клик-тест вкладки «Прогресс» на VPS София (node18, playwright-core 1.48.2), НЕ на ПК владельца.
 // Запуск: PW=/root/arb-settings-test/node_modules/playwright-core CHROME=/usr/bin/google-chrome node tk613_check.js <url страницы> <каталог выхода> [ширина]
-// Делает: ошибки консоли; вкладка по умолчанию и по хешу; строки DOM против data/tasks.json (состояние, %, счётчик, скорость, конец и «обновлено» по GMT+4 —
-// время считается независимо через Intl); ширина полосы; нагрузка и диск; автообновление раз в 60 с (часы Playwright) и остановка на другой вкладке;
-// предупреждения «устарели» и «нет связи»; остальные вкладки живы; горизонтальный перелив; снимки. Код возврата 1, если есть провалы.
+// Делает: ошибки консоли; вкладка по умолчанию и по хешу; строки «Сейчас идёт» и «Расчёты на сервере» против data/tasks.json (состояние, имя, роль, время GMT+4 — считается
+// независимо через Intl); пустые списки; нагрузка, диск, сборки; автообновление раз в 60 с (часы Playwright) и остановка на другой вкладке; предупреждения «устарели»,
+// «нет связи», «ПК не передаёт»; синтетические данные со всеми состояниями; остальные вкладки живы; горизонтальный перелив; снимки. Код возврата 1, если есть провалы.
 const {chromium} = require(process.env.PW || 'playwright-core');
 const fs = require('fs');
 const [url, out, widthArg] = process.argv.slice(2);
@@ -33,16 +33,21 @@ function g4(ts, nowMs) {
   const eq = (name, got, want) => { C[name] = got; if (JSON.stringify(got) !== JSON.stringify(want)) fail(`${name}: ${JSON.stringify(got)} ≠ ${JSON.stringify(want)}`); };
   const overflow = () => page.evaluate(() => document.documentElement.scrollWidth - innerWidth);
   const state = () => page.evaluate(() => ({hash: location.hash, selected: [...document.querySelectorAll('#toptabs button[aria-selected="true"]')].map(b => b.dataset.tab), visible: [...document.querySelectorAll('.pane')].filter(p => !p.hidden).map(p => p.id)}));
-  const rows = () => page.evaluate(() => [...document.querySelectorAll('#live .lv-row')].map(r => {
-    const t = s => { const n = r.querySelector(s); return n ? n.innerText.replace(/\s+/g, ' ').trim() : null; };
-    return {id: r.dataset.task, state: t('[data-f=state]'), pct: t('[data-f=pct]'), text: t('[data-f=text]'), rate: t('[data-f=rate]'), eta: t('[data-f=eta]'), upd: t('[data-f=upd]'),
-      bar: (r.querySelector('.lv-bar i') || {style: {}}).style.width || null, unk: !!r.querySelector('.lv-bar.unk'), nobar: !r.querySelector('.lv-bar'), chips: [...r.querySelectorAll('.lv-chip')].map(c => c.innerText)};
+  const nowRows = () => page.evaluate(() => [...document.querySelectorAll('#lv-now .lv-row')].map(r => {
+    const t = f => { const n = r.querySelector(`[data-f=${f}]`); return n ? n.innerText.replace(/\s+/g, ' ').trim() : null; };
+    return {tk: r.dataset.task, state: r.dataset.state, badge: t('state'), name: r.querySelector('.lv-name span').innerText, role: t('role'), start: t('start'), end: t('end')};
   }));
+  const unitRows = () => page.evaluate(() => [...document.querySelectorAll('#lv-units .lv-row')].map(r => {
+    const t = f => { const n = r.querySelector(`[data-f=${f}]`); return n ? n.innerText.replace(/\s+/g, ' ').trim() : null; };
+    return {name: r.dataset.unit, state: r.dataset.state, badge: t('state'), since: t('since'), end: t('end'), rc: t('rc')};
+  }));
+  const empties = () => page.evaluate(() => [...document.querySelectorAll('#live [data-f=empty]')].map(n => n.innerText));
   let J = null;   // первый ответ tasks.json, который получила сама страница (сверка именно с ним)
   page.on('response', async r => { if (!J && r.url().includes('data/tasks.json')) J = await r.json(); });
   await page.clock.install();
   await page.goto(base, {waitUntil: 'load'});
-  await page.waitForSelector('#live .lv-row', {timeout: 15000});
+  await page.waitForSelector('#live .lv-h3', {timeout: 15000});
+  await page.waitForFunction(() => document.querySelector('#lv-now .lv-row, #lv-now .lv-empty'), null, {timeout: 15000});
   const nowMs = await page.evaluate(() => Date.now());
   for (let k = 0; k < 50 && !J; k++) await page.waitForTimeout(100);
 
@@ -53,29 +58,70 @@ function g4(ts, nowMs) {
   eq('по умолчанию: выбрана и видна', [st0.hash, st0.selected, st0.visible], ['#live', ['live'], ['pane-live']]);
 
   // ── строки против JSON
-  const R = await rows();
-  eq('задачи и порядок', R.map(r => r.id), J.tasks.map(t => t.id));
-  J.tasks.forEach((t, i) => {
-    const r = R[i], k = t.id;
-    eq(`${k} состояние`, r.state, t.state_text);
-    eq(`${k} процент`, r.pct, t.noprog ? null : t.pct == null ? 'всего: неизвестно' : ru(t.pct, 1) + ' %');
-    eq(`${k} полоса`, t.noprog ? r.nobar : t.pct == null ? r.unk : r.bar, t.noprog ? true : t.pct == null ? true : t.pct + '%');
-    eq(`${k} счётчик`, r.text, t.text.replace(/\s+/g, ' ').trim());
-    eq(`${k} скорость`, r.rate, t.rate ? ru(t.rate, t.rate < 10 ? 1 : 0) + ' ' + t.rate_unit : '—');
-    const etaHead = t.eta_ts ? g4(t.eta_ts, nowMs) + (t.eta_hi_ts ? '–' + g4(t.eta_hi_ts, nowMs) : '') : '—';
-    eq(`${k} конец (GMT+4)`, r.eta.startsWith(etaHead), true);
-    eq(`${k} обновлено (GMT+4)`, t.updated_ts ? r.upd.startsWith(g4(t.updated_ts, nowMs)) : r.upd, t.updated_ts ? true : '—');
-    eq(`${k} этапы`, r.chips.length, t.stages ? t.stages.length : 0);
+  const NW = J.now.tasks, UN = J.units;
+  const RN = await nowRows();
+  eq('«Сейчас идёт»: задачи и порядок', RN.map(r => r.tk), NW.map(t => t.tk || t.id));
+  NW.forEach((t, i) => {
+    const r = RN[i], k = t.tk || t.id;
+    eq(`${k} состояние`, r.badge, {run: 'идёт', done: 'готово', fail: 'ошибка'}[t.state]);
+    eq(`${k} название`, r.name, t.name);
+    eq(`${k} кто`, r.role, t.chain.length ? t.chain.join(' → ') : '—');
+    eq(`${k} начато (GMT+4)`, t.started_ts ? r.start.startsWith(g4(t.started_ts, nowMs)) : r.start, t.started_ts ? true : '—');
+    eq(`${k} закончено (GMT+4)`, t.state !== 'run' && t.end_ts ? r.end.startsWith(g4(t.end_ts, nowMs)) : r.end, t.state !== 'run' && t.end_ts ? true : '—');
   });
+  eq('«Сейчас идёт»: пустой список — подпись', NW.length ? (await empties()).filter(x => x.startsWith('Сейчас')).length : (await empties())[0], NW.length ? 0 : 'Сейчас никто не работает.');
+  const RU = await unitRows();
+  eq('«Расчёты на сервере»: юниты и порядок', RU.map(r => r.name), UN.map(u => u.name));
+  UN.forEach((u, i) => {
+    const r = RU[i], k = u.name;
+    eq(`${k} состояние`, r.badge, u.state === 'done' ? 'завершён' : {run: 'идёт', fail: 'ошибка'}[u.state]);
+    eq(`${k} запущен (GMT+4)`, u.since_ts ? r.since.startsWith(g4(u.since_ts, nowMs)) : r.since, u.since_ts ? true : '—');
+    eq(`${k} код возврата`, r.rc, u.rc == null ? '—' : String(u.rc));
+  });
+  eq('«Расчёты на сервере»: пустой список — подпись', (await empties()).filter(x => x.startsWith('Расчётов')).length, UN.length ? 0 : 1);
+  eq('нет старых задач TK-599/607/609/611/610', await page.evaluate(() => /TK-(599|607|609|611|610)/.test(document.getElementById('live').innerText)), false);
+  eq('одна строка на задачу', RN.length, new Set(RN.map(r => r.tk)).size);
+  eq('нет колонки «Последнее действие»', await page.evaluate(() => document.getElementById('live').innerText.includes('Последнее действие')), false);
   const meta = await page.evaluate(() => document.getElementById('lv-meta').innerText.replace(/\s+/g, ' '));
   eq('нагрузка в строке srv', meta.includes('загрузка ' + J.host.load.map(x => ru(x, 1)).join(' / ')), true);
   eq('диск в строке srv', meta.includes('свободно ' + ru(J.host.disk.free_gb, 1) + ' ГБ'), true);
+  eq('сборки', (await page.evaluate(() => document.querySelector('[data-f=builds]').innerText)), 'Сборки: ' + J.host.builds.text);
   eq('строка Софии', J.host.sofia && J.host.sofia.ok ? meta.includes('София: загрузка ' + J.host.sofia.load.map(x => ru(x, 1)).join(' / ')) && meta.includes('свободно ' + ru(J.host.sofia.disk.free_gb, 1) + ' ГБ') : meta.includes('София: нет данных'), true);
   eq('подзаголовок: время сборки GMT+4', (await page.locator('#lv-sub').innerText()).includes(g4(J.generated_ts, nowMs)), true);
-  eq('нет предупреждений при свежих данных', await page.locator('.lv-warn').count(), (nowMs / 1000 - J.generated_ts > 180) ? 1 : 0);
+  C.warnTexts0 = await page.locator('.lv-warn').allInnerTexts();
+  eq('нет предупреждений при свежих данных', await page.locator('.lv-warn').count(), ((nowMs / 1000 - J.generated_ts > 180) ? 1 : 0) + ((J.now.ok && nowMs / 1000 - J.now.pushed_ts > 300) ? 1 : 0));
   C.overflowX = await overflow();
   if (C.overflowX > 0) fail('горизонтальный перелив ' + C.overflowX);
   await page.screenshot({path: `${out}/live-${W}.png`, fullPage: true});
+
+  // ── синтетика: все состояния строк, устаревшая передача ПК, пустые списки
+  const T0 = nowMs / 1000;
+  const fake = {generated_ts: T0 - 20, units_ok: true, host: J.host,
+    now: {ok: true, pushed_ts: T0 - 900, tasks: [
+      {id: 'TK-901', tk: 'TK-901', name: 'Проверка бегущей задачи', named: true, state: 'run', chain: ['исполнитель', 'проверяющий'], threads: 2, started_ts: T0 - 7500, end_ts: null},
+      {id: 'TK-902', tk: 'TK-902', name: 'topic words only', named: false, state: 'fail', chain: ['исполнитель', 'исполнитель v2'], threads: 2, started_ts: T0 - 4000, end_ts: T0 - 3000},
+      {id: 't3', tk: null, name: 'не по формату', named: false, state: 'done', chain: [], threads: 1, started_ts: null, end_ts: T0 - 600}]},
+    units: [{name: 'tk901-run', state: 'run', since_ts: T0 - 3600, end_ts: null, rc: null}, {name: 'tk902-job', state: 'fail', since_ts: T0 - 1800, end_ts: T0 - 1200, rc: 3},
+            {name: 'tk903-done', state: 'done', since_ts: T0 - 1800, end_ts: T0 - 600, rc: 0}]};
+  await page.route('**/data/tasks.json*', route => route.fulfill({json: fake}));
+  await page.evaluate(() => loadLive()); await page.waitForTimeout(500);
+  const FN = await nowRows(), FU = await unitRows();
+  eq('синтетика: строки задач', FN.map(r => [r.tk, r.state, r.badge, r.name, r.role]), [['TK-901', 'run', 'идёт', 'Проверка бегущей задачи', 'исполнитель → проверяющий'], ['TK-902', 'fail', 'ошибка', 'topic words only', 'исполнитель → исполнитель v2'], ['t3', 'done', 'готово', 'не по формату', '—']]);
+  eq('синтетика: «идёт 2 ч 05 мин» у бегущей', FN[0].start.includes('идёт 2 ч 05 мин'), true);
+  eq('синтетика: у бегущей нет «закончено», у остальных есть', FN.map(r => r.end.startsWith('—')), [true, false, false]);
+  eq('синтетика: закончено у ошибки', FN[1].end.startsWith(g4(T0 - 3000, nowMs)), true);
+  eq('синтетика: юниты', FU.map(r => [r.name, r.state, r.badge, r.rc]), [['tk901-run', 'run', 'идёт', '—'], ['tk902-job', 'fail', 'ошибка', '3'], ['tk903-done', 'done', 'завершён', '0']]);
+  eq('синтетика: у бегущего юнита нет «завершён»', FU[0].end, '—');
+  eq('предупреждение «ПК не передаёт»', (await page.locator('.lv-warn').allInnerTexts()).some(x => x.includes('Список задач не обновлялся') && x.includes('ПК не передаёт')), true);
+  await page.screenshot({path: `${out}/live-synthetic-${W}.png`, fullPage: true});
+  fake.now.tasks = []; fake.units = []; fake.now.pushed_ts = T0 - 10;
+  await page.evaluate(() => loadLive()); await page.waitForTimeout(500);
+  eq('пусто: подписи', await empties(), ['Сейчас никто не работает.', 'Расчётов (юнитов tk6*) на сервере сейчас нет.']);
+  eq('пусто: предупреждений нет', await page.locator('.lv-warn').count(), 0);
+  fake.now = {ok: false, err: 'x', pushed_ts: null, tasks: []};
+  await page.evaluate(() => loadLive()); await page.waitForTimeout(500);
+  eq('now.json нет: предупреждение', (await page.locator('.lv-warn').allInnerTexts()).some(x => x.includes('Список задач ещё не получен')), true);
+  await page.unroute('**/data/tasks.json*');
 
   // ── предупреждения: данные устарели; нет связи
   await page.route('**/data/tasks.json*', async route => { const r = await route.fetch(); const j = await r.json(); j.generated_ts -= 900; await route.fulfill({json: j}); });
@@ -86,10 +132,11 @@ function g4(ts, nowMs) {
   ignoreNet = true;
   await page.route('**/data/tasks.json*', route => route.abort());
   await page.evaluate(() => loadLive()); await page.waitForTimeout(500);
-  eq('предупреждение «нет связи», строки остались', [(await page.locator('.lv-warn').allInnerTexts()).some(x => x.includes('Нет связи')), (await rows()).length], [true, J.tasks.length]);
+  eq('предупреждение «нет связи», данные остались', [(await page.locator('.lv-warn').allInnerTexts()).some(x => x.includes('Нет связи')), (await empties()).length + (await nowRows()).length > 0], [true, true]);
   await page.unroute('**/data/tasks.json*'); ignoreNet = false;
   await page.evaluate(() => loadLive()); await page.waitForTimeout(500);
-  eq('связь вернулась — предупреждения нет', await page.locator('.lv-warn').count(), 0);
+  const L = await page.evaluate(() => ({d: LV.data, now: Date.now() / 1000}));
+  eq('связь вернулась — предупреждения только по возрасту данных', await page.locator('.lv-warn').count(), ((L.now - L.d.generated_ts > 180) ? 1 : 0) + ((L.d.now.ok && L.now - L.d.now.pushed_ts > 300) ? 1 : 0));
 
   // ── автообновление: ещё один запрос за 61 с, на другой вкладке — нет запросов
   const r0 = reqs;
@@ -101,7 +148,7 @@ function g4(ts, nowMs) {
   eq('на другой вкладке запросов нет', reqs - r1, 0);
   await page.click('#toptabs button[data-tab="live"]'); await page.waitForTimeout(600);
   eq('возврат на «Прогресс»: сразу перечитывает', reqs - r1, 1);
-  eq('после возврата строки на месте', (await rows()).length, J.tasks.length);
+  eq('после возврата строки на месте', (await nowRows()).length, (await page.evaluate(() => LV.data.now.tasks.length)));
 
   // ── хеши и остальные вкладки
   for (const k of ['progress', 'targets', 'equity', 'features', 'model', 'live']) {
@@ -111,11 +158,11 @@ function g4(ts, nowMs) {
   }
   await page.goto(base + '#progress', {waitUntil: 'load'}); await page.waitForTimeout(300);
   eq('хеш #progress → «Ход работ»', (await state()).selected, ['progress']);
-  await page.goto(base + '#live', {waitUntil: 'load'}); await page.waitForSelector('#live .lv-row');
+  await page.goto(base + '#live', {waitUntil: 'load'}); await page.waitForSelector('#live .lv-h3');
   eq('хеш #live → «Прогресс»', (await state()).selected, ['live']);
   eq('ошибок консоли', errs, []);
   rep.ok = rep.fails.length === 0 && errs.length === 0;
-  fs.writeFileSync(`${out}/tk613-check-${W}.json`, JSON.stringify(rep, null, 1));
+  fs.writeFileSync(`${out}/tk631-check-${W}.json`, JSON.stringify(rep, null, 1));
   console.log(JSON.stringify({width: W, ok: rep.ok, checks: Object.keys(C).length, fails: rep.fails, errors: errs}));
   await browser.close();
   process.exit(rep.ok ? 0 : 1);
