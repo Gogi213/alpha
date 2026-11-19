@@ -4,8 +4,8 @@
 //! количеством: декодер вместо `unzip` + разбора CSV; без правок признаков). Порядок записей — как в файле; при убывании времени — устойчивая сортировка
 //! (Python: `np.argsort(kind="stable")`). `price` и `quantity` — `f64` прямо из десятичной записи (pandas-конвертер), а не ×1e8.
 
-use super::pdcompat::{date_str, parse_f64, parse_i64};
 use super::flow::{hist_add_day, HistSink};
+use super::pdcompat::{date_str, parse_f64, parse_i64};
 use crate::breakout::store::{DayTrades as StoredDay, TickStore};
 use crate::breakout::tick::{Fold, ZipSrc};
 use anyhow::{bail, Context, Result};
