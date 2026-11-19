@@ -357,6 +357,21 @@ class F12RecordTests(unittest.TestCase):
                 RD.f12_record([td])                      # старая таблица без записи f12
 
 
+class F12CsvTests(unittest.TestCase):
+    def test_read_f12_csv_exact(self):
+        # значения с 17 значащими цифрами — разбор должен вернуть те же биты, что и float() (быстрый разбор pandas даёт ±ULP)
+        vals = [0.1 + 0.2, 1.0 / 3.0, 2.2250738585072014e-308, 123456789.12345679, 5.551115123125783e-17, 0.30000000000000004]
+        with tempfile.TemporaryDirectory() as td:
+            p = os.path.join(td, "f.csv")
+            with open(p, "w") as f:
+                f.write("sym,level,sig_ms,tick_ok,x\n")
+                for i, v in enumerate(vals):
+                    f.write("AAAUSDT,%d,%d,true,%s\n" % (i, 1000 + i, repr(v)))
+            ep = D.read_f12_csv(p)
+            self.assertEqual(ep["x"].to_numpy(float).view(np.int64).tolist(), np.array(vals).view(np.int64).tolist())
+            self.assertEqual(ep["tick_ok"].dtype, bool)
+
+
 class MoreGateTests(unittest.TestCase):
     def test_g1(self):
         with tempfile.TemporaryDirectory() as td:

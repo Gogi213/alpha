@@ -125,10 +125,14 @@ def _f12_rust(side, sigsx_csv, ep_csv, procs, ctx):
     if r.returncode != 0:
         raise T.GuardError("f12-бинарь rc=%d: %s" % (r.returncode, r.stderr[-400:]))
     F12_REC.update({"impl": "rust", "bin_md5": md5, "days": 80, "store": F12_STORE, "summary": r.stdout.strip().splitlines()[-1][:400] if r.stdout.strip() else ""})
-    ep = pd.read_csv(ep_csv, dtype={"sym": str}, float_precision="round_trip")   # быстрый разбор pandas даёт ±ULP — нужен точный
-    for c in ("tick_ok",):
-        if ep[c].dtype != bool:
-            ep[c] = ep[c].astype(str).str.lower().isin(["true", "1"])
+    return read_f12_csv(ep_csv)
+
+
+def read_f12_csv(ep_csv):
+    """CSV Rust-f12 → таблица; числа разбираются точно (быстрый разбор pandas даёт ±ULP — тест `test_read_f12_csv_exact`)."""
+    ep = pd.read_csv(ep_csv, dtype={"sym": str}, float_precision="round_trip")
+    if ep["tick_ok"].dtype != bool:
+        ep["tick_ok"] = ep["tick_ok"].astype(str).str.lower().isin(["true", "1"])
     return ep
 
 
