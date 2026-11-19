@@ -1,21 +1,21 @@
-//! TK-607: однократное заполнение склада суточных сделок по каталогам zip (`alpha breakout store-fill`) со сверкой на лету.
+//! TK-607: однократное заполнение склада суточных сделок по каталогам zip (`alpha breakout store-fill`).
 //!
 //! Задание — пара `(монета, дата)` из каталогов `<МОНЕТА>/<МОНЕТА>-aggTrades-<дата>.zip` (повторяющиеся пары разных каталогов
-//! сводятся к одной; разные исходные файлы под одной парой — конфликт, он попадает в отчёт). Для каждого задания: `unzip -p`
-//! один раз в память, разбор движка (`parse_trades_full`), запись в склад, чтение записанного файла обратно и три сверки:
-//! (1) разобранное движком = прочитанному со склада (сделки, количество, масштаб, флаги, счётчики); (2) независимый разбор CSV
-//! стандартной библиотекой (`str::parse::<f64>`) = цена и количество со склада побитово (при нулевых флагах точности), порядок,
-//! `off`, `bm` — как `window_quantity_matches_csv`; (3) число строк. Уже лежащие файлы пропускаются (`verify_hits` — проверяются
-//! так же). Различие — файл склада удаляется, задание попадает в отчёт. Запись прекращается при свободном месте < `min_free_gb`
-//! (задание тогда считается ошибкой записи, прогон останавливается).
+//! сводятся к одной; разные исходные файлы под одной парой — конфликт, он попадает в отчёт). На задание: zip читается в память,
+//! разжимается в процессе (libdeflate; размеры и CRC32 берутся из центрального каталога zip, CRC сверяется), один разбор движка
+//! (`parse_trades_full`), запись в склад. Целостность — CRC zip и число строк в заголовке склада (после записи файл проверяется
+//! по заголовку и длине, без разбора блоков). Иное устройство zip (zip64, несколько записей, шифрование) — внешний `unzip -p`.
+//! Уже лежащие файлы (тот же размер и mtime zip, длина сходится с заголовком) пропускаются по заголовку. Запись прекращается
+//! при свободном месте < `min_free_gb` (задание тогда считается ошибкой записи, прогон останавливается).
 //!
 //! Начало сетки (`P42_T0`) должно быть не позже самой ранней даты заданий: файлы склада от него не зависят (`off` — от полуночи
 //! даты файла), он нужен только для номера суток.
 
 use super::data;
-use super::store::{DayTrades, SrcMeta, StoreOpts, TickStore, F_PX_INEXACT, F_QTY_BAD, F_QTY_F64};
-use super::tick::{parse_trades_full, LoadStat, DAY_MS};
+use super::store::{SrcMeta, StoreOpts, TickStore, F_PX_INEXACT, F_QTY_BAD, F_QTY_F64};
+use super::tick::{parse_trades_full, LoadStat};
 use anyhow::{bail, Context, Result};
+use libdeflater::{Crc, Decompressor};
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::fs;
@@ -24,15 +24,13 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::Mutex;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 pub struct FillOpts {
     /// Каталоги zip `<МОНЕТА>/<МОНЕТА>-aggTrades-<дата>.zip`.
     pub roots: Vec<PathBuf>,
     pub store: StoreOpts,
     pub threads: usize,
-    /// Проверять и уже лежащие файлы склада (разбор zip и сверка); иначе они пропускаются.
-    pub verify_hits: bool,
     /// Каталог отчёта: `report.txt`, `errors.txt`.
     pub report: PathBuf,
     /// Только первые `limit` заданий (проверка на малом).
@@ -50,25 +48,35 @@ struct Job {
 struct Stats {
     done: AtomicU64,
     written: AtomicU64,
-    verified_hits: AtomicU64,
-    skipped_hits: AtomicU64,
+    skipped: AtomicU64,
     rows: AtomicU64,
-    csv_checked: AtomicU64,
     flag_px: AtomicU64,
     flag_qty: AtomicU64,
     unsorted_files: AtomicU64,
     bad_rows: AtomicU64,
     out_of_day: AtomicU64,
-    mismatches: AtomicU64,
+    unzip_fallback: AtomicU64,
     errors: AtomicU64,
+    /// Время по стадиям, нс, сумма по потокам: чтение zip и разжатие / разбор / запись.
+    ns_inflate: AtomicU64,
+    ns_parse: AtomicU64,
+    ns_write: AtomicU64,
 }
 
 fn add(c: &AtomicU64, v: u64) {
     c.fetch_add(v, Ordering::Relaxed);
 }
 
+fn add_time(c: &AtomicU64, t: Instant) {
+    add(c, u64::try_from(t.elapsed().as_nanos()).unwrap_or(u64::MAX));
+}
+
 fn get(c: &AtomicU64) -> u64 {
     c.load(Ordering::Relaxed)
+}
+
+fn secs(ns: u64) -> f64 {
+    Duration::from_nanos(ns).as_secs_f64()
 }
 
 fn list_jobs(roots: &[PathBuf]) -> Result<(Vec<(String, String, PathBuf)>, Vec<String>)> {
@@ -117,101 +125,89 @@ fn list_jobs(roots: &[PathBuf]) -> Result<(Vec<(String, String, PathBuf)>, Vec<S
     ))
 }
 
-/// Независимый от `dec_parts`/`parse_px` разбор CSV стандартной библиотекой против суток со склада.
-fn csv_check(csv: &[u8], base: i64, w: &DayTrades) -> Result<(), String> {
-    let mut want: Vec<(u32, bool, f64, f64)> = Vec::with_capacity(w.ticks.len());
-    let (mut prev, mut unsorted) = (0u32, false);
-    let num = |b: &[u8]| {
-        std::str::from_utf8(b)
-            .ok()
-            .and_then(|s| s.parse::<f64>().ok())
+fn le16(b: &[u8], o: usize) -> Option<usize> {
+    Some(usize::from(u16::from_le_bytes(
+        b.get(o..o + 2)?.try_into().ok()?,
+    )))
+}
+
+fn le32(b: &[u8], o: usize) -> Option<u32> {
+    Some(u32::from_le_bytes(b.get(o..o + 4)?.try_into().ok()?))
+}
+
+/// Разжатие zip с одной записью (метод 0 или 8) в процессе. Размеры и CRC32 — из центрального каталога; CRC сверяется.
+/// `Ok(None)` — устройство zip не то (несколько записей, zip64, шифрование, иной метод): вызывающий берёт `unzip -p`.
+/// `Err` — zip повреждён (границы, размер, CRC).
+fn inflate_zip(z: &[u8], dec: &mut Decompressor) -> Result<Option<Vec<u8>>, String> {
+    const TRUNC: &str = "обрезан центральный каталог";
+    let Some(eocd) = (z.len().saturating_sub(22 + 65_535)..=z.len().saturating_sub(22))
+        .rev()
+        .find(|&i| le32(z, i) == Some(0x0605_4b50))
+    else {
+        return Err("нет конца центрального каталога".into());
     };
-    for line in csv.split(|&b| b == b'\n') {
-        if !line.first().is_some_and(u8::is_ascii_digit) {
-            continue;
-        }
-        let mut f = line.split(|&b| b == b',');
-        let (Some(_), Some(p), Some(q), Some(_), Some(_), Some(t), Some(b)) = (
-            f.next(),
-            f.next(),
-            f.next(),
-            f.next(),
-            f.next(),
-            f.next(),
-            f.next(),
-        ) else {
-            continue;
-        };
-        let (Some(p), Some(q), Some(ts)) = (
-            num(p),
-            num(q),
-            std::str::from_utf8(t)
-                .ok()
-                .and_then(|s| s.parse::<i64>().ok()),
-        ) else {
-            continue;
-        };
-        let off = ts - base;
-        if !(0..DAY_MS).contains(&off) {
-            continue;
-        }
-        let off = off as u32;
-        unsorted |= off < prev;
-        prev = off;
-        want.push((off, b.first() == Some(&b't'), p, q));
+    let (Some(entries), Some(cd_off)) = (le16(z, eocd + 10), le32(z, eocd + 16)) else {
+        return Err(TRUNC.into());
+    };
+    if entries != 1 || cd_off == u32::MAX {
+        return Ok(None);
     }
-    if unsorted {
-        want.sort_by_key(|x| x.0);
+    let cd = cd_off as usize;
+    if le32(z, cd) != Some(0x0201_4b50) {
+        return Err("центральный каталог: сигнатура".into());
     }
-    if w.ticks.len() != want.len() || w.qty.len() != want.len() {
-        return Err(format!(
-            "строк {} (склад) против {} (CSV)",
-            w.ticks.len(),
-            want.len()
-        ));
+    let (Some(flags), Some(method)) = (le16(z, cd + 8), le16(z, cd + 10)) else {
+        return Err(TRUNC.into());
+    };
+    let (Some(crc), Some(csize), Some(usize_), Some(local)) = (
+        le32(z, cd + 16),
+        le32(z, cd + 20),
+        le32(z, cd + 24),
+        le32(z, cd + 42),
+    ) else {
+        return Err(TRUNC.into());
+    };
+    if flags & 1 != 0 || ![0, 8].contains(&method) || [csize, usize_, local].contains(&u32::MAX) {
+        return Ok(None);
     }
-    let (fpx, fq) = (
-        w.flags & F_PX_INEXACT != 0,
-        w.flags & (F_QTY_BAD | F_QTY_F64) != 0,
-    );
-    for (i, &(off, bm, p, q)) in want.iter().enumerate() {
-        if w.ticks[i].off != off || w.ticks[i].bm != bm {
-            return Err(format!("строка {i}: off/bm"));
-        }
-        if !fq && w.qty_f64(i).to_bits() != q.to_bits() {
-            return Err(format!("строка {i}: количество {} != {q}", w.qty_f64(i)));
-        }
-        if !fpx && w.px_f64(i).to_bits() != p.to_bits() {
-            return Err(format!("строка {i}: цена {} != {p}", w.px_f64(i)));
-        }
+    let lh = local as usize;
+    if le32(z, lh) != Some(0x0403_4b50) {
+        return Err("локальный заголовок: сигнатура".into());
     }
-    Ok(())
+    let (Some(n), Some(e)) = (le16(z, lh + 26), le16(z, lh + 28)) else {
+        return Err("обрезан локальный заголовок".into());
+    };
+    let start = lh + 30 + n + e;
+    let Some(body) = z.get(start..start + csize as usize) else {
+        return Err("данные за границей файла".into());
+    };
+    let out = if method == 0 {
+        body.to_vec()
+    } else {
+        let mut out = vec![0u8; usize_ as usize];
+        let got = dec
+            .deflate_decompress(body, &mut out)
+            .map_err(|e| format!("разжатие: {e:?}"))?;
+        if got != out.len() {
+            return Err(format!("размер {got} != {} по каталогу", out.len()));
+        }
+        out
+    };
+    if out.len() != usize_ as usize {
+        return Err("размер без сжатия не сходится с каталогом".into());
+    }
+    let mut c = Crc::new();
+    c.update(&out);
+    if c.sum() != crc {
+        return Err("CRC32 не сходится".into());
+    }
+    Ok(Some(out))
 }
 
-fn same_stat(a: &LoadStat, b: &LoadStat) -> bool {
-    (a.rows, a.unsorted_files, a.out_of_day, a.bad_rows)
-        == (b.rows, b.unsorted_files, b.out_of_day, b.bad_rows)
-}
-
-/// Одно задание. `Err` — описание; различие (а не сбой чтения/записи) дополнительно считается в `mismatches`.
-fn one(
-    store: &TickStore,
-    job: &Job,
-    verify_hits: bool,
-    st: &Stats,
-    abort: &AtomicBool,
-) -> Result<(), String> {
-    let md = fs::metadata(&job.zip).map_err(|e| format!("metadata: {e}"))?;
-    let meta = SrcMeta::of(&md).ok_or("mtime zip")?;
-    let hit = store.read_day(&job.name, &job.date, &meta);
-    if let (Some(h), false) = (&hit, verify_hits) {
-        add(&st.skipped_hits, 1);
-        add(&st.rows, h.ticks.len() as u64);
-        return Ok(());
-    }
+fn unzip_p(zip: &Path) -> Result<Vec<u8>, String> {
     let out = Command::new("unzip")
         .arg("-p")
-        .arg(&job.zip)
+        .arg(zip)
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .output()
@@ -219,61 +215,61 @@ fn one(
     if !out.status.success() {
         return Err(format!("unzip: {}", out.status));
     }
-    let mut d = parse_trades_full(Cursor::new(&out.stdout[..]), job.day, LoadStat::default())
-        .map_err(|e| format!("разбор: {e:#}"))?;
-    d.stat.files = 1;
-    let (rd, was_hit) = match hit {
-        Some(h) => (h, true),
+    Ok(out.stdout)
+}
+
+/// Одно задание. `Err` — описание ошибки задания.
+fn one(
+    store: &TickStore,
+    job: &Job,
+    st: &Stats,
+    abort: &AtomicBool,
+    dec: &mut Decompressor,
+) -> Result<(), String> {
+    let md = fs::metadata(&job.zip).map_err(|e| format!("metadata: {e}"))?;
+    let meta = SrcMeta::of(&md).ok_or("mtime zip")?;
+    if let Some(n) = store.valid_rows(&job.name, &job.date, &meta) {
+        add(&st.skipped, 1);
+        add(&st.rows, n);
+        return Ok(());
+    }
+    let t = Instant::now();
+    let z = fs::read(&job.zip).map_err(|e| format!("чтение zip: {e}"))?;
+    let csv = match inflate_zip(&z, dec)? {
+        Some(c) => c,
         None => {
-            store.write(&job.name, &job.date, &meta, &d);
-            match store.read_day(&job.name, &job.date, &meta) {
-                Some(x) => (x, false),
-                None => {
-                    if store.is_read_only() {
-                        abort.store(true, Ordering::Relaxed);
-                    }
-                    return Err(
-                        "записанный файл не читается (запись отклонена: потолок/место/ошибка)"
-                            .into(),
-                    );
-                }
-            }
+            add(&st.unzip_fallback, 1);
+            unzip_p(&job.zip)?
         }
     };
-    let base = data::t0_ms() + job.day as i64 * DAY_MS;
-    let bad = if d.ticks != rd.ticks
-        || d.qty != rd.qty
-        || d.qty_dec != rd.qty_dec
-        || d.flags != rd.flags
-        || !same_stat(&d.stat, &rd.stat)
-    {
-        Some("разобранное движком != прочитанному со склада".to_string())
-    } else {
-        csv_check(&out.stdout, base, &rd).err()
-    };
-    if let Some(e) = bad {
-        let _ = fs::remove_file(store.path(&job.name, &job.date));
-        add(&st.mismatches, 1);
-        return Err(e);
+    drop(z);
+    add_time(&st.ns_inflate, t);
+    let t = Instant::now();
+    let mut d = parse_trades_full(Cursor::new(&csv[..]), job.day, LoadStat::default())
+        .map_err(|e| format!("разбор: {e:#}"))?;
+    d.stat.files = 1;
+    drop(csv);
+    add_time(&st.ns_parse, t);
+    let t = Instant::now();
+    store.write(&job.name, &job.date, &meta, &d);
+    let ok = store.valid_rows(&job.name, &job.date, &meta) == Some(d.ticks.len() as u64);
+    add_time(&st.ns_write, t);
+    if !ok {
+        if store.is_read_only() {
+            abort.store(true, Ordering::Relaxed);
+        }
+        return Err("файл склада не записан (потолок/место/ошибка записи)".into());
     }
-    add(&st.csv_checked, 1);
-    add(
-        if was_hit {
-            &st.verified_hits
-        } else {
-            &st.written
-        },
-        1,
-    );
-    add(&st.rows, rd.ticks.len() as u64);
-    add(&st.flag_px, u64::from(rd.flags & F_PX_INEXACT != 0));
+    add(&st.written, 1);
+    add(&st.rows, d.ticks.len() as u64);
+    add(&st.flag_px, u64::from(d.flags & F_PX_INEXACT != 0));
     add(
         &st.flag_qty,
-        u64::from(rd.flags & (F_QTY_BAD | F_QTY_F64) != 0),
+        u64::from(d.flags & (F_QTY_BAD | F_QTY_F64) != 0),
     );
-    add(&st.unsorted_files, rd.stat.unsorted_files);
-    add(&st.bad_rows, rd.stat.bad_rows);
-    add(&st.out_of_day, rd.stat.out_of_day);
+    add(&st.unsorted_files, d.stat.unsorted_files);
+    add(&st.bad_rows, d.stat.bad_rows);
+    add(&st.out_of_day, d.stat.out_of_day);
     Ok(())
 }
 
@@ -302,13 +298,12 @@ pub fn run(o: &FillOpts) -> Result<()> {
     fs::create_dir_all(&o.report).context("каталог отчёта")?;
     let store = TickStore::open(&o.store).context("склад")?;
     println!(
-        "store-fill: заданий {} (конфликтов источников {}), потоков {}, склад {}, свободное место не ниже {} ГБ, проверка лежащих файлов: {}",
+        "store-fill: заданий {} (конфликтов источников {}), потоков {}, склад {}, свободное место не ниже {} ГБ",
         jobs.len(),
         conflicts.len(),
         o.threads,
         o.store.dir.display(),
-        o.store.min_free_gb,
-        o.verify_hits
+        o.store.min_free_gb
     );
     let (next, st, abort) = (
         AtomicUsize::new(0),
@@ -319,34 +314,40 @@ pub fn run(o: &FillOpts) -> Result<()> {
     let total = jobs.len();
     std::thread::scope(|sc| {
         for _ in 0..o.threads.max(1) {
-            sc.spawn(|| loop {
-                if abort.load(Ordering::Relaxed) {
-                    break;
-                }
-                let i = next.fetch_add(1, Ordering::Relaxed);
-                let Some(job) = jobs.get(i) else {
-                    break;
-                };
-                if let Err(e) = one(&store, job, o.verify_hits, &st, &abort) {
-                    add(&st.errors, 1);
-                    if let Ok(mut g) = errs.lock() {
-                        g.push(format!("{} {}: {e}", job.name, job.date));
+            sc.spawn(|| {
+                let mut dec = Decompressor::new();
+                loop {
+                    if abort.load(Ordering::Relaxed) {
+                        break;
                     }
-                }
-                let n = get(&st.done) + 1;
-                add(&st.done, 1);
-                if n % 500 == 0 {
-                    let el = t_start.elapsed().as_secs_f64();
-                    println!(
-                        "store-fill: {n}/{total} за {el:.0} с ({:.1} файл/с), записано {}, пропущено {}, строк {}, различий {}, ошибок {}, склад {:.2} ГБ",
-                        n as f64 / el.max(1e-9),
-                        get(&st.written),
-                        get(&st.skipped_hits),
-                        get(&st.rows),
-                        get(&st.mismatches),
-                        get(&st.errors),
-                        store.counters().used_bytes as f64 / f64::from(1u32 << 30)
-                    );
+                    let i = next.fetch_add(1, Ordering::Relaxed);
+                    let Some(job) = jobs.get(i) else {
+                        break;
+                    };
+                    if let Err(e) = one(&store, job, &st, &abort, &mut dec) {
+                        add(&st.errors, 1);
+                        if let Ok(mut g) = errs.lock() {
+                            g.push(format!("{} {}: {e}", job.name, job.date));
+                        }
+                    }
+                    let n = get(&st.done) + 1;
+                    add(&st.done, 1);
+                    if n % 2000 == 0 {
+                        let el = t_start.elapsed().as_secs_f64();
+                        println!(
+                            "store-fill: {n}/{total} за {el:.0} с ({:.1} файл/с, {:.2} млн строк/с), записано {}, пропущено {}, строк {}, ошибок {}, склад {:.2} ГБ; время потоков, с: чтение+разжатие {:.0}, разбор {:.0}, запись {:.0}",
+                            n as f64 / el.max(1e-9),
+                            get(&st.rows) as f64 / el.max(1e-9) / 1e6,
+                            get(&st.written),
+                            get(&st.skipped),
+                            get(&st.rows),
+                            get(&st.errors),
+                            store.counters().used_bytes as f64 / f64::from(1u32 << 30),
+                            secs(get(&st.ns_inflate)),
+                            secs(get(&st.ns_parse)),
+                            secs(get(&st.ns_write))
+                        );
+                    }
                 }
             });
         }
@@ -356,16 +357,14 @@ pub fn run(o: &FillOpts) -> Result<()> {
     let done = get(&st.done);
     let c = store.counters();
     let mut line = format!(
-        "STOREFILL {} заданий={total} обработано={done} записано={} проверено_лежащих={} пропущено_лежащих={} сверено_с_CSV={} строк={} различий={} ошибок={} конфликтов_источников={} флаг_цены={} флаг_количества={} не_по_порядку={} плохих_строк={} вне_суток={} склад_байт={} блок_количества_байт={} за {:.0} с",
+        "STOREFILL {} заданий={total} обработано={done} записано={} пропущено_лежащих={} строк={} ошибок={} конфликтов_источников={} через_unzip={} флаг_цены={} флаг_количества={} не_по_порядку={} плохих_строк={} вне_суток={} склад_байт={} блок_количества_байт={} время_потоков_с(чтение+разжатие/разбор/запись)={:.0}/{:.0}/{:.0} за {:.0} с",
         if aborted || done < total as u64 { "ОСТАНОВЛЕНО" } else { "DONE" },
         get(&st.written),
-        get(&st.verified_hits),
-        get(&st.skipped_hits),
-        get(&st.csv_checked),
+        get(&st.skipped),
         get(&st.rows),
-        get(&st.mismatches),
         get(&st.errors),
         conflicts.len(),
+        get(&st.unzip_fallback),
         get(&st.flag_px),
         get(&st.flag_qty),
         get(&st.unsorted_files),
@@ -373,6 +372,9 @@ pub fn run(o: &FillOpts) -> Result<()> {
         get(&st.out_of_day),
         c.used_bytes,
         c.qty_bytes,
+        secs(get(&st.ns_inflate)),
+        secs(get(&st.ns_parse)),
+        secs(get(&st.ns_write)),
         t_start.elapsed().as_secs_f64()
     );
     let _ = write!(line, "\n{}", store.summary());

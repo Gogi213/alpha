@@ -594,6 +594,17 @@ impl TickStore {
         }
     }
 
+    /// Число строк файла, если он лежит, ключ (размер и mtime zip) тот же и длина сходится с заголовком — без разбора блоков
+    /// (быстрый пропуск лежащих файлов в store-fill).
+    pub fn valid_rows(&self, name: &str, date: &str, meta: &SrcMeta) -> Option<u64> {
+        let mut f = fs::File::open(self.path(name, date)).ok()?;
+        let mut hb = [0u8; HEAD_LEN];
+        f.read_exact(&mut hb).ok()?;
+        let h = parse_head(&hb, meta).ok()?;
+        let total = (HEAD_LEN + h.comp_a + h.comp_q) as u64;
+        (f.metadata().ok()?.len() == total).then_some(h.n as u64)
+    }
+
     /// Потолок достигнут, `df` ниже порога или запись не удалась: склад только читается.
     pub fn is_read_only(&self) -> bool {
         self.read_only.load(Ordering::Relaxed)

@@ -377,29 +377,34 @@ fn crc32(d: &[u8]) -> u32 {
 
 /// zip без сжатия с одним файлом — достаточно для `unzip -p`.
 fn write_zip(path: &Path, entry: &str, data: &[u8]) {
+    write_zip_m(path, entry, data, 0, data);
+}
+
+/// zip с одним файлом: `method` 0 (хранение) или 8 (deflate, `body` — уже сжатые данные).
+fn write_zip_m(path: &Path, entry: &str, data: &[u8], method: u16, body: &[u8]) {
     let crc = crc32(data);
     let n = entry.len() as u16;
     let mut z = Vec::new();
     let le32 = |z: &mut Vec<u8>, v: u32| z.extend_from_slice(&v.to_le_bytes());
     let le16 = |z: &mut Vec<u8>, v: u16| z.extend_from_slice(&v.to_le_bytes());
     le32(&mut z, 0x0403_4b50);
-    for v in [10u16, 0, 0, 0, 0x21] {
+    for v in [10u16, 0, method, 0, 0x21] {
         le16(&mut z, v);
     }
     le32(&mut z, crc);
-    le32(&mut z, data.len() as u32);
+    le32(&mut z, body.len() as u32);
     le32(&mut z, data.len() as u32);
     le16(&mut z, n);
     le16(&mut z, 0);
     z.extend_from_slice(entry.as_bytes());
-    z.extend_from_slice(data);
+    z.extend_from_slice(body);
     let cd = z.len() as u32;
     le32(&mut z, 0x0201_4b50);
-    for v in [20u16, 10, 0, 0, 0, 0x21] {
+    for v in [20u16, 10, 0, method, 0, 0x21] {
         le16(&mut z, v);
     }
     le32(&mut z, crc);
-    le32(&mut z, data.len() as u32);
+    le32(&mut z, body.len() as u32);
     le32(&mut z, data.len() as u32);
     for v in [n, 0, 0, 0, 0] {
         le16(&mut z, v);
@@ -1013,4 +1018,112 @@ fn qty_check(
         }
     }
     Ok((want.len(), fpx, fq))
+}
+
+#[test]
+fn store_fill_writes_skips_rewrites_truncated_and_reports_bad_crc() {
+    use super::store_fill::{run as fill_run, FillOpts};
+    let tmp = tempfile::tempdir().expect("tmp");
+    let root = tmp.path().join("trades");
+    let dir = root.join("TESTUSDT");
+    std::fs::create_dir_all(&dir).expect("dir");
+    let dates: Vec<String> = (0..3)
+        .map(|k| super::data::day_string(START_DAY + k))
+        .collect();
+    let mut texts = Vec::new();
+    for (k, date) in dates.iter().enumerate() {
+        let text = csv(
+            START_DAY + k,
+            &[
+                (10.5, 500, "false"),
+                (10.6, 100, "true"),
+                (10.4, 900 + k as i64, "true"),
+            ],
+        );
+        let zip = dir.join(format!("TESTUSDT-aggTrades-{date}.zip"));
+        if k == 0 {
+            // метод 8: тот же путь, что у настоящих zip
+            let mut c = libdeflater::Compressor::new(libdeflater::CompressionLvl::default());
+            let mut body = vec![0u8; c.deflate_compress_bound(text.len())];
+            let n = c
+                .deflate_compress(text.as_bytes(), &mut body)
+                .expect("deflate");
+            body.truncate(n);
+            write_zip_m(&zip, "TESTUSDT.csv", text.as_bytes(), 8, &body);
+        } else {
+            write_zip(&zip, "TESTUSDT.csv", text.as_bytes());
+        }
+        texts.push((zip, text));
+    }
+    // третий zip — порча данных без правки CRC в каталоге
+    let mut bad = std::fs::read(&texts[2].0).expect("zip");
+    let at = bad
+        .windows(3)
+        .position(|w| w == b"10.")
+        .expect("данные в zip");
+    bad[at + 2] = b'9';
+    std::fs::write(&texts[2].0, bad).expect("порча zip");
+    let (store_dir, report) = (tmp.path().join("store"), tmp.path().join("report"));
+    let run = || {
+        fill_run(&FillOpts {
+            roots: vec![root.clone()],
+            store: StoreOpts {
+                dir: store_dir.clone(),
+                cap_gb: 1,
+                min_free_gb: 0,
+            },
+            threads: 2,
+            report: report.clone(),
+            limit: None,
+        })
+        .expect("заполнение");
+        std::fs::read_to_string(report.join("report.txt")).expect("report")
+    };
+    let r = run();
+    for want in ["DONE", "записано=2", "строк=6", "ошибок=1", "через_unzip=0"]
+    {
+        assert!(r.contains(want), "{want}: {r}");
+    }
+    let errs = std::fs::read_to_string(report.join("errors.txt")).expect("errors");
+    assert!(
+        errs.contains(&dates[2]) && errs.contains("CRC32"),
+        "errors.txt: {errs}"
+    );
+    assert!(
+        !store_dir
+            .join("TESTUSDT")
+            .join(format!("TESTUSDT-{}.tk", dates[2]))
+            .exists(),
+        "по битому zip файл склада не пишется"
+    );
+    // склад равен разбору движка по тексту CSV (метод 8 и метод 0)
+    let st = open(&store_dir, 1);
+    for (k, date) in dates.iter().take(2).enumerate() {
+        let md = std::fs::metadata(&texts[k].0).expect("meta");
+        let want = parse_trades_full(
+            Cursor::new(texts[k].1.as_bytes()),
+            START_DAY + k,
+            LoadStat::default(),
+        )
+        .expect("разбор");
+        let got = st
+            .read_day("TESTUSDT", date, &SrcMeta::of(&md).expect("mtime"))
+            .expect("файл склада");
+        assert_eq!((got.ticks, got.qty), (want.ticks, want.qty), "{date}");
+    }
+    let r = run();
+    for want in ["записано=0", "пропущено_лежащих=2", "строк=6", "ошибок=1"]
+    {
+        assert!(r.contains(want), "{want}: {r}");
+    }
+    let file = store_dir
+        .join("TESTUSDT")
+        .join(format!("TESTUSDT-{}.tk", dates[0]));
+    let mut bytes = std::fs::read(&file).expect("файл склада");
+    bytes.truncate(bytes.len() - 5);
+    std::fs::write(&file, &bytes).expect("порча");
+    let r = run();
+    for want in ["записано=1", "пропущено_лежащих=1", "ошибок=1"] {
+        assert!(r.contains(want), "{want}: {r}");
+    }
 }

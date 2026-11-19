@@ -82,8 +82,8 @@ pub enum BreakoutCommand {
         #[arg(long)]
         sig_cache: Option<PathBuf>,
     },
-    /// TK-607: однократное заполнение склада суточных сделок по каталогам zip со сверкой на лету (разбор движка = склад = независимый
-    /// разбор CSV). `P42_T0` — не позже самой ранней даты. Лежащие файлы пропускаются.
+    /// TK-607: однократное заполнение склада суточных сделок по каталогам zip (разжатие в процессе с проверкой CRC32 zip, один разбор
+    /// движка, запись). `P42_T0` — не позже самой ранней даты. Лежащие файлы пропускаются.
     StoreFill {
         /// Каталог `<МОНЕТА>/<МОНЕТА>-aggTrades-<день>.zip`; ключ повторяется.
         #[arg(long = "trades", required = true)]
@@ -98,9 +98,6 @@ pub enum BreakoutCommand {
         /// Потолок объёма склада, ГБ.
         #[arg(long, default_value_t = 1000)]
         cap_gb: u64,
-        /// Проверять и уже лежащие файлы склада (разбор zip и сверка).
-        #[arg(long)]
-        verify_hits: bool,
         /// Каталог отчёта (`report.txt`, `errors.txt`).
         #[arg(long)]
         report: PathBuf,
@@ -187,7 +184,6 @@ pub fn dispatch(cmd: BreakoutCommand) -> Result<()> {
             threads,
             min_free_gb,
             cap_gb,
-            verify_hits,
             report,
             limit,
         } => super::store_fill::run(&super::store_fill::FillOpts {
@@ -198,7 +194,6 @@ pub fn dispatch(cmd: BreakoutCommand) -> Result<()> {
                 min_free_gb,
             },
             threads,
-            verify_hits,
             report,
             limit,
         }),
