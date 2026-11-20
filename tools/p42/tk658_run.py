@@ -563,7 +563,7 @@ def variant_prices(rows, side, var, dstar):
     key, lag, d = {"P_A": ("e_A", "L_A", dstar), "P_V": ("e_V", "L_V", dstar), "P_V100": ("e_V", "L_V", 100), "P_m": ("e_V", "L_V", dstar)}[var]
     im = impute_means(rows, side, key, lag, d)
     ebar = mean(r[key] for r in rows if r["side"] == side and r[lag] is not None and r[lag] <= d and r[key] is not None)
-    out, nimp = {}, 0
+    out, nimp, imp_keys = {}, 0, set()
     for r in rows:
         if r["side"] != side:
             continue
@@ -573,8 +573,9 @@ def variant_prices(rows, side, var, dstar):
             e = r[key]
         else:
             e, nimp = im[r["tradfi"]], nimp + 1
+            imp_keys.add((r["win"], r["i"]))
         out.setdefault((r["win"], r["i"]), {})[r["lot"]] = r["px"] * (1 + s * e / 1e4)
-    return out, nimp, ebar
+    return out, nimp, ebar, imp_keys
 
 
 def cmd_pnl(a):
@@ -607,11 +608,14 @@ def cmd_pnl(a):
         out = {"delta_star": dstar, "base": t43.stat_row(st, p8, r34, bser, bkinds, bpnl, bser, ncoins)}
         out["base"]["noise"] = t43.noise_bar(out["base"]["sharpe"], N_VARIANTS) if "sharpe" in out["base"] else None
         for var in ("P_A", "P_V", "P_m", "P_V100"):
-            newp, nimp, ebar = variant_prices(rows, side, var, dstar)
+            newp, nimp, ebar, imp_keys = variant_prices(rows, side, var, dstar)
             val = np.array([reprice_gross(rec, side, w.t0_ms, newp.get((w.name, i), {})) - float(rec["fees"]) for w, i, rec in order])
+            cov = np.array([(w.name, i) not in imp_keys for w, i, _ in order])   # заметка критика: ΔΣ только на сделках без вменённых лотов
+            cov_info = dict(trades=int(cov.sum()), base_sum=float(bser.val[cov].sum()), var_sum=float(val[cov].sum()),
+                            dsum=float(val[cov].sum() - bser.val[cov].sum()))
             ser = dataclasses.replace(bser, val=val)
             r = t43.stat_row(st, p8, r34, ser, bkinds, val, bser, ncoins)
-            r.update(imputed_lots=nimp, ebar_bp=ebar, noise=t43.noise_bar(r["sharpe"], N_VARIANTS) if "sharpe" in r else None)
+            r.update(imputed_lots=nimp, imputed_trades=len(imp_keys), covered_only=cov_info, ebar_bp=ebar, noise=t43.noise_bar(r["sharpe"], N_VARIANTS) if "sharpe" in r else None)
             d = r["delta"]
             r["dsum_ci95"] = [d["dsum"] - 1.96 * d["se_sum"], d["dsum"] + 1.96 * d["se_sum"]]
             r["mde_sum"] = 2.8 * d["se_sum"]
