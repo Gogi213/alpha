@@ -95,7 +95,7 @@ def cmd_tables(a):
             ser, kinds, pnl = t43.load_cell(st, p8, u, side, t43.load_dirs(st, side, c["cid"]))
             r = t43.stat_row(st, p8, r34, ser, kinds, pnl, bser, ncoins)
             ck = set(p8.keys_of(ser))
-            r.update(tl=c["tl"], rr=c["rr"], patch=c["patch"], same_set=bool(ck == bkeys), only_cell=len(ck - bkeys), only_base=len(bkeys - ck),
+            r.update(tl=c["tl"], rr_val=c["rr"], patch=c["patch"], same_set=bool(ck == bkeys), only_cell=len(ck - bkeys), only_base=len(bkeys - ck),
                      forced=int(sum(1 for k in kinds if k == "forced")))
             out["cells"][c["cid"]] = r
             sig.setdefault((tuple(p8.keys_of(ser)), tuple(t43.np.round(pnl, 6))), []).append(c["cid"])
@@ -178,7 +178,7 @@ def cmd_report(a):
               "База h775: %d сделок, Σ %s $, %s $/сделку, Sharpe %.2f; R:R %.2f; стопов %d, средний убыток стопа %s $ = %.2f %% маржи при плече 2; трейл-выходов %d (%.0f %%)." % (
                   b["n"], f(b["sum"]), f(b["mean"], 3), b["sharpe"], rr0["rr"], rr0["stops"]["n"], f(rr0["stops"]["mean_loss"]), rr0["stops"]["mean_loss_pct"],
                   rr0["kinds"].get("trail", {}).get("n", 0), 100 * rr0["kinds"].get("trail", {}).get("share", 0.0)), "",
-              "| клетка | сделок | Σ $ | $/сделку | Sharpe | R:R | трейл-выходов | Δ $/сделку [нижн. 5 %] | p | ΔΣ $ ± SE | Δ по месяцам, $ | сделки = базе | ворота a–g | ответ |",
+              "| клетка | сделок | Σ $ | $/сделку | Sharpe | R:R | трейл-выходов | Δ $/сделку [нижн. 5 %] | p | ΔΣ $ ± SE | Δ $/сделку по месяцам | сделки = базе | ворота a–g | ответ |",
               "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
         for cid, r in tab["cells"].items():
             d, g = r["delta"], v["sides"][s]["cells"][cid]
@@ -191,7 +191,7 @@ def cmd_report(a):
               "", "Ответ стороны: %s. Правило `tl = 2` при `rr = 2`: %s (Δ %s $/сделку, нижняя граница %s)." % (
                   v["sides"][s]["answer"], v["sides"][s]["rule_tl2"]["answer"], f(v["sides"][s]["rule_tl2"]["d"], 3), f(v["sides"][s]["rule_tl2"]["lower"], 3)),
               "", "Описательно (п. 9): `tl = k` против `tl = 0` при том же `rr` (`rr` 1 / 3 — готовые клетки TK-643):", "",
-              "| клетка | Δ $/сделку [нижн. 5 %] | ΔΣ $ ± SE | Δ по месяцам, $ |", "|---|---|---|---|"]
+              "| клетка | Δ $/сделку [нижн. 5 %] | ΔΣ $ ± SE | Δ $/сделку по месяцам |", "|---|---|---|---|"]
         for cid, r in tab["tl0"].items():
             d = r["delta"]
             L.append("| `%s` против `tl0_rr%s` | %s [%s] | %s ± %.1f | %s |" % (cid, cid[-1], f(d["d"], 3), f(d["lower"], 3), f(d["dsum"], 1), d["se_sum"],
