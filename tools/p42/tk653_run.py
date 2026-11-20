@@ -52,8 +52,10 @@ CELL = "F653"
 # месяцы проверки: (имя, первые сутки, последние сутки) от 01.07; модель месяца обучается на сутках < первых − 1
 TEST_MONTHS = (("aug", 31, 61), ("sep", 62, 91), ("oct", 92, 122), ("nov", 123, 135))
 # блоки оценки (п. 6): по числу сделок БАЗЫ (≥ 90 → ожидаемо ≥ 30 при трети), записаны до счёта
-BLOCKS = {"L": (("aug", 31, 61), ("sep", 62, 91), ("oct_nov", 92, 135)), "S": (("aug_sep", 31, 91), ("oct_nov", 92, 135))}
-TEST_ALL = ("aug_nov", 31, 135)
+# поправка §13.53.1: у шорта модель августа не определена (обучение на июле: ни одного годного блока внутреннего CV) → август шорта не проверяется,
+# блоки пересобраны тем же правилом по сентябрю–13.11: 67 + 65 = 132 ≥ 90, хвост 29 присоединён → один блок 01.09–13.11
+BLOCKS = {"L": (("aug", 31, 61), ("sep", 62, 91), ("oct_nov", 92, 135)), "S": (("sep_nov", 62, 135),)}
+TEST_ALL = {"L": ("aug_nov", 31, 135), "S": ("sep_nov", 62, 135)}
 MIN_N = 30
 INNER_BLOCK = 15                            # сутки внутреннего CV
 GRID = L598.GRID                            # 12 клеток depth × min_data_in_leaf × l2
@@ -225,6 +227,10 @@ def cmd_fit(a):
                 if loss is not None:
                     cv.setdefault(cell, []).append((blk, loss, bi, ntr, nva))
             table = [dict(cell=list(c), loss_mean=float(np.mean([r[1] for r in v])), best_iter=[r[2] for r in v], n_blocks=len(v)) for c, v in cv.items()]
+            if not table:
+                out["months"][name] = dict(first_day=first, n_train=int(len(tr)), inner_blocks=blocks, undefined="нет годного блока внутреннего CV (≥ 50 обучающих и ≥ 10 проверочных строк)")
+                say("fit %s %s: строк %d — модель не определена (п. 3, поправка §13.53.1)" % (side, name, len(tr)))
+                continue
             nb = max(t_["n_blocks"] for t_ in table)
             table = [t_ for t_ in table if t_["n_blocks"] == nb]
             best = min(table, key=lambda t_: t_["loss_mean"])
@@ -261,7 +267,10 @@ def load_models(side):
     fz = json.load(open(q("fit", "freeze.json"), encoding="utf-8"))
     ms = []
     for name, _, _ in TEST_MONTHS:
-        e = fz["models"]["%s_%s" % (side, name)]
+        e = fz["models"].get("%s_%s" % (side, name))
+        if e is None:
+            ms.append(None)
+            continue
         p = q("fit", "models", e["file"])
         if r4.sha256(p) != e["sha256"]:
             raise st.GuardError("модель %s: sha256 ≠ заморозке" % e["file"])
@@ -291,7 +300,10 @@ def cmd_ftab(a):
             mo = month_of(day)
             X = t[FEATS].to_numpy(np.float64)
             keep = np.ones(len(t))
-            for k, (m, qm) in enumerate(ms):
+            for k, mq in enumerate(ms):
+                if mq is None:
+                    continue
+                m, qm = mq
                 sel = mo == k
                 if sel.any():
                     keep[sel] = (m.predict(X[sel]) >= qm).astype(float)
@@ -372,8 +384,8 @@ def blocks_used(side, cs):
     bl = BLOCKS[side]
     if all(n_in(cs, lo, hi) >= MIN_N for _, lo, hi in bl):
         return list(bl), "blocks"
-    if n_in(cs, TEST_ALL[1], TEST_ALL[2]) >= MIN_N:
-        return [TEST_ALL], "merged"
+    if n_in(cs, TEST_ALL[side][1], TEST_ALL[side][2]) >= MIN_N:
+        return [TEST_ALL[side]], "merged"
     return [], "undefined"
 
 
@@ -387,7 +399,7 @@ def cmd_counts(a):
         ck = set(zip(cs.sym_name, [int(x) for x in cs.key_ms]))
         bl, mode = blocks_used(side, cs)
         res[side] = dict(months={n: [n_in(bs, lo, hi), n_in(cs, lo, hi)] for n, lo, hi in TEST_MONTHS}, blocks={n: [n_in(bs, lo, hi), n_in(cs, lo, hi)] for n, lo, hi in BLOCKS[side]},
-                         test_all=[n_in(bs, *TEST_ALL[1:]), n_in(cs, *TEST_ALL[1:])], in_base=len(ck & bk), only_cell=len(ck - bk), mode=mode, blocks_used=[b[0] for b in bl])
+                         test_all=[n_in(bs, *TEST_ALL[side][1:]), n_in(cs, *TEST_ALL[side][1:])], in_base=len(ck & bk), only_cell=len(ck - bk), mode=mode, blocks_used=[b[0] for b in bl])
         say("counts %s: %s" % (side, res[side]))
     r4.write_json(q("res", "counts.json"), res)
 
@@ -480,7 +492,7 @@ def cmd_tables(a):
             b["name"] = name
             c["blocks"].append(b)
             rnd_blocks.append((bs, lo, hi, b["n"]))
-        c["all"] = block_stats(cs, bs, TEST_ALL[1], TEST_ALL[2]) if mode != "undefined" else None
+        c["all"] = block_stats(cs, bs, TEST_ALL[side][1], TEST_ALL[side][2]) if mode != "undefined" else None
         for name, lo, hi in TEST_MONTHS:
             Sc, Nc = daily(cs, lo, hi)
             Sb, Nb = daily(bs, lo, hi)
