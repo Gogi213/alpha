@@ -1,0 +1,195 @@
+{
+ "side": "L",
+ "n_trades": 428,
+ "thr": {
+  "60": {
+   "n": 914,
+   "q20_raw": -19.56098231736347,
+   "q80_raw": 45.311823801186705,
+   "q20": -20.0,
+   "q80": 45.0,
+   "share_pos": 0.6083150984682714,
+   "share_zero": 0.0
+  },
+  "240": {
+   "n": 914,
+   "q20_raw": -37.262305746679885,
+   "q80_raw": 69.23127637388409,
+   "q20": -37.0,
+   "q80": 69.0,
+   "share_pos": 0.587527352297593,
+   "share_zero": 0.0
+  },
+  "1440": {
+   "n": 914,
+   "q20_raw": -138.80684841013345,
+   "q80_raw": 137.3145333049948,
+   "q20": -140.0,
+   "q80": 140.0,
+   "share_pos": 0.5667396061269147,
+   "share_zero": 0.0
+  }
+ },
+ "nan_trades": {
+  "btc60": 0,
+  "btc240": 0,
+  "btc1440": 0
+ },
+ "dist_trades": {
+  "btc60": [
+   -65.1684066005171,
+   -16.50619210255416,
+   6.161714670457341,
+   31.92460369620509,
+   92.02863490833562
+  ],
+  "btc240": [
+   -134.30877237518396,
+   -33.42226845775398,
+   4.345543702563015,
+   45.91664279277042,
+   166.86541782325764
+  ],
+  "btc1440": [
+   -282.6782752816904,
+   -114.69581022705204,
+   14.778693739974091,
+   121.11299516293361,
+   410.1431450358774
+  ]
+ },
+ "cells": [
+  {
+   "cid": "B60_with",
+   "W": 60,
+   "op": "lt",
+   "X": 0.0,
+   "label": "BTC за 1 ч в сторону сделки (≥ 0), порог 0 %",
+   "cand_excluded": 358,
+   "cand_rows": 914,
+   "trades_excluded": 178,
+   "trades_remain": 250
+  },
+  {
+   "cid": "B60_agst",
+   "W": 60,
+   "op": "gt",
+   "X": 0.0,
+   "label": "BTC за 1 ч против сделки (≤ 0), порог 0 %",
+   "cand_excluded": 556,
+   "cand_rows": 914,
+   "trades_excluded": 250,
+   "trades_remain": 178
+  },
+  {
+   "cid": "B60_nag20",
+   "W": 60,
+   "op": "lt",
+   "X": -20.0,
+   "label": "без сильного хода BTC против за 1 ч (≥ q20), порог -0,2 %",
+   "cand_excluded": 179,
+   "cand_rows": 914,
+   "trades_excluded": 100,
+   "trades_remain": 328
+  },
+  {
+   "cid": "B60_nwi80",
+   "W": 60,
+   "op": "gt",
+   "X": 45.0,
+   "label": "без сильного хода BTC по сделке за 1 ч (≤ q80), порог 0,45 %",
+   "cand_excluded": 186,
+   "cand_rows": 914,
+   "trades_excluded": 72,
+   "trades_remain": 356
+  },
+  {
+   "cid": "B240_with",
+   "W": 240,
+   "op": "lt",
+   "X": 0.0,
+   "label": "BTC за 4 ч в сторону сделки (≥ 0), порог 0 %",
+   "cand_excluded": 377,
+   "cand_rows": 914,
+   "trades_excluded": 193,
+   "trades_remain": 235
+  },
+  {
+   "cid": "B240_agst",
+   "W": 240,
+   "op": "gt",
+   "X": 0.0,
+   "label": "BTC за 4 ч против сделки (≤ 0), порог 0 %",
+   "cand_excluded": 537,
+   "cand_rows": 914,
+   "trades_excluded": 235,
+   "trades_remain": 193
+  },
+  {
+   "cid": "B240_nag20",
+   "W": 240,
+   "op": "lt",
+   "X": -37.0,
+   "label": "без сильного хода BTC против за 4 ч (≥ q20), порог -0,37 %",
+   "cand_excluded": 185,
+   "cand_rows": 914,
+   "trades_excluded": 103,
+   "trades_remain": 325
+  },
+  {
+   "cid": "B240_nwi80",
+   "W": 240,
+   "op": "gt",
+   "X": 69.0,
+   "label": "без сильного хода BTC по сделке за 4 ч (≤ q80), порог 0,69 %",
+   "cand_excluded": 184,
+   "cand_rows": 914,
+   "trades_excluded": 77,
+   "trades_remain": 351
+  },
+  {
+   "cid": "B1440_with",
+   "W": 1440,
+   "op": "lt",
+   "X": 0.0,
+   "label": "BTC за 24 ч в сторону сделки (≥ 0), порог 0 %",
+   "cand_excluded": 396,
+   "cand_rows": 914,
+   "trades_excluded": 191,
+   "trades_remain": 237
+  },
+  {
+   "cid": "B1440_agst",
+   "W": 1440,
+   "op": "gt",
+   "X": 0.0,
+   "label": "BTC за 24 ч против сделки (≤ 0), порог 0 %",
+   "cand_excluded": 518,
+   "cand_rows": 914,
+   "trades_excluded": 237,
+   "trades_remain": 191
+  },
+  {
+   "cid": "B1440_nag20",
+   "W": 1440,
+   "op": "lt",
+   "X": -140.0,
+   "label": "без сильного хода BTC против за 24 ч (≥ q20), порог -1,4 %",
+   "cand_excluded": 181,
+   "cand_rows": 914,
+   "trades_excluded": 88,
+   "trades_remain": 340
+  },
+  {
+   "cid": "B1440_nwi80",
+   "W": 1440,
+   "op": "gt",
+   "X": 140.0,
+   "label": "без сильного хода BTC по сделке за 24 ч (≤ q80), порог 1,4 %",
+   "cand_excluded": 179,
+   "cand_rows": 914,
+   "trades_excluded": 88,
+   "trades_remain": 340
+  }
+ ]
+}
