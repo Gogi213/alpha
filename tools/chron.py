@@ -31,7 +31,7 @@ SRV_HOST = "root@5.231.25.224"
 TZ = datetime.timezone(datetime.timedelta(hours=4))
 VERDICTS = ("работает", "не работает", "не ясно", "описательно")
 KINDS = ("verdict", "prereg", "amend", "freeze", "result", "step", "measure", "experiment", "correction", "note")
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 HERE = Path(__file__).resolve().parent if "__file__" in globals() else Path.cwd()
 
 SCHEMA = """
@@ -46,6 +46,7 @@ CREATE TABLE entry(
   same_data INTEGER CHECK (same_data IS NULL OR same_data IN (0,1)),   -- «найдено на этих данных»
   title TEXT NOT NULL, body TEXT NOT NULL,
   fields TEXT,                   -- JSON: ячейки таблицы источника и прочее разобранное
+  parsed TEXT,                   -- JSON (перенос): откуда взято каждое поле и почему поле пусто
   corrects INTEGER REFERENCES entry(id),
   src TEXT, h TEXT NOT NULL,     -- источник переноса (путь:строка); sha256 тела
   author TEXT, created TEXT NOT NULL);
@@ -445,11 +446,11 @@ class Store:
                 return "L-%d" % row[0]
             e = ch["entry"]
             cur = self.c.execute(
-                "INSERT INTO entry(ts, task, project, kind, hypothesis, verdict, usd, trades, sharpe, same_data, title, body, fields, corrects, src, h, author, created)"
-                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                (e.get("ts"), e.get("task"), e.get("project"), e["kind"], e.get("hypothesis"), e.get("verdict"), None, None, None,
-                 e.get("same_data"), e["title"], ch["body"], json.dumps(e["fields"], ensure_ascii=False) if e.get("fields") else None,
-                 None, "%s:%d" % (d["path"], ch["line"]), h, "import", now()))
+                "INSERT INTO entry(ts, task, project, kind, hypothesis, verdict, usd, trades, sharpe, same_data, title, body, fields, parsed, corrects, src, h, author, created)"
+                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (e.get("ts"), e.get("task"), e.get("project"), e["kind"], e.get("hypothesis"), e.get("verdict"), e.get("usd"), e.get("trades"),
+                 e.get("sharpe"), e.get("same_data"), e["title"], ch["body"], json.dumps(e["fields"], ensure_ascii=False) if e.get("fields") else None,
+                 json.dumps(e["parsed"], ensure_ascii=False) if e.get("parsed") else None, None, "%s:%d" % (d["path"], ch["line"]), h, "import", now()))
             used.add(cur.lastrowid)
             st["new"] += 1
             nid = "L-%d" % cur.lastrowid
@@ -647,6 +648,18 @@ class Store:
                 "kb_nodes": q("SELECT count(*) FROM kb_node"), "docs": q("SELECT count(DISTINCT path) FROM doc"),
                 "db_bytes": q("SELECT page_count * page_size FROM pragma_page_count(), pragma_page_size()")}
 
+    def fields_report(self):
+        """Перенесённые записи: сколько полей заполнено и почему пусто (причина из parsed) — с номерами записей."""
+        filled = {f: self.c.execute("SELECT count(*) FROM entry WHERE src IS NOT NULL AND %s IS NOT NULL" % f).fetchone()[0]
+                  for f in ("verdict", "usd", "trades", "sharpe", "same_data", "project", "task")}
+        why = {}
+        for i, p in self.c.execute("SELECT id, parsed FROM entry WHERE parsed IS NOT NULL ORDER BY id"):
+            for f, w in json.loads(p).items():
+                if w.startswith("—"):
+                    r = re.sub(r"\s*\(.*$|\s+\d+$|:\s.*$", "", w[3:].strip())
+                    why.setdefault(f, {}).setdefault(r, []).append(i)
+        return {"total": self.c.execute("SELECT count(*) FROM entry WHERE src IS NOT NULL").fetchone()[0], "filled": filled, "why": why}
+
     def check_db(self):
         """Внутренняя целостность: битые ссылки (кроме commit/file — их проверяет клиент по git), триггеры, FTS, снимки md."""
         issues = []
@@ -826,10 +839,153 @@ def journal_entry(ch, ctx_head=None):
                 break
     ctx = ctx_head or ""
     proj = find_project(title) or find_project(ctx) or find_project(body)
-    return {"ts": ts, "task": find_task(title) or find_task(ctx), "project": proj,
-            "kind": "experiment" if ch.get("mode") == "registry" else entry_kind(title),
-            "hypothesis": hyp, "verdict": "описательно" if "ОПИСАТЕЛЬНО" in title.upper() else None,
-            "same_data": 1 if "найдено на этих данных" in fold(body) else None, "title": title or "(без заголовка)", "fields": fields}
+    kind = "experiment" if ch.get("mode") == "registry" else entry_kind(title)
+    task = find_task(title) or find_task(ctx)
+    if not task:
+        tks = set(re.findall(r"(?<![\w-])TK-\d+", body))
+        task = tks.pop() if len(tks) == 1 else None  # из тела — только если задача там одна
+    return {"ts": ts, "task": task, "project": proj, "kind": kind, "hypothesis": hyp,
+            "title": title or "(без заголовка)", "fields": fields, **parse_marks(kind, title, body, fields, proj)}
+
+
+# ── разметка полей перенесённой записи: вердикт, $ на ставку 500 $, сделок, Шарп, «найдено на этих данных».
+# Поле заполняется, только если текст говорит однозначно; иначе пусто, а в parsed — причина (п. 9: не изобретать).
+
+NUM_RX = r"[−+-]?\d{1,3}(?:[  ]\d{3})+(?:,\d+)?|[−+-]?\d+(?:[,.]\d+)?"
+V_LIST_RX = re.compile(r"«?работает»?\s*/\s*«?не работает»?\s*/\s*«?не ясно»?")
+V_RULES = (  # (вердикт, шаблон по fold-тексту); найденное вырезается до следующих правил — отрицания раньше утверждений
+    ("описательно", r"описательн\w*|не вердикт|вердикта нет"),  # во всём тексте — только в начале фразы (verdict_classes)
+    ("не работает", r"не работает|(?<!не )опроверг\w*|не подтвердил\w*|не держит\w*|не годит\w*"),
+    ("не ясно", r"не ясно|неясн\w*|мало данных|в шуме"),
+    ("работает", r"(?<!не )\bработает\b|(?<!не )\bподтверждено\b(?!\s*0)|(?<!не )\bподтвердил\w*|\bзелен\w*|(?<!не )\bгодится\b"),
+)
+# без однозначного перевода в четыре значения: «не подтверждено» (не ясно или не работает), светофор реестра «красный»
+# (= нижняя граница ≤ 0), отметка клеток «…» в Летописи, счёт клеток «опровергнуты 38, прошли 10»
+V_SKIP_RX = re.compile(r"не подтвержд\w*|\bкрасн\w*|«[^»]{0,40}»\s+в летописи|(?:опровергнут\w*|прошл\w*|не определен\w*)\s+\d+"
+                       r"|«[^»]{0,30}»\s+(?:недостиж|невозмож)\w*")
+SAME_DATA_RX = re.compile(r"найден\w* (?:отбором )?на (?:этих|тех же) данных|на тех же данных|по тем же данным|найден\w* постфактум|"
+                          r"выбран\w* на тех же|найдено на авг")
+NO_VERDICT_KINDS = ("prereg", "amend", "freeze")
+
+
+def ru_num(s):
+    return float(s.replace("−", "-").replace(" ", "").replace(" ", "").replace(",", "."))
+
+
+def verdict_classes(text, whole=False):
+    """whole — весь текст записи, а не выделенный вывод: «описательно» считается, только если с него начинается фраза."""
+    t = V_SKIP_RX.sub(" ", V_LIST_RX.sub(" ", fold(text)))
+    found = {}
+    for cls, pat in V_RULES:
+        if whole and cls == "описательно":
+            pat = r"(?:^|[.;:(]\s*)описательн\w*|не вердикт|вердикта нет"
+        m = re.search(pat, t)
+        if m:
+            found[cls] = m.group(0)
+        t = re.sub(pat, " ", t)
+    return found
+
+
+MONEY_RX = re.compile(r"(?<![\w$/.,])(%s)\s?\$(?!\s?/)(?!\s*(?:на сделку|в сутки|за сутки|тыс|млн|млрд))"
+                      r"|([−+-]?)\$\s?(%s)(?![\d,.]*\s*(?:/|тыс|млн|млрд|на сделку|в сутки|k\b))" % (NUM_RX, NUM_RX))
+NOT_SUM_RX = re.compile(r"(?:ставк\w*|номинал\w*|позици\w*|счёт|сч[её]т|лот\w*|Δ\w*|не)\s*[(=:]?\s*$")
+
+
+def money_values(text):
+    """Суммы в $ — не в сутки и не на сделку, не интервалы […], не тыс. / млн, не ставка / номинал / Δ."""
+    t = re.sub(r"\[[^\]]*\]", " ", text)
+    out = set()
+    for m in MONEY_RX.finditer(t):
+        if NOT_SUM_RX.search(t[max(0, m.start() - 12):m.start()]):
+            continue
+        out.add(ru_num(m.group(1)) if m.group(1) else ru_num((m.group(2) or "") + m.group(3)))
+    return out
+
+
+def clause_pairs(text):
+    """Фразы, где рядом названы и число сделок, и сумма $: [(сделок, $, Шарп | None, фраза)] — числа одного объекта."""
+    out = []
+    for cl in re.split(r";|\.\s|\n|·", text):
+        if re.search(r"(?i)плюсов|минусов|прибыльн|убыточн|стоп", cl):  # часть сделок по исходу — не итог объекта
+            continue
+        tc, mv = trade_counts(cl), money_values(cl)
+        if len(tc) == 1 and len(mv) == 1:
+            sv = sharpe_values(cl)
+            out.append((next(iter(tc)), next(iter(mv)), next(iter(sv)) if len(sv) == 1 else None, cl.strip()))
+    return out
+
+
+def trade_counts(text):
+    return {int(ru_num(m.group(1))) for m in
+            re.finditer(r"(?<!из )(?<![\d,.])(\d{1,3}(?:[  ]\d{3})+|\d+)\s+сдел(?:ок|ки|ка)\b(?!\s+в сутки)", text)}
+
+
+def sharpe_values(text):
+    return {ru_num(m.group(1)) for m in re.finditer(r"(?i)(?:sharpe|шарп\w*)(?:\s+годовой)?\s*[=:]?\s*(%s)(?![\d-])" % NUM_RX, text)}
+
+
+def parse_marks(kind, title, body, fields, project):
+    """Поля записи из текста: verdict, usd, trades, sharpe, same_data и parsed = {поле: откуда взято | «—: почему пусто»}."""
+    why, out = {}, {}
+    if kind in NO_VERDICT_KINDS:
+        why["verdict"] = "—: вид записи без вердикта (%s)" % kind
+    elif fields and "что мерили" in fields:
+        why["verdict"] = "—: замер (строка M реестра), не вердикт"
+    elif "не вердикт" in fold(title) or "ОПИСАТЕЛЬНО" in title or re.search(r"(?:\(|;\s)описательн", title):  # не «D 20 — описательно»
+        out["verdict"], why["verdict"] = "описательно", "заголовок: " + title[:120]
+    else:
+        src = body
+        if fields:
+            cell = (fields.get("вердикт") or "").strip("* ")
+            src = cell if cell not in ("—", "") else (fields.get("результат") or "")
+        bold = " · ".join(re.findall(r"\*\*(.+?)\*\*", src, re.S))
+        vc = verdict_classes(bold) if bold else {}
+        if len(vc) != 1:  # выделенное жирным — главный вывод; если там вердикт не один или его нет — весь текст
+            vc = verdict_classes(src, whole=True)
+        if len(vc) == 1:
+            (out["verdict"], q), = vc.items()
+            why["verdict"] = "«%s»" % q
+        else:
+            why["verdict"] = ("—: несколько вердиктов (стороны / клетки): " + ", ".join("%s «%s»" % kv for kv in vc.items())
+                              if vc else "—: вердикт словами не назван")
+    # Числа — только одного объекта: сделок и $ в одной фразе главного вывода (жирное; у заморозки — весь текст), фраза одна.
+    # $ на ставку 500 $: движок П-42 (номинал 500 $, trade.rs NOTIONAL_U) или реестр «P&L $1000» × 0,5; иные ставки не пересчитываются.
+    text = body if not fields else " | ".join(v for k, v in fields.items() if k not in ("n", "P&L $1000"))
+    bold = " · ".join(re.findall(r"\*\*(.+?)\*\*", text, re.S))
+    pairs = {(t, u, s): cl for t, u, s, cl in clause_pairs(bold)}
+    where = "жирный вывод"
+    if not pairs and kind == "freeze":
+        pairs, where = {(t, u, s): cl for t, u, s, cl in clause_pairs(text)}, "заморожено"
+    pnl = (fields or {}).get("P&L $1000")
+    n_cell = (fields or {}).get("n")
+    if pnl is not None and re.fullmatch(r"\W*(?:[−+-]?\$\s?%s|%s\s?\$)\W*(?:\([^()]*\))?\s*" % (NUM_RX, NUM_RX), pnl):
+        out["usd"], why["usd"] = round(next(iter(money_values(pnl))) / 2, 2), "P&L $1000 × 0,5: " + pnl[:120]
+        if n_cell is not None and re.fullmatch(r"\s*\d+\s*", n_cell):
+            out["trades"], why["trades"] = int(n_cell), "ячейка n"
+        else:
+            why["trades"] = "—: ячейка n — не одно число (стороны / наборы)"
+    elif len(pairs) == 1 and (project == "П-42" or pnl is not None):
+        (t, u, s), cl = next(iter(pairs.items()))
+        out["trades"], out["usd"] = t, (round(u / 2, 2) if pnl is not None else u)
+        why["trades"] = why["usd"] = "%s: %s" % (where, cl[:160])
+        if s is not None:
+            out["sharpe"], why["sharpe"] = s, why["usd"]
+    else:
+        r = ("—: ставка не названа (не движок П-42)" if pairs and project != "П-42" else
+             "—: в главном выводе сделок и $ одного объекта %d" % len(pairs) if pairs else
+             "—: в главном выводе нет фразы «N сделок … $» (числа по сторонам / клеткам / срезам или их нет)")
+        why["usd"] = why["trades"] = r
+    if "sharpe" not in why:
+        why["sharpe"] = "—: Шарп не назван рядом с числами главного вывода"
+    m = SAME_DATA_RX.search(fold(body))  # по словам текста; «нет» из молчания не выводится
+    if m and re.match(r"\s*:\s*нет\b", fold(body)[m.end():]):
+        out["same_data"], why["same_data"] = 0, "«%s: нет»" % m.group(0)
+    elif m:
+        out["same_data"], why["same_data"] = 1, "«%s»" % m.group(0)
+    else:
+        why["same_data"] = "—: в тексте не сказано"
+    out["parsed"] = why
+    return out
 
 
 def section_chunks(text):
@@ -1141,7 +1297,7 @@ def call(op, *args, **kw):
     return res["ok"]
 
 
-RO_OPS = {"query", "search", "links_of", "get", "protocol_text", "protocols", "facets", "links_all", "stats", "check_db", "reconstruct", "exists", "label"}
+RO_OPS = {"query", "search", "links_of", "get", "protocol_text", "protocols", "facets", "links_all", "stats", "fields_report", "check_db", "reconstruct", "exists", "label"}
 
 
 def rpc_main():
@@ -1401,6 +1557,26 @@ def cmd_stats(a):
     return 0
 
 
+def id_ranges(ids):
+    out, s = [], None
+    for i, x in enumerate(ids):
+        if s is None:
+            s = x
+        if i + 1 == len(ids) or ids[i + 1] != x + 1:
+            out.append("L-%d" % s if s == x else "L-%d…%d" % (s, x))
+            s = None
+    return ", ".join(out)
+
+
+def cmd_fields(a):
+    r = call("fields_report")
+    print("перенесённых записей %d; заполнено: %s" % (r["total"], ", ".join("%s %d" % kv for kv in r["filled"].items())))
+    for f, rs in r["why"].items():
+        for reason, ids in sorted(rs.items(), key=lambda kv: -len(kv[1])):
+            print("  %-9s пусто %3d — %s%s" % (f, len(ids), reason, (": " + id_ranges(ids)) if a.ids else ""))
+    return 0
+
+
 def cmd_backup(a):
     """Снимок БД (online backup API) + integrity_check + JSONL-выгрузка; с --box — rsync в Storage Box. Только на srv."""
     db = local_db()
@@ -1575,6 +1751,10 @@ class Site:
         if e["hypothesis"]:
             tbl = "<tr><th>гипотеза</th><td>%s</td></tr>" % html.escape(e["hypothesis"]) + tbl
         notes = ""
+        if e.get("parsed"):
+            names = {"verdict": "вердикт", "usd": "$", "trades": "сделок", "sharpe": "Шарп", "same_data": "найдено на этих данных"}
+            notes += '<details class="meta"><summary>откуда поля (разбор текста при переносе)</summary><table class="fields">%s</table></details>' % "".join(
+                "<tr><th>%s</th><td>%s</td></tr>" % (names.get(k, k), html.escape(v)) for k, v in json.loads(e["parsed"]).items())
         if e["corrects"]:
             notes += '<p>Исправляет <a href="/chron/e/%d">L-%d</a>.</p>' % (e["corrects"], e["corrects"])
         if r["corrected_by"]:
@@ -1805,6 +1985,9 @@ def main(argv=None):
     sp.add_parser("sync-kb", help="обновить узлы kb (карточки) в БД").set_defaults(fn=cmd_sync_kb)
     sp.add_parser("check", help="целостность и битые ссылки; код 1 при ошибках").set_defaults(fn=cmd_check)
     sp.add_parser("stats").set_defaults(fn=cmd_stats)
+    s = sp.add_parser("fields", help="перенесённые записи: заполненные поля и почему пусто")
+    s.add_argument("--ids", action="store_true", help="номера записей по каждой причине")
+    s.set_defaults(fn=cmd_fields)
     s = sp.add_parser("backup", help="снимок БД (srv)")
     s.add_argument("--dir", default="/data/chron/backup")
     s.add_argument("--keep", type=int, default=30)

@@ -194,6 +194,26 @@ class TestParse(Base):
         self.assertIn("продолжение", ents[4]["body"])
         self.assertEqual(es[5]["fields"]["col3"], "без шапки")
 
+    def test_marks(self):
+        pm = lambda body, kind="result", title="t", fields=None, project="П-42": chron.parse_marks(kind, title, body, fields, project)
+        m = pm("ЛОНГ — опровергнуто: база A −$8,08; ШОРТ — не ясно")
+        self.assertIsNone(m.get("verdict"))  # стороны разные — поле пусто, причина записана
+        self.assertTrue(m["parsed"]["verdict"].startswith("—: несколько"))
+        m = pm("сетка: **«не ясно»** — шорт клетка «не работает»; **327 сделок, +180,83 $, Sharpe 3,41**")
+        self.assertEqual((m["verdict"], m["trades"], m["usd"], m["sharpe"]), ("не ясно", 327, 180.83, 3.41))
+        self.assertIsNone(pm("**181 сделка, +294 $**", project="П-21").get("usd"))  # ставка не 500 $ — не пересчитывается
+        self.assertIsNone(pm("**плюсовые 312 сделок +1 493,8 $**").get("usd"))  # часть сделок — не итог
+        self.assertIsNone(pm("вердикт «подтверждено» недостижим").get("verdict"))
+        self.assertIsNone(pm("прошли 10, опровергнуты 38").get("verdict"))
+        self.assertIsNone(pm("не ясно", kind="prereg").get("verdict"))
+        self.assertEqual(pm("Найдено на этих данных: нет (описательно).", kind="step")["same_data"], 0)
+        self.assertEqual(pm("порог выбран на тех же 60 сутках")["same_data"], 1)
+        self.assertNotIn("same_data", {k for k, v in pm("ничего").items() if v is not None and k != "parsed"})
+        f = {"P&L $1000": "−$41 (a45 обе стороны)", "n": "170", "вердикт": "мало данных"}
+        m = pm("", kind="experiment", fields=f, project=None)
+        self.assertEqual((m["usd"], m["trades"], m["verdict"]), (-20.5, 170, "не ясно"))
+        self.assertIsNone(pm("", kind="experiment", fields={"что мерили": "x", "результат": "работает"}).get("verdict"))
+
     def test_protocol_sections(self):
         ch = chron.section_chunks(PROTO)
         self.assertEqual("".join(c["text"] for c in ch), PROTO)
