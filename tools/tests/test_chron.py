@@ -1,4 +1,5 @@
 """TK-646: проверки tools/chron.py (запуск: python tools/tests/test_chron.py). БД — во временной папке; репозиторий только читается."""
+import gc
 import io
 import json
 import multiprocessing as mp
@@ -454,6 +455,19 @@ class TestMetrics(Base):
         self.assertEqual(self.st.check_db(), [])
         rc, out = self.cli("show", "L-%d" % a)
         self.assertIn("нет чисел: предрегистрация — итога нет", out)
+        self.assertNotIn("снята", out)
+        # числа добавлены позже: пометка остаётся в БД, но «снята», из покрытия и фильтра «пометка» уходит
+        self.st.add_metrics([mrow(a)])
+        self.st.c.commit()
+        self.assertEqual(self.st.get("L-%d" % a)["gaps"][0]["lifted"], 1)
+        self.assertEqual(self.st.query({"nums": "пометка"})["rows"], [])
+        self.assertEqual(self.st.metrics_coverage()[0]["outcome_gap"], 0)
+        rc, out = self.cli("show", "L-%d" % a)
+        self.assertIn("снята: числа добавлены (было «нет чисел»): предрегистрация — итога нет", out)
+        page = chron.Site(self.db, None).entry(a)
+        self.assertIn("снята: числа добавлены · <s>нет чисел: предрегистрация", page)
+        self.assertNotIn("<b>Нет чисел", page)
+        gc.collect()  # связь Site (ro) держит файл на Windows
 
     def test_add_entry_with_metrics(self):
         n = self.st.add_entry(entry("вердикт"), [], None, [mrow(None, trades=7)])

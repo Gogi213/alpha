@@ -733,7 +733,7 @@ class Store:
                           "файл": "EXISTS (SELECT 1 FROM metric m WHERE m.entry = e.id AND m.from_text = 0)",
                           "текст": "EXISTS (SELECT 1 FROM metric m WHERE m.entry = e.id) AND NOT EXISTS (SELECT 1 FROM metric m WHERE m.entry = e.id AND m.from_text = 0)",
                           "нет": "NOT EXISTS (SELECT 1 FROM metric m WHERE m.entry = e.id)",
-                          "пометка": "EXISTS (SELECT 1 FROM metric_gap g WHERE g.entry = e.id)",
+                          "пометка": "EXISTS (SELECT 1 FROM metric_gap g WHERE g.entry = e.id) AND NOT EXISTS (SELECT 1 FROM metric m WHERE m.entry = e.id)",
                           "без объяснения": "NOT EXISTS (SELECT 1 FROM metric m WHERE m.entry = e.id) AND NOT EXISTS (SELECT 1 FROM metric_gap g WHERE g.entry = e.id)"
                           }.get(f["nums"], "1"))
         sql = " FROM entry e" + (" WHERE " + " AND ".join(where) if where else "")
@@ -802,7 +802,8 @@ class Store:
             res["corrected_by"] = [x[0] for x in self.c.execute("SELECT id FROM entry WHERE corrects=? ORDER BY id", (r["id"],))]
             res["metrics_total"] = self.c.execute("SELECT count(*) FROM metric WHERE entry=?", (r["id"],)).fetchone()[0]
             res["metrics"] = [dict(x) for x in self.c.execute("SELECT * FROM metric WHERE entry=? ORDER BY id LIMIT ?", (r["id"], metrics_limit))]
-            res["gaps"] = [dict(x) for x in self.c.execute("SELECT * FROM metric_gap WHERE entry=? ORDER BY id", (r["id"],))]
+            # пометка неудаляема: у записи появились числа — «снята: числа добавлены», в покрытии не считается
+            res["gaps"] = [dict(x, lifted=1 if res["metrics_total"] else 0) for x in self.c.execute("SELECT * FROM metric_gap WHERE entry=? ORDER BY id", (r["id"],))]
         elif k == "psec":
             r = self.c.execute("SELECT p.*, r.short FROM psec_cur p JOIN protocol r ON r.id=p.protocol WHERE p.id=?", (int(n[3:]),)).fetchone()
             if not r:
@@ -1882,7 +1883,7 @@ def cmd_show(a):
             for m in r["metrics"]:
                 print("  " + fmt_metric_row(m, with_entry=False))
         for gp in r.get("gaps") or []:
-            print("\nнет чисел: %s%s%s" % (gp["reason"], " — " + gp["note"] if gp["note"] else "",
+            print("\n%s: %s%s%s" % ("снята: числа добавлены (было «нет чисел»)" if gp.get("lifted") else "нет чисел", gp["reason"], " — " + gp["note"] if gp["note"] else "",
                                          " (%s%s)" % (gp["src"], " " + gp["src_ptr"] if gp["src_ptr"] else "") if gp["src"] else ""))
     elif "psec" in r:
         s = r["psec"]
@@ -2284,7 +2285,7 @@ class Site:
                                                      self.metrics_table(r["metrics"], with_entry=False))
             mt += '<p><a href="/chron/m/?entry=%d">все числа записи — фильтры и сортировка</a></p>' % n
         if r.get("gaps"):
-            mt += "".join('<p class="gap"><b>Нет чисел: %s</b>%s%s</p>' % (
+            mt += "".join(('<p class="gap meta">снята: числа добавлены · <s>нет чисел: %s%s%s</s></p>' if gp.get("lifted") else '<p class="gap"><b>Нет чисел: %s</b>%s%s</p>') % (
                 html.escape(gp["reason"]), " — " + html.escape(gp["note"]) if gp["note"] else "",
                 ' <span class="meta">(%s%s)</span>' % (html.escape(gp["src"]), " " + html.escape(gp["src_ptr"]) if gp["src_ptr"] else "") if gp["src"] else "")
                 for gp in r["gaps"])
