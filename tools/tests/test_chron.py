@@ -220,7 +220,7 @@ class TestParse(Base):
 
 def independent_count(path):
     """Счёт записей в md, независимый от разбора chron: строки таблиц (без шапки), блоки журнала, заголовки протоколов вне ```."""
-    lines = (ROOT / path).read_text(encoding="utf-8").split("\n")
+    lines = (ROOT / path).read_text(encoding="utf-8").replace("\r\n", "\n").split("\n")
     sep = re.compile(r"^\|[\s:|-]*-[\s:|-]*\|?\s*$")
     if Path(path).name.startswith("P-"):
         n, fence = 0, None
@@ -252,7 +252,7 @@ class TestRealMigration(Base):
         for d in docs:
             src = amap.get(d["path"], d["path"])
             self.assertEqual(st[d["path"]]["rows"], independent_count(src), d["path"])
-            self.assertEqual(self.st.reconstruct(d["path"]).encode("utf-8"), (ROOT / src).read_bytes(), d["path"])
+            self.assertEqual(self.st.reconstruct(d["path"]).encode("utf-8"), (ROOT / src).read_bytes().replace(b"\r\n", b"\n"), d["path"])
             total += st[d["path"]]["rows"]
         self.assertEqual(total, self.st.c.execute("SELECT (SELECT count(*) FROM entry) + (SELECT count(*) FROM psec)").fetchone()[0])
         again = self.st.import_docs(docs, None)

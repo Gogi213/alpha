@@ -1029,7 +1029,7 @@ def build_docs(root, paths, kb_nodes, git, archive_map=None):
     pending = []
     for rel in paths:
         src = (archive_map or {}).get(rel, rel)
-        raw = (root / src).read_bytes()
+        raw = (root / src).read_bytes().replace(b"\r\n", b"\n")  # канон — блоб git (LF); CRLF — след checkout с autocrlf
         text = raw.decode("utf-8")
         d = {"path": rel, "sha256": hashlib.sha256(raw).hexdigest(), "bytes": len(raw), "chunks": []}
         is_proto = Path(rel).name.startswith("P-")
@@ -1345,7 +1345,7 @@ def cmd_import(a):
         s = st[d["path"]]
         for k in tot:
             tot[k] += s.get(k, 0)
-        same = s["back_sha256"] == hashlib.sha256((root / amap.get(d["path"], d["path"])).read_bytes()).hexdigest()
+        same = s["back_sha256"] == d["sha256"]
         if not same or s["rows"] != expect[d["path"]]:
             bad += 1
         if a.verbose or not same:

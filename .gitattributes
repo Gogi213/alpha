@@ -16,3 +16,5 @@
 *.csv text eol=lf
 # 2026-11-18 (TK-598): заморозка П-42 §13.23 — sha256 frozen.json и моделей проверяет код чтения; autocrlf не должен менять байты
 docs/findings/p42-catboost-targets-2026-11-18/freeze/** -text
+# TK-646: снимки, перенесённые в летопись, сверяются с БД байт в байт — без перевода строк при checkout
+docs/archive/chronicle-2026-11-20/** -text
