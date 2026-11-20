@@ -1,6 +1,6 @@
 # TK-407 приёмка (отклик Gate на ход DEX, основной набор, П-29) — вернуть, 26.10 ~03:40
 
-Сверено по `docs/findings/tk406-ev-gate-response-main-2026-10-26-agg.csv` (A=5, all, fut, X=0,005, W=60):
+Сверено по `docs/archive/findings/tk406-ev-gate-response-main-2026-10-26-agg.csv` (A=5, all, fut, X=0,005, W=60):
 h=5 up +2,44 / Холм 0,069, down +2,80 / 0,143; h=60 up +3,41 / Холм 1, down +1,74 / 1 — числа отчёта = csv.
 `-days.csv`: сутки 0–7 у всех групп (8 строк на группу) — есть.
 

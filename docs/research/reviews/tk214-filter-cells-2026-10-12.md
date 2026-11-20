@@ -1,7 +1,7 @@
 # TK-214 — фильтр-клетка = фильтр кругов пула → busy-replay → psim: вердикт Судьи (12.10)
 
 **Вердикт: путь годен** для `--driver setups` + `--busy-skip off` (так идёт F1), при условиях ниже. Опыт — TK-215,
-`docs/findings/tk214-filter-cells-2026-10-12.md`, сырьё calc `/data/tk214/{outA,outB,cmp}`.
+`docs/archive/findings/tk214-filter-cells-2026-10-12.md`, сырьё calc `/data/tk214/{outA,outB,cmp}`.
 
 | пункт договора | да/нет | на чём проверено |
 |---|---|---|

@@ -1,6 +1,6 @@
 # Проверка TK-364 · юниверс v3 (группа high) — вернуть
 
-Судья, 23.10. Сверено по `docs/findings/tk364-universe-v3-2026-10-23.csv` (фильтр group=high) и `tk364-groups-2026-10-23.json`.
+Судья, 23.10. Сверено по `docs/archive/findings/tk364-universe-v3-2026-10-23.csv` (фильтр group=high) и `tk364-groups-2026-10-23.json`.
 
 | пункт | да/нет | на чём проверено |
 |---|---|---|

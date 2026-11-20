@@ -1,6 +1,6 @@
 # TK-345 аудит фильтров и стопа (a3b69851) — принято (Судья, 22.10 ~07:25)
 
-Сверка по списку из `tk345-audit-final-2026-10-22.md` против `docs/findings/audit-filters-stop-2026-10-21.md`.
+Сверка по списку из `tk345-audit-final-2026-10-22.md` против `docs/archive/findings/audit-filters-stop-2026-10-21.md`.
 
 | пункт | да/нет | на чём |
 |---|---|---|

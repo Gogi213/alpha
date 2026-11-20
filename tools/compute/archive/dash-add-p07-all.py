@@ -172,7 +172,7 @@ def add_tk009(D, B, T, pos, dep, spans):
                          " (p07b:h9r-k1). Счёт — portfolio-sim пачки TK-009 (busy-replay, без TRX), форма " + b["form"] +
                          ", набор " + b["set"] + ("" if b["max_pos"] == 0 else f", потолок {b['max_pos']}"),
                 "status": ref["state"] + " · найдено поиском, не кандидат на июль (TK-009)",
-                "kpi_note": "TK-009 (docs/findings/tk009-batch-2026-09-28.md): §10 «" + ref["state"] + "», правило кандидата — нет; " + note,
+                "kpi_note": "TK-009 (docs/archive/findings/tk009-batch-2026-09-28.md): §10 «" + ref["state"] + "», правило кандидата — нет; " + note,
                 "trades_note": b.get("trades_note") or "список сделок на странице только у главных и кандидатов (размер страницы ≤ 14 МБ)"}
         for pk in RU:
             D["account"][pk][key] = merge.account_summary(grid(b, pk), dep, spans[pk])

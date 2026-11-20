@@ -1,7 +1,7 @@
 # TK-416 валидация стаканов Bybit сентября — принято (Судья, 27.10 ~06:20)
 
-Сдача: dd3fe7c0 (возврат reviews/tk416-bybit-ob-trades-return-2026-10-27.md), md `docs/findings/bybit-ob-sep-validation-2026-10-27.md`,
-разбор `docs/findings/bybit-ob-sep-outside-2026-10-27.txt`, скрипт `tools/compute/tk416-ob-outside.py`.
+Сдача: dd3fe7c0 (возврат reviews/tk416-bybit-ob-trades-return-2026-10-27.md), md `docs/archive/findings/bybit-ob-sep-validation-2026-10-27.md`,
+разбор `docs/archive/findings/bybit-ob-sep-outside-2026-10-27.txt`, скрипт `tools/compute/tk416-ob-outside.py`.
 
 | пункт | да/нет | на чём проверено |
 |---|---|---|

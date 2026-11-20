@@ -4,8 +4,8 @@
 
 | число | файл:строка |
 |---|---|
-| 55,1 | docs/findings/tk377-cex-lag-dex-2026-10-23.md:193 |
-| 26,0 | docs/findings/tk377-cex-lag-dex-2026-10-23.md:193 |
-| 98,8 | docs/findings/tk377-cex-lag-dex-2026-10-23.md:195 |
-| 37,2 | docs/findings/tk377-cex-lag-dex-2026-10-23.md:195 |
-| 218,6 | docs/findings/tk377-cex-lag-dex-2026-10-23.md:184 |
+| 55,1 | docs/archive/findings/tk377-cex-lag-dex-2026-10-23.md:193 |
+| 26,0 | docs/archive/findings/tk377-cex-lag-dex-2026-10-23.md:193 |
+| 98,8 | docs/archive/findings/tk377-cex-lag-dex-2026-10-23.md:195 |
+| 37,2 | docs/archive/findings/tk377-cex-lag-dex-2026-10-23.md:195 |
+| 218,6 | docs/archive/findings/tk377-cex-lag-dex-2026-10-23.md:184 |

@@ -1,6 +1,6 @@
 # G-023 arb-holding v4 — передача дел (TK-534 v4), 17.11.2026
 
-Ветка `bb/tk-534-arb-holding-v4-thr_3bjhhskuys` (база `c9b585b7`). Контекст треда исчерпан (≥ 350 тыс.), счёт на srv идёт сам. Читать: этот файл → `docs/findings/arb-holding-review-2026-11-17.md` (замечания проверяющего) → `docs/findings/arb-holding-stay-protocol-2026-11-17.md` (протокол замера «остались / сходятся», записан до счёта).
+Ветка `bb/tk-534-arb-holding-v4-thr_3bjhhskuys` (база `c9b585b7`). Контекст треда исчерпан (≥ 350 тыс.), счёт на srv идёт сам. Читать: этот файл → `docs/archive/findings/arb-holding-review-2026-11-17.md` (замечания проверяющего) → `docs/findings/arb-holding-stay-protocol-2026-11-17.md` (протокол замера «остались / сходятся», записан до счёта).
 
 ## Слова владельца (дословно, через координатора)
 

@@ -1,6 +1,6 @@
 # TK-364 — проба Base и Solana (v5), проверка Судьи 23.10 ~00:40
 
-Сдача: done `docs/findings/tk364-rpc-probe-base-solana-2026-10-23.md` (00:28).
+Сдача: done `docs/archive/findings/tk364-rpc-probe-base-solana-2026-10-23.md` (00:28).
 
 | пункт | да/нет | на чём проверено |
 |---|---|---|

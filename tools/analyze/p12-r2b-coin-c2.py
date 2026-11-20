@@ -2,7 +2,7 @@
 """TK-120: П-12 §9 п.3 С2 «без монеты» для R2-B (free, cap0). Вход: data/j120/coin-rows-r2b.csv (p12-r2b-coinrows.py на calc: сделки closes -> символ), голова p12_r2b_head.py.
 Прошедшая клетка (e133): монета, чьё удаление (из клетки и из B1) сильнее всего снижает ΔSR -> ΔSR без неё и нижняя 95% (блоки общие, как p12lib.analyse).
 Опровергнутые (вред п.1): монета, чьё удаление сильнее всего ПОДНИМАЕТ ΔSR -> ΔSR без неё и верхняя 95%; опровержение устойчиво, если верх < 0.
-Запуск: P12_POOL_FROM=1 python tools/analyze/p12-r2b-coin-c2.py  ->  docs/findings/p12-coin-c2-free-2026-10-12-r2b.csv"""
+Запуск: P12_POOL_FROM=1 python tools/analyze/p12-r2b-coin-c2.py  ->  docs/archive/findings/p12-coin-c2-free-2026-10-12-r2b.csv"""
 import csv, json, os
 from collections import defaultdict
 import numpy as np
@@ -10,7 +10,7 @@ import p12args; p12args.apply()
 from p12lib import POOL, block_idx, load, pack, sr
 
 P = pack(load("tools/analyze/p12_r2b_head.py", "free"), False)
-res = {r["cell"]: r for r in csv.DictReader(open("docs/findings/p12-sharpe-free-2026-10-12-r2b.csv", encoding="utf-8"))}
+res = {r["cell"]: r for r in csv.DictReader(open("docs/archive/findings/p12-sharpe-free-2026-10-12-r2b.csv", encoding="utf-8"))}
 ns = load("tools/analyze/p12_r2b_head.py", "free")
 ORDER, day_of = [n for n, _ in ns["ORDER"]], ns["day_of"]
 months = sorted(POOL)
@@ -55,6 +55,6 @@ for c, r in res.items():
     robust = (ds[coin] >= 0 and lo >= 0) if passed else hi < 0
     out.append([c, len(dm), r["d_sr"], round(full, 4), "pass" if passed else "refuted", coin, round(ds[coin], 4), round(lo, 4), round(hi, 4), int(robust)])
     print(out[-1])
-with open("docs/findings/p12-coin-c2-free-2026-10-12-r2b.csv", "w", encoding="utf-8", newline="") as fh:
+with open("docs/archive/findings/p12-coin-c2-free-2026-10-12-r2b.csv", "w", encoding="utf-8", newline="") as fh:
     csv.writer(fh, lineterminator="\n").writerows(out)
 print("устойчиво:", sum(1 for o in out[1:] if o[-1]), "из", len(out) - 1)

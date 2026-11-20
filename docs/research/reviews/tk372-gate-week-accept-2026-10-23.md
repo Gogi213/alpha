@@ -1,6 +1,6 @@
 # TK-372 — Gate 15–21.10, монеты без Bybit: принято (23.10 07:10 GMT+4)
 
-Сдача: `docs/findings/gate-week-download-2026-10-23.md`, `docs/findings/gate-week-universe-2026-10-23.csv`, коммит c179c8f2.
+Сдача: `docs/archive/findings/gate-week-download-2026-10-23.md`, `docs/archive/findings/gate-week-universe-2026-10-23.csv`, коммит c179c8f2.
 
 | пункт | да/нет | на чём проверено |
 |---|---|---|

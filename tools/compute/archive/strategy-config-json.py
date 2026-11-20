@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Конфиг вариантов (В-128/В-129) — читает `docs/findings/strategy-config-2026-09-27.md`
+"""Конфиг вариантов (В-128/В-129) — читает `docs/archive/findings/strategy-config-2026-09-27.md`
 (единственный источник правды, элемент протокола — НЕ дашборда) и пишет JSON: полный конфиг
 «ключ -> значение» по группам (`## Полный конфиг — ключ → значение по группам`, подсекции `### <группа>`,
 каждая — своя md-таблица с одной и той же шапкой из 9 вариантов) и таблица гипотез
@@ -8,7 +8,7 @@
 потеряет столбец/группу.
 
     python tools/compute/strategy-config-json.py \\
-        --md docs/findings/strategy-config-2026-09-27.md \\
+        --md docs/archive/findings/strategy-config-2026-09-27.md \\
         --out data/titration-dashboard/strategy-config.json
 """
 import argparse

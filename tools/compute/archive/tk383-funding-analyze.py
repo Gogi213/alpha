@@ -116,4 +116,4 @@ pos = R[(R.th == 50)].groupby("coin").netT.sum()
 print("\nθ=50: монет с положит. суммой:", int((pos > 0).sum()), "из", len(pos), "; сумма всех:", round(pos.sum(), 0),
       "; без топ-5:", round(pos.sort_values().iloc[:-5].sum(), 0))
 R.to_csv(f"{D}/trades.csv", index=False)
-json.dump(out, open("docs/findings/tk383-funding-arb-2026-10-24.json", "w"), ensure_ascii=False)
+json.dump(out, open("docs/archive/findings/tk383-funding-arb-2026-10-24.json", "w"), ensure_ascii=False)

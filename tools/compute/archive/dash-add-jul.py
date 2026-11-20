@@ -9,7 +9,7 @@ ps.json эпохи «июль», span 31 сут); `nh.by_variant[key].kpi07.frac
 Счёт и закрытия — выгрузка `dash-jul-dump.py` (portfolio-sim прогонов `p07-jul-read.py`), свои суммы не считаются.
 
     python tools/compute/dash-add-jul.py --data data/titration-dashboard/data-v38.json \\
-        --dump data/titration-dashboard/jul-r1.json --report docs/findings/p07-july-2026-09-28.json \\
+        --dump data/titration-dashboard/jul-r1.json --report docs/archive/findings/p07-july-2026-09-28.json \\
         --out data/titration-dashboard/data-v39.json
 """
 import argparse

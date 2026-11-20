@@ -18,6 +18,6 @@
 
 | число | файл:строка |
 |---|---|
-| хвост 5,91 из 15 → учтено 7 | docs/findings/tk406-tail-live3-2026-10-26.md:19 |
-| факт после хвоста 1,44 · 1,72 · 1,19 · 1,01 ядра | docs/findings/tk406-tail-live3-2026-10-26.md:13 |
-| проба 8 ядер, NX=8; sol3 rc 0 | docs/findings/tk406-tail-live3-2026-10-26.md:18 |
+| хвост 5,91 из 15 → учтено 7 | docs/archive/findings/tk406-tail-live3-2026-10-26.md:19 |
+| факт после хвоста 1,44 · 1,72 · 1,19 · 1,01 ядра | docs/archive/findings/tk406-tail-live3-2026-10-26.md:13 |
+| проба 8 ядер, NX=8; sol3 rc 0 | docs/archive/findings/tk406-tail-live3-2026-10-26.md:18 |

@@ -1,7 +1,7 @@
 # TK-502 — проверка Судьи, второй круг: код статистики П-40 и синтетика — ПРИНЯТЬ
 
 Сдача — последний коммит Исследователя в логе тикета: `tools/p40stats/p40stats.py`, `tools/p40stats/run_synth.py`,
-отчёт `docs/findings/p40-stats-synthetic-2026-11-09.md`, выходы `docs/findings/p40-stats-synthetic-s*-2026-11-09.json`.
+отчёт `docs/archive/findings/p40-stats-synthetic-2026-11-09.md`, выходы `docs/findings/p40-stats-synthetic-s*-2026-11-09.json`.
 Прежний возврат — `tk502-p40stats-return-2026-11-09.md`. Контекст после возврата: решения владельца о снятии проверочного периода, о переписке П-40 в новую редакцию
 (тикет TK-504) и об описательной статистике без недельных окон.
 

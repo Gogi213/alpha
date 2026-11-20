@@ -22,8 +22,8 @@ kb: K-054.
 
 | число | файл:строка |
 |---|---|
-| all fut up excess 60 с −0,37 бп, t −0,07, 54 монеты, n 6354, 277 монето-суток | docs/findings/tk401-ev-agg-2026-10-26.csv:95 |
-| all fut down excess 60 с −3,65 бп, t −0,61, 53 монеты, n 6316 | docs/findings/tk401-ev-agg-2026-10-26.csv:77 |
-| evm fut up −5,37 бп, t −0,63, 31 монета | docs/findings/tk401-ev-agg-2026-10-26.csv:959 |
-| sol fut up +6,37 бп, t 2,36, 23 монеты, Холм 1,0 | docs/findings/tk401-ev-agg-2026-10-26.csv:1772 |
+| all fut up excess 60 с −0,37 бп, t −0,07, 54 монеты, n 6354, 277 монето-суток | docs/archive/findings/tk401-ev-agg-2026-10-26.csv:95 |
+| all fut down excess 60 с −3,65 бп, t −0,61, 53 монеты, n 6316 | docs/archive/findings/tk401-ev-agg-2026-10-26.csv:77 |
+| evm fut up −5,37 бп, t −0,63, 31 монета | docs/archive/findings/tk401-ev-agg-2026-10-26.csv:959 |
+| sol fut up +6,37 бп, t 2,36, 23 монеты, Холм 1,0 | docs/archive/findings/tk401-ev-agg-2026-10-26.csv:1772 |
 | семейство Холма 1344 | tools/compute/archive/tk401-ev-agg.py:23 |

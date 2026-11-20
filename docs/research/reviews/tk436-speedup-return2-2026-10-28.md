@@ -1,6 +1,6 @@
 # TK-436 — повторная приёмка «было/стало» — ВЕРНУТЬ (Судья, 28.10 ~08:35)
 
-Сдача: `docs/findings/tk436-speedup-2026-10-28.md` + `docs/findings/tk436-profile-2026-10-28.md` (f84381be).
+Сдача: `docs/archive/findings/tk436-speedup-2026-10-28.md` + `docs/archive/findings/tk436-profile-2026-10-28.md` (f84381be).
 
 | пункт возврата (reviews/tk436-speedup-return-2026-10-28.md) | да/нет | на чём проверено |
 |---|---|---|

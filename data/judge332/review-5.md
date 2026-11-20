@@ -1,6 +1,6 @@
 # TK-332 — Судья, досчёт П-22 по review-4 (21.10 ~09:00 GMT+4)
 
-Сдача: docs/findings/tk332-p22-abc-2026-10-21.md + tk332-p22-b2-d-2026-10-21.txt (0d3108cf), скрипт tools/compute/tk332-abc-b2.py.
+Сдача: docs/archive/findings/tk332-p22-abc-2026-10-21.md + tk332-p22-b2-d-2026-10-21.txt (0d3108cf), скрипт tools/compute/tk332-abc-b2.py.
 Пересчёт: скрипт целиком прогнан на calc (`ssh calc python3 - < tools/compute/tk332-abc-b2.py`) — вывод совпал с txt.
 
 | пункт review-4 | да/нет | на чём проверено |

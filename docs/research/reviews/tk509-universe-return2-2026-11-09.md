@@ -1,6 +1,6 @@
 # TK-509 — проверка сдачи r3 (вселенная П-40 + закачка видео-набора), 09.11 ~10:50 — ВЕРНУТЬ
 
-Сдача: `docs/findings/p40-universe-2026-11-09.md` @89fa850b (r3), `p40-universe-2026-11-09/probe_all*.{py,jsonl,csv,md}`, закачка `p40u-*` на srv.
+Сдача: `docs/archive/findings/p40-universe-2026-11-09.md` @89fa850b (r3), `p40-universe-2026-11-09/probe_all*.{py,jsonl,csv,md}`, закачка `p40u-*` на srv.
 
 | пункт заказа | вердикт | где / как проверено |
 |---|---|---|

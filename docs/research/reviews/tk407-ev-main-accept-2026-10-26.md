@@ -1,6 +1,6 @@
 # TK-407 приёмка v2 (отклик Gate на ход DEX, основной набор, П-29) — принято, 26.10 ~04:45
 
-Сверено по `docs/findings/tk406-ev-gate-response-main-2026-10-26-agg.csv` / `-days.csv` (коммит 493f78f3) и коду агрегата
+Сверено по `docs/archive/findings/tk406-ev-gate-response-main-2026-10-26-agg.csv` / `-days.csv` (коммит 493f78f3) и коду агрегата
 calc `/data/tk0393/tk407/agg.py` (t — по средним монет, n = число монет; доля — бутстрап по монетам).
 
 | пункт возврата 03:31 / заказа | да/нет | на чём проверено |
@@ -25,7 +25,7 @@ calc `/data/tk0393/tk407/agg.py` (t — по средним монет, n = чи
 
 | число | файл:строка |
 |---|---|
-| фьюч h=60 up +2,80 бп, Холм 1 | docs/findings/tk406-ev-gate-response-main-2026-10-26-agg.csv:95 |
-| фьюч h=60 down +1,68 бп, Холм 1 | docs/findings/tk406-ev-gate-response-main-2026-10-26-agg.csv:77 |
-| фьюч h=5 up +2,66 бп, Холм 2,2e-7 | docs/findings/tk406-ev-gate-response-main-2026-10-26-agg.csv:93 |
-| фьюч h=5 down +3,17 бп, Холм 5,7e-7 | docs/findings/tk406-ev-gate-response-main-2026-10-26-agg.csv:75 |
+| фьюч h=60 up +2,80 бп, Холм 1 | docs/archive/findings/tk406-ev-gate-response-main-2026-10-26-agg.csv:95 |
+| фьюч h=60 down +1,68 бп, Холм 1 | docs/archive/findings/tk406-ev-gate-response-main-2026-10-26-agg.csv:77 |
+| фьюч h=5 up +2,66 бп, Холм 2,2e-7 | docs/archive/findings/tk406-ev-gate-response-main-2026-10-26-agg.csv:93 |
+| фьюч h=5 down +3,17 бп, Холм 5,7e-7 | docs/archive/findings/tk406-ev-gate-response-main-2026-10-26-agg.csv:75 |

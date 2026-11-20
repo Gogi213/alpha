@@ -15,7 +15,7 @@ for f in ("p24-pct0.1", "p24-pct0.5"): q = p.copy(); q["mode"] = f; tv = pd.conc
 d = d.merge(tv[["mode", "sym", "day", "tick_bin"]], on=["mode", "sym", "day"], how="left")
 d["tick_bps"] = d.tick_bin / d.entry_px * 1e4; d["usd"] = d.net_bps * 500 / 1e4
 want = {"fut": ["Q2", "Q5"], "p24-pct0.1": ["Q4", "Q5"], "p24-pct0.5": ["Q4", "Q5"]}
-src = {"fut": "docs/findings/tk327-features-fut-2026-10-20.csv + p23-fut-B-features (B1 fut, полная база A+B)", "p24-pct0.1": "TK-344 rounds.csv, pct0.1 (data/p24-trades.csv)", "p24-pct0.5": "TK-344 rounds.csv, pct0.5 (data/p24-trades.csv)"}
+src = {"fut": "docs/archive/findings/tk327-features-fut-2026-10-20.csv + p23-fut-B-features (B1 fut, полная база A+B)", "p24-pct0.1": "TK-344 rounds.csv, pct0.1 (data/p24-trades.csv)", "p24-pct0.5": "TK-344 rounds.csv, pct0.5 (data/p24-trades.csv)"}
 new = []
 for mode, qs in want.items():
     m = d[d["mode"] == mode].dropna(subset=["tick_bps"]).copy()
@@ -31,7 +31,7 @@ for mode, qs in want.items():
             "months_neg": int((mo["sum"] < 0).sum()), "months_n": int(len(mo)),
             "months": [[(k if isinstance(k, str) else f"2026-{int(k):02d}"), int(r["size"]), round(float(r["sum"]), 2)] for k, r in mo.iterrows()],
             "metric": "a", "tariff": "фьюч-модель (а): net_bps как есть", "pct_loss_base": "Σ группы / Σ всех (итог набора −)" if tot < 0 else "Σ группы / Σ групп с Σ<0 (итог набора +)",
-            "raw": "docs/findings/tk356-turnover-tick-2026-10-22.csv", "src": src[mode], "report": "docs/findings/tk356-turnover-tick-2026-10-22.md",
+            "raw": "docs/archive/findings/tk356-turnover-tick-2026-10-22.csv", "src": src[mode], "report": "docs/archive/findings/tk356-turnover-tick-2026-10-22.md",
             "n_trials": 8, "status": "наблюдение", "note": "кандидат, не правило: срез выбран по тем же данным; проверка — сито/титровка вне подбора"})
 have = {json.loads(l)["id"] for l in open(R, encoding="utf-8") if l.strip()}
 add = [r for r in new if r["id"] not in have]

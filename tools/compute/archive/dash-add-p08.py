@@ -38,7 +38,7 @@ pjr.patch_july(knj)  # отдельный экземпляр kpi-newhigh: у k7 
 JUL = "июль"
 SRC = "П-08 §10.3, Судья 2689669"
 STATUS = "стоп · П-08 закрыт (Судья 2689669): кандидатов нет"
-KPI_NOTE = "П-08: docs/findings/p08-final-2026-09-28.json, Судья 2689669 — все клетки «стоп», кандидатов нет (Холм m = 8)"
+KPI_NOTE = "П-08: docs/archive/findings/p08-final-2026-09-28.json, Судья 2689669 — все клетки «стоп», кандидатов нет (Холм m = 8)"
 TRADES_NOTE = "список сделок на странице только у главных и кандидатов (размер страницы ≤ 14 МБ)"
 # гипотеза → (название, строка конфигурации, что фильтрует); признак → краткое имя для кнопки
 HYP = {"g36": ("Г-36", "айсберг", "Стена"), "g57": ("Г-57", "допуск по размаху", "Рынок"),
@@ -105,8 +105,8 @@ def main():
     a.add_argument("--data", required=True)
     a.add_argument("--out", required=True)
     a.add_argument("--dir", default="data/p08-dash")
-    a.add_argument("--coverage", default="docs/findings/p08-coverage-2026-09-28.json")
-    a.add_argument("--final", default="docs/findings/p08-final-2026-09-28.json")
+    a.add_argument("--coverage", default="docs/archive/findings/p08-coverage-2026-09-28.json")
+    a.add_argument("--final", default="docs/archive/findings/p08-final-2026-09-28.json")
     a = a.parse_args()
     assert os.path.abspath(a.out) != os.path.abspath(a.data), "вход не перезаписывается"
     D = json.load(open(a.data, encoding="utf-8"))

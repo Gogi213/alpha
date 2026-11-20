@@ -1,6 +1,6 @@
 # TK-476 — повторная проверка сдачи (Судья), 02.11 GMT+4: принять
 
-Проверено: отчёт `docs/findings/candles-2020-2026-11-02.md`, таблица `docs/findings/candles-coverage-2026-11-02.csv`
+Проверено: отчёт `docs/archive/findings/candles-2020-2026-11-02.md`, таблица `docs/archive/findings/candles-coverage-2026-11-02.csv`
 (итоги пересчитаны из неё заново — совпали с таблицей отчёта), коммит 465b48ea, calc: метка `cov2.done`, каталог
 `/data/tk0476/universe/`, файл снятой монеты ACXUSDT в основном каталоге Bybit (колонки как у BTCUSDT), список `cl.absent`,
 каталог сырья сделок, `df /srv/alpha-sda`. Гейт `tk476_bybit_gate.py` на BTC/DOGE/SOL за 2024-06-01 прогнан мной заново:
@@ -21,11 +21,11 @@ close/объём/оборот совпали со всеми минутами RE
 
 | число | файл:строка |
 |---|---|
-| 3560 монет в таблице coverage | docs/findings/candles-2020-2026-11-02.md:3 |
-| Binance 902 файла, 992 136 631 строк | docs/findings/candles-2020-2026-11-02.md:7 |
-| Bybit 1254 файла, 1246 с данными, 867 480 177 строк | docs/findings/candles-2020-2026-11-02.md:8 |
-| Gate 1404 файла, 462 175 704 строк | docs/findings/candles-2020-2026-11-02.md:9 |
-| Bybit снятых 281, с данными 273, 155 848 897 строк, пустых 8 | docs/findings/candles-2020-2026-11-02.md:11 |
-| суток в архиве 136 473, нет в архиве 25 336 | docs/findings/candles-2020-2026-11-02.md:20 |
-| сырьё сделок 276,4 ГБ хранится, свободно 293 ГБ | docs/findings/candles-2020-2026-11-02.md:20 |
-| расхождений OHLCV на перекрытии 0 (Gate 1403, Bybit 283 символа) | docs/findings/candles-2020-2026-11-02.md:14 |
+| 3560 монет в таблице coverage | docs/archive/findings/candles-2020-2026-11-02.md:3 |
+| Binance 902 файла, 992 136 631 строк | docs/archive/findings/candles-2020-2026-11-02.md:7 |
+| Bybit 1254 файла, 1246 с данными, 867 480 177 строк | docs/archive/findings/candles-2020-2026-11-02.md:8 |
+| Gate 1404 файла, 462 175 704 строк | docs/archive/findings/candles-2020-2026-11-02.md:9 |
+| Bybit снятых 281, с данными 273, 155 848 897 строк, пустых 8 | docs/archive/findings/candles-2020-2026-11-02.md:11 |
+| суток в архиве 136 473, нет в архиве 25 336 | docs/archive/findings/candles-2020-2026-11-02.md:20 |
+| сырьё сделок 276,4 ГБ хранится, свободно 293 ГБ | docs/archive/findings/candles-2020-2026-11-02.md:20 |
+| расхождений OHLCV на перекрытии 0 (Gate 1403, Bybit 283 символа) | docs/archive/findings/candles-2020-2026-11-02.md:14 |

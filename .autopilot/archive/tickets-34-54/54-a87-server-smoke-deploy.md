@@ -4,7 +4,7 @@
 в `docs/plan/dev-plan-2026-09-17.md` §Дополнения; порядок — A8.1b ✔ … A8.6 ✔ → **A8.7** → B5.
 **Blocked by:** —
 **Зона:** сервер (второй корень `/opt/alpha/smoke`, бинарник `alpha-smoke-a87`), отчёт
-`docs/findings/collector-resilience-2026-09-18.md`, `docs/plan/dev-plan-2026-09-17.md`, `CLAUDE.md`
+`docs/archive/findings/collector-resilience-2026-09-18.md`, `docs/plan/dev-plan-2026-09-17.md`, `CLAUDE.md`
 (§Состояние — после деплоя).
 **Волна:** 13
 **Status:** done (смоук и деплой 2026-09-17 21:55:21Z; аудит 18.09)
@@ -16,7 +16,7 @@ unix-ветки SIGTERM на настоящем Linux), прогнан во **в
 Проверено живьём: добавление монеты, снятие и замена одной перечиткой, **шов соседям** (снята монета,
 делящая сокет: 4 строки `sequence_gap` «шов покрытия — пересборка сокета при снятии HYPEUSDT»),
 **SIGTERM → `closed=true`** (ветка A8.2 на Linux), **отказ подписки** фейкового символа
-(`subscribe_failed` + счётчик). Числа и команды — `docs/findings/collector-resilience-2026-09-18.md`.
+(`subscribe_failed` + счётчик). Числа и команды — `docs/archive/findings/collector-resilience-2026-09-18.md`.
 
 Живьём **не** проверялись (и почему): заполнение диска (общий `sdb` с боевыми данными), обрыв сети
 (`iptables` под root заблокировал бы SSH), шаг часов (`timedatectl` сдвинул бы часы живого коллектора)

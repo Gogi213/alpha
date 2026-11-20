@@ -89,7 +89,7 @@ def main():
     a.add_argument("--dump", required=True)
     a.add_argument("--out", required=True)
     a.add_argument("--stage12", default="docs/findings/p07-stage12-2026-09-27.json")
-    a.add_argument("--tk004", default="docs/findings/p07-tk004-stage2-2026-09-28.json")
+    a.add_argument("--tk004", default="docs/archive/findings/p07-tk004-stage2-2026-09-28.json")
     a.add_argument("--check", nargs="+", default=["p07a:h9-pause30", "p07b:h9r-k1", "p07b:h9-pause0"])
     a = a.parse_args()
     assert os.path.abspath(a.out) != os.path.abspath(a.data), "вход не перезаписывается"

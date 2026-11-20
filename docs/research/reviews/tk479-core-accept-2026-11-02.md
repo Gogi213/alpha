@@ -1,6 +1,6 @@
 # TK-479 — ядро стат-арбитража: вердикт Судьи (2026-11-02, v2) — ВЕРНУТЬ (только ярлыки договора; по существу принято)
 
-Сдача: `docs/findings/statarb-core-bench-2026-11-02.md`, ветка `tk479-statarb`, голова 2d0c5d86 (код 5dcfd945; после — только отчёт). Прошлый возврат — `tk479-core-return-2026-11-02.md`.
+Сдача: `docs/archive/findings/statarb-core-bench-2026-11-02.md`, ветка `tk479-statarb`, голова 2d0c5d86 (код 5dcfd945; после — только отчёт). Прошлый возврат — `tk479-core-return-2026-11-02.md`.
 
 | пункт возврата / договора v2 | да/нет | на чём проверено |
 |---|---|---|
@@ -24,12 +24,12 @@
 
 | число | файл:строка |
 |---|---|
-| ×54 ядро против референса, пары, 1 ядро | docs/findings/statarb-core-bench-2026-11-02.md:56 |
-| ×17 корзины, 1 ядро | docs/findings/statarb-core-bench-2026-11-02.md:58 |
-| 84,1 пар/с пары, 15 потоков, пересчёт 240 | docs/findings/statarb-core-bench-2026-11-02.md:64 |
-| (б) кросс: 8 разошедшихся сделок из 482321, (в) 0 | docs/findings/statarb-core-bench-2026-11-02.md:21 |
-| Gate: пропуски 35,3 % Bybit↔Gate | docs/findings/statarb-core-bench-2026-11-02.md:39 |
-| команда владельца, пары: 17 с | docs/findings/statarb-core-bench-2026-11-02.md:76 |
+| ×54 ядро против референса, пары, 1 ядро | docs/archive/findings/statarb-core-bench-2026-11-02.md:56 |
+| ×17 корзины, 1 ядро | docs/archive/findings/statarb-core-bench-2026-11-02.md:58 |
+| 84,1 пар/с пары, 15 потоков, пересчёт 240 | docs/archive/findings/statarb-core-bench-2026-11-02.md:64 |
+| (б) кросс: 8 разошедшихся сделок из 482321, (в) 0 | docs/archive/findings/statarb-core-bench-2026-11-02.md:21 |
+| Gate: пропуски 35,3 % Bybit↔Gate | docs/archive/findings/statarb-core-bench-2026-11-02.md:39 |
+| команда владельца, пары: 17 с | docs/archive/findings/statarb-core-bench-2026-11-02.md:76 |
 
 ## Почему всё же «вернуть» (только ярлыки)
 

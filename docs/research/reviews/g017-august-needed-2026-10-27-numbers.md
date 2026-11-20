@@ -2,7 +2,7 @@
 
 | число | файл:строка |
 |---|---|
-| 23381 | docs/findings/tk427-sep-counts-2026-10-27.csv:2 |
-| 285 | docs/findings/tk427-sep-counts-2026-10-27.csv:3 |
-| 12204 | docs/findings/tk427-sep-counts-2026-10-27.csv:4 |
-| 11177 | docs/findings/tk427-sep-counts-2026-10-27.csv:5 |
+| 23381 | docs/archive/findings/tk427-sep-counts-2026-10-27.csv:2 |
+| 285 | docs/archive/findings/tk427-sep-counts-2026-10-27.csv:3 |
+| 12204 | docs/archive/findings/tk427-sep-counts-2026-10-27.csv:4 |
+| 11177 | docs/archive/findings/tk427-sep-counts-2026-10-27.csv:5 |

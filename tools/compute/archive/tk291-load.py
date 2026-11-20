@@ -66,7 +66,7 @@ tpl.update({"id": run, "ts": __import__("datetime").datetime.now(__import__("dat
             "result_path": "/data/tk291/psim/f2", "ticket": "TK-291", "protocol": "P-19",
             "what": "TK-291: П-19 (размер по номеру касания, В-37) — линейный пересчёт portfolio-sim --lot-by-n по rounds B1 + touch_index "
                     "(проход B1 9 мес. с --touch-col, 1cdf78ee, 11 915 сделок = Летопись B1), F1 44 + F2 24 = 68 клеток × янв–сен, "
-                    "движок на клетку не гонялся; сито А: годных 0, плато нет; docs/findings/tk291-p19-size-by-touch-2026-10-17.md"})
+                    "движок на клетку не гонялся; сито А: годных 0, плато нет; docs/archive/findings/tk291-p19-size-by-touch-2026-10-17.md"})
 w["runs"].write(json.dumps(tpl, ensure_ascii=False) + "\n")
 for f in w.values():
     f.close()

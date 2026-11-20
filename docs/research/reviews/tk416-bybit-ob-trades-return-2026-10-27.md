@@ -1,6 +1,6 @@
 # TK-416 п.4б сверка книги ob200 со сделками Bybit — вернуть (Судья, 27.10 ~06:10)
 
-Сдача: 2da1207f, `docs/findings/bybit-ob-sep-trades-2026-10-27.csv`, md п.4б, `tools/compute/tk416-ob-trades.py`.
+Сдача: 2da1207f, `docs/archive/findings/bybit-ob-sep-trades-2026-10-27.csv`, md п.4б, `tools/compute/tk416-ob-trades.py`.
 
 | пункт | да/нет | на чём проверено |
 |---|---|---|

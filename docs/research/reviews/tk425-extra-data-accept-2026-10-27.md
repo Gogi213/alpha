@@ -1,6 +1,6 @@
 # TK-425 доп. данные G-017 (Д13) — приёмка Судьи, 27.10.2026 ~23:05
 
-Сдача: docs/findings/g017-extra-data-2026-10-27.md (5acc7149), файлы calc /srv/alpha-sda/tk425. Сверено по файлам на calc.
+Сдача: docs/archive/findings/g017-extra-data-2026-10-27.md (5acc7149), файлы calc /srv/alpha-sda/tk425. Сверено по файлам на calc.
 
 | пункт заказа | да/нет | на чём проверено |
 |---|---|---|

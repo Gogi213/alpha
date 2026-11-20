@@ -1,6 +1,6 @@
 # TK-502 — проверка Судьи: код статистики П-40 и синтетика (09.11.2026) — ВЕРНУТЬ
 
-Сдача: коммит d8b663e9 (`tools/p40stats/p40stats.py`, `tools/p40stats/run_synth.py`, `docs/findings/p40-stats-synthetic-2026-11-09.md`).
+Сдача: коммит d8b663e9 (`tools/p40stats/p40stats.py`, `tools/p40stats/run_synth.py`, `docs/archive/findings/p40-stats-synthetic-2026-11-09.md`).
 Сверка — с замороженным П-40 r2 (ветка `tk493-xdl9` @45c3c958, §3.5, §5, §8). Перезапуск `python run_synth.py` — см. последнюю строку.
 
 ## Что держится (находки Исследователя — ценные, принимаются по сути)

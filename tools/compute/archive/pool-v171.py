@@ -43,7 +43,7 @@ if __name__=="__main__":
         ever=set().union(*[res[d] for d in ds])
         print("co",co,"coins",len(ever),"symdays",tot,"missing",miss,"size min/med/max",min(sz),st.median(sz),max(sz))
         if co==0:
-            with open("../../docs/findings/pool-v171-2026-10-03.csv","w",newline="") as f:
+            with open("../../docs/archive/findings/pool-v171-2026-10-03.csv","w",newline="") as f:
                 f.write("sym,day,in_pool\n")
                 for d in ds:
                     for s in sorted(res[d]): f.write(f"{s},{d},1\n")

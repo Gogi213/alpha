@@ -1,6 +1,6 @@
 # TK-514: проверка предварительной сводки D1 (10.11.2026 ~19:50, Судья)
 
-Сдача: `docs/findings/p40-d1-naive-prelim-2026-11-10.md` + папка (prelim_table.csv, stats.py, filt.py). Заказ — запись CEO 19:14 в TK-514; протокол — П-40 (`.claude/worktrees/TK-493/docs/research/P-40-convergence-statarb-lob.md`).
+Сдача: `docs/archive/findings/p40-d1-naive-prelim-2026-11-10.md` + папка (prelim_table.csv, stats.py, filt.py). Заказ — запись CEO 19:14 в TK-514; протокол — П-40 (`.claude/worktrees/TK-493/docs/research/P-40-convergence-statarb-lob.md`).
 
 **Вердикт: return.** Сводку как описание «предварительно, Судья не принимал» показывать можно (числа base сходятся), но приёмки нет: в ней неверное толкование K1, нет K1 −60 с и нет нижней границы, которые требуют заказ и протокол.
 
@@ -27,6 +27,6 @@
 
 | число | файл:строка |
 |---|---|
-| net ИТТ base −1,634 | docs/findings/p40-d1-naive-prelim-2026-11-10/prelim_table.csv:2 |
+| net ИТТ base −1,634 | docs/archive/findings/p40-d1-naive-prelim-2026-11-10/prelim_table.csv:2 |
 | схождение ≤60 с 0,8605 | prelim_table.csv:2 |
 | исполнено 81 624 из 438 640 | prelim_table.csv:2 |

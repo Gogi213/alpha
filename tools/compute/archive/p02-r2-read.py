@@ -12,7 +12,7 @@
   4. Холм по пакету в каждом месяце: m = 11 (6 блока A, H7, H8 = 1, H9 = 1, H10, пара = 1).
 Знаковый тест по суткам с поправкой дисперсии n / n_eff — справочно. «+» везде — в сторону гипотезы.
 
-    python tools/compute/p02-r2-read.py --out docs/findings/p02-r2-read-2026-09-26.json
+    python tools/compute/p02-r2-read.py --out docs/archive/findings/p02-r2-read-2026-09-26.json
 """
 from __future__ import annotations
 

@@ -15,7 +15,7 @@
 Охват (§6, §12 п.5): < 10 сделок в месяце → «сделок нет» (без $, Δ, k, позиции — это шум, не число); 10–29 → числа
 показаны, но помечены «описание» (в подбор/Холм не идут — правило §12 п.5, ≥ 30 — без изменений).
 
-    python tools/compute/p05-read.py --json data/p05/protection-p05-a1.json --out docs/findings/p05-part1-2026-09-27.md \
+    python tools/compute/p05-read.py --json data/p05/protection-p05-a1.json --out docs/archive/findings/p05-part1-2026-09-27.md \
         --title "П-05 часть 1: возраст и размер отдельно"
 """
 from __future__ import annotations

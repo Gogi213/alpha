@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """TK-313 (П-21 §8): SR по месяцам, bootstrap по суткам, Холм по 16, спот против фьючерса (TK-289 f6v) на общих монето-сутках.
 Вход: /data/tk0313/out/run-*/out/<сутки>/<клетка>/rounds.csv (спот), /data/tk0289/f6v/out/run-*/out/<сутки>/p18a6vv<S>_<U>-<мес>/rounds.csv (фьюч).
-Выход: JSON в argv[1]. (б) = публичный спот 10/10 bps на ногу, как в docs/findings/tk313-spot-b1-2026-10-20.md."""
+Выход: JSON в argv[1]. (б) = публичный спот 10/10 bps на ногу, как в docs/archive/findings/tk313-spot-b1-2026-10-20.md."""
 import csv, glob, json, os, sys, random
 from collections import defaultdict
 

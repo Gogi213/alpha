@@ -1,6 +1,6 @@
 # Вкладка «Арбитраж»: «только выбросы» + колонки в % — передача дел, 15.11.2026 ~15:55 GMT+4
 
-Ветка `bb/g-022-arb-tab-v1-thr_ucmyezaicu`. Предыдущий шаг (мейкер + хедж, шаг 1): коммит `6a5b118c`, отчёт `docs/findings/arb-maker-hedge-2026-11-15.md` (итог: сумма по всем парам отрицательна во всех настройках; плюс — только тонкий хвост «BingX-мейкер» на малоликвидных именах).
+Ветка `bb/g-022-arb-tab-v1-thr_ucmyezaicu`. Предыдущий шаг (мейкер + хедж, шаг 1): коммит `6a5b118c`, отчёт `docs/archive/findings/arb-maker-hedge-2026-11-15.md` (итог: сумма по всем парам отрицательна во всех настройках; плюс — только тонкий хвост «BingX-мейкер» на малоликвидных именах).
 Правило треда: дочерние треды — только английский, без болтовни; результат — `bb thread tell thr_ty6ae9r46y` (родитель; отчёты в конце хода у меня отключены).
 
 ## Два поручения в работе (дословно от владельца через координатора)
@@ -18,7 +18,7 @@
 - `tools/arb_stats/outlier.py` — тейкер-тейкер на неупорядоченной паре (A, B): `prep_tt`, `entries_for(P, θ)`, `simulate_tt(P, ent, L, close)` (close: `"full"` / `"half"`; L ∈ {0, 50, 300}; вход — рыночный, по ценам через L мс после сигнала; «половина» = отклонение середины в сторону входа упало вдвое от значения на входе; комиссия 4×3,15 = 12,6 bps). Тесты `test_outlier.py` (5 зелёных).
 - `maker.py` обновлён: круги — 9 колонок `COLS` = (t, side, edge, slip, size_полный, net, hold, gross, div), `candidates` отдаёт 5-й элемент (центр), `rounds_for(P, thetas, lats, variants)`; `summarize` режет размер потолком 100. `test_maker.py` — 6 зелёных (с учётом 9 колонок).
 - `outlier_run.py` — пакетный счёт: на пару и настройку считает сводку `pair_stats` (n, closed, unclosed, входы 1/4/6/24 ч, net [медиана, p25], gross_med, div_med, pos, size_med, slip_med, hold, usd_cap, usd_full, usd_cap_h[2], net_med_h[2], n_h[2], usd_cap_trim) + гистограммы net/gross/div по группам "ok"/"bingx" (для итогов). Ключ строки: `(режим "tt"|"mk", монета, X, Y, (θ, L, закрытие|вариант))`. **Ещё не запускался** (проверить на `COINS=SUI,DOGE,ARB,PEPE`, потом полный).
-Не сделано: `outlier_report.py` (рейтинг, топ-30, итоги по θ, счёт прошедших, плацебо −net как проверка шума; вывод в % и в $), сам прогон, отправка координатору, строка отчёта `docs/findings/arb-outlier-2026-11-15.md`.
+Не сделано: `outlier_report.py` (рейтинг, топ-30, итоги по θ, счёт прошедших, плацебо −net как проверка шума; вывод в % и в $), сам прогон, отправка координатору, строка отчёта `docs/archive/findings/arb-outlier-2026-11-15.md`.
 
 Состояние srv (`/data/arb-maker`, код `/opt/arb-maker/tools/arb_stats` — выложен текущий; srv ssh: `ssh -o BatchMode=yes -o UserKnownHostsFile=/c/Users/Георгий/.ssh/known_hosts -i /c/Users/Георгий/.ssh/id_rsa root@5.231.25.224`):
 - Книги `b/{state,parsed}` (жёсткие ссылки на живой разбор + дочитано), сделки `w2/{state,parsed}` (с полем `et`; время сделки T = E − ET — у Binance aggTrade E позже сделки на 0…200 мс). Докачка к 11:48 UTC: сделки готовы (`maker-parse3`), книги — юнит `maker-parse-book2` шёл на 11:50 UTC. Когда оба `inactive`: t1 = конец разбора − 2 мин, округлить к минуте; t0 = 1794659400000 (14.11 12:30 UTC).
@@ -33,7 +33,7 @@
 3. `tools/collector_health/page.html` (собирается `perf/patch_page.py` из базы + `perf/arb2.js.html`; правит и сам `page.html`): значения /100, формат `nf` с 2–3 знаками (пик 0,314 %; итог −0,093 %), заголовки «, %»; 3 новые сортируемые колонки; в «выбросах» — пик p95/макс и итог p95 в %. Раскладка — `table-layout:fixed`, колонки в % (`colgroup`) — перераспределить ширины, шапка не должна менять высоту; тест — `perf/layout_test.js` (50 действий, сдвиг 0 px) на стенде `perf/fake_server.py` и на живой; клик-тест — Playwright + Edge (`C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe`, playwright в `C:/Users/Георгий/AppData/Local/npm-cache/_npx/9833c18b2d85bc59/node_modules/playwright`).
 4. Выкладка: srv `/data/turbo-probe/page` (`page.html`) и `/opt/arb-tab/tools/arb_stats` (`arb_inc.py`, `arb_live.py`, при необходимости `arb_daemon.py`); копии до правки `*.prev-big`; службы `arb-live.service` (проход раз в 5 мин, состояние `/data/arb-tab/live/state.pkl`; VERSION состояния не менять — `big` считается из закрытых эпизодов, bootstrap не нужен) и `health-page-8088`, `health-soak-page` (рестарт ~1 с). Первый новый `arb.json` появится в ближайший проход (:15 с каждой 5-й минуты) — до него колонки `big` пусты (страница должна терпеть отсутствие поля).
 5. Тесты: `test_inc.py` (синтетика, сверка с `core.analyze_pair`) + новый тест на `big`; `pytest tools/arb_stats` (22 + новые зелёные); `test_health.py` — 2 красных ещё до работы (старые строки страницы), не чинить.
-Известное: описание живого пайплайна — `docs/findings/arb-tab-perf-handoff-2026-11-15.md`.
+Известное: описание живого пайплайна — `docs/archive/findings/arb-tab-perf-handoff-2026-11-15.md`.
 
 ## Грабли этой сессии
 - `systemd-run ... bash -c "python3 maker_run.py ..."` без абсолютного пути → `//maker_run.py` не найден (cwd `/`).

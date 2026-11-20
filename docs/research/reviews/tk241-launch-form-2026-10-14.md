@@ -8,7 +8,7 @@
 | нейросетям ничего не уходит (В-6) | да | grep `tickets.py|claude |notify|telegram|TG_TOKEN` по tools/launch/*.py,*.sh,*.service,*.path — 0 |
 | на сервере (В-7) не под root, решение tk241-unit-user | да | `alpha-launch` active, User=alpha-launch; `alpha-launch-submit.path` active |
 | снаружи: с токеном 200, без — 404 | да | с calc по токену из файла (не печатался) — 200; снаружи `/` и `/abcdef/` — 404 |
-| инструкция COMMANDS.md, скриншот, клик-тест | да | docs/COMMANDS.md:540; docs/findings/launch-form-2026-10-14.png; клик-тест в тестах/check_page (лог инженера: 8 OK) |
+| инструкция COMMANDS.md, скриншот, клик-тест | да | docs/COMMANDS.md:540; docs/archive/findings/launch-form-2026-10-14.png; клик-тест в тестах/check_page (лог инженера: 8 OK) |
 | объём коммитов — только своя тема | да | 11 коммитов TK-241 трогают только tools/launch/, docs/COMMANDS.md, png, блокнот инженера — пересечений с TK-237 нет |
 
 Замечания (не меняют вывод):

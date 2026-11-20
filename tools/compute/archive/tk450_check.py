@@ -9,7 +9,7 @@ import pathlib
 import subprocess
 import sys
 
-REP = pathlib.Path(__file__).resolve().parents[2] / "docs/findings/binance-klines-1m-2026-10-30.md"
+REP = pathlib.Path(__file__).resolve().parents[2] / "docs/archive/findings/binance-klines-1m-2026-10-30.md"
 SYMS = ["BTCUSDT", "ICPUSDT", "PUMPUSDT", "1000PEPEUSDT"]
 
 REMOTE = r"""cd /srv/alpha-sda/candles-1m/binance-um

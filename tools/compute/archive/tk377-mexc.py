@@ -2,7 +2,7 @@
 """TK-377 п.3-4: монеты Gate-фьюч без Bybit: покрытие DEX (ETH/Base USD-слой) и оборот; MEXC фьюч: листинг, комиссии, лимиты, свечи 1м за 15-21.10.
 Запуск: tk377-mexc.py OUT_CSV  (нужен список DEX-монет dex.txt рядом с universe: аргумент 2)"""
 import sys, csv, json, urllib.request, collections
-UNIV = 'docs/findings/gate-week-universe-2026-10-23.csv'
+UNIV = 'docs/archive/findings/gate-week-universe-2026-10-23.csv'
 dex = set(open(sys.argv[2]).read().split()) if len(sys.argv) > 2 else set()
 def get(u):
     return json.load(urllib.request.urlopen(urllib.request.Request(u, headers={'User-Agent': 'x'}), timeout=30))

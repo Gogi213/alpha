@@ -1,5 +1,5 @@
 # TK-364 v3 (CEO 00:05: + хайкапы; группы calib = топ-5 нестейблов + BTC/ETH/SOL/XRP, high = ранги 6-50, mid = остальное). Основа v2: к universe.csv добавляет спот Binance/Upbit/OKX/Bitget, проверку контракта (CoinGecko platforms),
-# суммарный DEX по контракту (DexScreener tokens/{addr}), список исключённых мажоров. Выход: docs/findings/tk364-universe-v3-2026-10-23.csv
+# суммарный DEX по контракту (DexScreener tokens/{addr}), список исключённых мажоров. Выход: docs/archive/findings/tk364-universe-v3-2026-10-23.csv
 import json,csv,time,urllib.request,sys
 def g(u,t=60):
     for i in range(3):
@@ -62,6 +62,6 @@ for r in rows:
     out.append(dict(group="high" if b.upper() in high else "mid",symbol=r["symbol"],base=b,perp_turn24=r["perp_turn24"],perp_oi_usd=r["perp_oi_usd"],bybit_spot=r["bybit_spot_turn24"],
       binance=round(cx["binance"]),upbit=round(cx["upbit"]),okx=round(cx["okx"]),bitget=round(cx["bitget"]),dex_tok=round(tot),dex_chain=max(chains,key=chains.get) if chains else "",
       cex_sum=round(cexsum),lead=lead,cg_id=cgid,cg_wrapped=int(wrapped),cg_same_symbol=same,token=addr))
-cols=list(out[0]); w=csv.DictWriter(open("docs/findings/tk364-universe-v3-2026-10-23.csv","w",newline="",encoding="utf-8"),cols); w.writeheader(); w.writerows(out)
-json.dump(dict(calib=calib,high=high),open("docs/findings/tk364-groups-2026-10-23.json","w"))
+cols=list(out[0]); w=csv.DictWriter(open("docs/archive/findings/tk364-universe-v3-2026-10-23.csv","w",newline="",encoding="utf-8"),cols); w.writeheader(); w.writerows(out)
+json.dump(dict(calib=calib,high=high),open("docs/archive/findings/tk364-groups-2026-10-23.json","w"))
 print(len(out))

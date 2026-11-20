@@ -1,6 +1,6 @@
 # Судья — TK-378 v2, отрывы Gate-сделки vs DEX Solana (24.10 ~01:20) — вернуть
 
-Сдача: `docs/findings/tk378-sol-lag-trades-v2-2026-10-24.md`, эпизоды `…-v2-episodes-2026-10-24.csv`, код
+Сдача: `docs/archive/findings/tk378-sol-lag-trades-v2-2026-10-24.md`, эпизоды `…-v2-episodes-2026-10-24.csv`, код
 `tools/compute/archive/tk378_sol_lag_trades2.py` (+`_summ.py`, коммит 35159092).
 
 Пересчёт из v2-episodes.csv (python, ALL4 = CLAUDIA+FONE+HOOKED+SI): X=50 — 6107 эп., 29 монето-суток, net (среднее по

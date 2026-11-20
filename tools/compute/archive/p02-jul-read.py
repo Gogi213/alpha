@@ -7,7 +7,7 @@
 Страница: `p02.rows[h].months["июль"]` (est/lo/hi/days/days_plus, `p_holm = None`, `desc = true`).
 
     python tools/compute/p02-jul-read.py --counts data/p02/p02-wall-counts-jul-2026-09-28.json \\
-        --out docs/findings/p02-jul-2026-09-28.json \\
+        --out docs/archive/findings/p02-jul-2026-09-28.json \\
         [--data data/titration-dashboard/data-v40pre2.json --data-out data/titration-dashboard/data-v40pre3.json]
 """
 import argparse

@@ -75,7 +75,7 @@ def findings(mode):
                         "lift": round(lshare / tshare, 3) if tshare else 0.0,
                         "months_neg": sum(1 for _, _, v in mm if v < 0), "months_n": len(mm), "months": mm,
                         "metric": M, "tariff": m["tariff"], "pct_loss_base": "Σ группы / Σ всех (спот)" if mode == "spot" else "Σ группы / Σ групп с Σ<0 (итог фьюча +, чистого минуса нет)",
-                        "raw": f"docs/findings/tk327-features-{mode}-{DATE}.csv", "src": m["src"], "report": "docs/findings/tk329-pareto-2026-10-20.md",
+                        "raw": f"docs/findings/tk327-features-{mode}-{DATE}.csv", "src": m["src"], "report": "docs/archive/findings/tk329-pareto-2026-10-20.md",
                         "n_trials": 36})
     return out
 

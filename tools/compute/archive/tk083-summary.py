@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """TK-083: сводка 7 клеток П-12 (после В-201) по месяцам: сырые bps, парная Δ к B1 по суткам, блочный бутстреп.
-Вход data/tk083/rows.csv (tk083-collect.py). Выход docs/findings/p12-ext-monthly-2026-10-08.csv + печать."""
+Вход data/tk083/rows.csv (tk083-collect.py). Выход docs/archive/findings/p12-ext-monthly-2026-10-08.csv + печать."""
 import math, sys
 import numpy as np, pandas as pd
 
@@ -59,7 +59,7 @@ for mth in sorted(a.month.unique()) + ["ALL"]:
             r.update(d_bps=round(m.sum_net_bps - base.sum_net_bps, 1), d_mean_day=round(mean, 2), ci_lo=round(ci[0], 2), ci_hi=round(ci[1], 2))
         rows.append(r)
 res = pd.DataFrame(rows)
-res.to_csv("docs/findings/p12-ext-monthly-2026-10-08.csv", index=False)
+res.to_csv("docs/archive/findings/p12-ext-monthly-2026-10-08.csv", index=False)
 pd.set_option("display.width", 250); pd.set_option("display.max_rows", 500)
 print(res[res.month == "ALL"].to_string(index=False))
 print(res.pivot(index="month", columns="cell", values="d_bps").to_string())

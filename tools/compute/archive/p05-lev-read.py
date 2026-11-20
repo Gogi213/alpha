@@ -15,7 +15,7 @@
 не срабатывает (цена проходит уровень стопа без исполнения). Колонка — рядом с запасом до ликвидации.
 
     python tools/compute/p05-lev-read.py --dir data/p05 --mmr data/p05/bybit-risk-limit-tier1-2026-09-27.json \
-        --out docs/findings/p05-leverage-2026-09-27.md
+        --out docs/archive/findings/p05-leverage-2026-09-27.md
 """
 from __future__ import annotations
 

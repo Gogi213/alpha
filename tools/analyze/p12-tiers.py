@@ -6,7 +6,7 @@ from statistics import NormalDist
 import numpy as np
 import p12args; p12args.apply()   # флаги = P12_* (С-61)
 MODE = os.environ.get("P12_MODE", "free")   # free | B2
-CSV = os.environ.get("P12_SHARPE_CSV", "docs/findings/p12-sharpe-free-2026-10-08.csv")
+CSV = os.environ.get("P12_SHARPE_CSV", "docs/archive/findings/p12-sharpe-free-2026-10-08.csv")
 NTR = tuple(int(x) for x in os.environ.get("P12_NTR", "194,42").split(","))
 from p12lib import POOL, block_idx, load, pack, sr   # P12_DIR/P12_POOL_FROM читаются при импорте — как у p12-sharpe.py
 P = pack(load("tools/analyze/p12-r2-analyze.py", MODE), False)

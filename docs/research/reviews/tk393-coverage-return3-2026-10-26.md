@@ -1,6 +1,6 @@
 # TK-393 — охват DEX Gate ≥30k: вернуть (3-й раз, Судья, 26.10 ~07:10 GMT+4)
 
-Проверено: `docs/findings/tk380-coverage-2026-10-24.md` (раздел «Новые сети»), calc `/data/tk0393/sqd7/stk/`
+Проверено: `docs/archive/findings/tk380-coverage-2026-10-24.md` (раздел «Новые сети»), calc `/data/tk0393/sqd7/stk/`
 (`filter.out`: 189 188 свопов, 5/5 пулов; `/data/sched/rc/1026040040894` = 0), `nc/robinhood/summary.csv`
 (сумма swaps 618 799, 30 пулов). Падение сторожа 07:00 (job 1026040020887, exit 2) — снято повтором 1026040040894 rc0, перезапуск не нужен.
 

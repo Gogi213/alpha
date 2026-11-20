@@ -8,10 +8,10 @@
 | удалённые ветки не теряют коммитов | да | 98/98 хешей `data/tk337/branches-deleted.txt` содержатся в `refs/remotes/origin/*` или `refs/tags/archive/*` (`git for-each-ref --contains`) |
 | alpha.rar оставлен | да | `../alpha.rar` 2 995 335 296 байт на месте |
 | target-ci, fuzz/target, alpha-tk049ps удалены | да | `ls` — нет |
-| отчёт до/после | да | `docs/findings/local-cleanup-2026-10-21.md` §5: C: 30→36 ГБ |
+| отчёт до/после | да | `docs/archive/findings/local-cleanup-2026-10-21.md` §5: C: 30→36 ГБ |
 
 Итог: принято. Хвост: сессии коллектора 12–14.09 — единственная копия в alpha.rar (см. решение) — CEO.
 
 | число | файл:строка |
 |---|---|
-| C: свободно 30 → 36 ГБ | docs/findings/local-cleanup-2026-10-21.md:45 |
+| C: свободно 30 → 36 ГБ | docs/archive/findings/local-cleanup-2026-10-21.md:45 |

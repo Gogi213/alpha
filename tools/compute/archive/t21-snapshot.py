@@ -10,7 +10,7 @@
      T-32, П-05, П-02, плечо).
   2. `data/kpi/kpi-roll-2026-09-27c.json` — ранжирование KPI «до перехая».
   3. `data/t32/*.json` (grid, exits, hedge, epcap, retries-all, boot, busy/busy-rules.json).
-  4. П-02 блок B / П-07: `docs/findings/p02-r2-read-2026-09-26.json`,
+  4. П-02 блок B / П-07: `docs/archive/findings/p02-r2-read-2026-09-26.json`,
      `docs/findings/p07-stage12-2026-09-27.json` (+ `data/p07/*.json`, если есть).
   5. «Шесть мест без одной позиции на монету» — не пересчитываются, только перечисляются со
      ссылками на находки, где встречается имя скрипта (grep по `docs/findings/*.md`).
@@ -445,7 +445,7 @@ SIX_PLACES = {
 
 SELF_DOCS = {
     "docs/findings/t21-metrics-canon-2026-09-27.md",
-    "docs/findings/third-party-backtest-approaches-2026-09-26.md",
+    "docs/archive/findings/third-party-backtest-approaches-2026-09-26.md",
 }
 
 
@@ -475,12 +475,12 @@ def scan_six_places(findings_dir: Path):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--out", default=str(ROOT / "docs/findings/t21-snapshot-before-2026-09-27.json.gz"),
+    ap.add_argument("--out", default=str(ROOT / "docs/archive/findings/t21-snapshot-before-2026-09-27.json.gz"),
                     help="*.json.gz — gzip (в git кладётся сжатый: полный JSON ~34 МБ)")
     ap.add_argument("--dashboard-html", default=str(ROOT / "data/titration-dashboard/index-v29.html"))
     ap.add_argument("--kpi-roll", default=str(ROOT / "data/kpi/kpi-roll-2026-09-27c.json"))
     ap.add_argument("--t32-dir", default=str(ROOT / "data/t32"))
-    ap.add_argument("--p02-r2", default=str(ROOT / "docs/findings/p02-r2-read-2026-09-26.json"))
+    ap.add_argument("--p02-r2", default=str(ROOT / "docs/archive/findings/p02-r2-read-2026-09-26.json"))
     ap.add_argument("--p07-stage12", default=str(ROOT / "docs/findings/p07-stage12-2026-09-27.json"))
     ap.add_argument("--findings-dir", default=str(ROOT / "docs/findings"))
     args = ap.parse_args()

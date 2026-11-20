@@ -57,7 +57,7 @@ def main():
     tb, rb = table(b, B_STAGE2)
     ta, ra = table({k: a3[k] for k in A_STAGE2}, A_STAGE2)
     print("## Г-85б — ступень 2\n\n" + tb + "\n\n## Г-85а — H6 at/behind (замена вырожденной before)\n\n" + ta)
-    json.dump({"g85b": rb, "g85a_h6": ra}, open("docs/findings/p07-tk004-stage2-2026-09-28.json", "w",
+    json.dump({"g85b": rb, "g85a_h6": ra}, open("docs/archive/findings/p07-tk004-stage2-2026-09-28.json", "w",
               encoding="utf-8"), ensure_ascii=False, indent=1)
 
 

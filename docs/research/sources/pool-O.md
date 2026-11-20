@@ -1,9 +1,9 @@
 ## Наши
 
-Источники: `docs/plan/HYPOTHESES.md` (Г-01…Г-26, В-100); `docs/findings/research-audit-2026-09-25.md` (разделы
+Источники: `docs/plan/HYPOTHESES.md` (Г-01…Г-26, В-100); `docs/archive/findings/research-audit-2026-09-25.md` (разделы
 «Главное» и часть C, статусы/флаги); `docs/plan/EXPERIMENTS.md` раздел C (только S9, слито в N-03); идеи из
 `docs/findings/loss-days-2026-09-25.md` (E27–E34, «не измерено», «не работает»); `docs/findings/wall-availability-
-2026-09-24.md` (данные для Г-23, новых идей не дало); `docs/findings/august-oos-2026-09-24.md` (E24, идей не дало,
+2026-09-24.md` (данные для Г-23, новых идей не дало); `docs/archive/findings/august-oos-2026-09-24.md` (E24, идей не дало,
 только вывод «кандидат не подтвердился»); память `alpha-owner-plan-shorts.md` (= Г-23, слито).
 
 | id | формулировка | класс | механизм | источник | данные | цена | статус | риск подгонки |

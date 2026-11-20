@@ -1,6 +1,6 @@
 # TK-320 — решение Судьи по списку корней calc (19.10 ~22:30 GMT+4)
 
-Проверено: таблица `docs/findings/calc-run-outputs-cleanup-2026-10-19.md` (606df439) против живого кода
+Проверено: таблица `docs/archive/findings/calc-run-outputs-cleanup-2026-10-19.md` (606df439) против живого кода
 (`git grep -w <корень> -- tools src docs/COMMANDS.md`, без `archive/`). Столбец «основание» таблицы неверен для
 большинства крупных кандидатов: «Летопись ссылается» ≠ «код не читает». Удаление по таблице как есть сломало бы боевой
 раннер и гейты «байт в байт».
@@ -73,6 +73,6 @@ df до/после — в findings; затем сдача Судье. Летоп
 | оставленное цело | да | `ls`: tk048/abin-t46, tk048/bin (alpha-tk048uv), файлы корня tk048; tk052/abin, io-acct.py, benchrun2.sh; pool/m-jan; delta/b1-symdays.csv, w, wave, gate-f; `/data/alpha` на месте |
 | del3.rc, ошибки | да | `del3.rc`=done; error/cannot/denied в логе — 0 |
 | df до/после в findings | да | лог: 193 350 072 → (findings 345 421 664) КБ своб.; `df -h` сейчас 330G своб., 82 % |
-| findings-таблица | да | `docs/findings/calc-run-outputs-cleanup-2026-10-19.md` (7c064d08) |
+| findings-таблица | да | `docs/archive/findings/calc-run-outputs-cleanup-2026-10-19.md` (7c064d08) |
 
 Хвост (не из заказа на сейчас): tk0279 ≈187 ГБ — решено «после закрытия F2 П-17» → CEO.
