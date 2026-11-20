@@ -80,6 +80,7 @@ fn write_entry_rej(dir: &Path, syms: &[Sym], side: Side, r: &TickResult) -> Resu
             EntryRej::Unfilled => "unfilled",
             EntryRej::Touched => "touched",
             EntryRej::NoTick => "notick",
+            EntryRej::NoRoom => "noroom",
         };
         let _ = writeln!(t, "{},{level},{ms},{w}", syms[*si as usize].name);
     }
@@ -700,7 +701,7 @@ pub fn run(
                 meta["lot2_[now,later,cancelled,rejected]"] = serde_json::json!(r.lot2);
             }
             if p.ek > 0 {
-                meta["ek_[filled,expired,touched,rejected]"] = serde_json::json!(r.ek);
+                meta["ek_[filled,expired,touched,rejected,not_placed]"] = serde_json::json!(r.ek);
             }
             if p.exit.tape_entry() {
                 let n_of = |w: EntryRej| r.entry_rej.iter().filter(|x| x.3 == w).count();

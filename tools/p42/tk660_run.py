@@ -28,7 +28,7 @@ K_VALS = (0, 5, 10, 15, 20, 25)                 # п. 5; 0 — база (клю�
 PRIOR_TRIALS = 26                               # п. 7 (ж): семья «вход» шорта — 18 (§13.19, §13.24) + 8 (§13.55)
 OFF_FILES = ("long-trades.csv", "long-daily.csv", "long-coinday.csv", "long-entryrej.csv",
              "short-trades.csv", "short-daily.csv", "short-coinday.csv", "short-entryrej.csv")
-EK_META = "ek_[filled,expired,touched,rejected]"
+EK_META = "ek_[filled,expired,touched,rejected,not_placed]"
 
 
 def cells():
@@ -124,11 +124,11 @@ def g_off(st):
 
 
 def ek_counts(st, cid):
-    tot = [0, 0, 0, 0]
+    tot = [0, 0, 0, 0, 0]
     for w in st.TRADE_WINDOWS:
         m = json.load(open(os.path.join(t.cell_dir(w.name, SIDE, cid), "meta.json"), encoding="utf-8"))["short"]
         tot = [x + y for x, y in zip(tot, m[EK_META])]
-    return dict(zip(("filled", "expired", "touched", "rejected"), tot))
+    return dict(zip(("filled", "expired", "touched", "rejected", "not_placed"), tot))
 
 
 def cmd_tables(a):
@@ -136,11 +136,16 @@ def cmd_tables(a):
     u = r5.Uni("h775")
     ncoins = len(u.coins())
     bad = []
+    import tk604_run as r4
     sha = json.load(open(t.q("res", "bin60.json"), encoding="utf-8"))["sha256"]
+    if r4.sha256(BIN) != sha:
+        t.say("СТОП: G-bin — sha256 бинаря ≠ res/bin60.json (бинарь подменён после прогона клеток)")
+        sys.exit(1)
     off = g_off(st)
     t.say("G-off: %s" % ("ok — 6 строк баз (L, S × 3 окна), 8 CSV + meta.json байт в байт" if not off else "ОШИБКА " + ", ".join(off)))
     if off:
-        bad.append("G-off")
+        t.say("СТОП: G-off — клетки не читаются (§13.60 п. 9)")
+        sys.exit(1)
     bser, bk, bp = t.load_cell(st, p8, u, SIDE, {w.name: (u.base(w.name, SIDE), SIDE) for w in st.TRADE_WINDOWS})
     bkeys = list(p8.keys_of(bser))
     bmap = dict(zip(bkeys, bp))

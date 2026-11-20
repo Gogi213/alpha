@@ -4044,7 +4044,7 @@ fn ek_enters_at_market_after_the_tape_moves_k_bp_from_the_reference_and_exits_ru
         (40_000, 85.0, true),
     ];
     let r = w.run_ek(&ex, &scen, &[(10_000, 1, 0)], 10);
-    assert_eq!((r.trades.len(), r.ek), (1, [1, 0, 0, 0]));
+    assert_eq!((r.trades.len(), r.ek), (1, [1, 0, 0, 0, 0]));
     let t = &r.trades[0];
     assert_eq!(t.entry_ms, w.abs(30_004));
     assert_eq!(t.entry_px, px(99.80) + px(99.80) / 10_000, "99,80 + 1 бп");
@@ -4077,7 +4077,7 @@ fn ek_trigger_at_or_beyond_the_level_or_no_trigger_in_60_min_cancels_and_stale_f
         10,
     );
     assert!(r.trades.is_empty());
-    assert_eq!((r.ek, r.rej[5], r.rej[0]), ([0, 0, 1, 0], 1, 0));
+    assert_eq!((r.ek, r.rej[5], r.rej[0]), ([0, 0, 1, 0, 0], 1, 0));
     assert_eq!(r.entry_rej[0].3, EntryRej::Touched);
     // нет срабатывания за 60 мин: сделка позже `сигнал + lat + 60 мин` не исполняет
     let late = 10_004 + super::tick::EK_EXPIRY_MS + 1;
@@ -4092,7 +4092,7 @@ fn ek_trigger_at_or_beyond_the_level_or_no_trigger_in_60_min_cancels_and_stale_f
         10,
     );
     assert!(r.trades.is_empty());
-    assert_eq!(r.ek, [0, 1, 0, 0]);
+    assert_eq!(r.ek, [0, 1, 0, 0, 0]);
     assert_eq!(r.entry_rej[0].3, EntryRej::Unfilled);
     // сработало на сделке продавца, сделки покупателя за W = 100 мс до `ms + lat` нет — отказ входа (как §13.16)
     let r = w.run_ek(
@@ -4106,11 +4106,11 @@ fn ek_trigger_at_or_beyond_the_level_or_no_trigger_in_60_min_cancels_and_stale_f
         10,
     );
     assert!(r.trades.is_empty());
-    assert_eq!(r.ek, [0, 0, 0, 1]);
+    assert_eq!(r.ek, [0, 0, 0, 1, 0]);
     assert_eq!(r.entry_rej[0].3, EntryRej::Stale);
     // отказ опоры (нет сделки покупателя ≤ сигнал + lat за W) — приказа нет, счётчики E(k) пусты
     let r = w.run_ek(&ex, &[(0, 99.6, true), (10_000, 99.70, true)], &sig, 10);
-    assert_eq!((r.ek, r.entry_rej[0].3), ([0; 4], EntryRej::Stale));
+    assert_eq!((r.ek, r.entry_rej[0].3), ([0; 5], EntryRej::Stale));
 }
 
 #[test]
@@ -4133,7 +4133,7 @@ fn ek_live_order_holds_the_coin_until_cancelled_without_pauses() {
     ];
     let sigs = [(10_000, 1, 0), (610_000, 2, 1), (after, 3, 2)];
     let r = w.run_ek(&ex, &scen, &sigs, 10);
-    assert_eq!(r.ek, [1, 1, 0, 0]);
+    assert_eq!(r.ek, [1, 1, 0, 0, 0]);
     assert_eq!(r.rej[1], 1, "сигнал 2 — монета занята живым приказом");
     assert_eq!(r.trades.len(), 1);
     assert_eq!(
@@ -4211,4 +4211,47 @@ fn ek_key_parses_validates_and_keeps_the_params_debug_string_at_ek0() {
     let (_, p1) = parse_variant("x ew=5 ek=10").expect("разбор");
     assert!(format!("{p1:?}").ends_with(", ek: 10 }"));
     assert!(super::cli::reject_tick_only(&p1, "x").is_err());
+}
+
+#[test]
+fn ek_order_with_threshold_at_or_beyond_the_level_is_not_placed_and_holds_nothing() {
+    let w = e2_world();
+    let ex = ek_ex(&w);
+    // опора 99,70: k = 31 — порог 100,009 ≥ уровня 100 — приказ не ставится; k = 30 — порог 99,9991 < 100 — ставится
+    let scen = [
+        (0, 99.6, false),
+        (10_000, 99.70, false),
+        (20_000, 99.70, false),
+        (30_000, 99.9995, false),
+        (40_000, 85.0, true),
+    ];
+    let sigs = [(10_000, 1, 0), (20_000, 2, 1)];
+    let r = w.run_ek(&ex, &scen, &sigs, 31);
+    assert_eq!(r.ek, [0, 0, 0, 0, 2], "оба сигнала — приказ не поставлен");
+    assert_eq!(r.rej[1], 0, "не поставленный приказ монету не держит");
+    assert_eq!(r.entry_rej[0].3, EntryRej::NoRoom);
+    // k = 30: сигнал 1 ставит приказ, сигнал 2 — монета занята; срабатывание на 99,9995 < 100
+    let r = w.run_ek(&ex, &scen, &sigs, 30);
+    assert_eq!((r.ek, r.rej[1]), ([1, 0, 0, 0, 0], 1));
+    assert_eq!(r.trades[0].entry_ms, w.abs(30_004));
+}
+
+#[test]
+fn ek_trade_at_the_level_cancels_before_the_threshold_test() {
+    let w = e2_world();
+    let ex = ek_ex(&w);
+    // порог 99,7997; первая сделка после сигнала — ровно на уровне 100: снятие, а не срабатывание
+    let r = w.run_ek(
+        &ex,
+        &[
+            (0, 99.6, false),
+            (10_000, 99.70, false),
+            (20_000, 100.0, true),
+            (30_000, 99.85, false),
+        ],
+        &[(10_000, 1, 0)],
+        10,
+    );
+    assert!(r.trades.is_empty());
+    assert_eq!(r.ek, [0, 0, 1, 0, 0]);
 }

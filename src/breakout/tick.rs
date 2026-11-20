@@ -1546,6 +1546,8 @@ pub enum EntryRej {
     Touched,
     /// §13.28 (`mk`): тик монеты нигде не определён (нет окна из ≥ 100 сделок).
     NoTick,
+    /// TK-660 (`ek`): порог E(k) на уровне или за ним уже при постановке — приказ не ставится.
+    NoRoom,
 }
 
 /// Решение о входе для сигнала (§13.16).
@@ -1719,9 +1721,10 @@ pub fn lot2_decision(
 pub const EK_EXPIRY_MS: i64 = 3_600_000;
 
 /// TK-660 (`ek`): вход по подтверждению E(k), обе стороны в раме. Опора `p_ref` — вход по ленте §13.16 на `сигнал + lat`
-/// (`entry_decision`; её отказ — отказ сигнала, приказа нет, второй элемент `None`). Условный приказ срабатывает на первой сделке
-/// ленты (любой стороны) позже `сигнал + lat` с ценой рамы `p ≥ p_ref + k·|p_ref|/10⁴` (лонг — рост на k бп, шорт — падение):
-/// сработавшая сделка на уровне или за ним (`p ≥ L`) — приказ снят (`Touched`); не сработал за `EK_EXPIRY_MS` — снят (`Unfilled`);
+/// (`entry_decision`; её отказ — отказ сигнала, приказа нет, второй элемент `None`). Порог рамы `p_ref + k·|p_ref|/10⁴` (лонг — рост
+/// на k бп, шорт — падение) не ниже уровня ни при одной цене `p < L` — приказ не ставится (`NoRoom`, без занятости). Иначе приказ
+/// живёт с `сигнал + lat`: первая сделка ленты (любой стороны) на уровне или за ним (`p ≥ L`) — снят (`Touched`); первая сделка с
+/// ценой у порога или дальше — срабатывание; не сработал за `EK_EXPIRY_MS` — снят (`Unfilled`);
 /// сработал в `ms` — рыночный вход по ленте §13.16 на `ms + lat` (`entry_at`; отказ — `Stale` / `Beyond`). Второй элемент —
 /// момент снятия / исполнения приказа (занятость монеты и места в портфеле до него, `run_tick_ek`).
 pub fn ek_decision(
@@ -1737,6 +1740,9 @@ pub fn ek_decision(
         other => return (other, None),
     };
     let need = i128::from(pref.abs()) * i128::from(k_bp);
+    if i128::from(sig.lp - 1 - pref) * 10_000 < need {
+        return (EntryDec::Reject(EntryRej::NoRoom), None);
+    }
     let until = t0 + EK_EXPIRY_MS;
     let s = side.s();
     let mut cur = Cursor::new(src, &sym.name, usize::from(sig.day), sig.idx as usize + 1);
@@ -1748,11 +1754,11 @@ pub fn ek_decision(
             break;
         }
         let p = s * px;
-        if i128::from(p - pref) * 10_000 < need {
-            continue;
-        }
         if p >= sig.lp {
             return (EntryDec::Reject(EntryRej::Touched), Some(ms));
+        }
+        if i128::from(p - pref) * 10_000 < need {
+            continue;
         }
         let t1 = ms + ex.lat_ms;
         let dec = entry_at(src, sym, side, (t1 / DAY_MS) as usize, t1, sig.lp, ex);
@@ -2185,8 +2191,9 @@ pub struct TickResult {
     pub lot2: [u64; 4],
     /// §13.28 (`mk > 0`): заявки лота 1 — заполнено, не заполнено, снято уровнем (число отказов `notick` — в `entry_rej`).
     pub mk: [u64; 3],
-    /// TK-660 (`ek > 0`): приказы E(k) — исполнено, снято за 60 мин, снято уровнем, отказ входа после срабатывания (`stale` / `beyond`).
-    pub ek: [u64; 4],
+    /// TK-660 (`ek > 0`): приказы E(k) — исполнено, снято за 60 мин, снято уровнем, отказ входа после срабатывания (`stale` / `beyond`),
+    /// не поставлено (порог за уровнем, `noroom`).
+    pub ek: [u64; 5],
 }
 
 impl TickResult {
@@ -2200,7 +2207,7 @@ impl TickResult {
             rej: [0; 6],
             lot2: [0; 4],
             mk: [0; 3],
-            ek: [0; 4],
+            ek: [0; 5],
         }
     }
 }
@@ -2260,7 +2267,7 @@ pub fn run_tick_ek(
         rej: [0; 6],
         lot2: [0; 4],
         mk: [0; 3],
-        ek: [0; 4],
+        ek: [0; 5],
     };
     let maker = mk > 0;
     let entry_slip = if maker { 0 } else { ex.slip_bps };
@@ -2430,6 +2437,9 @@ pub fn run_tick_ek(
                             EntryRej::Touched => res.mk[2] += 1,
                             _ => {}
                         }
+                    }
+                    if why == EntryRej::NoRoom {
+                        res.ek[4] += 1;
                     }
                     if let Some(end) = ek_end {
                         // TK-660: живой приказ E(k) занимал монету и место в портфеле до снятия
