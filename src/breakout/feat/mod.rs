@@ -10,9 +10,12 @@ pub mod flow;
 pub mod io;
 pub mod npcompat;
 pub mod pdcompat;
+pub mod tcount;
 pub mod trades;
 
 #[cfg(test)]
 mod f12_tests;
+#[cfg(test)]
+mod tcount_tests;
 #[cfg(test)]
 mod tests;

@@ -1,0 +1,426 @@
+{
+ "uni": "h775",
+ "side": "S",
+ "n_trades": 319,
+ "ladders": [
+  {
+   "cid": "N60_q20",
+   "lad": "N60",
+   "N": 7200.0,
+   "ps": [
+    0.2
+   ],
+   "cand_excluded": 99,
+   "cand_rows": 494,
+   "cand_share": 0.2004,
+   "trades_excluded": 70,
+   "trades_remain": 249,
+   "trades_share": 0.2194
+  },
+  {
+   "cid": "N60_q40",
+   "lad": "N60",
+   "N": 13000.0,
+   "ps": [
+    0.4
+   ],
+   "cand_excluded": 197,
+   "cand_rows": 494,
+   "cand_share": 0.3988,
+   "trades_excluded": 137,
+   "trades_remain": 182,
+   "trades_share": 0.4295
+  },
+  {
+   "cid": "N60_q60",
+   "lad": "N60",
+   "N": 21000.0,
+   "ps": [
+    0.6
+   ],
+   "cand_excluded": 294,
+   "cand_rows": 494,
+   "cand_share": 0.5951,
+   "trades_excluded": 197,
+   "trades_remain": 122,
+   "trades_share": 0.6176
+  },
+  {
+   "cid": "N60_q80",
+   "lad": "N60",
+   "N": 39000.0,
+   "ps": [
+    0.8
+   ],
+   "cand_excluded": 397,
+   "cand_rows": 494,
+   "cand_share": 0.8036,
+   "trades_excluded": 262,
+   "trades_remain": 57,
+   "trades_share": 0.8213
+  },
+  {
+   "cid": "N24_q20",
+   "lad": "N24",
+   "N": 78000.0,
+   "ps": [
+    0.2
+   ],
+   "cand_excluded": 97,
+   "cand_rows": 494,
+   "cand_share": 0.1964,
+   "trades_excluded": 68,
+   "trades_remain": 251,
+   "trades_share": 0.2132
+  },
+  {
+   "cid": "N24_q40",
+   "lad": "N24",
+   "N": 150000.0,
+   "ps": [
+    0.4
+   ],
+   "cand_excluded": 203,
+   "cand_rows": 494,
+   "cand_share": 0.4109,
+   "trades_excluded": 133,
+   "trades_remain": 186,
+   "trades_share": 0.4169
+  },
+  {
+   "cid": "N24_q60",
+   "lad": "N24",
+   "N": 240000.0,
+   "ps": [
+    0.6
+   ],
+   "cand_excluded": 294,
+   "cand_rows": 494,
+   "cand_share": 0.5951,
+   "trades_excluded": 187,
+   "trades_remain": 132,
+   "trades_share": 0.5862
+  },
+  {
+   "cid": "N24_q80",
+   "lad": "N24",
+   "N": 510000.0,
+   "ps": [
+    0.8
+   ],
+   "cand_excluded": 395,
+   "cand_rows": 494,
+   "cand_share": 0.7996,
+   "trades_excluded": 253,
+   "trades_remain": 66,
+   "trades_share": 0.7931
+  }
+ ],
+ "pool": [
+  {
+   "cid": "D12_H0.5",
+   "D": 12,
+   "H": 0.5,
+   "remain": 319
+  },
+  {
+   "cid": "D12_H0.7",
+   "D": 12,
+   "H": 0.7,
+   "remain": 305
+  },
+  {
+   "cid": "D12_H1",
+   "D": 12,
+   "H": 1.0,
+   "remain": 285
+  },
+  {
+   "cid": "D12_H1.4",
+   "D": 12,
+   "H": 1.4,
+   "remain": 264
+  },
+  {
+   "cid": "D12_H2",
+   "D": 12,
+   "H": 2.0,
+   "remain": 238
+  },
+  {
+   "cid": "D12_H3",
+   "D": 12,
+   "H": 3.0,
+   "remain": 201
+  },
+  {
+   "cid": "D12_H5",
+   "D": 12,
+   "H": 5.0,
+   "remain": 151
+  },
+  {
+   "cid": "D25_H0.5",
+   "D": 25,
+   "H": 0.5,
+   "remain": 254
+  },
+  {
+   "cid": "D25_H0.7",
+   "D": 25,
+   "H": 0.7,
+   "remain": 247
+  },
+  {
+   "cid": "D25_H1",
+   "D": 25,
+   "H": 1.0,
+   "remain": 235
+  },
+  {
+   "cid": "D25_H1.4",
+   "D": 25,
+   "H": 1.4,
+   "remain": 225
+  },
+  {
+   "cid": "D25_H2",
+   "D": 25,
+   "H": 2.0,
+   "remain": 209
+  },
+  {
+   "cid": "D25_H3",
+   "D": 25,
+   "H": 3.0,
+   "remain": 177
+  },
+  {
+   "cid": "D25_H5",
+   "D": 25,
+   "H": 5.0,
+   "remain": 144
+  },
+  {
+   "cid": "D50_H0.5",
+   "D": 50,
+   "H": 0.5,
+   "remain": 173
+  },
+  {
+   "cid": "D50_H0.7",
+   "D": 50,
+   "H": 0.7,
+   "remain": 172
+  },
+  {
+   "cid": "D50_H1",
+   "D": 50,
+   "H": 1.0,
+   "remain": 170
+  },
+  {
+   "cid": "D50_H1.4",
+   "D": 50,
+   "H": 1.4,
+   "remain": 167
+  },
+  {
+   "cid": "D50_H2",
+   "D": 50,
+   "H": 2.0,
+   "remain": 155
+  },
+  {
+   "cid": "D50_H3",
+   "D": 50,
+   "H": 3.0,
+   "remain": 137
+  },
+  {
+   "cid": "D50_H5",
+   "D": 50,
+   "H": 5.0,
+   "remain": 118
+  },
+  {
+   "cid": "D100_H0.5",
+   "D": 100,
+   "H": 0.5,
+   "remain": 110
+  },
+  {
+   "cid": "D100_H0.7",
+   "D": 100,
+   "H": 0.7,
+   "remain": 110
+  },
+  {
+   "cid": "D100_H1",
+   "D": 100,
+   "H": 1.0,
+   "remain": 110
+  },
+  {
+   "cid": "D100_H1.4",
+   "D": 100,
+   "H": 1.4,
+   "remain": 109
+  },
+  {
+   "cid": "D100_H2",
+   "D": 100,
+   "H": 2.0,
+   "remain": 106
+  },
+  {
+   "cid": "D100_H3",
+   "D": 100,
+   "H": 3.0,
+   "remain": 99
+  },
+  {
+   "cid": "D100_H5",
+   "D": 100,
+   "H": 5.0,
+   "remain": 86
+  },
+  {
+   "cid": "D200_H0.5",
+   "D": 200,
+   "H": 0.5,
+   "remain": 61
+  },
+  {
+   "cid": "D200_H0.7",
+   "D": 200,
+   "H": 0.7,
+   "remain": 61
+  },
+  {
+   "cid": "D200_H1",
+   "D": 200,
+   "H": 1.0,
+   "remain": 61
+  },
+  {
+   "cid": "D200_H1.4",
+   "D": 200,
+   "H": 1.4,
+   "remain": 61
+  },
+  {
+   "cid": "D200_H2",
+   "D": 200,
+   "H": 2.0,
+   "remain": 59
+  },
+  {
+   "cid": "D200_H3",
+   "D": 200,
+   "H": 3.0,
+   "remain": 57
+  },
+  {
+   "cid": "D200_H5",
+   "D": 200,
+   "H": 5.0,
+   "remain": 54
+  },
+  {
+   "cid": "D300_H0.5",
+   "D": 300,
+   "H": 0.5,
+   "remain": 40
+  },
+  {
+   "cid": "D300_H0.7",
+   "D": 300,
+   "H": 0.7,
+   "remain": 40
+  },
+  {
+   "cid": "D300_H1",
+   "D": 300,
+   "H": 1.0,
+   "remain": 40
+  },
+  {
+   "cid": "D300_H1.4",
+   "D": 300,
+   "H": 1.4,
+   "remain": 40
+  },
+  {
+   "cid": "D300_H2",
+   "D": 300,
+   "H": 2.0,
+   "remain": 40
+  },
+  {
+   "cid": "D300_H3",
+   "D": 300,
+   "H": 3.0,
+   "remain": 40
+  },
+  {
+   "cid": "D300_H5",
+   "D": 300,
+   "H": 5.0,
+   "remain": 40
+  },
+  {
+   "cid": "D500_H0.5",
+   "D": 500,
+   "H": 0.5,
+   "remain": 27
+  },
+  {
+   "cid": "D500_H0.7",
+   "D": 500,
+   "H": 0.7,
+   "remain": 27
+  },
+  {
+   "cid": "D500_H1",
+   "D": 500,
+   "H": 1.0,
+   "remain": 27
+  },
+  {
+   "cid": "D500_H1.4",
+   "D": 500,
+   "H": 1.4,
+   "remain": 27
+  },
+  {
+   "cid": "D500_H2",
+   "D": 500,
+   "H": 2.0,
+   "remain": 27
+  },
+  {
+   "cid": "D500_H3",
+   "D": 500,
+   "H": 3.0,
+   "remain": 27
+  },
+  {
+   "cid": "D500_H5",
+   "D": 500,
+   "H": 5.0,
+   "remain": 27
+  }
+ ],
+ "missing": {
+  "trades_m60": 0,
+  "trades_m24": 0,
+  "cand_m60": 0,
+  "cand_m24": 0
+ },
+ "turn_nan": {
+  "turn1h": 0,
+  "turn24h": 0
+ },
+ "note": "остаток по D × H — сделки базы с turn1h ≥ H и turn24h ≥ D (верхняя оценка клетки пула); * — меньше 70 сделок"
+}

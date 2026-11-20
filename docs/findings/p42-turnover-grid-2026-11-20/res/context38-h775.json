@@ -1,0 +1,258 @@
+{
+ "L": {
+  "rho_n24_turn24h": 0.48861623040440394,
+  "rho_n60_turn1h": 0.5542680720402327,
+  "rho_n24_n60": 0.6977417327900164,
+  "n_cand": 914,
+  "overlap": {
+   "N24_q20|D25_H0.5": {
+    "n_ladder": 335,
+    "n_turn": 295,
+    "both": 255,
+    "sum_both": 197.452913,
+    "only_ladder": 80,
+    "sum_only_ladder": 46.052085999999996,
+    "only_turn": 40,
+    "sum_only_turn": -30.287090000000003
+   },
+   "N24_q20|D50_H0.5": {
+    "n_ladder": 335,
+    "n_turn": 191,
+    "both": 179,
+    "sum_both": 116.259294,
+    "only_ladder": 156,
+    "sum_only_ladder": 127.245705,
+    "only_turn": 12,
+    "sum_only_turn": -19.451439
+   },
+   "N24_q20|D100_H0.5": {
+    "n_ladder": 335,
+    "n_turn": 114,
+    "both": 106,
+    "sum_both": 36.78746999999999,
+    "only_ladder": 229,
+    "sum_only_ladder": 206.717529,
+    "only_turn": 8,
+    "sum_only_turn": 8.827207
+   },
+   "N24_q40|D25_H0.5": {
+    "n_ladder": 254,
+    "n_turn": 295,
+    "both": 209,
+    "sum_both": 158.210471,
+    "only_ladder": 45,
+    "sum_only_ladder": 83.57615799999999,
+    "only_turn": 86,
+    "sum_only_turn": 8.955351999999998
+   },
+   "N24_q40|D50_H0.5": {
+    "n_ladder": 254,
+    "n_turn": 191,
+    "both": 157,
+    "sum_both": 89.024957,
+    "only_ladder": 97,
+    "sum_only_ladder": 152.761672,
+    "only_turn": 34,
+    "sum_only_turn": 7.782897999999997
+   },
+   "N24_q40|D100_H0.5": {
+    "n_ladder": 254,
+    "n_turn": 114,
+    "both": 93,
+    "sum_both": 21.436320999999996,
+    "only_ladder": 161,
+    "sum_only_ladder": 220.350308,
+    "only_turn": 21,
+    "sum_only_turn": 24.178356
+   },
+   "N24_q60|D25_H0.5": {
+    "n_ladder": 181,
+    "n_turn": 295,
+    "both": 155,
+    "sum_both": 237.012036,
+    "only_ladder": 26,
+    "sum_only_ladder": 57.297798,
+    "only_turn": 140,
+    "sum_only_turn": -69.846213
+   },
+   "N24_q60|D50_H0.5": {
+    "n_ladder": 181,
+    "n_turn": 191,
+    "both": 120,
+    "sum_both": 148.802626,
+    "only_ladder": 61,
+    "sum_only_ladder": 145.507208,
+    "only_turn": 71,
+    "sum_only_turn": -51.99477100000001
+   },
+   "N24_q60|D100_H0.5": {
+    "n_ladder": 181,
+    "n_turn": 114,
+    "both": 73,
+    "sum_both": 63.836324999999995,
+    "only_ladder": 108,
+    "sum_only_ladder": 230.473509,
+    "only_turn": 41,
+    "sum_only_turn": -18.221648000000005
+   },
+   "N24_q80|D25_H0.5": {
+    "n_ladder": 92,
+    "n_turn": 295,
+    "both": 86,
+    "sum_both": 125.918204,
+    "only_ladder": 6,
+    "sum_only_ladder": 9.660129,
+    "only_turn": 209,
+    "sum_only_turn": 41.24761900000001
+   },
+   "N24_q80|D50_H0.5": {
+    "n_ladder": 92,
+    "n_turn": 191,
+    "both": 76,
+    "sum_both": 129.007633,
+    "only_ladder": 16,
+    "sum_only_ladder": 6.5706999999999995,
+    "only_turn": 115,
+    "sum_only_turn": -32.199778
+   },
+   "N24_q80|D100_H0.5": {
+    "n_ladder": 92,
+    "n_turn": 114,
+    "both": 49,
+    "sum_both": 57.89456199999999,
+    "only_ladder": 43,
+    "sum_only_ladder": 77.683771,
+    "only_turn": 65,
+    "sum_only_turn": -12.279885000000004
+   }
+  }
+ },
+ "S": {
+  "rho_n24_turn24h": 0.6030802975182178,
+  "rho_n60_turn1h": 0.651428723868579,
+  "rho_n24_n60": 0.5596212184386768,
+  "n_cand": 494,
+  "overlap": {
+   "N24_q20|D25_H0.5": {
+    "n_ladder": 252,
+    "n_turn": 256,
+    "both": 225,
+    "sum_both": 193.659289,
+    "only_ladder": 27,
+    "sum_only_ladder": 51.315008,
+    "only_turn": 31,
+    "sum_only_turn": -16.844483999999998
+   },
+   "N24_q20|D50_H0.5": {
+    "n_ladder": 252,
+    "n_turn": 174,
+    "both": 160,
+    "sum_both": 101.20060099999999,
+    "only_ladder": 92,
+    "sum_only_ladder": 143.773696,
+    "only_turn": 14,
+    "sum_only_turn": 10.313605
+   },
+   "N24_q20|D100_H0.5": {
+    "n_ladder": 252,
+    "n_turn": 111,
+    "both": 106,
+    "sum_both": 78.215067,
+    "only_ladder": 146,
+    "sum_only_ladder": 166.75923,
+    "only_turn": 5,
+    "sum_only_turn": 13.010705000000002
+   },
+   "N24_q40|D25_H0.5": {
+    "n_ladder": 190,
+    "n_turn": 256,
+    "both": 176,
+    "sum_both": 144.946716,
+    "only_ladder": 14,
+    "sum_only_ladder": 35.504996999999996,
+    "only_turn": 80,
+    "sum_only_turn": 31.868089000000005
+   },
+   "N24_q40|D50_H0.5": {
+    "n_ladder": 190,
+    "n_turn": 174,
+    "both": 134,
+    "sum_both": 74.831212,
+    "only_ladder": 56,
+    "sum_only_ladder": 105.620501,
+    "only_turn": 40,
+    "sum_only_turn": 36.682994
+   },
+   "N24_q40|D100_H0.5": {
+    "n_ladder": 190,
+    "n_turn": 111,
+    "both": 93,
+    "sum_both": 65.03158499999999,
+    "only_ladder": 97,
+    "sum_only_ladder": 115.420128,
+    "only_turn": 18,
+    "sum_only_turn": 26.194187
+   },
+   "N24_q60|D25_H0.5": {
+    "n_ladder": 133,
+    "n_turn": 256,
+    "both": 129,
+    "sum_both": 92.181832,
+    "only_ladder": 4,
+    "sum_only_ladder": 1.970953,
+    "only_turn": 127,
+    "sum_only_turn": 84.632973
+   },
+   "N24_q60|D50_H0.5": {
+    "n_ladder": 133,
+    "n_turn": 174,
+    "both": 107,
+    "sum_both": 62.168167999999994,
+    "only_ladder": 26,
+    "sum_only_ladder": 31.984617,
+    "only_turn": 67,
+    "sum_only_turn": 49.346038
+   },
+   "N24_q60|D100_H0.5": {
+    "n_ladder": 133,
+    "n_turn": 111,
+    "both": 77,
+    "sum_both": 52.835808,
+    "only_ladder": 56,
+    "sum_only_ladder": 41.316977,
+    "only_turn": 34,
+    "sum_only_turn": 38.389964
+   },
+   "N24_q80|D25_H0.5": {
+    "n_ladder": 67,
+    "n_turn": 256,
+    "both": 67,
+    "sum_both": 22.640119999999996,
+    "only_ladder": 0,
+    "sum_only_ladder": 0.0,
+    "only_turn": 189,
+    "sum_only_turn": 154.174685
+   },
+   "N24_q80|D50_H0.5": {
+    "n_ladder": 67,
+    "n_turn": 174,
+    "both": 60,
+    "sum_both": 4.482300999999997,
+    "only_ladder": 7,
+    "sum_only_ladder": 18.157819,
+    "only_turn": 114,
+    "sum_only_turn": 107.031905
+   },
+   "N24_q80|D100_H0.5": {
+    "n_ladder": 67,
+    "n_turn": 111,
+    "both": 52,
+    "sum_both": 9.309597999999998,
+    "only_ladder": 15,
+    "sum_only_ladder": 13.330522,
+    "only_turn": 59,
+    "sum_only_turn": 81.916174
+   }
+  }
+ }
+}

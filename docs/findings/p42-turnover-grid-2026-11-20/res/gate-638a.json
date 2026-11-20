@@ -1,0 +1,86 @@
+{
+ "bin_md5": "396989e9d0ad34d19f9b512a659c8e8e",
+ "keys": "lat=4 latx=4 pk=1 pb=1 fh=4 fk=120 fm=50 fb=0.5 ew=5 ex=0 rf=0.2 rs=20 t24=12 fa=N24_q60 fo=lo fv=0.5",
+ "cell": "N24_q60",
+ "windows": {
+  "wa": {
+   "ftab_sha256": "79113fca36f1d38a3290dfe35a443ad4a67c4f53601171b6f4d76b5de875c7a5",
+   "files": {
+    "long-trades.csv": {
+     "sha256": "b14a8f2cfa9ffdbef0a52573e99af73c7daf08b45ca8f5c14a044ec4ca900474",
+     "ref_sha256": "b14a8f2cfa9ffdbef0a52573e99af73c7daf08b45ca8f5c14a044ec4ca900474",
+     "equal": true
+    },
+    "long-daily.csv": {
+     "sha256": "03729c48e66b1b459a26b5a40c4d2d8379b093f31a815bcc5a029cbd71573b18",
+     "ref_sha256": "03729c48e66b1b459a26b5a40c4d2d8379b093f31a815bcc5a029cbd71573b18",
+     "equal": true
+    },
+    "long-coinday.csv": {
+     "sha256": "a5410104057139b81ba93d5167566e5296e4fd00704c62b875c77b30deeeb72f",
+     "ref_sha256": "a5410104057139b81ba93d5167566e5296e4fd00704c62b875c77b30deeeb72f",
+     "equal": true
+    },
+    "long-entryrej.csv": {
+     "sha256": "b4700a12afb6009fe8a2b16a62408b610082386fae5349944783736a84e381d5",
+     "ref_sha256": "b4700a12afb6009fe8a2b16a62408b610082386fae5349944783736a84e381d5",
+     "equal": true
+    }
+   },
+   "equal": true
+  },
+  "wb": {
+   "ftab_sha256": "4847b0b6930873069aa13c1a095df3d0715a75f4336b85835105d8c4719f6b77",
+   "files": {
+    "long-trades.csv": {
+     "sha256": "eaa300e24258ba230919eefb1b0ad288ac4ebf0da459abb280c3d712b30216dc",
+     "ref_sha256": "eaa300e24258ba230919eefb1b0ad288ac4ebf0da459abb280c3d712b30216dc",
+     "equal": true
+    },
+    "long-daily.csv": {
+     "sha256": "804b99affd2e322a2883710db78658cb989c78e6d66b0fb2eaa1a6f1339c22b9",
+     "ref_sha256": "804b99affd2e322a2883710db78658cb989c78e6d66b0fb2eaa1a6f1339c22b9",
+     "equal": true
+    },
+    "long-coinday.csv": {
+     "sha256": "c235a9335985d7782d283367c07a85475d8bf6078ef546cc9cd424177845476a",
+     "ref_sha256": "c235a9335985d7782d283367c07a85475d8bf6078ef546cc9cd424177845476a",
+     "equal": true
+    },
+    "long-entryrej.csv": {
+     "sha256": "3a8fd1a0e235bb47bf3a0512ddf3e38e1e4f48d7f0e2ea44197f5a1daac21d95",
+     "ref_sha256": "3a8fd1a0e235bb47bf3a0512ddf3e38e1e4f48d7f0e2ea44197f5a1daac21d95",
+     "equal": true
+    }
+   },
+   "equal": true
+  },
+  "wc": {
+   "ftab_sha256": "960012d7f4de66dfcc1531556e717e03ca10ec873b91a8fd3a2872557cacf6c0",
+   "files": {
+    "long-trades.csv": {
+     "sha256": "ca77fbc14cdb70787a237cac5a019b9b300ea9084c713d5f7aa676557d867020",
+     "ref_sha256": "ca77fbc14cdb70787a237cac5a019b9b300ea9084c713d5f7aa676557d867020",
+     "equal": true
+    },
+    "long-daily.csv": {
+     "sha256": "ff1bc047a266dc431d38b00056dbf788edf1f1d7d505cadaf33872bf83a5c12f",
+     "ref_sha256": "ff1bc047a266dc431d38b00056dbf788edf1f1d7d505cadaf33872bf83a5c12f",
+     "equal": true
+    },
+    "long-coinday.csv": {
+     "sha256": "c89891b5e3756fb1defbf5b581ae2912cb3477f3a694569850489eaa626fd55e",
+     "ref_sha256": "c89891b5e3756fb1defbf5b581ae2912cb3477f3a694569850489eaa626fd55e",
+     "equal": true
+    },
+    "long-entryrej.csv": {
+     "sha256": "42d5cd0fec8a6f28e41d32069454f54aa1fdce77a236e6b33e160625b2a933d6",
+     "ref_sha256": "42d5cd0fec8a6f28e41d32069454f54aa1fdce77a236e6b33e160625b2a933d6",
+     "equal": true
+    }
+   },
+   "equal": true
+  }
+ },
+ "ok": true
+}

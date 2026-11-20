@@ -1,0 +1,157 @@
+{
+ "bin_md5": "396989e9d0ad34d19f9b512a659c8e8e",
+ "feat_bin_md5": "69fcf7cdc74a8006e78681d29a980f68",
+ "keys": "lat=4 latx=4 pk=1 pb=1 fh=4 fk=120 fm=50 fb=0.5 ew=5 ex=0 rf=0.2 rs=20 t24=12 fa=N24_q60 fo=lo fv=0.5",
+ "cell": "L_n24",
+ "candidate_commit": "962cc79d94a4f8d1eee8c62633452e05836593cd",
+ "candidate_sha256": "74ffaf0aaec872572e6bb8e461399f8a89b66dff568c573a3d66d70f786e9a8e",
+ "freeze_commit": "1d14575e2",
+ "freeze_sha256": "b9bd9258b076483c7e545b73eeb9491feae218391446338f21ffbc5dd9e88b5d",
+ "tree_files": 313966,
+ "n24": {
+  "status": "read",
+  "reason": "",
+  "m24_share": 0.0,
+  "no_key": 0,
+  "windows": {
+   "wa": {
+    "rows": 386,
+    "credited": 357,
+    "m24_credited": 0,
+    "m24_all": 0,
+    "excluded": 213,
+    "credited_range": [
+     "2026-07-01",
+     "2026-08-25"
+    ],
+    "ftab_sha256": "039303c87dd9318f8a87653dc3359aaa80cbe6745c7926756685077f11c6b350",
+    "counts_sha256": "3096d4b21bea3080f08b1de4f34bb200c3cc85cef6609dcdfc7956f7e6e1298d",
+    "engine": {
+     "cands": 386,
+     "dropped": 213,
+     "no_key": 0,
+     "no_value": 0
+    }
+   },
+   "wb": {
+    "rows": 413,
+    "credited": 258,
+    "m24_credited": 0,
+    "m24_all": 0,
+    "excluded": 269,
+    "credited_range": [
+     "2026-08-26",
+     "2026-10-02"
+    ],
+    "ftab_sha256": "af00f74ba09ade4a490030aa290b98dac03a516ef46ff9be75eff93e23174567",
+    "counts_sha256": "d057903dd2fb009a6ae12d14986c49efff5009a73e6ca16c81f25299ff7db693",
+    "engine": {
+     "cands": 413,
+     "dropped": 269,
+     "no_key": 0,
+     "no_value": 0
+    }
+   },
+   "wc": {
+    "rows": 423,
+    "credited": 299,
+    "m24_credited": 0,
+    "m24_all": 0,
+    "excluded": 271,
+    "credited_range": [
+     "2026-10-03",
+     "2026-11-13"
+    ],
+    "ftab_sha256": "7779cc10dfb3506abae770b8affafaeaf4d00a7a3d71e92c96ed509eb734f834",
+    "counts_sha256": "1215900ecdb441a851f64c45398bd99a8d1c2948ce80660cdfb3ef7521112e74",
+    "engine": {
+     "cands": 423,
+     "dropped": 271,
+     "no_key": 0,
+     "no_value": 0
+    }
+   }
+  }
+ },
+ "windows": {
+  "wa": {
+   "ftab_sha256": "039303c87dd9318f8a87653dc3359aaa80cbe6745c7926756685077f11c6b350",
+   "files": {
+    "long-trades.csv": {
+     "sha256": "b14a8f2cfa9ffdbef0a52573e99af73c7daf08b45ca8f5c14a044ec4ca900474",
+     "ref_sha256": "b14a8f2cfa9ffdbef0a52573e99af73c7daf08b45ca8f5c14a044ec4ca900474",
+     "equal": true
+    },
+    "long-daily.csv": {
+     "sha256": "03729c48e66b1b459a26b5a40c4d2d8379b093f31a815bcc5a029cbd71573b18",
+     "ref_sha256": "03729c48e66b1b459a26b5a40c4d2d8379b093f31a815bcc5a029cbd71573b18",
+     "equal": true
+    },
+    "long-coinday.csv": {
+     "sha256": "a5410104057139b81ba93d5167566e5296e4fd00704c62b875c77b30deeeb72f",
+     "ref_sha256": "a5410104057139b81ba93d5167566e5296e4fd00704c62b875c77b30deeeb72f",
+     "equal": true
+    },
+    "long-entryrej.csv": {
+     "sha256": "b4700a12afb6009fe8a2b16a62408b610082386fae5349944783736a84e381d5",
+     "ref_sha256": "b4700a12afb6009fe8a2b16a62408b610082386fae5349944783736a84e381d5",
+     "equal": true
+    }
+   },
+   "equal": true
+  },
+  "wb": {
+   "ftab_sha256": "af00f74ba09ade4a490030aa290b98dac03a516ef46ff9be75eff93e23174567",
+   "files": {
+    "long-trades.csv": {
+     "sha256": "eaa300e24258ba230919eefb1b0ad288ac4ebf0da459abb280c3d712b30216dc",
+     "ref_sha256": "eaa300e24258ba230919eefb1b0ad288ac4ebf0da459abb280c3d712b30216dc",
+     "equal": true
+    },
+    "long-daily.csv": {
+     "sha256": "804b99affd2e322a2883710db78658cb989c78e6d66b0fb2eaa1a6f1339c22b9",
+     "ref_sha256": "804b99affd2e322a2883710db78658cb989c78e6d66b0fb2eaa1a6f1339c22b9",
+     "equal": true
+    },
+    "long-coinday.csv": {
+     "sha256": "c235a9335985d7782d283367c07a85475d8bf6078ef546cc9cd424177845476a",
+     "ref_sha256": "c235a9335985d7782d283367c07a85475d8bf6078ef546cc9cd424177845476a",
+     "equal": true
+    },
+    "long-entryrej.csv": {
+     "sha256": "3a8fd1a0e235bb47bf3a0512ddf3e38e1e4f48d7f0e2ea44197f5a1daac21d95",
+     "ref_sha256": "3a8fd1a0e235bb47bf3a0512ddf3e38e1e4f48d7f0e2ea44197f5a1daac21d95",
+     "equal": true
+    }
+   },
+   "equal": true
+  },
+  "wc": {
+   "ftab_sha256": "7779cc10dfb3506abae770b8affafaeaf4d00a7a3d71e92c96ed509eb734f834",
+   "files": {
+    "long-trades.csv": {
+     "sha256": "ca77fbc14cdb70787a237cac5a019b9b300ea9084c713d5f7aa676557d867020",
+     "ref_sha256": "ca77fbc14cdb70787a237cac5a019b9b300ea9084c713d5f7aa676557d867020",
+     "equal": true
+    },
+    "long-daily.csv": {
+     "sha256": "ff1bc047a266dc431d38b00056dbf788edf1f1d7d505cadaf33872bf83a5c12f",
+     "ref_sha256": "ff1bc047a266dc431d38b00056dbf788edf1f1d7d505cadaf33872bf83a5c12f",
+     "equal": true
+    },
+    "long-coinday.csv": {
+     "sha256": "c89891b5e3756fb1defbf5b581ae2912cb3477f3a694569850489eaa626fd55e",
+     "ref_sha256": "c89891b5e3756fb1defbf5b581ae2912cb3477f3a694569850489eaa626fd55e",
+     "equal": true
+    },
+    "long-entryrej.csv": {
+     "sha256": "42d5cd0fec8a6f28e41d32069454f54aa1fdce77a236e6b33e160625b2a933d6",
+     "ref_sha256": "42d5cd0fec8a6f28e41d32069454f54aa1fdce77a236e6b33e160625b2a933d6",
+     "equal": true
+    }
+   },
+   "equal": true
+  }
+ },
+ "ok": true
+}

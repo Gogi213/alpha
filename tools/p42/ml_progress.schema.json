@@ -77,7 +77,8 @@
           "title": {"type": "string", "minLength": 1}, "cols": {"type": "array", "minItems": 2, "items": {"type": "string"}},
           "rows": {"type": "array", "minItems": 1, "items": {"type": "array", "items": {"type": "string"}}},
           "bold": {"type": "array", "items": {"type": "integer", "minimum": 0}, "description": "индексы строк, выделяемых как итог"},
-          "wrap": {"type": "array", "items": {"type": "integer", "minimum": 0}, "description": "индексы колонок, где текст переносится по строкам (TK-633; по умолчанию — в одну строку)"}}}}}}}}},
+          "wrap": {"type": "array", "items": {"type": "integer", "minimum": 0}, "description": "индексы колонок, где текст переносится по строкам (TK-633; по умолчанию — в одну строку)"},
+          "shade": {"type": "array", "items": {"type": "array", "items": {"type": ["number", "null"], "minimum": -1, "maximum": 1}}, "description": "тепловая карта (TK-638): по строке — число −1…1 на ячейку (null — без заливки); больше 0 — акцентный цвет, меньше 0 — серый, насыщенность по модулю"}}}}}}}}},
     "whbox": {
       "type": "object",
       "additionalProperties": false,
