@@ -7,8 +7,9 @@ name: Fuzz
 
 on:
   push:
-    tags-ignore:
-      - "archive/**"
+    # Только ветки, без тегов archive/* (TK-635).
+    branches:
+      - "**"
     paths:
       - "fuzz/**"
       - "src/binlog/**"
