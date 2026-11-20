@@ -1,6 +1,6 @@
 # TK-489 — перемер D2 TK-479 после E-010: проверка Судьи (03.11)
 
-Сдача: `docs/archive/findings/statarb-funding-remeasure-2026-11-03.md`, правка `docs/findings/statarb-core-bench-2026-11-02.md:67-70`, коммиты 276b5176, eaf396c0, 9a81582f. Код ядра не тронут (`git diff 9a81582f~3 9a81582f -- src` пуст).
+Сдача: `docs/archive/findings/statarb-funding-remeasure-2026-11-03.md`, правка `docs/archive/findings/statarb-core-bench-2026-11-02.md:67-70`, коммиты 276b5176, eaf396c0, 9a81582f. Код ядра не тронут (`git diff 9a81582f~3 9a81582f -- src` пуст).
 
 | пункт договора | вердикт | доказательство |
 |---|---|---|
@@ -20,10 +20,10 @@
 
 | число | файл:строка |
 |---|---|
-| перп↔перп ядро пересчёт 240/240, 15 пот.: 1,84e8 строк/с, 69,0 пар/с, 0,710 с | docs/findings/statarb-core-bench-2026-11-02.md:67 |
-| перп↔спот ядро пересчёт 240/240, 15 пот.: 1,65e8 строк/с, 3830,4 пар/с, 0,013 с | docs/findings/statarb-core-bench-2026-11-02.md:68 |
-| новый/прежний 0,948…1,177 (без --digest), сделки 10/10 равны | docs/findings/statarb-funding-remeasure-2026-11-03.md:23-32 |
-| digest funding-pp a90c8239a62d643b ≠ cross 86d72e803db9e086 | docs/findings/statarb-funding-remeasure-2026-11-03.md:16 |
+| перп↔перп ядро пересчёт 240/240, 15 пот.: 1,84e8 строк/с, 69,0 пар/с, 0,710 с | docs/archive/findings/statarb-core-bench-2026-11-02.md:67 |
+| перп↔спот ядро пересчёт 240/240, 15 пот.: 1,65e8 строк/с, 3830,4 пар/с, 0,013 с | docs/archive/findings/statarb-core-bench-2026-11-02.md:68 |
+| новый/прежний 0,948…1,177 (без --digest), сделки 10/10 равны | docs/archive/findings/statarb-funding-remeasure-2026-11-03.md:23-32 |
+| digest funding-pp a90c8239a62d643b ≠ cross 86d72e803db9e086 | docs/archive/findings/statarb-funding-remeasure-2026-11-03.md:16 |
 
 ## Возврат 03.11 05:55 (E-011)
 

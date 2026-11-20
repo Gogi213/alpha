@@ -11,9 +11,9 @@
 
 | число | файл:строка |
 |---|---|
-| 10 passed | docs/findings/tk481-merge-2026-11-02.md:7 |
-| 741 = 741 | docs/findings/tk481-merge-2026-11-02.md:8 |
-| 3 passed | docs/findings/tk481-merge-2026-11-02.md:10 |
+| 10 passed | docs/archive/findings/tk481-merge-2026-11-02.md:7 |
+| 741 = 741 | docs/archive/findings/tk481-merge-2026-11-02.md:8 |
+| 3 passed | docs/archive/findings/tk481-merge-2026-11-02.md:10 |
 
 Замечание к CEO (не к исполнителю): на ветке `tk479-statarb` после слияния лежат три коммита TK-480 (протокол П-32,
 `docs/research/P-32-statarb.md`), которых нет в master. Перед тегом `archive/tk479-statarb` и удалением ветки их нужно

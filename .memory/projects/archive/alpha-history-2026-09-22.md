@@ -415,7 +415,7 @@ birth_ms < ts_ms`), поэтому плотность за топом касан
 
 ### История (до 19.09, для контекста)
 
-**Аудит 18.09 (`docs/archive/findings/audit-2026-09-18.md`) — читать до любого прогона B5.** HEAD `9fedf31` +
+**Аудит 18.09 (`docs/findings/audit-2026-09-18.md`) — читать до любого прогона B5.** HEAD `9fedf31` +
 этот коммит: A8.1–A8.7 сделаны и задеплоены (прод `29e8327` с 17.09 21:55Z), B5-машинерия есть, ворота
 813 / 0 / 5. Вердикт: A8 корректен (V1–V6 до следующего деплоя коллектора); **B5 нельзя запускать как
 вердикт, пока не сделаны K1–K4** — конвейер `touches`/`backtest`/`bounce-verdict` не fail-closed по
@@ -787,7 +787,7 @@ R4 (`frontrun_best_px` → `frontrun_tick` в тикете), R5 (отказ `--d
   bbr, `netdev_max_backlog=25000`, `tcp_fastopen=3`, `tcp_slow_start_after_idle=0`, выключенные
   `unattended-upgrades`/apt-таймеры; привязка к ядру и `nice -5` отклонены (p99 хуже). Профиль
   `perf`: ядро/сисколлы ~25 %, libc memset 9.1 %, приложение ~17 % (`Book::apply` 5.1 %).
-- Разбор — `docs/archive/findings/deploy-2026-09-15-ovh-singapore.md`; детали окружения —
+- Разбор — `docs/findings/deploy-2026-09-15-ovh-singapore.md`; детали окружения —
   `skills/ovh-vps-singapore.md`. Дополнения к `CLAUDE.md` («Состояние») внесены.
 
 ## T45 — два потока глубины (2026-09-15, в проде)

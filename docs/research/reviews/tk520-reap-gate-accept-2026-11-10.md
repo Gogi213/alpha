@@ -22,4 +22,4 @@
 |---|---|
 | удалено сырья Gate 94 528 файлов | srv `/data/p40-reap/reap.log` строка `04:12:27 удалено сырья Gate (TK-519)` |
 | бокс свободно 210,7 ГБ (04:12) / 211,5 ГБ (04:32) | srv `/data/p40-reap/reap.log` последняя строка; `df -k .` бокса 04:32 UTC |
-| L1 DOGEUSDT 09-20 = 4 845 110 байт | `docs/findings/tk520-reap-gate-2026-11-10.md:3` |
+| L1 DOGEUSDT 09-20 = 4 845 110 байт | `docs/archive/findings/tk520-reap-gate-2026-11-10.md:3` |

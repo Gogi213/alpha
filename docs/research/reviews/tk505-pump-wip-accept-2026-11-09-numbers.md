@@ -2,5 +2,5 @@
 
 | число | файл:строка |
 |---|---|
-| 08438668 (коммит правок, на нём тег archive/pump-g017-2026-11-wip) | docs/findings/pump-cleanup-2026-11-09.md:58 |
-| 90fbeb7c (коммит удаления трёх скриптов) | docs/findings/pump-cleanup-2026-11-09.md:58 |
+| 08438668 (коммит правок, на нём тег archive/pump-g017-2026-11-wip) | docs/archive/findings/pump-cleanup-2026-11-09.md:58 |
+| 90fbeb7c (коммит удаления трёх скриптов) | docs/archive/findings/pump-cleanup-2026-11-09.md:58 |

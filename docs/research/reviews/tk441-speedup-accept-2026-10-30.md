@@ -10,7 +10,7 @@
 
 | число | файл:строка |
 |---|---|
-| 67,5 → 54,3 с (×1,24) | docs/findings/tk436-speedup-2026-10-28.md:276 |
-| пул 61,8 → 48,5 с (×1,27) | docs/findings/tk436-speedup-2026-10-28.md:276 |
-| сумма 190,4 с, 799 с → ×4,2 | docs/findings/tk436-speedup-2026-10-28.md:277 |
-| до ×10 (≤ 80 с) остаётся ×2,4; шаги ≤ 29 % | docs/findings/tk436-speedup-2026-10-28.md:278 |
+| 67,5 → 54,3 с (×1,24) | docs/archive/findings/tk436-speedup-2026-10-28.md:276 |
+| пул 61,8 → 48,5 с (×1,27) | docs/archive/findings/tk436-speedup-2026-10-28.md:276 |
+| сумма 190,4 с, 799 с → ×4,2 | docs/archive/findings/tk436-speedup-2026-10-28.md:277 |
+| до ×10 (≤ 80 с) остаётся ×2,4; шаги ≤ 29 % | docs/archive/findings/tk436-speedup-2026-10-28.md:278 |

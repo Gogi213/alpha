@@ -8,7 +8,7 @@
 `spawn_verify_sidecar`, `fsync`, `let _ = append_gap_row`, `timeout`/`pong` в `conn.rs`, запись в
 потоке решений, `[lints]`/`clippy.toml`, `let _ = rec.flush()`, `io_threads`, дата T45 против
 деплоя), плюс **боевой сервер `139.99.91.22` прочитан по SSH** (только чтение, 2026-09-16 ≈ 23:40 UTC).
-Кросс-документы: план работ — [dev-plan-2026-09-17.md](../../plan/dev-plan-2026-09-17.md) (этап A); спека — [bounce-spec](bounce-spec-2026-09-17.md); остальные видео — [transcripts](transcripts-2026-09-17.md); цепочка — [roadmap](roadmap-2026-09-17.md).
+Кросс-документы: план работ — [dev-plan-2026-09-17.md](../../plan/dev-plan-2026-09-17.md) (этап A); спека — [bounce-spec](bounce-spec-2026-09-17.md); остальные видео — [transcripts](transcripts-2026-09-17.md); цепочка — [roadmap](../../findings/roadmap-2026-09-17.md).
 Точка отсчёта — `docs/ARCHITECTURE.md` A1–A9, `docs/archive/findings/audit-2026-09-12.md`, `docs/findings/collector-2026-09-12.md`,
 семь запретов `interfaces.md`; ниже — только дельта и то, чего они не покрывают.
 
@@ -362,7 +362,7 @@ keepalive на Linux; асимптота RSS (V13); включает ли кре
 - `docs/ARCHITECTURE.md` — целиком (A1–A9, 1–247)
 - `.autopilot/2026-09-11-lob-density-ed3/interfaces.md` — 1–120 (семь запретов 43–70)
 - `docs/findings/collector-2026-09-12.md` — 40–290 (замеры, гейт аллокаций, олвейс-он), 290–501 (761 инструмент, узкие места)
-- `docs/archive/findings/deploy-2026-09-15-ovh-singapore.md` — целиком (1–94)
+- `docs/findings/deploy-2026-09-15-ovh-singapore.md` — целиком (1–94)
 - `src/feed/mod.rs` — 1–114 (целиком)
 - `src/feed/live.rs` — 1–100, 190–300, 600–733
 - `src/bybit/conn.rs` — 85–120, 640–795, 920–991

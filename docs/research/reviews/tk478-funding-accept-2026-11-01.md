@@ -15,12 +15,12 @@
 
 | число | файл:строка |
 |---|---|
-| 902 | docs/findings/funding-2020-2026-11-01.md:21 |
-| 2 855 628 | docs/findings/funding-2020-2026-11-01.md:21 |
-| 1095 | docs/findings/funding-2020-2026-11-01.md:22 |
-| 3 001 501 | docs/findings/funding-2020-2026-11-01.md:22 |
-| 275 | docs/findings/funding-2020-2026-11-01.md:4 |
-| 987 | docs/findings/funding-2020-2026-11-01.md:43 |
+| 902 | docs/archive/findings/funding-2020-2026-11-01.md:21 |
+| 2 855 628 | docs/archive/findings/funding-2020-2026-11-01.md:21 |
+| 1095 | docs/archive/findings/funding-2020-2026-11-01.md:22 |
+| 3 001 501 | docs/archive/findings/funding-2020-2026-11-01.md:22 |
+| 275 | docs/archive/findings/funding-2020-2026-11-01.md:4 |
+| 987 | docs/archive/findings/funding-2020-2026-11-01.md:43 |
 
 Замечание (вывод не меняет): дыра в coverage — разрыв больше восьми часов, поэтому у монет с часовым или
 четырёхчасовым интервалом короткие пропуски не видны; при анализе мерить разрыв против своего интервала.

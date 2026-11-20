@@ -20,5 +20,5 @@ md5 не пересчитывался (1 ГБ на HDD calc); сверка — �
 
 | число | файл:строка |
 |---|---|
-| 3 706 585 свопов | docs/findings/gate-week-download-2026-10-23.md:181 |
-| 661,5 млн USD | docs/findings/gate-week-download-2026-10-23.md:193 |
+| 3 706 585 свопов | docs/archive/findings/gate-week-download-2026-10-23.md:181 |
+| 661,5 млн USD | docs/archive/findings/gate-week-download-2026-10-23.md:193 |

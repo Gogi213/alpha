@@ -20,8 +20,8 @@
 
 | число | файл:строка |
 |---|---|
-| Холм v2/v4: 9 из 144 (p_holm<0,05, excess>0) | docs/findings/tk392-layer-v2v4-holm-2026-10-25.csv:2–145 (пересчёт фильтром) |
-| Холм Solana: 12 из 144 | docs/findings/tk392-layer-sol-holm-2026-10-25.csv:2–145 (пересчёт фильтром) |
-| v2/v4 фьюч вниз, доля 1 мин 0,010 [-0,006; 0,031] | docs/findings/tk392-layer-v2v4-curve-2026-10-25.csv:317 |
-| v2/v4 фьюч вверх, доля по excess 0,024 [0,008; 0,045] | docs/findings/tk392-layer-v2v4-share-2026-10-25.csv:356 |
-| v2/v4 спот вниз, excess +7,5 бп, доля 0,043 | docs/findings/tk392-layer-v2v4-share-2026-10-25.csv:1253 |
+| Холм v2/v4: 9 из 144 (p_holm<0,05, excess>0) | docs/archive/findings/tk392-layer-v2v4-holm-2026-10-25.csv:2–145 (пересчёт фильтром) |
+| Холм Solana: 12 из 144 | docs/archive/findings/tk392-layer-sol-holm-2026-10-25.csv:2–145 (пересчёт фильтром) |
+| v2/v4 фьюч вниз, доля 1 мин 0,010 [-0,006; 0,031] | docs/archive/findings/tk392-layer-v2v4-curve-2026-10-25.csv:317 |
+| v2/v4 фьюч вверх, доля по excess 0,024 [0,008; 0,045] | docs/archive/findings/tk392-layer-v2v4-share-2026-10-25.csv:356 |
+| v2/v4 спот вниз, excess +7,5 бп, доля 0,043 | docs/archive/findings/tk392-layer-v2v4-share-2026-10-25.csv:1253 |

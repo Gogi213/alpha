@@ -2,7 +2,7 @@
 """Archive stale docs/findings entries and keep links valid (TK-640).
 
   python tools/findings_archive.py plan  [--since YYYY-MM-DD]   # live / stale table -> stdout
-  python tools/findings_archive.py apply [--since YYYY-MM-DD]   # git mv stale -> docs/archive/findings, rewrite links
+  python tools/findings_archive.py apply [--since YYYY-MM-DD]   # git mv stale -> archive, live-again back; rewrite links
   python tools/findings_archive.py check                        # broken repo-path links to docs/findings & docs/archive/findings
 
 Unit = top-level entry of docs/findings (file or directory). An entry is live if referenced from
@@ -58,34 +58,39 @@ def read(p):
         return None
 
 
-def entries():
-    return sorted(os.listdir(ROOT / FIND))
+def entries(d=FIND):
+    return sorted(os.listdir(ROOT / d)) if (ROOT / d).is_dir() else []
 
 
 def top(rel):
-    """'a/b.png' -> 'a'; strips trailing punctuation that prose glues to a path."""
-    return rel.split("/")[0].rstrip(".:")
+    """'a/b.png' -> 'a'; drops ':68,451' / '#L5' suffixes and trailing punctuation prose glues to a path."""
+    return re.sub(r"[:#].*$", "", rel.split("/")[0]).rstrip(".:")
 
 
 def refs_in(text, path, names):
-    """Top-level findings entries referenced by text (repo-root paths + relative md links)."""
+    """(entry, form) referenced by text; form 'f' = docs/findings/..., 'a' = docs/archive/findings/...
+    (repo-root paths + relative md links)."""
     out = set()
     for m in REF.finditer(text):
         t = top(m.group(1))
+        form = "a" if m.group(0).startswith("docs/archive/") else "f"
         if t in names:
-            out.add(t)
+            out.add((t, form))
+        elif text[m.end():m.end() + 1] == "*" and "/" not in m.group(1) and len(t) >= 8:
+            out.update((n, form) for n in names if n.startswith(t))  # `docs/findings/verify-gate-v177-*.csv`
     base = (ROOT / path).parent
     for m in MDLINK.finditer(text):
         tgt = m.group(2)
         if "://" in tgt or tgt.startswith(("mailto:", "/")):
             continue
-        try:
-            rel = (base / tgt).resolve().relative_to(ROOT / FIND)
-        except (ValueError, OSError):
-            continue
-        t = rel.parts[0] if rel.parts else ""
-        if t in names:
-            out.add(t)
+        for d, form in ((FIND, "f"), (ARCH, "a")):
+            try:
+                rel = (base / tgt).resolve().relative_to(ROOT / d)
+            except (ValueError, OSError):
+                continue
+            t = rel.parts[0] if rel.parts else ""
+            if t in names:
+                out.add((t, form))
     return out
 
 
@@ -117,15 +122,21 @@ def added_dates():
 
 
 def classify(since):
+    """-> (names in docs/findings, names in archive, {live entry: reason}).
+    An archived entry is live again only via a docs/findings/... reference (one that expects it back)."""
     files = tracked()
-    names = set(entries())
+    names_f, names_a = set(entries(FIND)), set(entries(ARCH))
+    names = names_f | names_a
     reason = {}
 
     def mark(t, why):
         reason.setdefault(t, why)
 
+    def hits(text, path):
+        return {t for t, form in refs_in(text, path, names) if t in names_f or form == "f"}
+
     for g in KEEP:
-        for n in names:
+        for n in names_f:
             if fnmatch.fnmatch(n, g):
                 mark(n, "keep-list")
     srcs = [(p, "live-doc") for p in files if match_any(p, LIVE_SOURCES)]
@@ -135,10 +146,10 @@ def classify(since):
     for p, why in srcs:
         t = read(p)
         if t:
-            for n in refs_in(t, p, names):
+            for n in hits(t, p):
                 mark(n, f"{why}:{p}")
     ad = added_dates()
-    for n in names:
+    for n in names_f:
         m = DATE.search(n)
         d = m.group(0) if m else ad.get(n)
         if d and d >= since:
@@ -147,15 +158,15 @@ def classify(since):
     todo = list(reason)
     while todo:
         n = todo.pop()
-        p = ROOT / FIND / n
+        p = ROOT / (FIND if n in names_f else ARCH) / n
         mds = [p] if p.suffix == ".md" else (list(p.rglob("*.md")) if p.is_dir() else [])
         for md in mds:
             t = md.read_text(encoding="utf-8", errors="replace")
-            for r in refs_in(t, md.relative_to(ROOT).as_posix(), names):
+            for r in hits(t, md.relative_to(ROOT).as_posix()):
                 if r not in reason:
                     reason[r] = f"linked-from:{n}"
                     todo.append(r)
-    return names, reason
+    return names_f, names_a, reason
 
 
 def size(p):
@@ -164,24 +175,28 @@ def size(p):
 
 
 def cmd_plan(a):
-    names, reason = classify(a.since)
-    keep = sorted(reason)
-    stale = sorted(names - set(reason))
+    names_f, names_a, reason = classify(a.since)
+    keep = sorted(n for n in reason if n in names_f)
+    back = sorted(n for n in reason if n in names_a)
+    stale = sorted(names_f - set(reason))
     mb = lambda xs: sum(size(f"{FIND}/{x}") for x in xs) / 1e6
     for n in keep:
         print(f"KEEP\t{n}\t{reason[n]}")
+    for n in back:
+        print(f"BACK\t{n}\t{reason[n]}")
     for n in stale:
         print(f"MOVE\t{n}")
-    print(f"# keep {len(keep)} ({mb(keep):.1f} MB) · move {len(stale)} ({mb(stale):.1f} MB)", file=sys.stderr)
+    print(f"# keep {len(keep)} ({mb(keep):.1f} MB) · back {len(back)} · move {len(stale)} ({mb(stale):.1f} MB)",
+          file=sys.stderr)
 
 
-def rewrite_text(text, path_old, path_new, moved):
-    """repo-root refs to moved entries -> archive; relative md links re-based for both ends moving."""
+def rewrite_text(text, path_old, path_new, to_arch, to_find):
+    """repo-root refs follow their entry (findings <-> archive); relative md links re-based."""
     def root_sub(m):
         whole, rel = m.group(0), m.group(1)
         if whole.startswith("docs/archive/"):
-            return whole
-        return f"{ARCH}/{rel}" if top(rel) in moved else whole
+            return f"{FIND}/{rel}" if top(rel) in to_find else whole
+        return f"{ARCH}/{rel}" if top(rel) in to_arch else whole
 
     text = REF.sub(root_sub, text)
     if not path_old.endswith((".md", ".html")):
@@ -193,29 +208,35 @@ def rewrite_text(text, path_old, path_new, moved):
         if "://" in tgt or tgt.startswith(("mailto:", "/")) or "findings/" in tgt and tgt.startswith("docs/"):
             return m.group(0)
         try:
-            ab = (base_old / tgt).resolve()
-            rel = ab.relative_to(ROOT).as_posix()
+            orig = (base_old / tgt).resolve().relative_to(ROOT).as_posix()
         except (ValueError, OSError):
             return m.group(0)
-        if rel.startswith(FIND + "/") and top(rel[len(FIND) + 1:]) in moved:
+        rel = orig
+        if rel.startswith(FIND + "/") and top(rel[len(FIND) + 1:]) in to_arch:
             rel = ARCH + rel[len(FIND):]
-        new = os.path.relpath(ROOT / rel, base_new).replace("\\", "/")
-        if base_old == base_new and rel == ab.relative_to(ROOT).as_posix():
+        elif rel.startswith(ARCH + "/") and top(rel[len(ARCH) + 1:]) in to_find:
+            rel = FIND + rel[len(ARCH):]
+        if base_old == base_new and rel == orig:
             return m.group(0)
-        return pre + new
+        return pre + os.path.relpath(ROOT / rel, base_new).replace("\\", "/")
 
     return MDLINK.sub(link_sub, text)
 
 
 def cmd_apply(a):
-    names, reason = classify(a.since)
-    moved = names - set(reason)
+    names_f, names_a, reason = classify(a.since)
+    to_arch = names_f - set(reason)
+    to_find = names_a & set(reason)
+    # leftover docs/findings/... refs to entries already archived are redirected too
+    arch_final = (names_a - to_find) | to_arch
     (ROOT / ARCH).mkdir(parents=True, exist_ok=True)
     tracked_set = set(tracked())
     old_new = {}
     for p in tracked_set:
-        if p.startswith(FIND + "/") and top(p[len(FIND) + 1:]) in moved:
+        if p.startswith(FIND + "/") and top(p[len(FIND) + 1:]) in to_arch:
             old_new[p] = ARCH + p[len(FIND):]
+        elif p.startswith(ARCH + "/") and top(p[len(ARCH) + 1:]) in to_find:
+            old_new[p] = FIND + p[len(ARCH):]
     # rewrite first (paths still at old place), then move
     changed = 0
     for p in sorted(tracked_set):
@@ -224,17 +245,17 @@ def cmd_apply(a):
         t = read(p)
         if t is None:
             continue
-        n = rewrite_text(t, p, old_new.get(p, p), moved)
+        n = rewrite_text(t, p, old_new.get(p, p), arch_final, to_find)
         if n != t:
             with open(ROOT / p, "w", encoding="utf-8", newline="") as f:
                 f.write(n)
             changed += 1
-    for n in sorted(moved):
-        src = f"{FIND}/{n}"
-        if any(k == src or k.startswith(src + "/") for k in old_new):
-            git("mv", "-k", src, f"{ARCH}/{n}")
-        # untracked leftovers (if any) stay; reported by plan
-    print(f"moved {len(moved)} entries ({len(old_new)} files), rewrote {changed} files")
+    for names, src_d, dst_d in ((to_arch, FIND, ARCH), (to_find, ARCH, FIND)):
+        for n in sorted(names):
+            src = f"{src_d}/{n}"
+            if any(k == src or k.startswith(src + "/") for k in old_new):
+                git("mv", "-k", src, f"{dst_d}/{n}")
+    print(f"archived {len(to_arch)}, restored {len(to_find)} entries ({len(old_new)} files), rewrote {changed} files")
 
 
 def cmd_check(a):
@@ -248,7 +269,7 @@ def cmd_check(a):
         if not t:
             continue
         for m in REF.finditer(t):
-            r = m.group(0).rstrip(".:")
+            r = re.sub(r"[:#]\d.*$", "", m.group(0)).rstrip(".:")
             if "<" in r or "YYYY" in r or "NNN" in r:
                 continue
             if not exists(r) and not exists(r.split("#")[0]):

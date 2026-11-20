@@ -4,7 +4,7 @@
 
 | | лог | Finished in |
 |---|---|---|
-| до | docs/findings/tk065-g0-vps-check-2026-10-08.txt:15 | 1m 44s |
+| до | docs/archive/findings/tk065-g0-vps-check-2026-10-08.txt:15 | 1m 44s |
 | до | tk065-g0-vps-check-b6d7fd27-2026-10-08.txt:15 | 1m 44s |
 | до | tk065-g0-vps-check-f53f2b26-2026-10-08.txt:15 | 1m 41s |
 | до | tk065-g0-vps-check-pyrgate-2026-10-08.txt:15 | 1m 43s |

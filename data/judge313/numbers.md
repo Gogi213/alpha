@@ -5,8 +5,8 @@
 
 | число | файл:строка |
 |---|---|
-| S0 Σ$(б) −2165 (results Σ −2165,4) | docs/findings/tk313-spot-b1-2026-10-20.md:24 |
-| g-sn-u1 Σ$(б) −884 | docs/findings/tk313-spot-b1-2026-10-20.md:21 |
-| g-s50-un Σ$(б) −468 (results −467,5) | docs/findings/tk313-spot-b1-2026-10-20.md:20 |
-| S0 янв 418 сд. / −491,8 | docs/findings/tk313-spot-b1-2026-10-20.md:28 |
+| S0 Σ$(б) −2165 (results Σ −2165,4) | docs/archive/findings/tk313-spot-b1-2026-10-20.md:24 |
+| g-sn-u1 Σ$(б) −884 | docs/archive/findings/tk313-spot-b1-2026-10-20.md:21 |
+| g-s50-un Σ$(б) −468 (results −467,5) | docs/archive/findings/tk313-spot-b1-2026-10-20.md:20 |
+| S0 янв 418 сд. / −491,8 | docs/archive/findings/tk313-spot-b1-2026-10-20.md:28 |
 | result_path /data/tk0313 | docs/registry/runs.jsonl:574 |

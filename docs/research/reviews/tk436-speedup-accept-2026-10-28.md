@@ -21,6 +21,6 @@
 
 | число | файл:строка |
 |---|---|
-| было 13:19 (799 с) | docs/findings/tk436-speedup-2026-10-28.md:41 |
-| стало 3:10,7 (190,7 с), ×4,2 | docs/findings/tk436-speedup-2026-10-28.md:41 (calc `/data/tk0436/e2e/t.tsv`:3) |
-| 5 файлов IDENTICAL | docs/findings/tk436-speedup-2026-10-28.md:43 (calc `/data/tk0436/e2e/cmp.txt`:6) |
+| было 13:19 (799 с) | docs/archive/findings/tk436-speedup-2026-10-28.md:41 |
+| стало 3:10,7 (190,7 с), ×4,2 | docs/archive/findings/tk436-speedup-2026-10-28.md:41 (calc `/data/tk0436/e2e/t.tsv`:3) |
+| 5 файлов IDENTICAL | docs/archive/findings/tk436-speedup-2026-10-28.md:43 (calc `/data/tk0436/e2e/cmp.txt`:6) |

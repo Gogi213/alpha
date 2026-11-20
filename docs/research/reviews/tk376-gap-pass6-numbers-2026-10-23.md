@@ -6,12 +6,12 @@ csv не находится (`_has_number`, lookbehind `[\d.,]`).
 
 | число | файл:строка |
 |---|---|
-| 97 | docs/findings/tk376-gap6-2026-10-23.md:6 |
-| 92 | docs/findings/tk376-gap6-2026-10-23.md:6 |
-| 12,8 | docs/findings/tk376-gap6-2026-10-23.md:7 |
-| 18,1 | docs/findings/tk376-gap6-2026-10-23.md:7 |
-| -38,4 | docs/findings/tk376-gap6-2026-10-23.md:7 |
-| 14,25 | docs/findings/tk376-gap6-2026-10-23.md:14 |
-| 36,08 | docs/findings/tk376-gap6-2026-10-23.md:14 |
-| 40,79 | docs/findings/tk376-gap6-2026-10-23.md:15 |
-| 698,95 | docs/findings/tk376-gap6-2026-10-23.md:15 |
+| 97 | docs/archive/findings/tk376-gap6-2026-10-23.md:6 |
+| 92 | docs/archive/findings/tk376-gap6-2026-10-23.md:6 |
+| 12,8 | docs/archive/findings/tk376-gap6-2026-10-23.md:7 |
+| 18,1 | docs/archive/findings/tk376-gap6-2026-10-23.md:7 |
+| -38,4 | docs/archive/findings/tk376-gap6-2026-10-23.md:7 |
+| 14,25 | docs/archive/findings/tk376-gap6-2026-10-23.md:14 |
+| 36,08 | docs/archive/findings/tk376-gap6-2026-10-23.md:14 |
+| 40,79 | docs/archive/findings/tk376-gap6-2026-10-23.md:15 |
+| 698,95 | docs/archive/findings/tk376-gap6-2026-10-23.md:15 |

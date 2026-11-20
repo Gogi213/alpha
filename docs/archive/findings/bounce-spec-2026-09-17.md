@@ -8,7 +8,7 @@
 Промпт этапа — `docs/plan/transcripts-review-2026-09-17.md`. Предыдущий разбор тех же видео —
 `practitioners-2026-09-13.md` (В-42), оси — В-44/В-45 (`src/lob/touch_axes.rs`).
 
-Кросс-документы: остальные видео — [transcripts](transcripts-2026-09-17.md); аудит — [collector-audit](collector-audit-2026-09-17.md); цепочка — [roadmap](roadmap-2026-09-17.md); план работ — [dev-plan](../../plan/dev-plan-2026-09-17.md) (решения §12 → тикеты B1–B4, C1–C2, D4).
+Кросс-документы: остальные видео — [transcripts](transcripts-2026-09-17.md); аудит — [collector-audit](collector-audit-2026-09-17.md); цепочка — [roadmap](../../findings/roadmap-2026-09-17.md); план работ — [dev-plan](../../plan/dev-plan-2026-09-17.md) (решения §12 → тикеты B1–B4, C1–C2, D4).
 
 Сверка: **✔** формализовано (где) · **≈** частично / иначе · **✖** нет · **≠** расходится с источником.
 
