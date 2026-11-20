@@ -419,6 +419,10 @@ def cmd_select(a):
         else:
             ans = "не ясно"
         r["answer"] = ans
+        for cid, x in r["cells"].items():           # шум по Sharpe: ожидаемый максимум из 72 клеток и дефлированный Sharpe (60 сут.)
+            sh = x["stats"]["sharpe"]
+            se = math.sqrt(365.0 / len(OM) * (1 + sh * sh / 730.0)) if sh == sh else float("nan")
+            x["noise_sharpe72"] = lib.sb.significance(sh, se, n_all) if sh == sh else None
         r["noise_flags"] = {cid: bool(abs(x["delta"]["z"]) > out["noise"][str(n_all)]["emax_abs_z"]) for cid, x in r["cells"].items()}
         out["sides"][side] = r
         say("== %s: база ω %d сделок, Σ %+.1f $, Sharpe %.2f; ответ: %s" % (side, r["base"]["n"], r["base"]["sum"], r["base"]["sharpe"], ans))
@@ -427,7 +431,31 @@ def cmd_select(a):
             d = x["delta"]
             say("   %-9s ΔΣ %+.1f $ [%+.1f; %+.1f], p %.4f, Холм %s, MDE %.0f $, месяцы %s, устойчиво %s, соседи + %s → %s" % (
                 cid, d["dsum"], d["lo95"], d["hi95"], d["p2"], x["holm_reject"], d["mde_sum_holm"], {k: round(v, 1) for k, v in d["months"].items()}, x["robust"]["holds"], x["neighbours_positive"], x["verdict"]))
+    # контекст (критик 20.11): совместный Холм m = 73 (61 прежняя пробная + 12 новых). Прежние p все > 0,0008 > 0,05/62, поэтому ступени
+    # Холма ниже 0,05/62 проходят только новые клетки: новые p по возрастанию сравниваются с 0,05/73, 0,05/72, … (точно, пока порог < мин. прежнего p).
+    allt = [(s, c) for s in SIDES for c, x in out["sides"][s]["cells"].items() if x["trial"]]
+    ps = [out["sides"][s]["cells"][c]["delta"]["p2"] for s, c in allt]
+    for (s, c), rj in zip(allt, holm_offset(ps, 73)):
+        out["sides"][s]["cells"][c]["holm73_reject"] = rj
+    both = holm(ps)
+    for (s, c), rj in zip(allt, both):
+        out["sides"][s]["cells"][c]["holm12_both_reject"] = rj
+    for s, c in allt:
+        x = out["sides"][s]["cells"][c]
+        say("   %s %s: Холм 6 %s, Холм 12 %s, Холм 73 %s, |z| %.2f против планки 72 %.2f" % (s, c, x["holm_reject"], x["holm12_both_reject"], x["holm73_reject"], abs(x["delta"]["z"]), out["noise"][str(n_all)]["emax_abs_z"]))
     r4.write_json(q("res", "select48.json"), out)
+
+
+def holm_offset(ps, m, alpha=ALPHA):
+    """Шаги Холма для p этих клеток внутри семейства размера m (клетки идут первыми ступенями)."""
+    order = sorted(range(len(ps)), key=lambda i: ps[i])
+    rej = [False] * len(ps)
+    for r_, i in enumerate(order):
+        if ps[i] <= alpha / (m - r_):
+            rej[i] = True
+        else:
+            break
+    return rej
 
 
 COMMANDS = {"counts": cmd_counts, "cells": cmd_cells, "g8": cmd_g8, "select": cmd_select}
