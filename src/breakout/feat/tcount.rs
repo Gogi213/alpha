@@ -175,10 +175,7 @@ pub fn run(cfg: &TcCfg, src: &dyn PxSrc) -> Result<TcSummary> {
                 match coin_counts(src, sym, base_ms, &rows, idx)
                     .with_context(|| format!("монета {sym}"))
                 {
-                    Ok(v) => res
-                        .lock()
-                        .unwrap_or_else(PoisonError::into_inner)
-                        .extend(v),
+                    Ok(v) => res.lock().unwrap_or_else(PoisonError::into_inner).extend(v),
                     Err(e) => {
                         *err.lock().unwrap_or_else(PoisonError::into_inner) = Some(e);
                         break;
@@ -192,14 +189,20 @@ pub fn run(cfg: &TcCfg, src: &dyn PxSrc) -> Result<TcSummary> {
     }
     let mut done = res.into_inner().unwrap_or_else(PoisonError::into_inner);
     done.sort_by_key(|(i, _)| *i);
-    let mut text = String::from("sym,sig_ms,n60,n24,miss\n");
+    let mut text = String::from("sym,sig_ms,n60,n24,m60,m24\n");
     let mut miss_rows = 0;
     for (i, c) in &done {
-        miss_rows += usize::from(c.miss != 0);
-        text.push_str(&format!(
-            "{},{},{},{},{}\n",
-            rows[*i].sym, rows[*i].sig_ms, c.n60, c.n24, c.miss
-        ));
+        miss_rows += usize::from(c.m60 || c.m24);
+        let _ = writeln!(
+            text,
+            "{},{},{},{},{},{}",
+            rows[*i].sym,
+            rows[*i].sig_ms,
+            c.n60,
+            c.n24,
+            u8::from(c.m60),
+            u8::from(c.m24)
+        );
     }
     std::fs::write(&cfg.out, text).with_context(|| cfg.out.display().to_string())?;
     Ok(TcSummary {

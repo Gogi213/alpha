@@ -1,4 +1,4 @@
-//! Тесты `tcount` (TK-638): границы окон, переход через сутки, отсутствующие сутки, прогон по CSV на синтетике.
+//! Тесты `tcount` (TK-638): границы окон, переход через сутки, отсутствующие сутки, прогон по CSV на синтетике (времена в сутках — по возрастанию, как у `PxSrc`).
 
 use super::f12::{PxDay, PxSrc};
 use super::tcount::{count_range, counts_at, run, Counts, TcCfg};
@@ -53,7 +53,11 @@ fn midnight_crossing_uses_previous_day_for_60_min() {
     // сигнал в 00:20 — окно 60 мин начинается в 23:20 предыдущих суток
     let end = D0 * DAY + 20 * MIN;
     let sig = end + 1234;
-    let prev = [D0 * DAY - 40 * MIN, D0 * DAY - 41 * MIN, D0 * DAY - 61 * MIN];
+    let prev = [
+        D0 * DAY - 61 * MIN,
+        D0 * DAY - 41 * MIN,
+        D0 * DAY - 40 * MIN,
+    ];
     let cur = [D0 * DAY + MIN, D0 * DAY + 19 * MIN];
     let days: Vec<(i64, Option<&[i64]>)> = vec![(D0 - 1, Some(&prev)), (D0, Some(&cur))];
     let c = counts_at(&days, sig);
@@ -85,7 +89,7 @@ fn missing_previous_day_flags_both_windows_only_when_needed() {
 #[test]
 fn signal_at_day_start_ignores_current_day() {
     // сигнал в 00:00:00.300 — окно кончается в 00:00:00.000, текущие сутки не задеты (файла нет — не флаг)
-    let prev = [D0 * DAY - MIN, D0 * DAY - 30 * MIN, D0 * DAY - 2 * 60 * MIN];
+    let prev = [D0 * DAY - 2 * 60 * MIN, D0 * DAY - 30 * MIN, D0 * DAY - MIN];
     let days: Vec<(i64, Option<&[i64]>)> = vec![(D0 - 1, Some(&prev)), (D0, None)];
     let c = counts_at(&days, D0 * DAY + 300);
     assert_eq!((c.n60, c.n24), (2, 3));
@@ -98,14 +102,11 @@ struct MemSrc {
 
 impl PxSrc for MemSrc {
     fn day(&self, sym: &str, abs_day: i64) -> Result<Option<PxDay>> {
-        Ok(self
-            .days
-            .get(&(sym.to_string(), abs_day))
-            .map(|t| PxDay {
-                p: vec![1; t.len()],
-                t: t.clone(),
-                unsorted: false,
-            }))
+        Ok(self.days.get(&(sym.to_string(), abs_day)).map(|t| PxDay {
+            p: vec![1; t.len()],
+            t: t.clone(),
+            unsorted: false,
+        }))
     }
 }
 
@@ -123,9 +124,18 @@ fn run_counts_rows_in_input_order() -> Result<()> {
     )?;
     let end = (D0 + 1) * DAY + 2 * 60 * MIN + 17 * MIN;
     let mut days = BTreeMap::new();
-    days.insert(("AAA".to_string(), D0 + 1), vec![end - 30 * MIN, end - 10 * MIN, end + 5]);
-    days.insert(("AAA".to_string(), D0), vec![end - DAY + MIN, end - DAY - 1]);
-    days.insert(("BBB".to_string(), D0 + 1), vec![end - 59 * MIN, end - 61 * MIN]);
+    days.insert(
+        ("AAA".to_string(), D0 + 1),
+        vec![end - 30 * MIN, end - 10 * MIN, end + 5],
+    );
+    days.insert(
+        ("AAA".to_string(), D0),
+        vec![end - DAY - 1, end - DAY + MIN],
+    );
+    days.insert(
+        ("BBB".to_string(), D0 + 1),
+        vec![end - 61 * MIN, end - 59 * MIN],
+    );
     let cfg = TcCfg {
         eps: eps.clone(),
         out: out.clone(),
