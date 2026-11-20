@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """TK-645: лучшие варианты лонга и шорта на 775 монетах для вида «Базы» и блока «Где мы» страницы :8090 — дописывает клетки в bases.json.
 Только чтение готовых выходов (движок не запускается): L_n24 — лестница TK-638 `ladd-h775/<окно>-L/N24_q60` (заморожен, tk638-frozen.json),
-S_nc360 — лестница TK-639 `ladd39-h775/<окно>-S/NC360_q20` (найдено на этих данных); базы той же вселенной (U2, 775 контрактов) — ряды TK-621 из universe.json.
+S_nc360 — лестница TK-639 `ladd39-h775/<окно>-S/NC360_q20` (найдено на этих данных); S_mk775 / L_mk2 — мейкер-клетки G-626c TK-626 `/data/p42-tk626/gmk/out/<окно>/<vid>`
+(S_mk1 cd0838447e287, L_mk2 cf280a1e8fc7c — заморожены tk626 / tk641); базы той же вселенной (U2, 775 контрактов) — ряды TK-621 из universe.json.
 Ряд — как у tk624_table.py: gross − fees по дню входа, без фандинга, склейка окон `tk604_stats.splice` (через tk638_post.load_cell).
-Сверка: Σ и сделки == принятые таблицы res/cells38-h775-L.json и res/cells39-h775-S.json; U2 == universe.json (сверен с report.json TK-621); расхождение — остановка.
+Сверка: Σ и сделки == принятые таблицы res/cells38-h775-L.json, res/cells39-h775-S.json, отчёты TK-626 (S_mk1 +199,77 $ / 272) и TK-641 (L_mk2 +180,83 $ / 327); U2 == universe.json (сверен с report.json TK-621); расхождение — остановка.
 Запуск на srv: python3 tk645_best.py <каталог с кодом TK-639 (/data/p42-tk639/code)> <bases.json> <universe.json>   (ml_page_update.sh запускает сам после tk624_table.py)"""
 import json
 import os
@@ -45,6 +46,14 @@ def put(name, S, N, src):
     print("%-8s Σ %+.2f $, %d сд., %+.3f $/сд., шарп %.2f, просадка %.2f $  (%s)" % (name, t["sum"], t["trades"], t["mean"], t["sharpe"], t["maxdd"], src))
 
 
+GMK = "/data/p42-tk626/gmk/out"
+MAKER = {"S_mk775": ("S", "cd0838447e287", 199.77, 272), "L_mk2": ("L", "cf280a1e8fc7c", 180.83, 327)}   # p42-forward-refreeze-2026-11-20.md G-626c; p42-lmk2-forward-2026-11-20.md
+for name, (side, vid, tot, n) in MAKER.items():
+    ser, _, _ = p8.load_cell(u, side, {w.name: (os.path.join(GMK, w.name, vid), side) for w in st.TRADE_WINDOWS})
+    S = np.bincount(ser.day, weights=ser.val, minlength=st.NDAYS)
+    N = np.bincount(ser.day, minlength=st.NDAYS)
+    assert int(N.sum()) == n and abs(float(S.sum()) - tot) < 0.006, (name, float(S.sum()), tot, int(N.sum()), n)
+    put(name, S, N, "%s/<окно>/%s" % (GMK, vid))
 for name, (side, d, ref_path, cid) in LADDERS.items():
     ser, _, pnl = p8.load_cell(u, side, {w.name: (d(w.name), side) for w in st.TRADE_WINDOWS})
     S = np.bincount(ser.day, weights=ser.val, minlength=st.NDAYS)

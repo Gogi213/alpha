@@ -76,18 +76,20 @@ ST = [0]
 for n in ML:
     ST.append(ST[-1] + n)
 SER = {k: (np.array(B["cells"][k]["daily_sum"]), np.array(B["cells"][k]["daily_n"])) for k in B["cells"]}
-SER["SL"] = (SER["S_base"][0] + SER["L_base"][0], SER["S_base"][1] + SER["L_base"][1])
+SER["SL"] = (SER["S_b775"][0] + SER["L_b775"][0], SER["S_b775"][1] + SER["L_b775"][1])   # TK-645: сумма баз 775
 MON = {k: [stats(S[ST[m]:ST[m + 1]], N[ST[m]:ST[m + 1]]) for m in range(len(ML))] for k, (S, N) in SER.items()}
 TOT = {k: stats(S, N) for k, (S, N) in SER.items()}
 
 # ── 1. принятые отчёты: итоги и помесячная таблица (p42-maker-entry-2026-11-19.md)
 ACC_TOT = {"L_base": (7.06, 621), "S_base": (259.14, 431), "S_mk1": (248.05, 372),
            # TK-645: 775 монет — базы U2 (p42-honest-universe-2026-11-19.md), L_n24 (p42-turnover-grid-2026-11-20.md), NC360_q20 (p42-tradecount-size-2026-11-20.md)
-           "L_b775": (193.17, 428), "S_b775": (223.14, 319), "L_n24": (294.31, 181), "S_nc360": (258.91, 252)}
+           "L_b775": (193.17, 428), "S_b775": (223.14, 319), "L_n24": (294.31, 181), "S_nc360": (258.91, 252),
+           "S_mk775": (199.77, 272), "L_mk2": (180.83, 327)}   # p42-forward-refreeze-2026-11-20.md, p42-lmk2-forward-2026-11-20.md
 ACC_M = {"L_base": [(-128.59, 130), (124.86, 131), (6.80, 152), (-95.47, 143), (99.46, 65)],
          "S_base": [(71.11, 96), (77.46, 108), (-22.88, 92), (110.61, 95), (22.85, 40)],
          "S_mk1": [(65.26, 81), (66.87, 93), (-4.30, 78), (85.79, 83), (34.43, 37)]}
-ACC_M0 = {"L_n24": [88, 74, 50, 76, 6], "S_nc360": [75, 62, 25, 64, 33]}   # TK-645: помесячно в отчётах — целые $
+ACC_M0 = {"L_n24": [88, 74, 50, 76, 6], "S_nc360": [75, 62, 25, 64, 33]}
+ACC_M1 = {"L_mk2": [12.4, 31.4, 77.0, 30.2, 29.9]}   # p42-lmk2-forward-2026-11-20.md, до 0,1 $   # TK-645: помесячно в отчётах — целые $
 eq("окно: 136 суток", (B["days"], sum(ML), len(B["month_names"])), (136, 136, 5))
 for k in ACC_TOT:
     eq(f"{k}: итог $ == принятый", round(TOT[k]["sum"], 2), ACC_TOT[k][0], 0.0051)
@@ -98,6 +100,9 @@ for k in ACC_TOT:
 for k, ms in ACC_M0.items():
     for m, s_ in enumerate(ms):
         eq(f"{k}: {B['month_names'][m]} $ == принятый (целые)", round(MON[k][m]["sum"]), s_)
+for k, ms in ACC_M1.items():
+    for m, s_ in enumerate(ms):
+        eq(f"{k}: {B['month_names'][m]} $ == принятый (0,1)", round(MON[k][m]["sum"], 1), s_)
 # ── 2. строки bases.json (tk624_table.py) == независимый пересчёт
 for k in ACC_TOT:
     rows = B["cells"][k]["rows"]
@@ -108,11 +113,9 @@ for k in ACC_TOT:
             eq(f"bases.json {k} строка {i} {f}", float(r[f]), float(st[f]), 1e-6)
         eq(f"bases.json {k} строка {i} дней в плюсе", (r["days_pos"], r["days_with_trades"]), (st["pos"], st["tdays"]))
 
-LINES = {"short": ["S_base", "S_mk1", "S_b775", "S_nc360"], "long": ["L_base", "L_b775", "L_n24"], "both": ["L_base", "S_base", "SL"]}
-NAMES = {"L_base": "Лонг · вход по рынку (L_base, 566 монет)", "S_base": "Шорт · вход по рынку (S_base, 566 монет)", "S_mk1": "Шорт · вход лимиткой (S_mk1, 566 монет)", "SL": "Шорт + лонг (S_base + L_base)",
-         "L_b775": "Лонг-база, 775 монет (L_base)", "S_b775": "Шорт-база, 775 монет (S_base)",
-         "L_n24": "Лонг · сделок за 24 ч ≥ 220 000 (L_n24, 775 монет)", "S_nc360": "Шорт · сделок за 6 ч ≥ 26 000 (NC360_q20, 775 монет)"}
-COL = {"L_base": "#eb6834", "S_base": "#2a78d6", "S_mk1": "#1baf7a", "SL": "#52525b", "L_b775": "#eb6834", "S_b775": "#2a78d6", "L_n24": "#a3369c", "S_nc360": "#0e7490"}
+LINES = {"short": ["S_b775", "S_mk775", "S_nc360"], "long": ["L_b775", "L_n24", "L_mk2"], "both": ["L_b775", "S_b775", "SL"]}   # TK-645: страница рисует ряды 775 контрактов
+NAMES = {"L_base": "Лонг · вход по рынку (L_base, 566 монет)", "S_base": "Шорт · вход по рынку (S_base, 566 монет)", "S_mk1": "Шорт · вход лимиткой (S_mk1, 566 монет)", "S_b775": "Шорт · вход по рынку (S_base)", "S_mk775": "Шорт · вход лимиткой (S_mk1)", "L_b775": "Лонг · вход по рынку (L_base)", "L_n24": "Лонг · сделок за 24 ч ≥ 220 000 (L_n24)", "L_mk2": "Лонг · вход лимиткой на цене уровня (L_mk2)", "S_nc360": "Шорт · сделок за 6 ч ≥ 26 000 (NC360_q20, найдено на этих данных)", "SL": "Шорт + лонг (S_base + L_base)"}
+COL = {"L_base": "#eb6834", "S_base": "#2a78d6", "S_mk1": "#1baf7a", "S_b775": "#2a78d6", "S_mk775": "#1baf7a", "L_b775": "#eb6834", "L_n24": "#a3369c", "L_mk2": "#b8860b", "S_nc360": "#0e7490", "SL": "#52525b"}
 
 # ── 3. DOM: таблица «Где мы»
 W = P["where"]
@@ -186,7 +189,7 @@ for side, keys in LINES.items():
     eq(f"базы {side}: переключатель компаундинга скрыт", d["cmpHidden"], True)
     eq(f"базы {side}: переполнение страницы", d["overflowX"] <= 0, True)
     eq(f"базы {side}: переполнение таблиц", d["dom"]["tableOverflow"] <= 0, True)
-    eq(f"базы {side}: в примечании итоги баз", all(f"{k} {money(TOT[k]['sum'])} $" in d["dom"]["note"] for k in ACC_TOT), True)
+    eq(f"базы {side}: в примечании итоги линий", all(f"{NAMES[k]} {money(TOT[k]['sum'])} $" in d["dom"]["note"] for k in keys if k != "SL"), True)
     eq(f"базы {side}: заголовок карточки", d["dom"]["head"].startswith("Базы за 136 суток: 01.07 — 13.11"), True)
 eq("базы: описание «short»", "Синяя — вход по рынку" in Bd["short"]["desc"], True)
 
