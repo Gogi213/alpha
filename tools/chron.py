@@ -1663,10 +1663,16 @@ def fmt_num(v, nd=2):
     return "—" if v is None else ("%.*f" % (nd, v)).replace("-", "−")
 
 
+def mean_derived(m):
+    """$ / сделку = Σ $ / сделок (посчитан из них; в источнике не напечатан или совпадает) — помечается «= Σ/n»."""
+    n, u, x = m.get("trades"), m.get("usd"), m.get("mean_usd")
+    return bool(n) and u is not None and x is not None and abs(x - u / n) <= 1e-9 * max(1.0, abs(x))
+
+
 def fmt_metric_row(m, with_entry=True):
     return "%s%-5s %-22s %-6s %-9s %6s %9s %8s %6s %-11s %s%s%s%s" % (
         ("L-%-5s " % m["entry"]) if with_entry else "", SIDE_RU.get(m["side"], "—"), (m["cell"] or "—")[:22], m["uni"] or "—", (m["win"] or "—")[:9],
-        m["trades"] if m["trades"] is not None else "—", fmt_num(m["usd"]), fmt_num(m["mean_usd"], 3), fmt_num(m["sharpe"]), m["verdict"] or "—",
+        m["trades"] if m["trades"] is not None else "—", fmt_num(m["usd"]), fmt_num(m["mean_usd"], 3) + ("=Σ/n" if mean_derived(m) else ""), fmt_num(m["sharpe"]), m["verdict"] or "—",
         "найдено на этих данных " if m["same_data"] == 1 else "", "«из текста» " if m["from_text"] else "", m["src"],
         ("@%s" % m["src_commit"] if m["src_commit"] else "") + ("#%s" % m["src_ptr"] if m["src_ptr"] else ""))
 
@@ -2232,7 +2238,7 @@ class Site:
                 ('<td><a href="/chron/e/%d">L-%d</a></td>' % (m["entry"], m["entry"])) if with_entry else "",
                 SIDE_RU.get(m["side"], "—"), html.escape(m["cell"] or "—"), ('<div class="ft">%s</div>' % html.escape("; ".join(note))) if note else "",
                 html.escape(m["uni"] or "—"), html.escape(m["win"] or "—"), m["trades"] if m["trades"] is not None else "—", money(m["usd"]),
-                money(m["mean_usd"], 3), fmt_num(m["sharpe"]), html.escape(m["verdict"] or "—"), {1: "да", 0: "нет"}.get(m["same_data"], "—"),
+                money(m["mean_usd"], 3) + (' <span class="ft">= Σ/n</span>' if mean_derived(m) else ""), fmt_num(m["sharpe"]), html.escape(m["verdict"] or "—"), {1: "да", 0: "нет"}.get(m["same_data"], "—"),
                 html.escape(self.src_href(m)), html.escape(Path(re.sub(r":\d+$", "", m["src"])).name),
                 ' <span class="ft">%s%s</span>' % (html.escape((m["src_ptr"] or "")[:60]), " · «из текста»" if m["from_text"] else "")))
         return '<div class="tw"><table class="m"><thead><tr>%s</tr></thead><tbody>%s</tbody></table></div>' % (head, "".join(body))
@@ -2275,7 +2281,8 @@ class Site:
                 ('<a href="?%s">← назад</a>' % urlencode(dict(q, page=page_n - 1))) if page_n > 1 else "", page_n, pages,
                 ('<a href="?%s">дальше →</a>' % urlencode(dict(q, page=page_n + 1))) if page_n < pages else "")
         note = ('<p class="meta">Σ $ — на ставку 500 $ (движок П-42); у других проектов ставка в файле не названа — $ пуст, сумма файла в примечании. '
-                'Шарп — годовой по дневному ряду. «из текста» — число из таблицы отчёта md, не из файла результатов.</p>')
+                'Шарп — годовой по дневному ряду. «= Σ/n» — $ / сделку равен Σ $ / сделок (посчитан из них, если в источнике не напечатан). '
+                '«из текста» — число из таблицы отчёта md, не из файла результатов.</p>')
         body = '<h1>Числа</h1>%s%s<p id="cnt">%d строк</p>%s%s' % (ctl, note, res["total"],
                                                                    self.metrics_table(res["rows"], True, sort_link) if res["rows"] else "<p>Ничего не найдено.</p>", pager)
         return self.page("Числа", body, "nums")

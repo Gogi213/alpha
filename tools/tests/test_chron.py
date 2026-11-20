@@ -554,6 +554,20 @@ class TestMetricFiles(unittest.TestCase):
         self.assertTrue(all(r["usd"] is None for r in other))  # не П-42: $ не пересчитан
         self.assertEqual([("usd_raw" in r["extra"], r["extra"].get("mean_raw")) for r in other], [(True, 0.63), (False, -0.103), (False, -4.25)])  # «сумма» без $ — только у П-42
 
+    def test_md_coin_rows_and_selected(self):
+        f = self.put("rep2.md", "\n".join([
+            "| клетка | сделок | Σ $ |", "|---|---:|---:|", "| база | 10 | 5 |", "| BTCUSDT | 4 | 2 |", "| 1000PEPEUSDT лонг | 3 | 1 |", "",
+            "| сторона | цель | выбранных (из всех) | сумма $ выбранных | среднее $ на сделку (S0) |", "|---|---|---:|---:|---:|",
+            "| шорт | T1 | 76 (из 300) | +73.13 | +0.962 |", ""]))
+        got = [(r["side"], r["cell"], r["trades"], r["usd"]) for r in self.cm.rows_from_md(self.repo, f, True)]
+        self.assertEqual(got, [(None, "база", 10, 5.0), ("short", "шорт / T1", 76, 73.13)])  # строки по монете — не клетки
+
+    def test_mean_derived_mark(self):
+        self.assertTrue(chron.mean_derived({"trades": 3, "usd": 1.0, "mean_usd": 1.0 / 3}))
+        self.assertFalse(chron.mean_derived({"trades": 3, "usd": 1.0, "mean_usd": 0.33}))  # напечатано в источнике
+        self.assertFalse(chron.mean_derived({"trades": 0, "usd": 0.0, "mean_usd": None}))
+        self.assertIn("=Σ/n", chron.fmt_metric_row(dict(mrow(1, trades=4, usd=2.0, mean_usd=0.5), src_commit=None)))
+
     def test_parse_metric_arg(self):
         r = self.cm.parse_metric_arg("side=обе; trades=1 200; usd=−3,5; src=docs/a.json@abc1234#x/y")
         self.assertEqual((r["side"], r["trades"], r["usd"], r["src"], r["src_commit"], r["src_ptr"]), ("both", 1200, -3.5, "docs/a.json", "abc1234", "x/y"))
