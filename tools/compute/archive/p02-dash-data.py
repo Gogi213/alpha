@@ -2,7 +2,7 @@
 """Данные панели «Гипотезы П-02» дашборда (T-27): из перечтения R2 (`p02-r2-read.py` → JSON) и вердиктов §10 отчётов
 П-02. Страница ничего не пересчитывает — только показывает.
 
-    python tools/compute/p02-dash-data.py --r2 docs/findings/p02-r2-read-2026-09-26.json \\
+    python tools/compute/p02-dash-data.py --r2 docs/archive/findings/p02-r2-read-2026-09-26.json \\
         --out data/titration-dashboard/p02-hypotheses.json
 """
 import argparse

@@ -1,6 +1,6 @@
 # TK-514: повторная проверка «пары без Binance, расхождение ≥ 20 bps» r2 (11.11) — accept
 
-Сдача: `docs/findings/p40-d1-nobinance-ge20-2026-11-11.md` (+ `.csv`, `-dropped-….csv`, `tools/p40_nb_ge20.py`), коммиты f4f58d2b, e73dd205. Прошлый возврат: `tk514-nobinance-ge20-check-2026-11-11.md`. Пересчёт Судьи — csv сдачи на srv (pandas), сырьё `out_d1naive2` пара 5422.
+Сдача: `docs/archive/findings/p40-d1-nobinance-ge20-2026-11-11.md` (+ `.csv`, `-dropped-….csv`, `tools/p40_nb_ge20.py`), коммиты f4f58d2b, e73dd205. Прошлый возврат: `tk514-nobinance-ge20-check-2026-11-11.md`. Пересчёт Судьи — csv сдачи на srv (pandas), сырьё `out_d1naive2` пара 5422.
 
 | пункт возврата | вердикт | доказательство |
 |---|---|---|

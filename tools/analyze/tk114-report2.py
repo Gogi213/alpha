@@ -7,7 +7,7 @@ P0 = "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800"
 F = {"B1": "t-bid-btc4h-q1@" + P0, "g93-u1-K3": "t-bid-btc4h-q1@" + P0 + "-pynw3u3"}
 OUT = "v2"
 MO = [f"2026-{m:02d}" for m in range(1, 10)]
-split = json.load(open("docs/findings/p13-split-2026-10-09.json", encoding="utf-8"))
+split = json.load(open("docs/archive/findings/p13-split-2026-10-09.json", encoding="utf-8"))
 HALF = {s: h for h in "AB" for s in split[h]}
 def trades(d, f):
     """Сделки (мс, $, символ) формы f из closessym-файла — общий разбор для load и full (С-60)."""

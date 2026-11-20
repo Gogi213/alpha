@@ -1,7 +1,7 @@
 # TK-409 · проба Q S+Y — проба принята, тикет дальше: пул (Судья, 26.10 ~05:35)
 
 Проверено на calc `/data/tk0393/tk409/YV{1000,2000,3000}-cells.csv`, `YV1000-eps.csv` (пересчёт awk), отчёт
-`docs/findings/tk409-probe-q-conv-2026-10-26.md` §«Проба Y», `…-yorsh-manual-…txt`, П-30 §11.
+`docs/archive/findings/tk409-probe-q-conv-2026-10-26.md` §«Проба Y», `…-yorsh-manual-…txt`, П-30 §11.
 
 | пункт возврата 05:13 | да/нет | на чём |
 |---|---|---|

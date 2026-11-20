@@ -13,7 +13,7 @@ export PYTHONHASHSEED=0
 # выходные monthly-pnl в деревьях — симлинки на чужой прогон: убрать, чтобы писать в своё дерево
 for t in old new; do
   [ -e $t/.claude ] || { mkdir -p $t/.claude; ln -s ${SKILLS:-/data/tk135gate/new/.claude/skills} $t/.claude/skills; }
-  rm -f $t/docs/findings/monthly-pnl-v171c-2026-10-09.csv $t/docs/findings/monthly-pnl-v171c-2026-10-09.md
+  rm -f $t/docs/archive/findings/monthly-pnl-v171c-2026-10-09.csv $t/docs/archive/findings/monthly-pnl-v171c-2026-10-09.md
 done
 # в old сводка sharpe читается из -A (нет клеток halfstop/halflevel → KeyError); как в a56e1400 — из -D (-A=-D, кроме p_wy 2 клеток e114)
 sed -i 's|2026-10-09-v171c-A.csv|2026-10-10-v171c-D.csv|' old/tools/compute/monthly-pnl.py

@@ -1,6 +1,6 @@
 # TK-488 — проверка сдачи e5e00279 (свечи 1 м TradFi, В-93), 03.11 04:50 GMT+4 — ВЕРНУТЬ
 
-Читал: `docs/findings/tradfi-candles-2026-11-03.md`, `docs/findings/tradfi-class-table-2026-11-03.csv` (пересчёт по строкам),
+Читал: `docs/archive/findings/tradfi-candles-2026-11-03.md`, `docs/archive/findings/tradfi-class-table-2026-11-03.csv` (пересчёт по строкам),
 `tools/compute/tk488_tradfi_list.py`, лог тикета. Тесты сам: `python -m pytest tools/compute/tests/test_tk488_{tradfi_list,universe,report}.py -q` → 9 passed.
 
 ## По пунктам

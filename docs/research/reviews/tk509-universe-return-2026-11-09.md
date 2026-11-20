@@ -1,6 +1,6 @@
 # TK-509 — проверка сдачи 1 (вселенная П-40), 09.11 ~04:55 — ВЕРНУТЬ
 
-Сдача: `docs/findings/p40-universe-2026-11-09.md` + `p40-universe-2026-11-09/{universe-assets.csv,build.py,listsyms.py}` (в рабочем дереве, не закоммичено). Итог исполнителя — ask-owner (хранение сырья).
+Сдача: `docs/archive/findings/p40-universe-2026-11-09.md` + `p40-universe-2026-11-09/{universe-assets.csv,build.py,listsyms.py}` (в рабочем дереве, не закоммичено). Итог исполнителя — ask-owner (хранение сырья).
 
 | пункт заказа / записи CEO 04:49 | вердикт | где |
 |---|---|---|

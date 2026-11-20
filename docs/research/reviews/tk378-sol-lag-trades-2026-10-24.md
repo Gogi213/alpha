@@ -1,6 +1,6 @@
 # Судья — TK-378, дозапуск TK-377 на сделках Gate (24.10 ~01:10) — вернуть
 
-Сдача: `docs/findings/tk378-sol-lag-trades-2026-10-24.md`, эпизоды `…-episodes-2026-10-24.csv`, код `tools/compute/archive/tk378_sol_lag_trades.py`.
+Сдача: `docs/archive/findings/tk378-sol-lag-trades-2026-10-24.md`, эпизоды `…-episodes-2026-10-24.csv`, код `tools/compute/archive/tk378_sol_lag_trades.py`.
 
 | пункт | да/нет | на чём проверено |
 |---|---|---|

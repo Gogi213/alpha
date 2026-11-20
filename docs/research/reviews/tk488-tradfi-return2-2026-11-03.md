@@ -1,7 +1,7 @@
 # TK-488 — проверка пересдачи fb26f150 (возврат Н1–Н5), 03.11 05:45 GMT+4 — ВЕРНУТЬ
 
-Читал: `docs/findings/tradfi-candles-2026-11-03.md`, `docs/findings/tradfi-class-table-2026-11-03.csv` (пересчёт по строкам),
-`docs/findings/tk488-known3-2026-11-03.csv`, `data/tk488/tradfi-list.csv`, `tools/compute/tk488_tradfi_list.py`, лог тикета;
+Читал: `docs/archive/findings/tradfi-candles-2026-11-03.md`, `docs/archive/findings/tradfi-class-table-2026-11-03.csv` (пересчёт по строкам),
+`docs/archive/findings/tk488-known3-2026-11-03.csv`, `data/tk488/tradfi-list.csv`, `tools/compute/tk488_tradfi_list.py`, лог тикета;
 на calc сам открыл `/data/tk0488/`. Тесты сам: `python -m pytest tools/compute/tests/test_tk488_{tradfi_list,universe,report,fill,gate_funding,known3}.py -q` → 17 passed.
 
 ## Прежние находки

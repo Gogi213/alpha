@@ -1,6 +1,6 @@
 # Проверка TK-364 · юниверс перпов Bybit с ончейн-спотом (22.10 ~23:50)
 
-Сдача: `docs/findings/tk364-dex-universe-2026-10-22.md`, csv `docs/findings/tk364-universe-2026-10-22.csv`, скрипт `tools/compute/tk364-universe.py`.
+Сдача: `docs/archive/findings/tk364-dex-universe-2026-10-22.md`, csv `docs/archive/findings/tk364-universe-2026-10-22.csv`, скрипт `tools/compute/tk364-universe.py`.
 Заказ CEO 23:38: для каждого кандидата — где основная ликвидность (DEX-пул сети / Binance / Upbit / Bybit), объём перпа Bybit, объём пула; мажоры и топ-20 исключить.
 
 Пересчёт по csv: 808 перпов, с пулом ≥ $50 тыс. — 139, отбор «DEX > спот Bybit, DEX ≥ $1 млн, перп ≥ $1 млн» — 20 (BSC 10, Solana 5, Robinhood 3, Base 2). Числа отчёта совпали.

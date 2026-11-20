@@ -4,7 +4,7 @@
 # 4) строки BTC/ICP/PUMP/1000PEPE в .csv.gz == минутам coverage.csv, t_open_ms строго возрастает.
 set -eu
 REPO=$(cd "$(dirname "$0")/../.." && pwd)
-REP="$REPO/docs/findings/binance-klines-1m-2026-10-30.md"
+REP="$REPO/docs/archive/findings/binance-klines-1m-2026-10-30.md"
 fail=0
 ok() { echo "ok   $*"; }
 bad() { echo "FAIL $*"; fail=1; }

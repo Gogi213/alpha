@@ -1,6 +1,6 @@
 # TK-399 — событийный BBO Bybit: приёмка Судьи (25.10)
 
-Сдача: `docs/findings/tk399-bbo-events-2026-10-25.md`, ветка `tk399` c21e0efd, данные calc `/data/tk0399/bbo`.
+Сдача: `docs/archive/findings/tk399-bbo-events-2026-10-25.md`, ветка `tk399` c21e0efd, данные calc `/data/tk0399/bbo`.
 
 | пункт заказа | да/нет | на чём проверено (calc, своими командами) |
 |---|---|---|

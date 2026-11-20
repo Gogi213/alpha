@@ -150,7 +150,7 @@ def main():
             if len(dmo) < 9:
                 notes.append(f"[{mode}] {c}: определённых месяцев {len(dmo)}/9 → d_usd (Шарп) = {dusd:+.1f} по ним; по всем 9 мес. Δ к базе {full:+.1f} (итог {tot(r):+.1f} при базе {b} {tot(rb):+.1f})")
         # ext
-        ex = {r["cell"]: r for r in csv.DictReader(open("docs/findings/ext-v171c-2026-10-09.csv", encoding="utf-8")) if r["mode"] == mode}
+        ex = {r["cell"]: r for r in csv.DictReader(open("docs/archive/findings/ext-v171c-2026-10-09.csv", encoding="utf-8")) if r["mode"] == mode}
         for r in d["ext"]:
             e = ex[r["cell"]]
             if abs(tot(r) - float(e["usd_jan_sep"])) > TOL or ntr(r) != int(e["trades"]):
@@ -199,7 +199,7 @@ def main():
     f = lambda v: "—" if v is None else f"{v:+.1f}"
     L = ["# Помесячная прибыль ($) по клеткам П-12, пул v171c, янв–сен 2026", "",
          "Описание, не вердикт и не новый счёт: готовые закрытия сделок, сгруппированные по месяцу закрытия (UTC). "
-         "Скрипт `tools/analyze/monthly-pnl.py`, таблица CSV — `docs/findings/monthly-pnl-v171c-2026-10-09.csv`.", "", f"_{inputs_line()}_", "",
+         "Скрипт `tools/analyze/monthly-pnl.py`, таблица CSV — `docs/archive/findings/monthly-pnl-v171c-2026-10-09.csv`.", "", f"_{inputs_line()}_", "",
          "- **Окно:** 01.01–30.09.2026 (В-211); октябрь (до 02.10, неполный) — отдельным справочным столбцом, в итог не входит.",
          "- **Пул:** v171c — без TRUMP/TRX/BCH (В-210), потолок B2 применён заново (portfolio-sim `--drop`).",
          "- **Режимы:** free — без потолка (cap0); B2 — потолок 3 одновременных позиции (cap3).",

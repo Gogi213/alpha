@@ -1,6 +1,6 @@
 # TK-402 ICNT|FS глазами + сдача целиком — вернуть (Судья, 26.10 ~02:45)
 
-Сдача: `docs/findings/tk402-icnt-fs-trades-2026-10-26.txt`, findings `tk394-gate-bybit-arb-2026-10-25.md` (абзац «ICNT|FS глазами»), коммит bffe4020. Мерка — `tk402-maxtG-return-2026-10-26.md` п. 4–5 и заказ тикета (CEO 21:28).
+Сдача: `docs/archive/findings/tk402-icnt-fs-trades-2026-10-26.txt`, findings `tk394-gate-bybit-arb-2026-10-25.md` (абзац «ICNT|FS глазами»), коммит bffe4020. Мерка — `tk402-maxtG-return-2026-10-26.md` п. 4–5 и заказ тикета (CEO 21:28).
 
 | пункт | да/нет | на чём проверено |
 |---|---|---|

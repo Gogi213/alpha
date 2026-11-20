@@ -5,7 +5,7 @@
 #   spot-import.sh verify-pairs <список "месяц SYM">   то же только по перечисленным парам (хвост после переимпорта)
 # env: SRC (откуда, умолчание /srv/alpha-sda/tk305/spot), OUT (куда, /srv/alpha-sda/binlog-spot), BIN, JOBS (умолч. 15),
 #      TMP (временный стакан, умолч. /dev/shm/spot-import), LOG (tsv: итог каждой единицы).
-# Разбор формата — docs/findings/spot-binlog-import-2026-10-19.md. Уже готовое пропускается.
+# Разбор формата — docs/archive/findings/spot-binlog-import-2026-10-19.md. Уже готовое пропускается.
 set -uo pipefail
 MODE="${1:?import|verify}"; shift
 SRC="${SRC:-/srv/alpha-sda/tk305/spot}"; OUT="${OUT:-/srv/alpha-sda/binlog-spot}"

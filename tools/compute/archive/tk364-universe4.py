@@ -1,7 +1,7 @@
 # TK-364 v4 (замечания Судьи 23.10): группа high = нестейблы рангов 6-50 CoinGecko БЕЗ стейблов/токенизированных фондов/
 # производных (золото PAXG/XAUT — пометка gold=1, в ранг не входит); перп Bybit ищется по base и 1000/1000000-префиксу;
 # токен пула — каноническая сеть/адрес из CoinGecko platforms по id (копии/обёртки с чужим адресом не берутся);
-# пул считается только если ликвидность >= 50 тыс. Выход: docs/findings/tk364-universe-v4-high-2026-10-23.csv
+# пул считается только если ликвидность >= 50 тыс. Выход: docs/archive/findings/tk364-universe-v4-high-2026-10-23.csv
 import json,csv,time,urllib.request,sys
 def g(u,t=60):
     for i in range(3):
@@ -46,6 +46,6 @@ for c in high+gold:
     out.append(dict(group="gold" if sym in GOLD else "high",rank=c["market_cap_rank"],symbol=sym,cg_id=c["id"],perp=pk,
       perp_turn24=round(float(p["turnover24h"])) if p else "",perp_oi_usd=round(float(p["openInterestValue"])) if p else "",
       cg_vol24=round(c["total_volume"]),dex_tok=round(tot),dex_chain=best[0],has_pool=int(tot>0 and bool(p)),canon_tokens=";".join(toks)))
-cols=list(out[0]); w=csv.DictWriter(open("docs/findings/tk364-universe-v4-high-2026-10-23.csv","w",newline="",encoding="utf-8"),cols); w.writeheader(); w.writerows(out)
-json.dump(dict(calib=calib,high=[c["symbol"].upper() for c in high],gold=[c["symbol"].upper() for c in gold]),open("docs/findings/tk364-groups-2026-10-23.json","w"))
+cols=list(out[0]); w=csv.DictWriter(open("docs/archive/findings/tk364-universe-v4-high-2026-10-23.csv","w",newline="",encoding="utf-8"),cols); w.writeheader(); w.writerows(out)
+json.dump(dict(calib=calib,high=[c["symbol"].upper() for c in high],gold=[c["symbol"].upper() for c in gold]),open("docs/archive/findings/tk364-groups-2026-10-23.json","w"))
 print("calib",calib,"high",len(high),"perp",sum(1 for r in out if r["perp"]),"pool",sum(r["has_pool"] for r in out))

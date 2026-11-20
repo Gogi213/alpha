@@ -3,7 +3,7 @@
   "base": "B1",
   "base_hash": "30229bf7071fb028",
   "base_cell": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800@t-bid-btc4h-q1",
-  "method": "линейный пересчёт по touch_index (portfolio-sim --lot-by-n); ворота 0 зелёные (docs/findings/tk291-gate0-lot-first-2026-10-17.txt)",
+  "method": "линейный пересчёт по touch_index (portfolio-sim --lot-by-n); ворота 0 зелёные (docs/archive/findings/tk291-gate0-lot-first-2026-10-17.txt)",
   "halves": "A: sha256(symbol) чётный; Б: нечётный",
   "months": [
     "2026-01",
@@ -57,5 +57,5 @@
     "stack"
   ],
   "m_holm": 5,
-  "buckets_populated": "docs/findings/tk291-buckets-2026-10-17.txt: все 4 корзины заселены на половине А (>=10 сделок в >=6 из 9 мес.), слияния нет"
+  "buckets_populated": "docs/archive/findings/tk291-buckets-2026-10-17.txt: все 4 корзины заселены на половине А (>=10 сделок в >=6 из 9 мес.), слияния нет"
 }

@@ -2,7 +2,7 @@
 
 Проверено на calc `/data/tk0393/sqd7/`: `stk/block_ts.csv` (97 474 блока), `stk/swaps_pools_ts.csv` (189 188 строк, пустых ts 0,
 ts 1792022402–1792713595 = 15.10 00:00:02 – 22.10 23:59:55 UTC), `{scroll,arc,stable}-rpc/*/logs.jsonl` + `DONE.json`,
-`cn5/swaps/summary.csv` (сумма swaps 166 771, 25 пулов); `docs/findings/tk393-nochain-classes-2026-10-25.csv`.
+`cn5/swaps/summary.csv` (сумма swaps 166 771, 25 пулов); `docs/archive/findings/tk393-nochain-classes-2026-10-25.csv`.
 
 | пункт возврата 3 | да/нет | на чём проверено |
 |---|---|---|

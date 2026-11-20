@@ -17,7 +17,7 @@ Rust + Python. Данные и исследование для крипто-би
 - Решения владельца — карточки `kb/decision/` (В-N с 14.10.2026, ранние S-N = «SETTLED В-N»): `python tools/kb.py show В-NNN` / `find "<слова>"`; новое решение — карточкой В-<следующий номер>, порядок — `kb/README.md` («Как записать решение»). Старые `.claude/decisions.md`, `docs/plan/SETTLED*.md` — заглушки, снимки в `docs/archive/`. `docs/plan/BUSINESS-TASK.md` не редактировать.
 - Исследование: скилл `.claude/skills/alpha-research/` (обязателен перед любым торговым выводом), протоколы `docs/research/P-<NN>-*.md`, журнал `docs/research/JOURNAL.md`, проверки `docs/research/reviews/`, реестр `docs/plan/EXPERIMENTS.md`.
 - **База знаний `kb/`** (TK-629, сайт http://5.231.25.224:8091/): результат треда — карточка, статус и «Дальше» — в карточке задачи, не в новых handoff-файлах; перед коммитом `python tools/kb.py check`; правила — `kb/README.md`.
-- Разборы и замеры — `docs/findings/<тема>-<YYYY-MM-DD>.md`; сырое — `data/` (gitignored). Архитектура — `docs/ARCHITECTURE.md`, команды и грабли — `docs/COMMANDS.md`.
+- Разборы и замеры — `docs/findings/<тема>-<YYYY-MM-DD>.md` (только живое, опись — `docs/findings/README.md`; старое — `docs/archive/findings/`, TK-640); сырое — `data/` (gitignored). Архитектура — `docs/ARCHITECTURE.md`, команды и грабли — `docs/COMMANDS.md`.
 
 ## Машины
 

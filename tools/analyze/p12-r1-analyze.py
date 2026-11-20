@@ -42,7 +42,7 @@ for f, cs in fam.items():
     for c in cs:
         res[c]["p1"] = float((res[c]["Ts"] >= res[c]["T"]).mean())
 # p семей R2
-r2 = "docs/findings/p12-r2-kpi-free-2026-10-08.csv"
+r2 = "docs/archive/findings/p12-r2-kpi-free-2026-10-08.csv"
 if MODE == "free" and os.path.exists(r2):
     for r in csv.DictReader(open(r2, encoding="utf-8")):
         famp[r["family"]] = min(famp.get(r["family"], 1.0), float(r["p_wy"])); famh[r["family"]] = min(famh.get(r["family"], 1.0), float(r["p_harm_wy"]))

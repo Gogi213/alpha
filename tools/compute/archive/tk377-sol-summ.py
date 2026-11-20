@@ -1,7 +1,7 @@
 # Свод Solana-таблицы TK-377 из episodes.csv: без TQQQX, excess = pnl - ctl (ctl пуст — исключён),
 # среднее по монето-суткам, SE по монето-суткам. Вывод — единственный источник чисел в md.
 import csv, sys, math, statistics, collections
-P = sys.argv[1] if len(sys.argv) > 1 else 'docs/findings/tk377-sol-episodes-2026-10-23.csv'
+P = sys.argv[1] if len(sys.argv) > 1 else 'docs/archive/findings/tk377-sol-episodes-2026-10-23.csv'
 rows = [r for r in csv.DictReader(open(P)) if r['coin'] != 'TQQQX']
 for X in sorted({int(r['X']) for r in rows}):
     rs = [r for r in rows if int(r['X']) == X]

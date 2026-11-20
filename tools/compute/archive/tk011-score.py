@@ -1,7 +1,7 @@
 import csv, re, sys
 sys.stdout.reconfigure(encoding='utf-8')
 R = 'C:/visual projects/alpha/'
-inv = [x for x in csv.DictReader(open(R + 'docs/findings/tk009-hypotheses-inventory-2026-09-28.csv', encoding='utf-8'), delimiter=';')
+inv = [x for x in csv.DictReader(open(R + 'docs/archive/findings/tk009-hypotheses-inventory-2026-09-28.csv', encoding='utf-8'), delimiter=';')
        if x['код'].startswith('Б')]
 pool = {}
 for l in open(R + 'docs/research/hypothesis-pool-2026-09-25.md', encoding='utf-8'):
@@ -142,7 +142,7 @@ for x in inv:
     s = '' if ots else k1 + k2 + k3 + k4
     rows.append([i, x['класс_пула'], data, srcs, ots, '' if ots else k1, '' if ots else k2, '' if ots else k3, '' if ots else k4, s, why, x['формулировка']])
 rows.sort(key=lambda r: (r[9] == '', -(r[9] or 0), -(r[7] or 0), -(r[6] or 0)))
-out = R + 'docs/findings/tk011-scores-2026-09-28.csv'
+out = R + 'docs/archive/findings/tk011-scores-2026-09-28.csv'
 with open(out, 'w', encoding='utf-8', newline='') as f:
     w = csv.writer(f, delimiter=';')
     w.writerow(['id', 'класс', 'данные', 'источник', 'отсев', 'К1', 'К2', 'К3', 'К4', 'сумма', 'основание_поправки', 'формулировка'])

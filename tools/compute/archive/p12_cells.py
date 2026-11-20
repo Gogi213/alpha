@@ -1,5 +1,5 @@
 import csv, itertools, sys
-out = sys.argv[1] if len(sys.argv) > 1 else "docs/findings/p12-cells-2026-10-06.csv"
+out = sys.argv[1] if len(sys.argv) > 1 else "docs/archive/findings/p12-cells-2026-10-06.csv"
 rows = []
 def add(fam, cls, cell, axes): rows.append((fam, cls, cell, axes))
 f = lambda x: str(x).replace("/", "d").replace(",", "p")

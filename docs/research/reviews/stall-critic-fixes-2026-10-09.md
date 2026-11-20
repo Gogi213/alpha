@@ -1,6 +1,6 @@
 # Судья-критик: правки по простоям 09.10 (TK-116) — 2026-10-09
 
-Проверка `docs/findings/stall-critic-2026-10-09.md`. Факты сверены сам: плагин 1.8.24 (installPath), alsched и journalctl на calc.
+Проверка `docs/archive/findings/stall-critic-2026-10-09.md`. Факты сверены сам: плагин 1.8.24 (installPath), alsched и journalctl на calc.
 
 ## Факты отчёта
 

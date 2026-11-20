@@ -1,7 +1,7 @@
 # Проверка TK-364 · юниверс v2 (22.10 ~23:55)
 
-Сдача: `docs/findings/tk364-dex-universe-2026-10-22.md` (раздел v2), csv `docs/findings/tk364-universe-v2-2026-10-22.csv`,
-мажоры `docs/findings/tk364-majors-2026-10-22.json`, скрипт `tools/compute/tk364-universe2.py`. Прежний возврат —
+Сдача: `docs/archive/findings/tk364-dex-universe-2026-10-22.md` (раздел v2), csv `docs/archive/findings/tk364-universe-v2-2026-10-22.csv`,
+мажоры `docs/archive/findings/tk364-majors-2026-10-22.json`, скрипт `tools/compute/tk364-universe2.py`. Прежний возврат —
 `docs/research/reviews/tk364-dex-universe-2026-10-22.md` (4 пункта).
 
 Пересчёт по csv: строк без мажоров с пулом — 128; лидер DEX 41, Binance 53, Upbit 18, Bybit spot 8, Bitget 6, OKX 2 —

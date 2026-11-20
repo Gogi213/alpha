@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """TK-383 (возврат v3): циклы gross>=1000 бп — базис на ВХОДЕ и ВЫХОДЕ по 1ч-свечам (глубина всех бирж, без дыр 1м/5м).
 b = ln(Pшорт/Pлонг)*1e4*pos; вход = open 1ч-свечи open-дня (00:00 UTC), выход = close последней 1ч-свечи перед датой close.
-Выход: data/tk383/cycles1h.csv, docs/findings/tk383-cycles1h-2026-10-24.txt"""
+Выход: data/tk383/cycles1h.csv, docs/archive/findings/tk383-cycles1h-2026-10-24.txt"""
 import importlib.util, json, sys
 import numpy as np, pandas as pd
 sp = importlib.util.spec_from_file_location("b1m", "tools/compute/tk383-basis1m.py"); b1m = importlib.util.module_from_spec(sp); sp.loader.exec_module(b1m)
@@ -62,4 +62,4 @@ for r in U.itertuples():
                      up=(path - b0).max(), entry_lag_h=(ab.index[0] - t0) / H, exit_lag_h=(t1 - H - ab.index[-1]) / H, cover1h=len(ab) / n, cover1m=r.cover))
 Y = pd.DataFrame(rows); Y.to_csv(f"{D}/cycles1h.csv", index=False)
 txt = "== циклы gross>=1000 бп: базис на входе/выходе по 1ч (вход = open свечи open-дня 00:00, выход = close последней свечи до close) ==" + chr(10) + Y.sort_values("gross", ascending=False).round(2).to_string()
-open("docs/findings/tk383-cycles1h-2026-10-24.txt", "w", encoding="utf-8").write(txt); print(txt)
+open("docs/archive/findings/tk383-cycles1h-2026-10-24.txt", "w", encoding="utf-8").write(txt); print(txt)

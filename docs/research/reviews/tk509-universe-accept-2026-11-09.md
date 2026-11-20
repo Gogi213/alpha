@@ -1,6 +1,6 @@
 # TK-509 — проверка сдачи r4 (вселенная П-40), 09.11 ~11:05 — ПРИНЯТЬ (хвост — решение владельца о хранении)
 
-Сдача: `docs/findings/p40-universe-2026-11-09.md` @cc6fe8a0 (r4), `p40-universe-2026-11-09/{recon_mult.py,delta.py,prices.json,downloaded_syms.json,probe_all_pairs_mult.csv,recon_kept.json,*_summary.md}`.
+Сдача: `docs/archive/findings/p40-universe-2026-11-09.md` @cc6fe8a0 (r4), `p40-universe-2026-11-09/{recon_mult.py,delta.py,prices.json,downloaded_syms.json,probe_all_pairs_mult.csv,recon_kept.json,*_summary.md}`.
 Пересчёт — в новом временном каталоге из копий входов (`python -X utf8 -I recon_mult.py`, затем `delta.py`).
 
 | пункт (возврат r3) | вердикт | где / как проверено |

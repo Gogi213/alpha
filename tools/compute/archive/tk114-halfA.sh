@@ -1,5 +1,5 @@
 #!/bin/bash
-# TK-114 П-13 (Судья 15:40): отбор на половине А монет (sha256, docs/findings/p13-split-2026-10-09.json): portfolio-sim --drop = v171c + половина Б,
+# TK-114 П-13 (Судья 15:40): отбор на половине А монет (sha256, docs/archive/findings/p13-split-2026-10-09.json): portfolio-sim --drop = v171c + половина Б,
 # cap 0/3 заново, янв–сен. Три набора: t1 (B1+pct3+pct4, /data/tk0114/on), ext (8 форм, /data/tk083/on), r2 (vn-b, клетки r2-2026-03-10.cells).
 # Выход /data/tk0114/A/{t1,ext,r2}/closes[sym]-cap<0|3>-<мес>.json; метка /data/tk0114/A/done (fail.txt при сбое). Параметр: файл drop (по умолчанию dropB.txt).
 set -u

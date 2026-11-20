@@ -4,8 +4,8 @@
 «потолок возвратов → владельцу»; надзиратель (05:52) верно указал: решение есть — В-93 «нет надо все…». Вопрос владельцу не нужен,
 проверяю сдачу по делу.
 
-Читал: `git show 274d692e` (код tk488_tradfi_list.py / tk488_universe.py / tk488_report.py), `docs/findings/tradfi-candles-2026-11-03.md`,
-`docs/findings/tradfi-class-table-2026-11-03.csv` (пересчёт по строкам), `data/tk488/tradfi-list.csv`; на calc сам открыл `/data/tk0488/universe3`.
+Читал: `git show 274d692e` (код tk488_tradfi_list.py / tk488_universe.py / tk488_report.py), `docs/archive/findings/tradfi-candles-2026-11-03.md`,
+`docs/archive/findings/tradfi-class-table-2026-11-03.csv` (пересчёт по строкам), `data/tk488/tradfi-list.csv`; на calc сам открыл `/data/tk0488/universe3`.
 
 ## Пункты
 

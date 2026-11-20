@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """TK-383 (возврат v2): (1) распределение дохода цикла (gross/нетто тейкер) по парам, Bitget/Gate, месяцам; циклы >=24%;
 (2) базис/MAE на 1м для циклов: OKX θ=50 и все gross>=1000 бп (OKX 1м, Gate 5м, остальные как в tk383-basis1m.py).
-Выход: docs/findings/tk383-cycles-2026-10-24.txt, data/tk383/cycles-basis.csv."""
+Выход: docs/archive/findings/tk383-cycles-2026-10-24.txt, data/tk383/cycles-basis.csv."""
 import json, sys, time
 import numpy as np, pandas as pd, requests
 sys.path.insert(0, "tools/compute")
@@ -71,5 +71,5 @@ out.append("OKX θ=50 по месяцам: n, фандинг netT, базис, �
 for m, gm in g50.groupby("month"): out.append(f"{m} n={len(gm)} netT={gm.netT.mean():.1f} базис={gm.basis_pnl.mean():.1f} итого={gm.total.mean():.1f} мед={gm.total.median():.1f} MAE={gm.up.quantile(.5):.0f}/{gm.up.quantile(.9):.0f}/{gm.up.quantile(.99):.0f}")
 out.append(f"OKX θ=50 сумма итого {g50.total.sum():.0f}; без топ-5 монет: " + f"{g50.total.sum() - g50.groupby('coin').total.sum().nlargest(5).sum():.0f}")
 out.append("== циклы gross>=1000: базис ==\n" + X[X.gross >= 1000].drop_duplicates(["coin","a","b","open","close"]).sort_values("gross", ascending=False)[["coin","a","b","open","close","gross","netT","b0","b1","basis_pnl","total","up","down","absb0","cover"]].round(0).to_string())
-open("docs/findings/tk383-cycles-2026-10-24.txt", "w", encoding="utf-8").write("\n".join(out))
+open("docs/archive/findings/tk383-cycles-2026-10-24.txt", "w", encoding="utf-8").write("\n".join(out))
 print("\n".join(out))

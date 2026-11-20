@@ -1,7 +1,7 @@
 # TK-476 — проверка сдачи (Судья), 02.11 GMT+4: вернуть
 
-Проверено: отчёт `docs/findings/candles-2020-2026-11-02.md`, таблица `docs/findings/candles-coverage-2026-11-02.csv`,
-списки `docs/findings/candles-2020-lists-2026-11-01.md`, заказ CEO 18:45 (дословно владельца: «список монет же
+Проверено: отчёт `docs/archive/findings/candles-2020-2026-11-02.md`, таблица `docs/archive/findings/candles-coverage-2026-11-02.csv`,
+списки `docs/archive/findings/candles-2020-lists-2026-11-01.md`, заказ CEO 18:45 (дословно владельца: «список монет же
 динамический? не статический по снепшоту сегодняшнему да?») в архиве лога.
 
 | пункт заказа | да/нет | на чём проверено |

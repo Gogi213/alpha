@@ -1,6 +1,6 @@
 # TK-476 — повторная проверка сдачи (Судья), 02.11 GMT+4: принять
 
-Проверено: отчёт `docs/findings/candles-2020-2026-11-02.md`, таблица `docs/findings/candles-coverage-2026-11-02.csv`
+Проверено: отчёт `docs/archive/findings/candles-2020-2026-11-02.md`, таблица `docs/archive/findings/candles-coverage-2026-11-02.csv`
 (итоги пересчитаны из неё заново — совпали с таблицей отчёта), коммит 465b48ea, calc: метка `cov2.done`, каталог
 `/data/tk0476/universe/`, файл снятой монеты ACXUSDT в основном каталоге Bybit (колонки как у BTCUSDT), список `cl.absent`,
 каталог сырья сделок, `df /srv/alpha-sda`. Гейт `tk476_bybit_gate.py` на BTC/DOGE/SOL за 2024-06-01 прогнан мной заново:

@@ -78,7 +78,7 @@ def main():
     a.add_argument("--closes-dir", default="data/kpi")
     a.add_argument("--p07", default="data/titration-dashboard/p07-all-r2.json")
     a.add_argument("--stage12", default="docs/findings/p07-stage12-2026-09-27.json")
-    a.add_argument("--tk004", default="docs/findings/p07-tk004-stage2-2026-09-28.json")
+    a.add_argument("--tk004", default="docs/archive/findings/p07-tk004-stage2-2026-09-28.json")
     a = a.parse_args()
     D = json.load(open(a.inp, encoding="utf-8"))
     BV = D["nh"]["by_variant"]

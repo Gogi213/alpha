@@ -1,7 +1,7 @@
 """TK-302 (копия tk269-f2-bound.py под CSV сита П-15): верхняя граница объёма F2 по П-14 §11.2 (только чтение CSV сита F1). Без дедупа по Летописи и без разрешимости."""
 import csv, json, itertools, collections, sys
-SRC = "docs/findings/tk298-p15-f1-sieve-2026-10-18.csv"
-OUT = "docs/findings/tk302-f2-bound-2026-10-18.csv"
+SRC = "docs/archive/findings/tk298-p15-f1-sieve-2026-10-18.csv"
+OUT = "docs/archive/findings/tk302-f2-bound-2026-10-18.csv"
 CAT = {"trigger", "be"}      # категориальные оси (§4 п. 4)
 CAP_AX, CAP_CELLS, DIV, MONTHS = 12, 100, 4, 9
 def fv(x):

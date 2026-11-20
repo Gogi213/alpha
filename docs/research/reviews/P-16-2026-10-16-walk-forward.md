@@ -1,7 +1,7 @@
 # Судья: П-16 walk-forward (TK-275, черновик @4cf08814) — вернуть, 16.10
 
 Проверено по файлу протокола, П-14 §11.1/§11.6, П-15 §4, П-12 §6(2)/§7, `tools/compute/tk237-sieve.py`,
-`docs/findings/tk273-undefined-41-2026-10-16.md`.
+`docs/archive/findings/tk273-undefined-41-2026-10-16.md`.
 
 ## Договор (заказ В-29) по пунктам
 

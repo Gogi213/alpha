@@ -14,7 +14,7 @@
 ## Что сделать (возврат)
 
 В каждый из 24 оставленных .md (список — `git grep -l -F -f <убранные пути> -- docs` без SMARTMONEY-ARCHIVE и csv) — одна
-строка под заголовком: «Пути убранных скриптов и таблиц — в теге `archive/smartmoney-2026-10` (`docs/findings/SMARTMONEY-ARCHIVE.md`).»
+строка под заголовком: «Пути убранных скриптов и таблиц — в теге `archive/smartmoney-2026-10` (`docs/archive/findings/SMARTMONEY-ARCHIVE.md`).»
 Выводы и числа не трогать. Для `smartmoney-survivors-2026-10-30.csv` — достаточно README. После — повторить git grep и
 показать: в каждом файле со ссылкой есть строка про тег. Блокноты ролей — история, не трогать.
 

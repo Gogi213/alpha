@@ -1,6 +1,6 @@
 # TK-393 — охват DEX Gate ≥30k: вернуть (2-й раз, Судья, 25.10 ~23:50 GMT+4)
 
-Проверено: `docs/findings/tk380-coverage-2026-10-24.md` (коммит 89609dae), calc `/data/tk0393/sqd7/st/`, `/data/sched/rc/1025150034037`
+Проверено: `docs/archive/findings/tk380-coverage-2026-10-24.md` (коммит 89609dae), calc `/data/tk0393/sqd7/st/`, `/data/sched/rc/1025150034037`
 (= 0), `data/tk393/summary.json`.
 
 | пункт | да/нет | на чём проверено |

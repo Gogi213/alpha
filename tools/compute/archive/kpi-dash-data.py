@@ -54,7 +54,7 @@ FAMILY_KEYS = [("age", "1_age"), ("size", "2_size"), ("gap", "3_gap"), ("outcome
                ("btc", "5_btc"), ("episode_minute", "5_episode_minute"), ("family", "6_family")]
 FAMILY_TITLE = {"traded_serial": "N x номер среди торгуемых (traded_serial, вместо номера от рождения)"}
 # §7.x п.1: "часов под водой >$50" — busy-stress.json хранит только суточную `daily`-кривую, часовой ряд не
-# сохранён; числа транскрибированы из docs/findings/retries-2026-09-27.md §7.x (approach-slices-summary.md
+# сохранён; числа транскрибированы из docs/archive/findings/retries-2026-09-27.md §7.x (approach-slices-summary.md
 # §7.x п.1), гейт T-31 зелёный, на проверке у Судьи — не пересчитано здесь
 UNDERWATER_GT50 = {"все": {"aug": 0.20, "sep": 0.0}, "первые 3": {"aug": 0.22, "sep": 0.0},
                     "первые 4": {"aug": 0.21, "sep": 0.0}, "с 4-го": {"aug": 0.0, "sep": 0.0}}

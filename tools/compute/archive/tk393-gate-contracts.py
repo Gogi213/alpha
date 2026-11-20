@@ -66,8 +66,8 @@ for ch, addrs in bychain.items():
                 pools.append({"coin": b, "chain": ch, "pool": p["pairAddress"], "dex": p["dexId"], "labels": ",".join(p.get("labels") or []), "quote": p["quoteToken"]["symbol"],
                               "token": a, "vol24": v, "liq": liq, "pxratio": round(r0, 3), "kinds": "+".join(sorted(coins[b]["kinds"]))})
         print(ch, i + 30, "/", len(addrs), "pools", len(pools), flush=True)
-known = {r["pool"].lower() for r in csv.DictReader(open("docs/findings/tk380-pools-2026-10-23.csv", encoding="utf-8"))}
-known_coins = {r["coin"] for r in csv.DictReader(open("docs/findings/tk380-pools-2026-10-23.csv", encoding="utf-8"))}
+known = {r["pool"].lower() for r in csv.DictReader(open("docs/archive/findings/tk380-pools-2026-10-23.csv", encoding="utf-8"))}
+known_coins = {r["coin"] for r in csv.DictReader(open("docs/archive/findings/tk380-pools-2026-10-23.csv", encoding="utf-8"))}
 new = [p for p in pools if p["pool"].lower() not in known]
 if new:
     with open(out + "/pools-new.csv", "w", newline="", encoding="utf-8") as f:

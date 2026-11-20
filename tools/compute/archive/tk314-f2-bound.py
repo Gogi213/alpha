@@ -2,8 +2,8 @@
 Зона = связные годные клетки (p<=0,20), <=3 зоны по min p; окрестность +-1 сосед F1 по оси; шаг F1/4, округление к
 разрешимости (k, W — целые; Q — 1 процентиль; f — 1 бп); <=12 новых точек на ось; дедуп с F1. Без Летописи."""
 import csv, json, itertools, collections, math, sys
-SRC = "docs/findings/tk-p17-f1-sieve-2026-10-18.csv"
-OUT = "docs/findings/tk314-f2-grid-2026-10-19.csv"
+SRC = "docs/archive/findings/tk-p17-f1-sieve-2026-10-18.csv"
+OUT = "docs/archive/findings/tk314-f2-grid-2026-10-19.csv"
 RES = {"k": 1, "T_q": 1, "W_s": 1, "cxl_q": 1, "f_bp": 1, "swept_q": 1, "entry": 1, "A_min": 1}     # разрешимость оси
 CAP_AX, CAP_CELLS, DIV = 12, 100, 4
 # Потолок 100 клеток НА ЗОНУ (TK-278, Судья 16.10): зона > 100 — 100 клеток сетки, ближайших к центру зоны:

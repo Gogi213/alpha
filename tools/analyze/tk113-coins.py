@@ -32,7 +32,7 @@ for mode, cap in MODES.items():
                         wins[mode, cell, sym, m] += v > 0
 
 coins = sorted({k[2] for k in usd})
-with open("docs/findings/coins-breakdown-2026-10-09.csv", "w", encoding="utf-8", newline="") as fh:
+with open("docs/archive/findings/coins-breakdown-2026-10-09.csv", "w", encoding="utf-8", newline="") as fh:
     w = csv.writer(fh)
     w.writerow(["mode", "cell", "coin", "month", "trades", "usd"])
     for (mode, cell, sym, m), v in sorted(usd.items()):
@@ -105,7 +105,7 @@ lines += ["", f"## (б) Стабильно в плюсе — плюс по ит�
 lines += [line(c) for c in sorted(good, key=lambda c: -tot("free", "B1", c)[0])] or ["| — |"]
 
 # итоги пула v171c в том же окне: free — вычитание трёх монет (потолка нет, сделки независимы); B2 — потолок заново, из cells-v171c (portfolio-sim --drop)
-cellsv = {(r["mode"], r["cell"]): r for r in csv.DictReader(open("docs/findings/cells-v171c-2026-10-09.csv", encoding="utf-8"))}
+cellsv = {(r["mode"], r["cell"]): r for r in csv.DictReader(open("docs/archive/findings/cells-v171c-2026-10-09.csv", encoding="utf-8"))}
 lines += ["", f"## Итого по клеткам — пул v171c (без {', '.join(sorted(d[:-4] for d in DROPPED))}), окно янв–сен", "",
           "free = итог по монетам без трёх (потолка нет — вычитание точно); B2 — потолок 3 применён заново (`cells-v171c-2026-10-09.csv`, portfolio-sim --drop); "
           "в таблицах (а)/(б) v171b-итоги по монетам, † — выпавшие монеты.", "", "| клетка | free v171b | free v171c | B2 v171c |", "|---|---|---|---|"]
@@ -143,5 +143,5 @@ for m in MONTHS:
         cs.append(f"{sum(v for k, v in usd.items() if k[0] == 'free' and k[1] == ce and k[3] == m):+.0f}/"
                   f"{sum(v for k, v in ntr.items() if k[0] == 'free' and k[1] == ce and k[3] == m)}")
     lines.append(f"| {m} | " + " | ".join(cs) + " |")
-open("docs/findings/coins-breakdown-2026-10-09.md", "w", encoding="utf-8", newline="\n").write("\n".join(lines) + "\n")
+open("docs/archive/findings/coins-breakdown-2026-10-09.md", "w", encoding="utf-8", newline="\n").write("\n".join(lines) + "\n")
 print("\n".join(lines[:40]))

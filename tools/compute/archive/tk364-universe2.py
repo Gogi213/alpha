@@ -1,5 +1,5 @@
 # TK-364 v2: к universe.csv добавляет спот Binance/Upbit/OKX/Bitget, проверку контракта (CoinGecko platforms),
-# суммарный DEX по контракту (DexScreener tokens/{addr}), список исключённых мажоров. Выход: docs/findings/tk364-universe-v2-2026-10-22.csv
+# суммарный DEX по контракту (DexScreener tokens/{addr}), список исключённых мажоров. Выход: docs/archive/findings/tk364-universe-v2-2026-10-22.csv
 import json,csv,time,urllib.request,sys
 def g(u,t=60):
     for i in range(3):
@@ -62,6 +62,6 @@ for r in rows:
     out.append(dict(symbol=r["symbol"],base=b,perp_turn24=r["perp_turn24"],perp_oi_usd=r["perp_oi_usd"],bybit_spot=r["bybit_spot_turn24"],
       binance=round(cx["binance"]),upbit=round(cx["upbit"]),okx=round(cx["okx"]),bitget=round(cx["bitget"]),dex_tok=round(tot),dex_chain=max(chains,key=chains.get) if chains else "",
       cex_sum=round(cexsum),lead=lead,cg_id=cgid,cg_wrapped=int(wrapped),cg_same_symbol=same,token=addr))
-cols=list(out[0]); w=csv.DictWriter(open("docs/findings/tk364-universe-v2-2026-10-22.csv","w",newline="",encoding="utf-8"),cols); w.writeheader(); w.writerows(out)
-json.dump(majors,open("docs/findings/tk364-majors-2026-10-22.json","w"))
+cols=list(out[0]); w=csv.DictWriter(open("docs/archive/findings/tk364-universe-v2-2026-10-22.csv","w",newline="",encoding="utf-8"),cols); w.writeheader(); w.writerows(out)
+json.dump(majors,open("docs/archive/findings/tk364-majors-2026-10-22.json","w"))
 print(len(out))
