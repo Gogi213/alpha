@@ -1,0 +1,105 @@
+{
+ "bin_md5": "396989e9d0ad34d19f9b512a659c8e8e",
+ "keys": "lat=4 latx=4 pk=1 pb=1 fh=4 fk=120 fm=50 fb=0.5 ew=5 ex=0 rf=0.2 rs=20 mk=2 t24=12",
+ "vid": "cf280a1e8fc7c",
+ "cell": "L_mk2",
+ "candidate2_commit": "4629c0a3d",
+ "candidate2_sha256": "ce6ad66d9ef2eb20ca8621e78114e96893ad11bc6285bef31239bacf847b1e31",
+ "freeze_commit": "1d14575e2",
+ "freeze_sha256": "b9bd9258b076483c7e545b73eeb9491feae218391446338f21ffbc5dd9e88b5d",
+ "tree_files": 313966,
+ "ref_dir": "/data/p42-tk626/gmk/out",
+ "windows": {
+  "wa": {
+   "files": {
+    "long-trades.csv": {
+     "sha256": "78a680376c9c52ceaab0e4f1ff9644407394ef131b736384f3c111963b27ff02",
+     "ref_sha256": "78a680376c9c52ceaab0e4f1ff9644407394ef131b736384f3c111963b27ff02",
+     "equal": true
+    },
+    "long-daily.csv": {
+     "sha256": "2c825f6063614622afd95ae50860d16e3db7956d77fc214afb1d9244365a6928",
+     "ref_sha256": "2c825f6063614622afd95ae50860d16e3db7956d77fc214afb1d9244365a6928",
+     "equal": true
+    },
+    "long-coinday.csv": {
+     "sha256": "3f975ca0a02116d589ff7e50cbc0340f7f9b8c20d4e9386d564a1528e6cac9be",
+     "ref_sha256": "3f975ca0a02116d589ff7e50cbc0340f7f9b8c20d4e9386d564a1528e6cac9be",
+     "equal": true
+    },
+    "long-entryrej.csv": {
+     "sha256": "e72a3b2bb2c66e69c45588b0645dbd652ff8687cb959a13d3f5b3d854936ddc4",
+     "ref_sha256": "e72a3b2bb2c66e69c45588b0645dbd652ff8687cb959a13d3f5b3d854936ddc4",
+     "equal": true
+    },
+    "long-maker.json": {
+     "sha256": "024525e18c062f16c729d068a475f19f8646ed3a84eec2404a7bb4fdf0fe7929",
+     "ref_sha256": "024525e18c062f16c729d068a475f19f8646ed3a84eec2404a7bb4fdf0fe7929",
+     "equal": true
+    }
+   },
+   "equal": true
+  },
+  "wb": {
+   "files": {
+    "long-trades.csv": {
+     "sha256": "b58e7fe62f5039185880219d82089d9927aed77a1ad1d1773121fe242b93a2f3",
+     "ref_sha256": "b58e7fe62f5039185880219d82089d9927aed77a1ad1d1773121fe242b93a2f3",
+     "equal": true
+    },
+    "long-daily.csv": {
+     "sha256": "ad34af33d0c90b7927e46226daec03328a70efa8071c9cfe84ab93908414128b",
+     "ref_sha256": "ad34af33d0c90b7927e46226daec03328a70efa8071c9cfe84ab93908414128b",
+     "equal": true
+    },
+    "long-coinday.csv": {
+     "sha256": "4fddb06d4d8d1a192b8b7c6302122cdada0bdda972f57f03ec52cb9e02643fec",
+     "ref_sha256": "4fddb06d4d8d1a192b8b7c6302122cdada0bdda972f57f03ec52cb9e02643fec",
+     "equal": true
+    },
+    "long-entryrej.csv": {
+     "sha256": "adaa385cf48329ec97d1445c3f249c09943f2bf136d67abe7ae391ca158d1871",
+     "ref_sha256": "adaa385cf48329ec97d1445c3f249c09943f2bf136d67abe7ae391ca158d1871",
+     "equal": true
+    },
+    "long-maker.json": {
+     "sha256": "0c140ad7883d7297ac75d643dddb4ba216638c7b62c64723ce8c4d33ea586412",
+     "ref_sha256": "0c140ad7883d7297ac75d643dddb4ba216638c7b62c64723ce8c4d33ea586412",
+     "equal": true
+    }
+   },
+   "equal": true
+  },
+  "wc": {
+   "files": {
+    "long-trades.csv": {
+     "sha256": "371794f9e7f55477d155ac9b6511e575c5c8d6e15bc398da3640e9eef0e7dcc1",
+     "ref_sha256": "371794f9e7f55477d155ac9b6511e575c5c8d6e15bc398da3640e9eef0e7dcc1",
+     "equal": true
+    },
+    "long-daily.csv": {
+     "sha256": "c8f88328902d6ddf14a0699a6d0c6927987b1cd4757fe9825b46fbc5f55b43fc",
+     "ref_sha256": "c8f88328902d6ddf14a0699a6d0c6927987b1cd4757fe9825b46fbc5f55b43fc",
+     "equal": true
+    },
+    "long-coinday.csv": {
+     "sha256": "f51747aac6f392623478813ef2cf2391126f54f70641fb0b08ab1ffa4941633c",
+     "ref_sha256": "f51747aac6f392623478813ef2cf2391126f54f70641fb0b08ab1ffa4941633c",
+     "equal": true
+    },
+    "long-entryrej.csv": {
+     "sha256": "804a6a06b25aa7d52a12b5d3c5b1fcf8ce50d939da6988521e3da4ca5f4030e0",
+     "ref_sha256": "804a6a06b25aa7d52a12b5d3c5b1fcf8ce50d939da6988521e3da4ca5f4030e0",
+     "equal": true
+    },
+    "long-maker.json": {
+     "sha256": "e133a4e76ba0522e14070b695c5d03be3268b6dfe38314d1f30d0bb59acf5eb4",
+     "ref_sha256": "e133a4e76ba0522e14070b695c5d03be3268b6dfe38314d1f30d0bb59acf5eb4",
+     "equal": true
+    }
+   },
+   "equal": true
+  }
+ },
+ "ok": true
+}
