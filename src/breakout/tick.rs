@@ -1713,6 +1713,54 @@ pub fn lot2_decision(
     Lot2Dec::Cancel
 }
 
+// ───────────────────────────── TK-660: вход по подтверждению E(k), опция `ek` ─────────────────────────────
+
+/// TK-660 (`ek`): приказ E(k) живёт столько от `сигнал + lat`, мс (60 мин, как повтор TK-617 / §13.55).
+pub const EK_EXPIRY_MS: i64 = 3_600_000;
+
+/// TK-660 (`ek`): вход по подтверждению E(k), обе стороны в раме. Опора `p_ref` — вход по ленте §13.16 на `сигнал + lat`
+/// (`entry_decision`; её отказ — отказ сигнала, приказа нет, второй элемент `None`). Условный приказ срабатывает на первой сделке
+/// ленты (любой стороны) позже `сигнал + lat` с ценой рамы `p ≥ p_ref + k·|p_ref|/10⁴` (лонг — рост на k бп, шорт — падение):
+/// сработавшая сделка на уровне или за ним (`p ≥ L`) — приказ снят (`Touched`); не сработал за `EK_EXPIRY_MS` — снят (`Unfilled`);
+/// сработал в `ms` — рыночный вход по ленте §13.16 на `ms + lat` (`entry_at`; отказ — `Stale` / `Beyond`). Второй элемент —
+/// момент снятия / исполнения приказа (занятость монеты и места в портфеле до него, `run_tick_ek`).
+pub fn ek_decision(
+    src: &dyn TradeSrc,
+    sym: &Sym,
+    side: Side,
+    sig: &TSig,
+    ex: &ExitCfg,
+    k_bp: i64,
+) -> (EntryDec, Option<i64>) {
+    let (t0, pref) = match entry_decision(src, sym, side, sig, ex) {
+        EntryDec::Fill { ms, p0 } => (ms, p0),
+        other => return (other, None),
+    };
+    let need = i128::from(pref.abs()) * i128::from(k_bp);
+    let until = t0 + EK_EXPIRY_MS;
+    let s = side.s();
+    let mut cur = Cursor::new(src, &sym.name, usize::from(sig.day), sig.idx as usize + 1);
+    while let Some((ms, px, _)) = cur.next_tick() {
+        if ms <= t0 {
+            continue;
+        }
+        if ms > until {
+            break;
+        }
+        let p = s * px;
+        if i128::from(p - pref) * 10_000 < need {
+            continue;
+        }
+        if p >= sig.lp {
+            return (EntryDec::Reject(EntryRej::Touched), Some(ms));
+        }
+        let t1 = ms + ex.lat_ms;
+        let dec = entry_at(src, sym, side, (t1 / DAY_MS) as usize, t1, sig.lp, ex);
+        return (dec, Some(t1));
+    }
+    (EntryDec::Reject(EntryRej::Unfilled), Some(until))
+}
+
 // ───────────────────────────── §13.28: вход лимиткой (мейкер), опция `mk` ─────────────────────────────
 
 /// §13.28: минимум сделок окна для определения тика.
@@ -2137,6 +2185,8 @@ pub struct TickResult {
     pub lot2: [u64; 4],
     /// §13.28 (`mk > 0`): заявки лота 1 — заполнено, не заполнено, снято уровнем (число отказов `notick` — в `entry_rej`).
     pub mk: [u64; 3],
+    /// TK-660 (`ek > 0`): приказы E(k) — исполнено, снято за 60 мин, снято уровнем, отказ входа после срабатывания (`stale` / `beyond`).
+    pub ek: [u64; 4],
 }
 
 impl TickResult {
@@ -2150,6 +2200,7 @@ impl TickResult {
             rej: [0; 6],
             lot2: [0; 4],
             mk: [0; 3],
+            ek: [0; 4],
         }
     }
 }
@@ -2159,6 +2210,8 @@ struct Open {
     sym: usize,
     key: u64,
     kind: ExitKind,
+    /// TK-660 (`ek`): не позиция, а живой приказ E(k), снятый без входа: держит монету и место до `exit_ms`, на паузы и серии стопов не влияет.
+    hold: bool,
 }
 
 /// Портфель стороны по сигналам-сделкам (как `portfolio::run`; паузы — в мс).
@@ -2183,6 +2236,21 @@ pub fn run_tick_mk(
     src: &dyn TradeSrc,
     mk: u8,
 ) -> TickResult {
+    run_tick_ek(syms, sigs, side, ex, pc, src, mk, 0)
+}
+
+/// `run_tick_mk` со входом по подтверждению E(k) (TK-660): `ek = 0` — прежний путь; `ek > 0` — k, бп (требует `ew > 0`, без `mk`).
+#[allow(clippy::too_many_arguments)]
+pub fn run_tick_ek(
+    syms: &[Sym],
+    sigs: &[TSig],
+    side: Side,
+    ex: &ExitCfg,
+    pc: &PortCfg,
+    src: &dyn TradeSrc,
+    mk: u8,
+    ek: i64,
+) -> TickResult {
     let ns = syms.len();
     let mut res = TickResult {
         trades: Vec::new(),
@@ -2192,6 +2260,7 @@ pub fn run_tick_mk(
         rej: [0; 6],
         lot2: [0; 4],
         mk: [0; 3],
+        ek: [0; 4],
     };
     let maker = mk > 0;
     let entry_slip = if maker { 0 } else { ex.slip_bps };
@@ -2210,6 +2279,9 @@ pub fn run_tick_mk(
         while !open.is_empty() && open[0].exit_ms <= t {
             let o = open.remove(0);
             busy[o.sym] = false;
+            if o.hold {
+                continue;
+            }
             cool_until[o.sym] = o.exit_ms + min(pc.cool_min);
             if o.kind == ExitKind::HardStop {
                 if pc.reentry == 1 {
@@ -2268,10 +2340,15 @@ pub fn run_tick_mk(
         let lc = level_ctx(sym, side, sg, ex);
         let split = ex.e2_pm > 0;
         let lot_n = if split { NOTIONAL_U / 2 } else { NOTIONAL_U };
+        let mut ek_end: Option<i64> = None;
         let tr = if natr > 0 {
             dec = if maker {
                 let mut tick_of = |t: i64| tick_at(src, &sym.name, sg.sym, t, &mut tick_cache);
                 mk_decision(src, sym, side, sg, ex, mk, &mut tick_of)
+            } else if ek > 0 {
+                let (d, end) = ek_decision(src, sym, side, sg, ex, ek);
+                ek_end = end;
+                d
             } else {
                 entry_decision(src, sym, side, sg, ex)
             };
@@ -2293,6 +2370,9 @@ pub fn run_tick_mk(
                     );
                     if maker {
                         res.mk[0] += 1;
+                    }
+                    if ek_end.is_some() {
+                        res.ek[0] += 1;
                     }
                     if split {
                         let l2 = if maker {
@@ -2344,10 +2424,29 @@ pub fn run_tick_mk(
                     Some(t1)
                 }
                 EntryDec::Reject(why) => {
-                    match why {
-                        EntryRej::Unfilled => res.mk[1] += 1,
-                        EntryRej::Touched => res.mk[2] += 1,
-                        _ => {}
+                    if maker {
+                        match why {
+                            EntryRej::Unfilled => res.mk[1] += 1,
+                            EntryRej::Touched => res.mk[2] += 1,
+                            _ => {}
+                        }
+                    }
+                    if let Some(end) = ek_end {
+                        // TK-660: живой приказ E(k) занимал монету и место в портфеле до снятия
+                        res.ek[match why {
+                            EntryRej::Unfilled => 1,
+                            EntryRej::Touched => 2,
+                            _ => 3,
+                        }] += 1;
+                        busy[si] = true;
+                        open.push(Open {
+                            exit_ms: end,
+                            sym: si,
+                            key,
+                            kind: ExitKind::Forced,
+                            hold: true,
+                        });
+                        open.sort_by_key(|o| o.exit_ms);
                     }
                     res.entry_rej.push((sg.sym, sg.level, sg.ms, why));
                     None
@@ -2383,6 +2482,7 @@ pub fn run_tick_mk(
             sym: si,
             key,
             kind: kind_all,
+            hold: false,
         });
         open.sort_by_key(|o| o.exit_ms);
         let mut st = settle_tick_mk(sym, side, &tr, lot_n, !maker);

@@ -10,7 +10,7 @@ use super::params::{parse_variant, Params, SigCfg};
 use super::sigcache::{SigCache, SigCacheOpts};
 use super::store::{StoreOpts, TickStore};
 use super::tick::{
-    cons_range, exit_natr, old_entry, run_tick_mk, signals_for_coin, sort_tsigs, tape_last_side,
+    cons_range, exit_natr, old_entry, run_tick_ek, signals_for_coin, sort_tsigs, tape_last_side,
     Cursor, EntryRej, TSig, TickCtr, TickResult, TradeSrc, ZipSrc, DAY_MS,
 };
 use super::{par_map, Side};
@@ -623,7 +623,7 @@ pub fn run(
             let r = if std::env::var_os("P42_SIGSX_ONLY").is_some() {
                 TickResult::empty()
             } else {
-                run_tick_mk(&syms, port_sigs, side, &p.exit, &p.port, &src, p.mk)
+                run_tick_ek(&syms, port_sigs, side, &p.exit, &p.port, &src, p.mk, p.ek)
             };
             write_outputs(&dir, &syms, side, &r)?;
             if p.exit.tape_entry() {
@@ -698,6 +698,9 @@ pub fn run(
             }
             if p.exit.e2_pm > 0 {
                 meta["lot2_[now,later,cancelled,rejected]"] = serde_json::json!(r.lot2);
+            }
+            if p.ek > 0 {
+                meta["ek_[filled,expired,touched,rejected]"] = serde_json::json!(r.ek);
             }
             if p.exit.tape_entry() {
                 let n_of = |w: EntryRej| r.entry_rej.iter().filter(|x| x.3 == w).count();
