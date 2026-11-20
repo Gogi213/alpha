@@ -1,5 +1,5 @@
 """Тесты tk616_forward.py, tk626_freeze.py (TK-616 §13.28 п. 7–8, TK-626 §13.28.1) на синтетике — без движка и без реальных данных: геометрия заморозки, охраны (вселенная точки, деревья, манифест),
-префикс, швы, правило решения, сквозной `run_point` с подменным раннером (три вселенные × три клетки). Без pytest: `PYTHONUTF8=1 python3 tools/p42/tests/test_tk616_forward.py`.
+префикс, швы, правило решения, сквозной `run_point` с подменным раннером (три вселенные × три клетки), кандидат `L_n24` (TK-638: C1 α из кандидата, C2 охрана таблицы, C3 `replay-n24`). Без pytest: `PYTHONUTF8=1 python3 tools/p42/tests/test_tk616_forward.py`.
 """
 import argparse
 import contextlib
@@ -754,6 +754,398 @@ def test_main_plan_marks_read_points_and_point_without_go_exits_with_code_3():
         os.environ.pop(fw.GO_ENV, None)
         assert fw.main(["point", "L2", "--freeze", e.freeze, "--root", e.fwd, "--bin", e.bin]) == 3
         assert fw.main(["point", "--freeze", e.freeze, "--root", e.fwd]) == 3
+
+
+# ---- TK-638: кандидат вперёд `L_n24` (C1 α из кандидата, C2 охрана таблицы, C3 replay-n24) --------------------------------------------------------------------
+
+FEAT_BYTES = b"synthetic-alpha-feat"
+
+
+def make_candidate(e, mutate=None):
+    """Кандидат `tk638-frozen-1` против заморозки среды `e`: α S_base 0,025 + L_n24 0,005 (сумма 0,05), клетка = L_base + `fa=N24_q60 fo=lo fv=0.5`; пишется рядом с заморозкой."""
+    f = json.loads(json.dumps(e.fz))                                                                  # копия: мутации охранных тестов не должны менять общие структуры сборщика заморозки
+    base = f["cells"]["L_base"]
+    keys = base["keys"] + " fa=N24_q60 fo=lo fv=0.5"
+    alpha = {"S_base": 0.025, "S_mk1": 0.01, "L_base": 0.01, "L_n24": 0.005}
+    sha, md5 = sha_of(FEAT_BYTES)
+    c = {"version": "tk638-frozen-1", "base_freeze": {"version": "tk626-frozen-1", "sha256": fw.sha256_text(e.freeze)}, "binary": f["binary"], "feature_binary": {"md5": md5, "sha256": sha},
+         "universe": f["universe"], "point_shares": f["point_shares"], "points": f["points"], "windows": f["windows"], "filter": {"name": "N24_q60", "N": 220000},
+         "cells": {"L_n24": {"side": "L", "base_keys": base["keys"], "base_vid": base["vid"], "keys": keys, "vid": rf.Req("L", keys, False).vid, "family": False, "candidate": True}},
+         "alpha": alpha, "alpha_k": {k: {p: v * s for p, s in f["point_shares"].items()} for k, v in alpha.items()}}
+    if mutate:
+        mutate(c)
+    path = fw.candidate_path(e.freeze)
+    json.dump(c, open(path, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
+    e.feat = os.path.join(e.root, "alpha-feat")
+    open(e.feat, "wb").write(FEAT_BYTES)
+    return c, path
+
+
+def cand_kw(e, path, **kw):
+    out = dict(feat_bin=e.feat, candidate="", candidate_commit="c0ffee", candidate_sha256=fw.sha256_text(path))
+    out.update(kw)
+    return out
+
+
+class N24Runner(FakeRunner):
+    """+ сигнальный дамп (`P42_SIGSX_ONLY`), `alpha-feat tcount` и вызов движка с `--ftab`. Кандидаты потока — функция (поток, монета, сутки); n24 — функция (монета, абс. время);
+    `m24_days` — {монета: сутки}, где файла суток нет (m24 = 1, n24 = 0); `extra_cands` — кандидатов движка сверх таблицы (no_key); `short_counts` — tcount теряет строку."""
+
+    def __init__(self, last_day, m24_days=None, extra_cands=0, short_counts=False, **kw):
+        super().__init__(last_day, **kw)
+        self.m24_days, self.extra_cands, self.short_counts, self.log = m24_days or {}, extra_cands, short_counts, []
+
+    def stream(self, svid, t0d, syms):
+        t0ms = fw.t0_ms(t0d)
+        out = []
+        for k in range(rf.GRID_START_DAY, rf.TRADE_END + 1):
+            day = t0d + datetime.timedelta(days=k)
+            if day > self.last_day:
+                break
+            for c in syms:
+                if c in FIRST and day < D(FIRST[c]):
+                    continue
+                x = h(svid, c, day)
+                if x % 2 == 0:
+                    out.append((c, fw.t0_ms(day) + (x >> 4) % 20 * 3_600_000 - t0ms))
+        return out
+
+    def m24(self, sym, abs_ms):
+        return fw.date_of(abs_ms) in self.m24_days.get(sym, ())
+
+    def n24(self, sym, abs_ms):
+        return 0 if self.m24(sym, abs_ms) else 100_000 + h("n24", sym, abs_ms) % 260_000
+
+    def run(self, cmd, env=None, log=None):
+        self.log.append((cmd, env))
+        if len(cmd) > 1 and cmd[1] == "tcount":
+            return self.tcount(cmd)
+        if env and env.get("P42_SIGSX_ONLY") == "1":
+            return self.dump(cmd, env)
+        if "--ftab" in cmd:
+            return self.engine_ftab(cmd, env)
+        return super().run(cmd, env, log)
+
+    def dump(self, cmd, env):
+        self.calls += 1
+        vfile, out, syms = cmd[cmd.index("--variants") + 1], cmd[cmd.index("--out") + 1], cmd[cmd.index("--symbols") + 1].split(",")
+        for line in open(vfile, encoding="utf-8"):
+            vid = line.split(" ", 1)[0]
+            os.makedirs(os.path.join(out, vid), exist_ok=True)
+            with open(os.path.join(out, vid, "long-sigsx.csv"), "w", encoding="utf-8", newline="") as f:
+                f.write("sym,level,sig_ms,dist_e8,level_px_e8,born,end,first_bar,members\n")                      # как у бинаря: 9 имён в заголовке, 10 полей в строках
+                for c, ms in self.stream(vid, D(env["P42_T0"]), syms):
+                    f.write("%s,0,%d,0,0,0,0,0,0,m\n" % (c, ms))
+        return 0
+
+    def tcount(self, cmd):
+        self.calls += 1
+        eps, out, base = (cmd[cmd.index(k) + 1] for k in ("--eps", "--out", "--base-date"))
+        t0ms = fw.t0_ms(D(base))
+        rows = [line.rstrip("\n").split(",") for line in open(eps, encoding="utf-8")][1:]
+        if self.short_counts:
+            rows = rows[:-1]
+        with open(out, "w", encoding="utf-8", newline="") as f:
+            f.write("sym,sig_ms,n60,n24,m60,m24\n")
+            for s, m in rows:
+                f.write("%s,%s,0,%d,0,%d\n" % (s, m, self.n24(s, t0ms + int(m)), int(self.m24(s, t0ms + int(m)))))
+        return 0
+
+    def engine_ftab(self, cmd, env):
+        self.calls += 1
+        vfile, out, tab, syms = cmd[cmd.index("--variants") + 1], cmd[cmd.index("--out") + 1], cmd[cmd.index("--ftab") + 1], cmd[cmd.index("--symbols") + 1].split(",")
+        t0d = D(env["P42_T0"])
+        t0ms = fw.t0_ms(t0d)
+        lim = fw.t0_ms(min(self.last_day, t0d + datetime.timedelta(days=rf.TRADE_END))) + DAY
+        tsyms, tms, cols = rr.rfx.read_ftab(tab)
+        val = {(s, int(m)): cols["N24_q60"][i] for i, (s, m) in enumerate(zip(tsyms, tms))}
+        for line in open(vfile, encoding="utf-8"):
+            vid, keys = line.rstrip("\n").split(" ", 1)
+            stream = self.stream(rr.Engine.stream_need(rf.Req("L", keys, False)).vid, t0d, syms) + [("ZZZUSDT", 7 + i) for i in range(self.extra_cands)]
+            kept, dropped, no_key = [], 0, 0
+            for c, m in stream:
+                v = val.get((c, m))
+                if v is None:
+                    no_key += 1
+                elif v < 0.5:
+                    dropped += 1
+                    continue
+                kept.append((c, m))
+            os.makedirs(os.path.join(out, vid), exist_ok=True)
+            tr = []
+            for c, m in kept:
+                ent = t0ms + m
+                ext, kind = ent + 2 * 3_600_000, "tp"
+                if ext > lim:
+                    ext, kind = lim, "forced"
+                tr.append((c, m, ext - t0ms, 1.0 + h("g", c, ent) % 100 / 50.0, 0.3, kind))
+            with open(os.path.join(out, vid, "long-trades.csv"), "w", encoding="utf-8", newline="") as f:
+                f.write("sym,entry_ms,exit_ms,gross,fees,funding,net,kind\n")
+                for c, a, b, g, fee, kind in tr:
+                    f.write("%s,%d,%d,%r,%r,0.0,%r,%s\n" % (c, a, b, g, fee, g - fee, kind))
+            for name in ("daily", "coinday", "entryrej"):
+                open(os.path.join(out, vid, "long-%s.csv" % name), "w", encoding="utf-8", newline="").write("%s,%d,%d\n" % (name, len(tr), dropped))
+            json.dump({"long": {"filter_[cands,dropped,no_key,no_value]": [len(stream), dropped, no_key, 0]}}, open(os.path.join(out, vid, "meta.json"), "w"))
+        return 0
+
+
+def run_c(e, pid, today, last_day, runner=None, **kw):
+    """Точка с кандидатом: как `run`, но движок — `N24Runner`."""
+    return run(e, pid, today, last_day, runner=runner or N24Runner(last_day), **kw)
+
+
+def cand_env(t, mutate=None):
+    e = Env(t)
+    c, path = make_candidate(e, mutate)
+    return e, c, path
+
+
+def read_json(*p):
+    return json.load(open(os.path.join(*p), encoding="utf-8"))
+
+
+def test_candidate_real_files_alpha_split_and_overlay():
+    """Реальная пара `tk626-frozen.json` + `tk638-frozen.json` репозитория: α S_base 0,025 (при 0,03 тест падает), сумма 0,05, L_n24 0,005; клетка `L_n24` не входит в `cells`."""
+    fz0 = fw.load_freeze(fw.FREEZE)
+    cp = fw.candidate_path(fw.FREEZE)
+    assert os.path.basename(cp) == "tk638-frozen.json"
+    c = fw.load_candidate(cp, fz0, fw.FREEZE)
+    assert c["alpha"] == {"S_base": 0.025, "S_mk1": 0.01, "L_base": 0.01, "L_n24": 0.005} and abs(sum(c["alpha"].values()) - 0.05) < 1e-12
+    assert fz0["alpha"]["S_base"] == 0.03                                                              # историческая запись tk626 не меняется
+    fz = fw.apply_candidate(fz0, c)
+    assert fz["alpha"]["S_base"] == 0.025 and fz["alpha"]["S_base"] != 0.03 and fz["alpha"]["L_n24"] == 0.005 and fz0["alpha"]["S_base"] == 0.03
+    assert "L_n24" not in fz["cells"] and list(fz["cells"]) == list(fz0["cells"])
+    assert abs(fw.alpha_k(fz, "S_base", "L5") - 0.025 * 0.66) < 1e-12 and abs(fw.alpha_k(fz, "L_n24", "L2") - 0.005 * 0.04) < 1e-12
+    assert fw.alpha_k(fz, "S_mk1", "L3") == fw.alpha_k(fz0, "S_mk1", "L3") and fw.alpha_k(fz, "L_base", "L3") == fw.alpha_k(fz0, "L_base", "L3")
+    assert c["cells"]["L_n24"]["keys"] == fz0["cells"]["L_base"]["keys"] + " fa=N24_q60 fo=lo fv=0.5" and c["cells"]["L_n24"]["vid"] == "c2f7cf2fd5d43"
+    assert c["filter"]["N"] == 220000 and c["feature_binary"]["md5"] == "69fcf7cdc74a8006e78681d29a980f68"
+
+
+def test_candidate_guards_every_rule_of_c1():
+    def bad(needle, mutate):
+        with tmp() as t:
+            e, c, path = cand_env(t, mutate)
+            expect_guard(lambda: fw.load_candidate(path, fw.load_freeze(e.freeze), e.freeze), needle)
+
+    with tmp() as t:
+        e, c, path = cand_env(t)
+        fz = fw.load_freeze(e.freeze)
+        assert fw.load_candidate(path, fz, e.freeze)["alpha"]["L_n24"] == 0.005
+        expect_guard(lambda: fw.load_candidate(os.path.join(t, "нет.json"), fz, e.freeze), "нет файла кандидата")
+        open(e.freeze, "a").write("\n ")                                                               # заморозка tk626 изменена после записи кандидата
+        expect_guard(lambda: fw.load_candidate(path, fz, e.freeze), "записан против другой заморозки")
+    bad("версия кандидата", lambda c: c.update(version="tk638-frozen-2"))
+    bad("записан против другой заморозки", lambda c: c["base_freeze"].update(sha256="0" * 64))
+    bad("поле 'binary'", lambda c: c["binary"].update(md5="0" * 32))
+    bad("поле 'windows'", lambda c: c["windows"][0].update(t0="2026-10-17"))
+    bad("поле 'points'", lambda c: c["points"][1].update(d="2026-12-30"))
+    bad("поле 'point_shares'", lambda c: c["point_shares"].update(L5=0.6))
+    bad("поле 'universe'", lambda c: c["universe"].update(decision="crypto"))
+    bad("md5 / sha256 `alpha-feat`", lambda c: c["feature_binary"].pop("md5"))
+    bad("фильтр без имени", lambda c: c["filter"].update(N=0))
+    bad("клетки", lambda c: c["cells"].update(X_extra=dict(c["cells"]["L_n24"])))
+    bad("клетка L_n24", lambda c: c["cells"]["L_n24"].update(keys=c["cells"]["L_n24"]["keys"].replace("fv=0.5", "fv=0.4")))
+    bad("клетка L_n24", lambda c: c["cells"]["L_n24"].update(family=True))
+    bad("клетка L_n24", lambda c: c["cells"]["L_n24"].update(base_vid="x"))
+    bad("vid", lambda c: c["cells"]["L_n24"].update(vid="c2f7cf2fd5d44"))
+    bad("α кандидата заданы", lambda c: c["alpha"].pop("L_n24"))
+    bad("сумма α кандидата", lambda c: c["alpha"].update(S_base=0.03))                                  # 0,03 остаётся у S_base: сумма 0,055
+    bad("α: S_base", lambda c: c["alpha"].update(L_n24=0.006, L_base=0.009))                           # сумма 0,05, но S_base + L_n24 ≠ 0,03
+    bad("α(S_mk1)", lambda c: c["alpha"].update(S_mk1=0.011, L_base=0.009))
+    bad("α по точкам", lambda c: c["alpha_k"]["S_base"].update(L5=0.0198))
+
+
+def test_run_point_with_candidate_overlays_alpha_marks_the_read_and_guards_the_candidate_files():
+    with tmp() as t:
+        e, c, cp = cand_env(t)
+        prepare(e, "L1", D("2026-11-30"))
+        r = N24Runner(D("2026-11-30"))
+
+        def attempt(**kw):
+            return lambda: fw.run_point(e.args("L1", **cand_kw(e, cp, **kw)), runner=r, today=D("2026-12-01"), repo=e.root)
+
+        expect_guard(attempt(feat_bin=""), "--feat-bin")
+        other = os.path.join(t, "feat-other")
+        open(other, "wb").write(FEAT_BYTES + b"x")
+        expect_guard(attempt(feat_bin=other), "alpha-feat")
+        expect_guard(attempt(candidate_commit=""), "нужны --freeze-commit")
+        expect_guard(attempt(candidate_sha256="0" * 64), "≠ заданному")
+        expect_guard(attempt(candidate=os.path.join(t, "нет.json")), "нет файла кандидата")
+        assert r.calls == 0 and not os.path.exists(os.path.join(e.fwd, "READ-L1.started"))
+        assert attempt()() == 0
+        marker = read_json(e.fwd, "READ-L1.started")
+        assert marker["candidate"] == "L_n24" and marker["candidate_commit"] == "c0ffee" and marker["candidate_sha256"] == fw.sha256_text(cp) and marker["feat_bin_md5"] == sha_of(FEAT_BYTES)[1]
+        p1 = read_json(e.fwd, "point-L1.json")
+        assert set(p1["stats"]) == set(KEYS) | {"L_n24|%s" % u for u in fw.UNI_NAMES} and set(p1["n24"]) == set(fw.UNI_NAMES) and all(x["status"] == "read" for x in p1["n24"].values())
+        assert os.path.exists(os.path.join(e.fwd, "READ-L1.n24.json"))
+    with tmp() as t:
+        e, c, cp = cand_env(t)
+        run_c(e, "L1", D("2026-12-01"), D("2026-11-30"), **cand_kw(e, cp))
+        rc, r = run_c(e, "L2", D("2027-01-01"), D("2026-12-31"), **cand_kw(e, cp))
+        p2 = read_json(e.fwd, "point-L2.json")
+        s = p2["stats"]
+        assert abs(s["S_base|all"]["alpha_k"] - 0.025 * 0.04) < 1e-12 and s["S_base|all"]["alpha_k"] != 0.03 * 0.04                  # C1: α(S_base) из кандидата, не 0,03
+        assert abs(s["L_n24|all"]["alpha_k"] - 0.005 * 0.04) < 1e-12 and abs(s["S_mk1|all"]["alpha_k"] - 0.01 * 0.04) < 1e-12 and abs(s["L_base|all"]["alpha_k"] - 0.01 * 0.04) < 1e-12
+        assert s["L_n24|crypto"]["alpha_k"] == 0.0 and s["L_n24|crypto"]["decision"] == "описательно" and s["L_n24|all"]["n"] > 0                # решающая вселенная — all
+        assert p2["prefix"]["diffs"] == {k: 0 for k in list(KEYS) + ["L_n24|%s" % u for u in fw.UNI_NAMES]} and p2["seams"]["L_n24|all"] == 0
+        txt = fw.render(p2)
+        assert "L_n24 (кандидат TK-638), вселенная all: прочитана" in txt and "| L_n24 | tradfi |" in txt
+
+
+def test_n24_table_and_filter_semantics_are_exact():
+    """Таблица `--ftab`: 0,0 при n24 < N и не m24, 1,0 иначе (m24 = 1 проходит); движок отбрасывает ровно нули; сделки клетки = кандидаты с 1,0; охрана читает дамп по позициям."""
+    with tmp() as t:
+        e, c, cp = cand_env(t)
+        prepare(e, "L1", D("2026-11-30"))
+        flagged = {"AAAUSDT": {D("2026-10-30") + datetime.timedelta(days=i) for i in range(10)}}        # 30.10–08.11: до зачёта (17.11–26.11): m24 = 1, n24 = 0 — в доле не участвуют
+        r = N24Runner(D("2026-11-30"), m24_days=flagged)
+        fw.run_point(e.args("L1", **cand_kw(e, cp)), runner=r, today=D("2026-12-01"), repo=e.root)
+        need = rr.Engine.stream_need(fw.n24_req(c))
+        tab = os.path.join(e.fwd, "L1", "ftab", "all", "w1", need.vid, "ftab.csv")
+        syms, ms, cols = rr.rfx.read_ftab(tab)
+        t0ms = fw.t0_ms(D("2026-10-16"))
+        want = [1.0 if r.m24(s, t0ms + int(m)) or r.n24(s, t0ms + int(m)) >= 220000 else 0.0 for s, m in zip(syms, ms)]
+        assert list(cols["N24_q60"]) == want and 0.0 in want and 1.0 in want and open(tab, encoding="utf-8").read().startswith("sym,sig_ms,N24_q60\n")
+        assert any(r.m24(s, t0ms + int(m)) and r.n24(s, t0ms + int(m)) < 220000 for s, m in zip(syms, ms))      # проверка самого теста: есть строка «m24 = 1 при n24 < N», она проходит
+        info = read_json(e.fwd, "READ-L1.n24.json")["all"]
+        w = info["windows"]["w1"]
+        assert info["status"] == "read" and w["rows"] == len(syms) and w["excluded"] == want.count(0.0) and w["m24_credited"] == 0 and w["m24_all"] > 0 and info["m24_share"] == 0.0 and info["no_key"] == 0
+        assert w["engine"]["cands"] == len(syms) and w["engine"]["dropped"] == want.count(0.0) and w["engine"]["no_key"] == 0
+        tr = rf.read_trades_csv(os.path.join(e.fwd, "L1", "out", "all", "w1", c["cells"]["L_n24"]["vid"], "long-trades.csv"))
+        kept = {(s, int(m)) for s, m, v in zip(syms, ms, want) if v == 1.0}
+        assert len(tr) == len(kept) and {(tr.sym[i], int(tr.entry_ms[i])) for i in range(len(tr))} == kept
+        dump_call = [x for x in r.log if x[1] and x[1].get("P42_SIGSX_ONLY") == "1" and x[1]["P42_T0"] == "2026-10-16"]
+        assert dump_call and dump_call[0][1]["P42_SIGSX"] == "14:73" and "--ftab" not in dump_call[0][0]
+        tc = [x for x in r.log if len(x[0]) > 1 and x[0][1] == "tcount"][0][0]
+        assert tc[0] == e.feat and tc[tc.index("--base-date") + 1] == "2026-10-16" and tc[tc.index("--trades") + 1].endswith(os.path.join("L1", "w1", "aggtrades"))
+        assert w["credited_range"] == ["2026-11-17", "2026-11-26"]
+
+
+def flagged_days(r, svid, coin, t0d, lo, hi):
+    """Сутки в [lo, hi], где у монеты есть кандидат потока в окне t0d."""
+    return sorted({fw.date_of(fw.t0_ms(t0d) + m) for c, m in r.stream(svid, t0d, [coin]) if lo <= fw.date_of(fw.t0_ms(t0d) + m) <= hi})
+
+
+def test_n24_m24_share_gate_is_per_universe_and_leaves_other_cells_unchanged():
+    def point_l2(flag):
+        with tmp() as t:
+            e, c, cp = cand_env(t)
+            run_c(e, "L1", D("2026-12-01"), D("2026-11-30"), runner=N24Runner(D("2026-11-30")), **cand_kw(e, cp))
+            run_c(e, "L2", D("2027-01-01"), D("2026-12-31"), runner=N24Runner(D("2026-12-31"), m24_days={"AAAUSDT": set(flag)}), **cand_kw(e, cp))
+            return c, read_json(e.fwd, "point-L2.json"), fw.render(read_json(e.fwd, "point-L2.json"))
+
+    c, base, _ = point_l2([])
+    svid = rr.Engine.stream_need(fw.n24_req(c)).vid
+    days = flagged_days(N24Runner(D("2026-12-31")), svid, "AAAUSDT", D("2026-10-16"), D("2026-12-01"), D("2026-12-24"))           # сутки после данных L1 (30.11): между точками данные не меняются
+    assert len(days) >= 3 and all(base["n24"][u]["status"] == "read" and base["n24"][u]["m24_share"] == 0.0 for u in fw.UNI_NAMES)
+    _, p1, _ = point_l2(days[:1])                                    # 1 кандидат с m24 = 1: доля ≤ 1 % на all и crypto → клетка читается
+    for u in ("all", "crypto"):
+        x = p1["n24"][u]
+        cr = sum(w["credited"] for w in x["windows"].values())
+        assert x["status"] == "read" and 0 < x["m24_share"] <= 0.01 and abs(x["m24_share"] - 1 / cr) < 1e-12 and sum(w["m24_credited"] for w in x["windows"].values()) == 1
+    _, p3, txt = point_l2(days[:3])                                  # 3 кандидата: > 1 % на all и crypto — не читать; tradfi (монеты нет) — читается
+    assert p3["n24"]["all"]["status"] == "skip" and p3["n24"]["crypto"]["status"] == "skip" and p3["n24"]["tradfi"]["status"] == "read"
+    assert p3["n24"]["all"]["m24_share"] > 0.01 and "> 1 %" in p3["n24"]["all"]["reason"] and "не читается" in p3["n24"]["all"]["reason"]
+    assert "L_n24|all" not in p3["stats"] and "L_n24|crypto" not in p3["stats"] and "L_n24|tradfi" in p3["stats"]
+    for k in KEYS:                                                   # остальные клетки — те же числа, что без сбоя
+        assert p3["stats"][k] == base["stats"][k] and p1["stats"][k] == base["stats"][k], k
+    assert p3["prefix"]["diffs"] == {k: 0 for k in list(KEYS) + ["L_n24|tradfi"]}                  # префикс-охрана — только по клеткам, посчитанным сейчас (L_n24|all на L1 был)
+    assert "L_n24 (кандидат TK-638), вселенная all: НЕ ЧИТАЛАСЬ" in txt and "m24 = 1" in txt
+    _, far, _ = point_l2([D("2026-11-05"), D("2026-11-06"), D("2026-11-07")])                      # m24 до зачёта: в таблице есть, в долю не входит
+    assert far["n24"]["all"]["status"] == "read" and far["n24"]["all"]["m24_share"] == 0.0 and far["n24"]["all"]["windows"]["w1"]["m24_all"] > 0
+
+
+def test_n24_no_key_and_row_mismatch_skip_the_cell_only():
+    for runner_kw, needle in (({"extra_cands": 2}, "no_key = 2"), ({"short_counts": True}, "строк tcount")):
+        with tmp() as t:
+            e, c, cp = cand_env(t)
+            rc, _ = run_c(e, "L1", D("2026-12-01"), D("2026-11-30"), runner=N24Runner(D("2026-11-30"), **runner_kw), **cand_kw(e, cp))
+            p1 = read_json(e.fwd, "point-L1.json")
+            assert rc == 0 and set(p1["stats"]) == set(KEYS) and all(x["status"] == "skip" and needle in x["reason"] for x in p1["n24"].values())
+            if "extra_cands" in runner_kw:
+                assert all(x["no_key"] == 2 for x in p1["n24"].values()) and "no_key 2" in fw.render(p1)                  # no_key печатается на точке
+            assert os.path.exists(os.path.join(e.fwd, "READ-L1.done")) and p1["stats"]["S_base|all"]["n"] > 0
+
+
+def test_n24_cell_skipped_on_a_later_point_or_read_after_a_skip_does_not_break_the_prefix_guard():
+    with tmp() as t:
+        e, c, cp = cand_env(t)
+        run_c(e, "L1", D("2026-12-01"), D("2026-11-30"), runner=N24Runner(D("2026-11-30")), **cand_kw(e, cp))
+        rc, _ = run_c(e, "L2", D("2027-01-01"), D("2026-12-31"), runner=N24Runner(D("2026-12-31"), extra_cands=1), **cand_kw(e, cp))
+        p2 = read_json(e.fwd, "point-L2.json")
+        assert rc == 0 and all(x["status"] == "skip" for x in p2["n24"].values()) and "L_n24|all" not in p2["stats"] and p2["prefix"]["diffs"] == {k: 0 for k in KEYS}
+    with tmp() as t:
+        e, c, cp = cand_env(t)
+        run_c(e, "L1", D("2026-12-01"), D("2026-11-30"), runner=N24Runner(D("2026-11-30"), short_counts=True), **cand_kw(e, cp))
+        rc, _ = run_c(e, "L2", D("2027-01-01"), D("2026-12-31"), runner=N24Runner(D("2026-12-31")), **cand_kw(e, cp))
+        p2 = read_json(e.fwd, "point-L2.json")
+        assert rc == 0 and all(x["status"] == "read" for x in p2["n24"].values()) and p2["stats"]["L_n24|all"]["n"] > 0
+
+
+def test_plan_prints_the_candidate_alpha():
+    def plan(e):
+        return subprocess.run([sys.executable, "-I", "-X", "utf8", os.path.join(HERE, "..", "tk616_forward.py"), "plan", "--freeze", e.freeze, "--root", e.fwd], capture_output=True, text=True,
+                              encoding="utf-8", env=dict(os.environ, PYTHONUTF8="1"))
+
+    with tmp() as t:
+        e, c, cp = cand_env(t)
+        out = plan(e)
+        assert out.returncode == 0 and "tk638-frozen.json (tk638-frozen-1)" in out.stdout and "'L_n24': 0.005" in out.stdout and "α(S_base) 0.0010" in out.stdout, out.stdout + out.stderr
+    with tmp() as t:
+        assert "кандидата tk638-frozen.json рядом с заморозкой нет" in plan(Env(t)).stdout
+
+
+def replay_args(e, cp, root, ref, **kw):
+    a = dict(freeze=e.freeze, freeze_commit="c0ffee", freeze_sha256=fw.sha256_text(e.freeze), bin=e.bin, threads=1, tick_store="", sig_cache="", **cand_kw(e, cp),
+             replay_root=os.path.join(root, "replay"), windows_root=os.path.join(root, "win"), symbols_file=os.path.join(root, "symbols-all.txt"), ref=ref, out="")
+    a.update(kw)
+    return argparse.Namespace(**a)
+
+
+def test_replay_n24_compares_outputs_with_the_g638a_reference_byte_for_byte():
+    with tmp() as t:
+        e, c, cp = cand_env(t)
+        root = os.path.join(t, "r")
+        os.makedirs(root)
+        write_list(os.path.join(root, "symbols-all.txt"), COINS)
+        mk_tree(os.path.join(root, "win"), "", rf.WINDOWS, D("2026-11-13"), coins=COINS)
+        ref_path = os.path.join(root, "gate-638a.json")
+
+        def write_ref(shas):
+            ref = {"bin_md5": sha_of(BIN_BYTES)[1], "keys": c["cells"]["L_n24"]["keys"], "ok": True,
+                   "windows": {w.name: {"files": {f: {"ref_sha256": shas.get((w.name, f), "0" * 64)} for f in fw.FILES_638}} for w in rf.WINDOWS}}
+            json.dump(ref, open(ref_path, "w"))
+
+        def replay(name, **kw):
+            return fw.replay_n24(replay_args(e, cp, root, ref_path, replay_root=os.path.join(root, name), **kw), runner=N24Runner(D("2026-11-13")), repo=e.root)
+
+        write_ref({})                                                                              # эталон ≠ выходам: ворота не пройдены, код 3, итог записан
+        assert replay("replay") == 3
+        res = read_json(root, "replay", "gate-638c.json")
+        assert res["ok"] is False and all(not v["equal"] for v in res["windows"].values()) and res["n24"]["status"] == "read" and res["feat_bin_md5"] == sha_of(FEAT_BYTES)[1]
+        assert os.path.exists(os.path.join(root, "replay", "wa"))
+        shas = {(w, f): x["sha256"] for w, v in res["windows"].items() for f, x in v["files"].items()}
+        assert len(shas) == 12 and len(set(shas.values())) > 3
+        write_ref(shas)                                                                            # эталон = выходам (чистый корень): итог ok, код 0
+        out2 = os.path.join(root, "gate-638c-2.json")
+        assert replay("replay2", out=out2) == 0
+        res2 = read_json(out2)
+        assert res2["ok"] is True and all(v["equal"] for v in res2["windows"].values()) and res2["keys"] == c["cells"]["L_n24"]["keys"] and res2["candidate_commit"] == "c0ffee"
+        assert res2["n24"]["m24_share"] == 0.0 and res2["n24"]["no_key"] == 0 and set(res2["n24"]["windows"]) == {"wa", "wb", "wc"}
+        assert [x["credited_range"] for x in res2["n24"]["windows"].values()] == [[w.lo, w.hi] for w in rf.WINDOWS]       # replay: весь зачёт окна
+        shas[("wb", "long-trades.csv")] = "1" * 64                                                 # одно различие в одном файле — не пройдено
+        write_ref(shas)
+        assert replay("replay3", out=os.path.join(root, "g3.json")) == 3
+        res3 = read_json(root, "g3.json")
+        assert res3["windows"]["wb"]["equal"] is False and res3["windows"]["wa"]["equal"] and res3["windows"]["wc"]["equal"] and res3["windows"]["wb"]["files"]["long-daily.csv"]["equal"]
+        bad_ref = json.load(open(ref_path))
+        bad_ref["keys"] += " x=1"
+        json.dump(bad_ref, open(ref_path, "w"))
+        expect_guard(lambda: replay("replay4"), "эталон G-638a")
+        write_ref(shas)
+        late = os.path.join(root, "win", "wc", "klines", COINS[0], "%s-klines-2026-11-14.zip" % COINS[0])                  # сутки ≥ 14.11 не читаются
+        open(late, "w").close()
+        expect_guard(lambda: replay("replay5"), "позже 2026-11-13")
 
 
 def main():
