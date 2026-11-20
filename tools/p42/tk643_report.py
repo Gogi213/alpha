@@ -20,6 +20,15 @@ MONTHS = ("июль", "август", "сентябрь", "октябрь", "01�
 FORM_TXT = {"none": "только `s`", "ls0.5": "`ls=0.5`", "ls1": "`ls=1`", "c3": "`sn=3`", "c5": "`sn=5`", "lin": "`sn=3` лин.", "geo": "`sn=3` геом. + `bm=1`", "step": "`sn=3` шаг + `bm=1`"}
 
 
+SEEN = {("L", "B_off_off"): "wa", ("S", "B_off_off"): "wb", ("L", "A_s3_none"): "wa"}     # суммы net окна видены при разборе охраны G7 (отступление)
+
+
+def nm(side, cid):
+    """Имя клетки в таблице; у клеток, чья сумма окна видена при разборе охраны, и у сочетаний D с ними — пометка."""
+    seen = [k[1] for k in SEEN if k[0] == side and (cid == k[1] or ("+" + k[1] + "+") in ("+" + cid[2:] + "+" if cid.startswith("D_") else ""))]
+    return "`%s`" % cid + ("".join(" (сумма %s видена при разборе охраны)" % SEEN[(side, c)] for c in seen))
+
+
 def f(x, d=2, sign=False):
     if x is None or (isinstance(x, float) and math.isnan(x)):
         return "—"
@@ -73,7 +82,7 @@ def main():
         L += ["### Десять клеток с наибольшей Δ $/сделку (описательно, «найдено на этих данных»; не «лучшие»: отбор из %d клеток)" % v["m"], "", HDR + " ворота (а…ж) |", SEP + "---|", row("база", C[s]["base"], base=True) + " — |"]
         for c in top:
             g = v["cells"][c]["gates"]
-            L.append(row("`%s`" % c, cells[c]) + " %s |" % "".join(k if g[k] else "·" for k in "abcdefg"))
+            L.append(row(nm(s, c), cells[c]) + " %s |" % "".join(k if g[k] else "·" for k in "abcdefg"))
         L.append("")
         # блок A: матрица s × форма (Δ $/сделку)
         L += ["### Блок A — стоп: Δ $/сделку к базе (строки — форма, столбцы — `s`, %)", "", "| форма | " + " | ".join(t.fmt(x) for x in t.S_VALS) + " |", "|---|" + "---|" * len(t.S_VALS)]
@@ -96,12 +105,12 @@ def main():
             (r["rr"]["stops"]["n"] and C[s]["base"]["rr"]["stops"]["n"] and r["rr"]["stops"]["mean_loss_pct"] >= 0.75 * C[s]["base"]["rr"]["stops"]["mean_loss_pct"]) or r["maxdd"] <= 0.75 * C[s]["base"]["maxdd"])]
         L += ["", "### Срез «риск» (описательно): убыток стопа или просадка ниже базы на ≥ 25 %% при ΔΣ ≥ −1·SE — %d клеток" % len(risk), ""]
         if risk:
-            L += [HDR, SEP] + [row("`%s`" % c, cells[c]) for c in sorted(risk, key=lambda c: -cells[c]["delta"]["dsum"])[:15]]
+            L += [HDR, SEP] + [row(nm(s, c), cells[c]) for c in sorted(risk, key=lambda c: -cells[c]["delta"]["dsum"])[:15]]
             if len(risk) > 15:
                 L.append("(ещё %d — в `cells-all.md`)" % (len(risk) - 15))
         if s in D:
             L += ["", "### Блок D — сочетания двух лучших клеток A, B, C (описательно: **выбрано по P&L тех же 136 суток, 0 испытаний, вне Холма**)", "", HDR, SEP]
-            L += [row("`%s`" % c, r) for c, r in sorted(D[s]["cells"].items(), key=lambda kv: -kv[1]["delta"]["d"])]
+            L += [row(nm(s, c), r) for c, r in sorted(D[s]["cells"].items(), key=lambda kv: -kv[1]["delta"]["d"])]
         g = G[s]
         fz = {c: r["forced"] for c, r in g.items() if r["forced"]}
         mh = max(g.items(), key=lambda kv: kv[1]["max_hold_d"])
@@ -117,7 +126,7 @@ def main():
         A += ["## %s" % SIDE[s], "", HDR + " ворота |", SEP + "---|", row("база", C[s]["base"], base=True) + " — |"]
         for c, r in C[s]["cells"].items():
             g = V[s]["cells"][c]["gates"]
-            A.append(row("`%s`" % c, r) + " %s |" % "".join(k if g[k] else "·" for k in "abcdefg"))
+            A.append(row(nm(s, c), r) + " %s |" % "".join(k if g[k] else "·" for k in "abcdefg"))
         A.append("")
     open(os.path.join(OUT, NAME, "cells-all.md"), "w", encoding="utf-8", newline="\n").write("\n".join(A) + "\n")
 
