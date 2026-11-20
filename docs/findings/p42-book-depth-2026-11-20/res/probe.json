@@ -1,0 +1,44 @@
+{
+ "crypto 2026-09-15": {
+  "contracts": 539,
+  "live": 528,
+  "live_ok": 528,
+  "ok": 528,
+  "err": 0
+ },
+ "crypto 2026-10-15": {
+  "contracts": 539,
+  "live": 525,
+  "live_ok": 525,
+  "ok": 525,
+  "err": 0
+ },
+ "crypto 2026-11-12": {
+  "contracts": 539,
+  "live": 522,
+  "live_ok": 522,
+  "ok": 522,
+  "err": 0
+ },
+ "tradfi 2026-09-15": {
+  "contracts": 236,
+  "live": 190,
+  "live_ok": 190,
+  "ok": 190,
+  "err": 0
+ },
+ "tradfi 2026-10-15": {
+  "contracts": 236,
+  "live": 220,
+  "live_ok": 220,
+  "ok": 220,
+  "err": 0
+ },
+ "tradfi 2026-11-12": {
+  "contracts": 236,
+  "live": 236,
+  "live_ok": 234,
+  "ok": 234,
+  "err": 0
+ }
+}
