@@ -1,0 +1,405 @@
+{
+ "version": "tk641-frozen-1",
+ "protocol": "П-42 §13.38 (TK-641): кандидат вперёд `L_mk2`; аудит TK-637 строка 4; правило деления α §13.28.1 п. 3",
+ "decision": "решение координатора `thr_ty6ae9r46y` (В-165): `L_mk2` прошёл предзаписанный G_mk на 775 (G-626c) — проверить вперёд отдельным кандидатом; PASS критика `thr_sia32k2tr5` на `d56bcce2b` (условия C1–C3)",
+ "read_before_commit": "суток ≥ 17.11 этим тредом не читалось; маркеров `READ-*` в /data/p42-tk616/fwd и /data/p42-tk626 нет (охрана `tk641_report.guards`, 20.11)",
+ "base_freeze": {
+  "file": "docs/research/freeze/tk626-frozen.json",
+  "version": "tk626-frozen-1",
+  "sha256": "b9bd9258b076483c7e545b73eeb9491feae218391446338f21ffbc5dd9e88b5d",
+  "untouched": true
+ },
+ "prev_candidate": {
+  "file": "docs/research/freeze/tk638-frozen.json",
+  "version": "tk638-frozen-1",
+  "sha256": "74ffaf0aaec872572e6bb8e461399f8a89b66dff568c573a3d66d70f786e9a8e",
+  "untouched": true,
+  "note": "α этого файла перекрывают α tk638 и tk626 (цепочка tk626 → tk638 → tk641)"
+ },
+ "binary": {
+  "md5": "396989e9d0ad34d19f9b512a659c8e8e",
+  "sha256": "470046d924392f0eab60ee730c43eb943c17913463857458e93b702127ac7fe0",
+  "path": "/data/p42-tk616/alpha-mk.396989e9"
+ },
+ "universe": {
+  "read": [
+   "all",
+   "crypto",
+   "tradfi"
+  ],
+  "decision": "all",
+  "base": {
+   "all": {
+    "sha256": "29a60d33be10c4e4cb0b86c28922edcbad5564013df00fbf93f3fb4aa3eb3c32",
+    "n": 775
+   },
+   "crypto": {
+    "sha256": "ac662b4076e44e834cdcbee1602e590c7a045cf9c2cb2fece24191715ff48750",
+    "n": 539
+   },
+   "tradfi": {
+    "sha256": "0932553b5225e40d0773e1a8219d9b8aa94d831dcd96ee7ace92c4a11bd1af59",
+    "n": 236
+   }
+  },
+  "contracts_sha256": "4b51e9aad05b4652c50bc6030ba11aaa1fa362ecf5e3b877b1bac735e514d328",
+  "contracts_files": {
+   "git": "docs/findings/p42-honest-universe-2026-11-19/contracts.csv",
+   "srv": "/data/p42-tk621/universe/contracts.csv"
+  },
+  "listing_after": "2026-11-13",
+  "t24": "12"
+ },
+ "point_shares": {
+  "L2": 0.04,
+  "L3": 0.1,
+  "L4": 0.2,
+  "L5": 0.66
+ },
+ "points": [
+  {
+   "id": "L1",
+   "d": "2026-11-30",
+   "entries_to": "2026-11-26",
+   "windows": [
+    "w1"
+   ],
+   "decision": false
+  },
+  {
+   "id": "L2",
+   "d": "2026-12-31",
+   "entries_to": "2026-12-27",
+   "windows": [
+    "w1",
+    "w2"
+   ],
+   "decision": true
+  },
+  {
+   "id": "L3",
+   "d": "2027-01-31",
+   "entries_to": "2027-01-27",
+   "windows": [
+    "w1",
+    "w2"
+   ],
+   "decision": true
+  },
+  {
+   "id": "L4",
+   "d": "2027-02-28",
+   "entries_to": "2027-02-24",
+   "windows": [
+    "w1",
+    "w2",
+    "w3"
+   ],
+   "decision": true
+  },
+  {
+   "id": "L5",
+   "d": "2027-03-31",
+   "entries_to": "2027-03-27",
+   "windows": [
+    "w1",
+    "w2",
+    "w3",
+    "w4"
+   ],
+   "decision": true
+  }
+ ],
+ "windows": [
+  {
+   "name": "w1",
+   "t0": "2026-10-16",
+   "lo": "2026-11-17",
+   "hi": "2026-12-24"
+  },
+  {
+   "name": "w2",
+   "t0": "2026-11-23",
+   "lo": "2026-12-25",
+   "hi": "2027-01-31"
+  },
+  {
+   "name": "w3",
+   "t0": "2026-12-31",
+   "lo": "2027-02-01",
+   "hi": "2027-03-10"
+  },
+  {
+   "name": "w4",
+   "t0": "2027-02-07",
+   "lo": "2027-03-11",
+   "hi": "2027-04-17"
+  },
+  {
+   "name": "w5",
+   "t0": "2027-03-17",
+   "lo": "2027-04-18",
+   "hi": "2027-05-25"
+  }
+ ],
+ "cells": {
+  "L_mk2": {
+   "side": "L",
+   "base_cell": "L_base",
+   "base_keys": "lat=4 latx=4 pk=1 pb=1 fh=4 fk=120 fm=50 fb=0.5 ew=5 ex=0 rf=0.2 rs=20 t24=12",
+   "base_vid": "c3dacae86b422",
+   "keys": "lat=4 latx=4 pk=1 pb=1 fh=4 fk=120 fm=50 fb=0.5 ew=5 ex=0 rf=0.2 rs=20 mk=2 t24=12",
+   "vid": "cf280a1e8fc7c",
+   "family": false,
+   "candidate": true
+  }
+ },
+ "alpha": {
+  "S_base": 0.02,
+  "S_mk1": 0.01,
+  "L_base": 0.01,
+  "L_n24": 0.005,
+  "L_mk2": 0.005
+ },
+ "alpha_k": {
+  "S_base": {
+   "L2": 0.0008,
+   "L3": 0.002,
+   "L4": 0.004,
+   "L5": 0.0132
+  },
+  "S_mk1": {
+   "L2": 0.0004,
+   "L3": 0.001,
+   "L4": 0.002,
+   "L5": 0.0066
+  },
+  "L_base": {
+   "L2": 0.0004,
+   "L3": 0.001,
+   "L4": 0.002,
+   "L5": 0.0066
+  },
+  "L_n24": {
+   "L2": 0.0002,
+   "L3": 0.0005,
+   "L4": 0.001,
+   "L5": 0.0033
+  },
+  "L_mk2": {
+   "L2": 0.0002,
+   "L3": 0.0005,
+   "L4": 0.001,
+   "L5": 0.0033
+  }
+ },
+ "alpha_split_rule": "§13.28.1 п. 3: кандидаты берут α только из доли α(S_base): 0,025 (tk638) → 0,020 (`S_base`) + 0,005 (`L_mk2`); `L_n24` 0,005, `S_mk1` 0,01, `L_base` 0,01 без изменений; сумма 0,05",
+ "decision_rule": "`tk616_forward.decide` (§13.28 п. 7 дословно), одно прочтение на точку, решающая вселенная `all`; L1 описательно",
+ "selection": {
+  "mark": "найдено на этих данных",
+  "gate": {
+   "name": "G-626c (G_mk §13.28 п. 6 на 775)",
+   "sum_usd": 180.83,
+   "trades": 327,
+   "mean_usd": 0.553,
+   "p": 0.0057,
+   "holm_threshold": 0.0167,
+   "positive_months": 5,
+   "pass": true
+  },
+  "describe_h775": {
+   "L_mk2": {
+    "trades": 327,
+    "sum_usd": 180.83,
+    "mean_usd": 0.553,
+    "usd_per_day": 1.33,
+    "sharpe": 3.41,
+    "lo90": 0.194,
+    "hi90": 0.912,
+    "rr": 1.85,
+    "stops": 0,
+    "maxdd_usd": 37.5,
+    "months": {
+     "июль": {
+      "trades": 71,
+      "sum_usd": 12.4
+     },
+     "август": {
+      "trades": 68,
+      "sum_usd": 31.4
+     },
+     "сентябрь": {
+      "trades": 73,
+      "sum_usd": 77.0
+     },
+     "октябрь": {
+      "trades": 75,
+      "sum_usd": 30.2
+     },
+     "01–13.11": {
+      "trades": 40,
+      "sum_usd": 29.9
+     }
+    }
+   },
+   "L_base": {
+    "trades": 428,
+    "sum_usd": 193.17,
+    "mean_usd": 0.451,
+    "usd_per_day": 1.42,
+    "sharpe": 1.96,
+    "lo90": -0.051,
+    "hi90": 0.928,
+    "rr": 1.24,
+    "stops": 21,
+    "maxdd_usd": 108.0,
+    "months": {
+     "июль": {
+      "trades": 96,
+      "sum_usd": -4.1
+     },
+     "август": {
+      "trades": 91,
+      "sum_usd": 91.8
+     },
+     "сентябрь": {
+      "trades": 100,
+      "sum_usd": 61.8
+     },
+     "октябрь": {
+      "trades": 92,
+      "sum_usd": -20.8
+     },
+     "01–13.11": {
+      "trades": 49,
+      "sum_usd": 64.5
+     }
+    }
+   },
+   "L_n24": {
+    "trades": 181,
+    "sum_usd": 294.31,
+    "mean_usd": 1.626,
+    "usd_per_day": 2.16,
+    "sharpe": 5.11,
+    "lo90": 0.918,
+    "hi90": 2.329,
+    "rr": 1.68,
+    "stops": 5,
+    "maxdd_usd": 33.7,
+    "months": {
+     "июль": {
+      "trades": 45,
+      "sum_usd": 88.1
+     },
+     "август": {
+      "trades": 41,
+      "sum_usd": 74.0
+     },
+     "сентябрь": {
+      "trades": 41,
+      "sum_usd": 50.0
+     },
+     "октябрь": {
+      "trades": 37,
+      "sum_usd": 76.2
+     },
+     "01–13.11": {
+      "trades": 17,
+      "sum_usd": 6.0
+     }
+    }
+   },
+   "S_base": {
+    "trades": 319,
+    "sum_usd": 223.14,
+    "mean_usd": 0.7,
+    "usd_per_day": 1.64,
+    "sharpe": 4.12,
+    "lo90": 0.295,
+    "hi90": 1.083,
+    "rr": 2.63,
+    "stops": 7,
+    "maxdd_usd": 55.8,
+    "months": {
+     "июль": {
+      "trades": 77,
+      "sum_usd": 69.8
+     },
+     "август": {
+      "trades": 81,
+      "sum_usd": 53.2
+     },
+     "сентябрь": {
+      "trades": 67,
+      "sum_usd": 2.8
+     },
+     "октябрь": {
+      "trades": 65,
+      "sum_usd": 70.9
+     },
+     "01–13.11": {
+      "trades": 29,
+      "sum_usd": 26.4
+     }
+    }
+   }
+  },
+  "overlap": {
+   "L_base": {
+    "corr_daily": 0.452,
+    "jaccard_coinday": 0.757,
+    "common": 163,
+    "share_of_a": 0.498,
+    "share_of_b": 0.381,
+    "jaccard_sig": 0.275,
+    "sum_common_a": 171.144,
+    "sum_common_b": 280.781,
+    "sum_only_a": 9.684,
+    "sum_only_b": -87.614,
+    "n_only_a": 164,
+    "n_only_b": 265
+   },
+   "L_n24": {
+    "corr_daily": 0.462,
+    "jaccard_coinday": 0.402,
+    "common": 78,
+    "share_of_a": 0.239,
+    "share_of_b": 0.431,
+    "jaccard_sig": 0.181,
+    "sum_common_a": 116.466,
+    "sum_common_b": 194.208,
+    "sum_only_a": 64.363,
+    "sum_only_b": 100.102,
+    "n_only_a": 249,
+    "n_only_b": 103
+   },
+   "S_base": {
+    "corr_daily": 0.006,
+    "jaccard_coinday": 0.008,
+    "hold_overlap_pairs": 0
+   }
+  },
+  "noise": {
+   "n_cells": 8,
+   "cells": "G_mk на 566 (TK-616) + на 775 (G-626c): L_mk1, L_mk2, S_mk1, S_mk2 × 2",
+   "sharpe": 3.41,
+   "sharpe_se": 1.65,
+   "noise_max_sharpe": 2.41,
+   "deflated_sharpe": 1.0,
+   "t_deflated": 0.6,
+   "survives_5pct": false,
+   "note": "SE — для 136 независимых суток, без поправки на автокорреляцию и хвосты (`selection_bias.py`)"
+  }
+ },
+ "gates": {
+  "G-626c": {
+   "results_sha256": "333b1f708581d64d62193439cf1d5bc8c9522d8038d3af54bb2635d7552ef45e",
+   "outputs": "/data/p42-tk626/gmk/out/<wa|wb|wc>/cf280a1e8fc7c/long-*"
+  },
+  "report_sha256": "c397933e9b24ef07f652caaaedeb2c35b32bc807fb512b9070af17ab76447eb2",
+  "report": "docs/findings/p42-lmk2-forward-2026-11-20/res/tk641-report.json (`tools/p42/tk641_report.py`)"
+ },
+ "tool_note": "C1–C3 критика: `tk616_forward.py` требует этот файл при его наличии в цепочке (нет — остановка, без возврата к α tk638); `--no-candidate2` — α применяются, `L_mk2` не читается (в маркер); C3 — `replay-mk2` побайтно против выходов G-626c; отдельным коммитом до L1 (30.11)",
+ "ref": "docs/research/P-42-level-breakout.md §13.38; docs/findings/p42-lmk2-forward-2026-11-20.md; kb/task/TK-641.md"
+}
