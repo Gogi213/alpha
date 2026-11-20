@@ -106,7 +106,7 @@ def month_of(tok):
 
 def side_word(x):
     t = x.lower()
-    lo, sh = bool(re.search(r"лонг|long", t)), bool(re.search(r"шорт|short", t))
+    lo, sh = bool(re.search(r"\b(?:лонг|long)", t)), bool(re.search(r"\b(?:шорт|short)", t))
     return "long" if lo and not sh else "short" if sh and not lo else None
 
 
@@ -317,9 +317,11 @@ def rows_from_csv(repo, f, p42):
 # ── таблицы отчётов md — «из текста» (числа напечатаны скриптом счёта в отчёт, но читаются из текста): только таблица,
 # где ровно одна колонка сделок и ровно одна колонка суммы $; иначе таблица пропускается (не угадывать, п. 9).
 MD_TRADES = re.compile(r"^(?:сделок|сделки|сд\.?|n|N|trades)$")
-MD_SUM = re.compile(r"(?i)(?:сумма|итог|σ|Σ|p&l|sum)[^|]*\$|\$\s*(?:итог|сумма)|^Σ\s*\$$|^\$$")
+MD_SUM = re.compile(r"(?i)(?:сумма|итог|всего|σ|Σ|p&l|sum)[^|]*\$|\$\s*(?:итог|сумма)|^Σ\s*\$$|^\$$")
 MD_NOT_SUM = re.compile(r"(?i)/\s*сут|/\s*сд|сделку|в сутки|за сутки|на сделку|bps|%|Δ|без |нижн|верхн|SE")
-MD_MEAN = re.compile(r"(?i)^(?:среднее|ср\.?)[^|]*\$\s*/\s*сд|^\$\s*/\s*(?:сделку|сд\.?)(?:\s|$)|^средн\w* сделка, \$")
+MD_MEAN = re.compile(r"(?i)^(?:среднее|ср\.?)[^|]*\$\s*/\s*сд|^\$\s*/\s*(?:сделку|сд\.?)(?:\s|$)|^средн\w* сделка, \$|^среднее на сделку(?:, \$)?$")
+MD_SUM_EXACT = re.compile(r"^(?:сумма,? \$|Σ,? \$)$")  # из нескольких колонок суммы — точная
+MD_SUM_BARE = re.compile(r"^(?:сумма|Σ)$")  # без $ — только у П-42 (номинал 500 $)
 MD_SHARPE = re.compile(r"(?i)^(?:шарп|sharpe)(?:\s*\(?год\w*\)?)?$")
 MD_WIN = re.compile(r"(?i)^(?:окно|месяц|половина|период)$")
 MD_VERDICT = re.compile(r"(?i)^(?:вердикт|чтение|итог чтения)$")
@@ -346,17 +348,24 @@ def md_cells(line):
 
 def rows_from_md(repo, f, p42):
     lines = (repo.root / f).read_text(encoding="utf-8").splitlines()
-    out, i, heading = [], 0, ""
+    out, i, heading, hstack = [], 0, "", {}
     fside = side_word(Path(f).stem)
     while i < len(lines) - 1:
         if lines[i].startswith("#"):
             heading = lines[i].lstrip("#").strip()
+            lvl = len(lines[i]) - len(lines[i].lstrip("#"))
+            hstack = {k: v for k, v in hstack.items() if k < lvl}
+            hstack[lvl] = heading
         if not (lines[i].startswith("|") and re.match(r"^\|[\s:|-]*-[\s:|-]*\|?\s*$", lines[i + 1])):
             i += 1
             continue
         head = [re.sub(r"\*|`", "", h).strip() for h in md_cells(lines[i])]
         tcols = [j for j, h in enumerate(head) if MD_TRADES.match(h)]
         scols = [j for j, h in enumerate(head) if MD_SUM.search(h) and not MD_NOT_SUM.search(h)]
+        if len(scols) > 1:
+            scols = [j for j in scols if MD_SUM_EXACT.match(head[j])]
+        if not scols and p42:
+            scols = [j for j, h in enumerate(head) if MD_SUM_BARE.match(h)]
         mcols = [j for j, h in enumerate(head) if MD_MEAN.search(h)]
         shcols = [j for j, h in enumerate(head) if MD_SHARPE.match(h)]
         wcols = [j for j, h in enumerate(head) if MD_WIN.match(h)]
@@ -364,8 +373,17 @@ def rows_from_md(repo, f, p42):
         j = i + 2
         while j < len(lines) and lines[j].startswith("|"):
             j += 1
+        # подпись таблицы — строка перед ней, кончающаяся «:» («лонг, D = 7 сут., …:»): часть клетки, сторона из неё
+        k = i - 1
+        while k >= 0 and not lines[k].strip():
+            k -= 1
+        cap = lines[k].strip() if k >= 0 and lines[k].strip().endswith(":") and not lines[k].startswith(("|", "#")) else ""
+        cap = re.sub(r"\*|`|\s*\([^)]*\)", "", cap).rstrip(":").strip()[:120]
+        hpath = " / ".join(hstack[x] for x in sorted(hstack))
         coin_table = any(re.match(r"(?i)^(?:№|монета|монеты|coin|symbol|символ|контракт)$", h) for h in head[:2])
-        if len(tcols) == 1 and len(scols) == 1 and not coin_table:  # таблица по монетам — не клетки
+        # без суммы — только «сделок» + одна колонка «$/сделку» (колонка «N» без суммы — номер варианта, не сделки)
+        mean_only = not scols and len(mcols) == 1 and len(tcols) == 1 and head[tcols[0]] not in ("n", "N")
+        if len(tcols) == 1 and (len(scols) == 1 or mean_only) and not coin_table:  # таблица по монетам — не клетки
             used = set(tcols + scols + mcols + shcols + wcols + vcols)
             labc = []  # подписи — ведущие колонки до первой колонки чисел
             for k, h in enumerate(head):
@@ -376,8 +394,8 @@ def rows_from_md(repo, f, p42):
                 c = md_cells(lines[ln])
                 if len(c) < len(head):
                     continue
-                n, u = md_num(c[tcols[0]]), md_num(c[scols[0]])
-                if n is None or u is None or n != int(n):
+                n, u = md_num(c[tcols[0]]), (md_num(c[scols[0]]) if scols else None)
+                if n is None or (u is None and not mean_only) or n != int(n):
                     continue
                 lab = [re.sub(r"`|\*", "", c[k]).strip() for k in labc if c[k].strip()]
                 if any(COIN_RE.search(x) for x in lab):
@@ -385,21 +403,30 @@ def rows_from_md(repo, f, p42):
                 side = None
                 for x in lab:
                     side = side or (side_of(x.split()[0]) if x.split() else None) or side_word(x)
-                side = side or side_word(heading) or fside  # сторона — из строки, иначе из заголовка раздела / имени отчёта
+                side = side or side_word(cap) or side_word(heading) or fside  # сторона — из строки, иначе из заголовка раздела / имени отчёта
                 mean = md_num(c[mcols[0]]) if len(mcols) == 1 else None
+                if mean_only and mean is None:
+                    continue
                 sh = md_num(c[shcols[0]]) if len(shcols) == 1 else None
                 vt = re.sub(r"\*", "", c[vcols[0]]).strip().lower() if len(vcols) == 1 else ""
-                um = re.search(r"(?<![\d.,])(h775|o566|775|566)(?![\d.,])", " ".join(lab)) if p42 else None
-                row = {"side": side, "cell": " / ".join(lab) or "—", "uni": {"775": "h775", "566": "o566"}.get(um.group(1), um.group(1)) if um else None,
+                um = None
+                for t in ([" ".join(lab), cap, hpath] if p42 else []):
+                    um = um or re.search(r"(?<![\d.,])(h775|o566|t544|775|566|544)(?![\d.,])", t)
+                row = {"side": side, "cell": " / ".join(([cap] if cap else []) + lab) or "—",
+                       "uni": {"775": "h775", "566": "o566", "544": "t544"}.get(um.group(1), um.group(1)) if um else None,
                        "win": c[wcols[0]] if len(wcols) == 1 else None,
                        "trades": int(n), "verdict": vt if vt in TEXT_VERDICTS else None, "same_data": None, "from_text": 1,
                        "src": f, "src_ptr": "строка %d" % (ln + 1)}
-                extra = {"head": " | ".join(head)[:300], "section": heading[:200]}
+                extra = {"head": " | ".join(head)[:300], "section": hpath[:300]}
                 if p42:
-                    row.update(usd=u, mean_usd=mean if mean is not None else (u / n if n else None), sharpe=sh)
+                    row.update(usd=u, mean_usd=mean if mean is not None else (u / n if n and u is not None else None), sharpe=sh)
                 else:
                     row.update(usd=None, mean_usd=None, sharpe=None)
-                    extra.update(usd_raw=u, note="ставка в отчёте не названа — $ не пересчитан на 500 $")
+                    extra["note"] = "ставка в отчёте не названа — $ не пересчитан на 500 $"
+                    if u is not None:
+                        extra["usd_raw"] = u
+                    if mean is not None:
+                        extra["mean_raw"] = mean
                     if sh is not None:
                         extra["sharpe_raw"] = sh
                 row["extra"] = extra
