@@ -236,6 +236,19 @@ class TestParse(Base):
         st = self.st.import_docs(docs, [])["docs/research/P-90-test.md"]
         self.assertEqual((st["new"], st["amended"], st["reused"]), (1, 1, 4))
         self.assertEqual(self.st.check_db(), [])
+        # новый раздел в середине, заголовки подпунктов повторяют старые («7. Подпункт»): не поправки, место — между соседями
+        v3 = PROTO.replace("текст\n", "текст 2\n").replace("## Приложение А", "## 13.29 Новый — записано 20.11.2026 ДО счёта\n"
+                                                            "#### 7. Подпункт\nдругое\n#### 11a. Буква\nб\n## Приложение А") + "## 14. Новое\n"
+        (root / "docs" / "research" / "P-90-test.md").write_text(v3, encoding="utf-8", newline="\n")
+        docs = chron.build_docs(root, ["docs/research/P-90-test.md"], [], None)
+        st = self.st.import_docs(docs, [])["docs/research/P-90-test.md"]
+        self.assertEqual((st["new"], st["amended"]), (3, 0))
+        self.assertEqual(self.st.reconstruct("docs/research/P-90-test.md"), v3)
+        rows = self.st.c.execute("SELECT num, amends FROM psec WHERE protocol='P-90-test' AND (amends IS NULL OR num IS NOT NULL) ORDER BY ord, id").fetchall()
+        nums = [r[0] for r in rows]
+        self.assertEqual(nums[-5:], ["13.29", "13.29 п. 7", "13.29 п. 11a", None, "14"])  # новые — до «Приложения», не в конце
+        self.assertEqual(sum(1 for r in rows if r[0] and r[0].startswith("13.29") and r[1]), 0)
+        self.assertEqual(self.st.check_db(), [])
 
     def test_crlf_checkout_same_rows(self):
         """Файл после checkout с autocrlf (CRLF) — те же строки, что блоб git (LF): повторный перенос ничего не дублирует."""

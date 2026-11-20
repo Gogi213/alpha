@@ -406,6 +406,8 @@ class Store:
                         self.c.execute("INSERT OR REPLACE INTO meta VALUES (?,?)", ("main:" + p["short"], p["id"]))
                 pending = []
                 used = set()
+                if d.get("protocol"):
+                    self._plan_sections(d)
                 for i, ch in enumerate(d["chunks"]):
                     if ch["kind"] == "frame":
                         self.c.execute("INSERT INTO chunk VALUES (?,?,?,?,?)", (ver, i, None, ch["text"], ""))
@@ -433,6 +435,33 @@ class Store:
         for d in docs:
             stats[d["path"]]["back_sha256"] = sha(self.reconstruct(d["path"]))
         return stats
+
+    def _plan_sections(self, d):
+        """До вставки: какие разделы файла уже есть в БД (тот же текст), место (ord) новых — между соседями по файлу,
+        и разделы прошлой версии, которых в файле больше нет (кандидаты в «изменённые»)."""
+        pid, used, secs = d["protocol"]["id"], set(), [ch for ch in d["chunks"] if ch["kind"] == "psec"]
+        for ch in secs:
+            excl = ",".join(str(u) for u in used) or "0"
+            row = self.c.execute("SELECT id, ord FROM psec WHERE protocol=? AND h=? AND id NOT IN (%s) ORDER BY id LIMIT 1" % excl,
+                                 (pid, sha(ch["body"]))).fetchone()
+            ch["_ord"] = row[1] if row else None
+            if row:
+                used.add(row[0])
+        for i, ch in enumerate(secs):
+            if ch["_ord"] is not None:
+                continue
+            j = i
+            while j < len(secs) and secs[j]["_ord"] is None:
+                j += 1
+            p = secs[i - 1]["_ord"] if i else None
+            n = secs[j]["_ord"] if j < len(secs) else None
+            for k, c in enumerate(secs[i:j], 1):
+                c["_ord"] = (float(d["chunks"].index(c)) if p is None and n is None else p + k if n is None
+                             else n - (j - i + 1 - k) if p is None else p + (n - p) * k / (j - i + 1))
+        excl = ",".join(str(u) for u in used) or "0"
+        d["_gone"] = [dict(r) for r in self.c.execute(
+            "SELECT id, num, heading FROM psec WHERE protocol=? AND src LIKE ? AND id NOT IN (%s) AND id NOT IN (SELECT amends FROM psec WHERE amends IS NOT NULL)"
+            % excl, (pid, d["path"] + ":%"))]
 
     def _import_chunk(self, d, ch, i, used, st):
         h = sha(ch["body"])
@@ -465,11 +494,14 @@ class Store:
             used.add(row[0])
             st["reused"] += 1
             return "PS-%d" % row[0]
-        old = self.c.execute("SELECT id, ord FROM psec WHERE protocol=? AND heading=? AND id NOT IN (%s) ORDER BY id DESC LIMIT 1" % excl,
-                             (pid, s["heading"])).fetchone()
-        amends, ord_ = None, float(i)
-        if old:
-            amends, ord_ = old[0], old[1] + 0.001
+        # изменённый раздел = раздел прошлой версии файла с тем же номером, которого в файле больше нет (заголовок — для разрешения
+        # дублей номера); без номера или без такого раздела — новый. Совпадение одного заголовка («1. Вопрос…») поправкой не считается.
+        gone = [g for g in d.get("_gone", []) if s["num"] and g["num"] == s["num"] and g["id"] not in used]
+        if len(gone) > 1:
+            gone = [g for g in gone if g["heading"] == s["heading"]]
+        amends, ord_ = (gone[0]["id"] if len(gone) == 1 else None), ch.get("_ord", float(i))
+        if amends:
+            used.add(amends)
             st["amended"] += 1
         else:
             st["new"] += 1
@@ -1016,7 +1048,7 @@ SEC_KINDS = (("правило вердикта", "verdict_rule"), ("вердик
 
 
 def section_meta(heading, body):
-    m = re.match(r"^(?:§\s*)?(\d+(?:\.\d+)*)[.\s)]", heading + " ")
+    m = re.match(r"^(?:§\s*)?(\d+(?:\.\d+)*[a-zа-я]?)[.\s)]", heading + " ")  # «11a.» — тоже номер
     hl = fold(heading)
     kind = next((k for kw, k in SEC_KINDS if kw in hl), "other")
     am = re.search(r"α\s*(?:=|≤|<)\s*([0-9][0-9,.]*(?:\s*·\s*10\S*)?)", body)
