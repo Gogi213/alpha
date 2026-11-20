@@ -215,7 +215,7 @@ for s, d in zip(P["stages"], Wd["progress"]["stages"]):
     eq(w + " дальше", d["next"], s["next"])
     eq(w + " вопрос", d["answers"], s["answers"])
 eq("DOM шапка хода работ", Wd["progress"]["headline"], P["headline"])
-eq("этапы (TK-645): идут TK-641…644; TK-637…625 закрыты (группа «Сделано 20.11»)", ([s["id"] for s in P["stages"] if s["status"] == "running"], [(s["id"], s["status"]) for s in P["stages"] if s.get("group") == "Сделано 20.11"]), (["TK-641", "TK-642", "TK-643", "TK-644"], [("TK-637", "done"), ("TK-639", "done"), ("TK-638", "done"), ("TK-636", "done"), ("TK-634", "done"), ("TK-633", "done"), ("TK-626", "done"), ("TK-625", "done")]))
+eq("этапы (TK-645): идёт только TK-644; TK-643…625 закрыты (группа «Сделано 20.11»)", ([s["id"] for s in P["stages"] if s["status"] == "running"], [(s["id"], s["status"]) for s in P["stages"] if s.get("group") == "Сделано 20.11"]), (["TK-644"], [("TK-643", "done"), ("TK-642", "done"), ("TK-641", "done"), ("TK-637", "done"), ("TK-639", "done"), ("TK-638", "done"), ("TK-636", "done"), ("TK-634", "done"), ("TK-633", "done"), ("TK-626", "done"), ("TK-625", "done")]))
 eq("этапы: TK-615…623 на месте (группа «Сделано 19.11», TK-645)", [s["id"] for s in P["stages"] if s.get("group") == "Сделано 19.11"], ["TK-599", "TK-615", "TK-616", "TK-617", "TK-618", "TK-619", "TK-620", "TK-621", "TK-622", "TK-623"])
 eq("этапы: точки вперёд", [t["t"].split(" ")[0] for t in next(s for s in P["stages"] if s["id"] == "30.11–31.03")["steps"]], ["30.11", "31.12", "31.01", "28.02", "31.03.2027"])
 
