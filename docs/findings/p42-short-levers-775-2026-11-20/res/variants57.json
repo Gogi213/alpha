@@ -1,0 +1,206 @@
+{
+ "cells": [
+  {
+   "cid": "A_re1",
+   "block": "A",
+   "ax": {
+    "reentry": 1
+   },
+   "patch": {
+    "reentry": 1
+   }
+  },
+  {
+   "cid": "A_re2",
+   "block": "A",
+   "ax": {
+    "reentry": 2
+   },
+   "patch": {
+    "reentry": 2
+   }
+  },
+  {
+   "cid": "A_t1h_0.25",
+   "block": "A",
+   "ax": {
+    "t1h": 0.25
+   },
+   "patch": {
+    "t1h": 0.25
+   }
+  },
+  {
+   "cid": "A_t1h_0.1",
+   "block": "A",
+   "ax": {
+    "t1h": 0.1
+   },
+   "patch": {
+    "t1h": 0.1
+   }
+  },
+  {
+   "cid": "A_tf_30",
+   "block": "A",
+   "ax": {
+    "tf": 30
+   },
+   "patch": {
+    "tf": 30
+   }
+  },
+  {
+   "cid": "A_tf_240",
+   "block": "A",
+   "ax": {
+    "tf": 240
+   },
+   "patch": {
+    "tf": 240
+   }
+  },
+  {
+   "cid": "A_n_1",
+   "block": "A",
+   "ax": {
+    "n_bounce": 1
+   },
+   "patch": {
+    "n_bounce": 1
+   }
+  },
+  {
+   "cid": "A_n_3",
+   "block": "A",
+   "ax": {
+    "n_bounce": 3
+   },
+   "patch": {
+    "n_bounce": 3
+   }
+  },
+  {
+   "cid": "A_L_14",
+   "block": "A",
+   "ax": {
+    "l_days": 14
+   },
+   "patch": {
+    "l_days": 14
+   }
+  },
+  {
+   "cid": "A_L_3",
+   "block": "A",
+   "ax": {
+    "l_days": 3
+   },
+   "patch": {
+    "l_days": 3
+   }
+  },
+  {
+   "cid": "A_d_0.3",
+   "block": "A",
+   "ax": {
+    "d": 0.3
+   },
+   "patch": {
+    "d": 0.3
+   }
+  },
+  {
+   "cid": "A_d_1",
+   "block": "A",
+   "ax": {
+    "d": 1
+   },
+   "patch": {
+    "d": 1
+   }
+  },
+  {
+   "cid": "A_k_1",
+   "block": "A",
+   "ax": {
+    "k": 1
+   },
+   "patch": {
+    "k": 1
+   }
+  },
+  {
+   "cid": "A_k_3",
+   "block": "A",
+   "ax": {
+    "k": 3
+   },
+   "patch": {
+    "k": 3
+   }
+  },
+  {
+   "cid": "B_ntp_4",
+   "block": "B",
+   "ax": {
+    "n_tp": 4
+   },
+   "patch": {
+    "n_tp": 4
+   }
+  },
+  {
+   "cid": "B_ntp_12",
+   "block": "B",
+   "ax": {
+    "n_tp": 12
+   },
+   "patch": {
+    "n_tp": 12
+   }
+  },
+  {
+   "cid": "B_tlow_0.5",
+   "block": "B",
+   "ax": {
+    "t_low": 0.5
+   },
+   "patch": {
+    "t_low": 0.5
+   }
+  },
+  {
+   "cid": "B_tlow_2",
+   "block": "B",
+   "ax": {
+    "t_low": 2
+   },
+   "patch": {
+    "t_low": 2
+   }
+  },
+  {
+   "cid": "B_a_1",
+   "block": "B",
+   "ax": {
+    "a": 1
+   },
+   "patch": {
+    "a": 1
+   }
+  },
+  {
+   "cid": "B_a_3",
+   "block": "B",
+   "ax": {
+    "a": 3
+   },
+   "patch": {
+    "a": 3
+   }
+  }
+ ],
+ "m": 20,
+ "trials_noise": 54
+}
