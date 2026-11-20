@@ -2,6 +2,7 @@
 """П-42 §13.36 (TK-638): команды после PASS критика (читают P&L) — клетки движка, G8, G-base / G-pool, таблицы клеток. Помощники — `tk638_run.py`:
   python3 tk638_post.py cells --uni h775|o566    — движок `breakout tick`: клетки пула (D × H; у o566 ещё строка без ключа D) и лестницы n60 / n24 (`--ftab`), окна wa / wb / wc × стороны
   python3 tk638_post.py g8 --uni h775|o566       — G8: no_key = 0 и dropped движка = независимому пересчёту по таблицам `--ftab`
+  python3 tk638_post.py context --uni h775|o566  — связь числа сделок с оборотом (Спирмен на кандидатах), состав сделок лестниц N24 против клеток D × 0,5 (не ворота)
   python3 tk638_post.py tables --uni h775|o566   — G-base, G-pool, таблицы клеток (n, Σ $, $/сделку, Sharpe, месяцы, 90 % интервал, просадка, KPI В-120, R:R, стоп) → res/cells38-<вс>-<сторона>.json"""
 from __future__ import annotations
 
@@ -186,7 +187,44 @@ def cmd_tables(a):
     say("tables %s готово" % u.name)
 
 
-COMMANDS = {"cells": cmd_cells, "g8": cmd_g8, "tables": cmd_tables}
+def spearman(x, y):
+    import pandas as pd
+    return float(pd.Series(x).rank().corr(pd.Series(y).rank()))
+
+
+def cmd_context(a):
+    """Контекст к таблицам (не ворота): связь числа сделок с оборотом на кандидатах (Спирмен) и разложение лестниц N24 против клеток D × 0,5 по составу сделок и Σ $."""
+    u = r5.Uni(a.uni)
+    res = {}
+    for side in SIDES:
+        tabs = {w.name: t8.load_window(u, w, side) for w in st.TRADE_WINDOWS}
+        cols = {c: np.concatenate([tabs[w.name][c][t8.in_scored_range(w, tabs[w.name]["ms"])] for w in st.TRADE_WINDOWS]).astype(float) for c in ("n24", "turn24h", "n60", "turn1h")}
+        r = dict(rho_n24_turn24h=spearman(cols["n24"], cols["turn24h"]), rho_n60_turn1h=spearman(cols["n60"], cols["turn1h"]), rho_n24_n60=spearman(cols["n24"], cols["n60"]), n_cand=int(len(cols["n24"])), overlap={})
+        series = {}
+        for cid, _ in ladder_variants(u, side):
+            if cid.startswith("N24"):
+                series[cid] = load_cell(u, side, {w.name: (kind_dir(u, "ladd", w.name, side, cid), side) for w in st.TRADE_WINDOWS})[0]
+        for d in (25, 50, 100):
+            cid = t8.cell_id(d, 0.5)
+            series[cid] = load_cell(u, side, {w.name: (kind_dir(u, "pool", w.name, side, cid), side) for w in st.TRADE_WINDOWS})[0]
+        pnl = {c: dict(zip(keys_of(se), [float(v) for v in se.val])) for c, se in series.items()}
+        for lc in [c for c in series if c.startswith("N24")]:
+            for d in (25, 50, 100):
+                dc = t8.cell_id(d, 0.5)
+                A, B = pnl[lc], pnl[dc]
+                both = set(A) & set(B)
+                r["overlap"]["%s|%s" % (lc, dc)] = dict(n_ladder=len(A), n_turn=len(B), both=len(both), sum_both=float(sum(A[k] for k in both)), only_ladder=len(set(A) - both), sum_only_ladder=float(sum(A[k] for k in set(A) - both)),
+                                                        only_turn=len(set(B) - both), sum_only_turn=float(sum(B[k] for k in set(B) - both)))
+        res[side] = r
+        say("== %s %s: Спирмен n24 ~ turn24h %.3f, n60 ~ turn1h %.3f, n24 ~ n60 %.3f (кандидаты зачётных диапазонов, %d)" % (u.name, side, r["rho_n24_turn24h"], r["rho_n60_turn1h"], r["rho_n24_n60"], r["n_cand"]))
+        for k, v in r["overlap"].items():
+            if k.startswith("N24_q60") or k.startswith("N24_q20"):
+                say("   %s: лестница %d сделок, оборот %d, общих %d (Σ %+.1f $); только лестница %d (Σ %+.1f $); только оборот %d (Σ %+.1f $)" % (
+                    k, v["n_ladder"], v["n_turn"], v["both"], v["sum_both"], v["only_ladder"], v["sum_only_ladder"], v["only_turn"], v["sum_only_turn"]))
+    r4.write_json(q("res", "context38-%s.json" % u.name), res)
+
+
+COMMANDS = {"cells": cmd_cells, "g8": cmd_g8, "tables": cmd_tables, "context": cmd_context}
 
 
 def main():
