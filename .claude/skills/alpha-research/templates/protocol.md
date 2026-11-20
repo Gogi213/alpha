@@ -1,7 +1,7 @@
 # П-<NN>. <Вопрос одной строкой>
 
 **Статус:** черновик | утверждён владельцем <дата, цитата> | счёт | отчёт | закрыт
-**Реестр:** `docs/plan/EXPERIMENTS.md`, П-<NN> · **Журнал:** `docs/research/JOURNAL.md`
+**Летопись:** протокол и разделы — `python tools/chron.py psec add P-<NN> …` (раздел до счёта — `--prereg`); записи шагов — `chron.py add --project П-<NN> …` (`docs/research/CHRONICLE.md`)
 
 ## 1. Вопрос и решение
 - Вопрос: <что хотим узнать>.

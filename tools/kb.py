@@ -210,6 +210,7 @@ class Kb:
         self.title = self.cfg.get("title") or self.repo.name
         self.orphans = (self.cfg.get("check") or {}).get("orphans", "error")
         self.rel = self.dir.name
+        self.chron = self.cfg.get("chron") or ""
 
     @property
     def db_path(self):
@@ -883,6 +884,8 @@ var lg=document.getElementById('legend');lg.innerHTML=D.types.map(function(t){re
 def page(kb, title, body, root, cur, scripts=()):
     nav = "".join('<a href="%s%s"%s>%s</a>' % (root, href, ' class="cur"' if key == cur else "", label)
                   for key, href, label in (("cards", "index.html", "Карточки"), ("graph", "graph.html", "Граф")))
+    if kb.chron:
+        nav += '<a href="%s">Летопись</a><a href="%sp/">Протоколы</a>' % (kb.chron, kb.chron)
     sc = "".join('<script src="%s%s"></script>' % (root, s) for s in scripts)
     return ('<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="icon" href="data:,">'
             '<title>%s</title><link rel="stylesheet" href="%sstyle.css"></head><body>'
@@ -968,12 +971,12 @@ def build_site(kb, outdir):
             ('<span>заменена: %s</span>' % ", ".join('<a href="%s">%s</a>' % (quote(r) + ".html", html.escape(r)) for r in replaced)) if replaced else "")
         body = ("%s<h1>%s <span style=\"color:var(--mut);font-weight:400\">· %s</span></h1>"
                 "<article class=\"body\">%s</article>"
-                "<h2>Ссылки</h2>%s<h2>Обратные ссылки</h2>%s<p><a href=\"%sgraph.html#%s\">на графе</a></p>") % (
+                "<h2>Ссылки</h2>%s<h2>Обратные ссылки</h2>%s<p><a href=\"%sgraph.html#%s\">на графе</a>%s</p>") % (
             meta, html.escape(c.id), html.escape(c.title),
             md_to_html(c.body, link_for),
             ('<ul class="links">%s</ul>' % outs) if outs else "<p>—</p>",
             ('<ul class="links">%s</ul>' % ins) if ins else "<p>—</p>",
-            "../", quote(c.id))
+            "../", quote(c.id), (' · <a href="%sn/%s">в летописи</a>' % (kb.chron, quote(c.id))) if kb.chron else "")
         (outdir / "c" / (c.id + ".html")).write_text(page(kb, c.id + " — " + c.title, body, "../", "cards"), encoding="utf-8", newline="\n")
     return len(cards)
 

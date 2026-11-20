@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# TK-629: собрать сайт kb и выложить на srv:8091 (юнит kb-page, /data/pages/kb); образец — ml-page-8090. Запуск из любого места: bash tools/kb_deploy.sh
+# TK-629: собрать сайт kb и выложить на srv:8091 (юнит kb-page, /data/pages/kb); образец — ml-page-8090. TK-646: + узлы kb в летопись. Запуск из любого места: bash tools/kb_deploy.sh
 # Сначала `kb check` (красный — выкладка не идёт). Юнит создаётся при первом запуске; существующий не трогается (страница статическая, перезапуск не нужен).
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -17,7 +17,14 @@ mkdir -p /data/pages/kb
 rm -rf /data/pages/kb/c
 cp -a /data/pages/kb_new/. /data/pages/kb/
 rm -rf /data/pages/kb_new
-systemctl is-active --quiet kb-page || systemd-run --unit=kb-page -p Restart=always -p Nice=19 --collect /usr/bin/python3 -m http.server "$PORT" --directory /data/pages/kb
+# TK-646: сайт отдаёт `chron.py serve` (статика kb + /chron/ из летописи); выкладка кода — tools/chron_deploy.sh
+if [ -f /data/chron/chron.py ]; then
+  systemctl is-active --quiet kb-page || systemd-run --unit=kb-page -p Restart=always -p Nice=19 --collect /usr/bin/python3 /data/chron/chron.py serve --port "$PORT" --static /data/pages/kb
+else
+  systemctl is-active --quiet kb-page || systemd-run --unit=kb-page -p Restart=always -p Nice=19 --collect /usr/bin/python3 -m http.server "$PORT" --directory /data/pages/kb
+fi
 sleep 1
 curl -s -o /dev/null -w "kb-page HTTP %{http_code}\n" "http://127.0.0.1:$PORT/"
 REMOTE
+# узлы kb в летописи (ссылки записей на карточки проверяет chron.py check)
+python tools/chron.py sync-kb

@@ -23,10 +23,10 @@ description: >
 
 | что | где |
 |---|---|
-| протокол исследования | `docs/research/P-<NN>-<тема>.md` по шаблону `templates/protocol.md` |
-| журнал (строка на шаг, включая неудачи) | `docs/research/JOURNAL.md` |
+| протокол исследования | летопись (БД на srv): `python tools/chron.py protocol new P-<NN>-<тема> "П-<NN>. …"`, разделы по шаблону `templates/protocol.md` — `chron.py psec add P-<NN> --body-file … [--prereg]`; записанный до счёта раздел неизменяем, поправка — `--amends` (`docs/research/CHRONICLE.md`) |
+| журнал (запись на шаг, включая неудачи) | летопись: `python tools/chron.py add --kind prereg / result / verdict / amend / freeze … --link <§, коммит, отчёт>` (не md; `JOURNAL.md` — заглушка) |
 | отчёт с вердиктом | `docs/findings/<тема>-<YYYY-MM-DD>.md` по `templates/report.md` |
-| реестр (строка на протокол) | `docs/plan/EXPERIMENTS.md`, раздел «П. Протоколы» |
+| реестр (что пробовали, каким значением, что вышло) | летопись: `chron.py list --project П-<NN>` / сайт http://5.231.25.224:8091/chron/ (`EXPERIMENTS.md` — заглушка) |
 | банк идей | `docs/plan/HYPOTHESES.md` (идея ≠ протокол) |
 
 ## Контракт данных — главное правило
@@ -71,7 +71,7 @@ description: >
 | 2. Честный счёт | замер честный? | издержки и задержка В-68 включены, K1-маркеры сверки, очередь `prob:3`, без заглядывания |
 | 3. Поверхность | есть край или одна удачная клетка? | для подбора — плато, а не пик; соседи того же знака |
 | 4. Поправка на поиск | не перебор ли это сделал? | счётчик испытаний, DSR/PBO, шум по дням |
-| 5. Вердикт | что делаем? | правило из протокола, без изменений; отчёт; строка журнала |
+| 5. Вердикт | что делаем? | правило из протокола, без изменений; отчёт; запись `chron.py add --kind verdict --verdict … --usd … --trades … --sharpe …` |
 
 Справочник шага читать при входе в шаг: 1 — `references/01-framing.md`; 3 — `03-surface.md`;
 4 — `04-selection-bias.md`, `07-effective-sample.md`; 5 — `05-verdict.md`, образец —
