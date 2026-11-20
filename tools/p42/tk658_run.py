@@ -142,9 +142,9 @@ def entry_e8(p_e8, s, slip):
 
 
 def gross_legs(legs, s, E):
-    """gross лота = Σ u·s·(px − E)/E (`tick.rs` ~2029); legs = [[мс, px ×1e8, u $, мейкер], …], E ×1e8 (или float)."""
+    """gross лота = Σ u·s·(px − E)/E (`tick.rs` settle ~2029); legs = [[мс, px ×1e8, u ×1e6 $, мейкер], …], E ×1e8 (или float)."""
     E = float(E)
-    return float(sum(float(u) * s * (float(px) - E) / E for _, px, u, _ in legs))
+    return float(sum(float(u) / 1e6 * s * (float(px) - E) / E for _, px, u, _ in legs))
 
 
 def gross_shift(legs, s, E, k):
@@ -154,7 +154,7 @@ def gross_shift(legs, s, E, k):
     tot = 0.0
     for _, px, u, mk in legs:
         x = float(px) if mk else float(px) * (1 - s * d)
-        tot += float(u) * s * (x - E2) / E2
+        tot += float(u) / 1e6 * s * (x - E2) / E2
     return tot
 
 

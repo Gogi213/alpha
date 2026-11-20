@@ -72,12 +72,12 @@ def test_entry_e8_matches_engine_trunc():
 
 
 def test_gross_legs_and_shift_identity():
-    legs = [[0, 1_0100_0000, 250.0, False], [0, 1_0200_0000, 250.0, True]]
+    legs = [[0, 1_0100_0000, 250e6, False], [0, 1_0200_0000, 250e6, True]]
     E = 1_0000_0000
     g = R.gross_legs(legs, 1, E)
     assert abs(g - (250 * 0.01 + 250 * 0.02)) < 1e-9
     assert abs(R.gross_shift(legs, 1, E, 1) - g) < 1e-12
-    gs = R.gross_legs([[0, 9900_0000, 500.0, False]], -1, E)
+    gs = R.gross_legs([[0, 9900_0000, 500e6, False]], -1, E)
     assert abs(gs - 500 * 0.01) < 1e-9                                  # шорт: 1 − X/E
     assert R.gross_shift(legs, 1, E, 3) < g
 
