@@ -73,12 +73,12 @@ pub fn counts_at(days: &[(i64, Option<&[i64]>)], sig_abs: i64) -> Counts {
     Counts { n60, n24, m60, m24 }
 }
 
-struct Row {
-    sym: String,
-    sig_ms: i64,
+pub(super) struct Row {
+    pub(super) sym: String,
+    pub(super) sig_ms: i64,
 }
 
-fn read_rows(path: &PathBuf, coins: Option<&[String]>) -> Result<Vec<Row>> {
+pub(super) fn read_rows(path: &PathBuf, coins: Option<&[String]>) -> Result<Vec<Row>> {
     let mut rd = csv::ReaderBuilder::new()
         .has_headers(true)
         .flexible(true)

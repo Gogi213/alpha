@@ -11,6 +11,8 @@ use alpha::breakout::feat::f12::{self, F12Cfg, StorePxSrc, ZipPxSrc};
 use alpha::breakout::feat::io::{run, Cfg, Mode, StoreCfg};
 use alpha::breakout::feat::pdcompat::parse_date;
 use alpha::breakout::feat::tcount::{self, TcCfg};
+use alpha::breakout::feat::trades::{StoreDaySrc, ZipDaySrc};
+use alpha::breakout::feat::tsize::{self, TsCfg};
 use alpha::breakout::store::{StoreOpts, TickStore};
 use anyhow::Result;
 use clap::{Args, Parser, Subcommand};
@@ -37,6 +39,8 @@ enum Cmd {
     F12(F12Opts),
     /// число сделок монеты за 60 мин / 24 ч до минуты сигнала (TK-638)
     Tcount(TcOpts),
+    /// число сделок и оборот монеты за 1 / 6 / 12 / 24 ч до минуты сигнала (TK-639)
+    Tsize(TcOpts),
 }
 
 #[derive(Args)]
@@ -44,7 +48,7 @@ struct TcOpts {
     /// CSV со столбцами `sym`, `sig_ms` (остальные игнорируются)
     #[arg(long)]
     eps: PathBuf,
-    /// CSV результата `sym,sig_ms,n60,n24,m60,m24`
+    /// CSV результата (`tcount`: `sym,sig_ms,n60,n24,m60,m24`; `tsize`: столбцы — в шапке модуля)
     #[arg(long)]
     out: PathBuf,
     /// дата, от которой отсчитан sig_ms (UTC)
@@ -240,6 +244,45 @@ fn run_tcount(o: TcOpts) -> Result<()> {
     Ok(())
 }
 
+fn run_tsize(o: TcOpts) -> Result<()> {
+    let roots: Vec<PathBuf> = o
+        .trades
+        .unwrap_or_else(|| env_or("SIGFEAT_TRADES", "/data/aggtrades/binance"))
+        .split(':')
+        .map(PathBuf::from)
+        .collect();
+    let cfg = TsCfg {
+        eps: o.eps,
+        out: o.out,
+        base_date: o.base_date,
+        threads: o.threads,
+        coins: o
+            .coins
+            .filter(|c| !c.is_empty())
+            .map(|c| c.split(',').map(str::to_string).collect()),
+    };
+    let Some(dir) = o.store else {
+        let src = ZipDaySrc { roots };
+        println!("{}", tsize::run(&cfg, &src)?.json());
+        return Ok(());
+    };
+    let st = Arc::new(TickStore::open(&StoreOpts {
+        dir,
+        cap_gb: 0,
+        min_free_gb: 0,
+    })?);
+    let first = parse_date(&cfg.base_date)?;
+    let src = StoreDaySrc::new(&roots, &st, first, false)?;
+    let sum = tsize::run(&cfg, &src)?;
+    eprintln!(
+        "склад: {} суток из zip по отступлениям; {}",
+        src.fallback.load(Ordering::Relaxed),
+        st.summary()
+    );
+    println!("{}", sum.json());
+    Ok(())
+}
+
 fn main() -> Result<()> {
     let (mode, o) = match Cli::parse().cmd {
         Cmd::Flow(o) => (Mode::Flow, o),
@@ -247,6 +290,7 @@ fn main() -> Result<()> {
         Cmd::All(o) => (Mode::All, o),
         Cmd::F12(o) => return run_f12(o),
         Cmd::Tcount(o) => return run_tcount(o),
+        Cmd::Tsize(o) => return run_tsize(o),
     };
     let trades = o
         .trades
