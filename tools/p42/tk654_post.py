@@ -111,6 +111,25 @@ def delta90(Sc, Nc, Sr, Nr):
     return dict(d_mean=d.d, lo90=float(lo), hi90=float(hi), p_le0=d.p, d_sum=d.dsum, sum_lo90=float(slo), sum_hi90=float(shi))
 
 
+GMK_MK2 = "/data/p42-tk626/gmk/out/%s/cf280a1e8fc7c"     # замороженный `L_mk2` (TK-641, G-626c)
+
+
+def frozen_refs():
+    """Сделки замороженных лонговых кандидатов: `L_n24` (TK-638 `N24_q60`) и `L_mk2` (TK-641) — для пересечения (условие критика 20.11)."""
+    out = {}
+    for name, dirs in (("L_n24", {w.name: (p8.kind_dir(U, "ladd", w.name, "L", "N24_q60"), "L") for w in st.TRADE_WINDOWS}),
+                       ("L_mk2", {w.name: (GMK_MK2 % w.name, "L") for w in st.TRADE_WINDOWS})):
+        ser, _, _ = p8.load_cell(U, "L", dirs)
+        out[name] = set(p8.keys_of(ser))
+    return out
+
+
+def overlap(ks, ref):
+    c = set(ks)
+    inter, union = len(c & ref), len(c | ref)
+    return dict(ref=len(ref), cell=len(c), inter=inter, jaccard=inter / union if union else float("nan"), share_cell_in_ref=inter / len(c) if c else float("nan"))
+
+
 def cmd_tables(a):
     """База и все клетки со всеми колонками; Δ $/сделку и Δ Σ $ к базе в паре по суткам с 90 % интервалом."""
     for side in SIDES:
@@ -118,6 +137,9 @@ def cmd_tables(a):
         bset = set(p8.keys_of(bser))
         Sr, Nr = st.day_sums(bser)
         out = dict(uni="h775", side=side, base=p8.cell_stats(bser, bk, bp), cells={})
+        refs = frozen_refs() if side == "L" else {}
+        for name, ref in refs.items():
+            out["base"][name] = overlap(p8.keys_of(bser), ref)
         for cid in cell_ids(side):
             ser, kinds, pnl = p8.load_cell(U, side, {w.name: (cell_dir(w.name, side, cid), side) for w in st.TRADE_WINDOWS})
             r = p8.cell_stats(ser, kinds, pnl)
@@ -126,6 +148,8 @@ def cmd_tables(a):
             r["in_base_share"] = r["in_base"] / len(ks) if ks else float("nan")
             Sc, Nc = st.day_sums(ser)
             r["delta"] = delta90(Sc, Nc, Sr, Nr)
+            for name, ref in refs.items():
+                r[name] = overlap(ks, ref)
             out["cells"][cid] = r
         r4.write_json(t4.qq("res", "cells54-%s.json" % side), out)
         say("== h775 %s: база %d сделок, клеток %d" % (side, len(bp), len(out["cells"])))

@@ -1,0 +1,37 @@
+{
+ "coins": [
+  "BNBUSDT",
+  "DATAIPUSDT",
+  "IMXUSDT",
+  "LABUSDT",
+  "LAUSDT",
+  "MONUSDT",
+  "PTBUSDT",
+  "SPELLUSDT",
+  "SUIUSDT",
+  "TSTUSDT"
+ ],
+ "res": {
+  "w0": {
+   "rows": 912,
+   "rows_tk604": 912,
+   "equal": true
+  },
+  "wa": {
+   "rows": 3996,
+   "rows_tk604": 3996,
+   "equal": true
+  },
+  "wb": {
+   "rows": 2537,
+   "rows_tk604": 2537,
+   "equal": true
+  },
+  "wc": {
+   "rows": 2952,
+   "rows_tk604": 2952,
+   "equal": true
+  }
+ },
+ "bad": []
+}

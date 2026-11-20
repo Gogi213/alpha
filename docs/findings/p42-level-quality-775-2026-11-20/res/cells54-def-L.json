@@ -1,0 +1,774 @@
+{
+ "uni": "h775",
+ "side": "L",
+ "n_trades": 428,
+ "dist": {
+  "pierce_ep": {
+   "cand_scored": 914,
+   "cand_nan": 0,
+   "trades_nan": 0,
+   "share_zero": 0.925601750547046,
+   "q05_25_50_75_95": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    1.0
+   ]
+  },
+  "spread_tau": {
+   "cand_scored": 914,
+   "cand_nan": 0,
+   "trades_nan": 0,
+   "share_zero": 0.02188183807439825,
+   "q05_25_50_75_95": [
+    0.06524024002776503,
+    0.43544524276072283,
+    1.0026678781999743,
+    1.5469640951567525,
+    1.885804085908853
+   ]
+  },
+  "mv5": {
+   "cand_scored": 914,
+   "cand_nan": 0,
+   "trades_nan": 0,
+   "share_zero": 0.007658643326039387,
+   "q05_25_50_75_95": [
+    -0.12784220260699675,
+    0.7150260136218481,
+    1.3778550175418016,
+    2.406139759174276,
+    5.042079331207135
+   ]
+  },
+  "cons60": {
+   "cand_scored": 914,
+   "cand_nan": 0,
+   "trades_nan": 0,
+   "share_zero": 0.212253829321663,
+   "q05_25_50_75_95": [
+    0.0,
+    1.0,
+    1.0,
+    3.0,
+    7.0
+   ]
+  },
+  "zv6h": {
+   "cand_scored": 914,
+   "cand_nan": 0,
+   "trades_nan": 0,
+   "share_zero": 0.9409190371991247,
+   "q05_25_50_75_95": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.002777777777777778
+   ]
+  },
+  "tpm60": {
+   "cand_scored": 914,
+   "cand_nan": 0,
+   "trades_nan": 0,
+   "share_zero": 0.0,
+   "q05_25_50_75_95": [
+    69.01416666666667,
+    153.45,
+    266.06666666666666,
+    475.5375,
+    1703.924166666666
+   ]
+  }
+ },
+ "bk_cov": {
+  "20": 334,
+  "40": 246,
+  "60": 153
+ },
+ "thresholds": {
+  "PE": {
+   "n": 914,
+   "q": {
+    "0.20": 0.0,
+    "0.40": 0.0,
+    "0.60": 0.0,
+    "0.80": 0.0
+   },
+   "q_raw": {
+    "0.20": 0.0,
+    "0.40": 0.0,
+    "0.60": 0.0,
+    "0.80": 0.0
+   }
+  },
+  "ST": {
+   "n": 914,
+   "q": {
+    "0.20": 0.35,
+    "0.40": 0.81,
+    "0.60": 1.2,
+    "0.80": 1.6
+   },
+   "q_raw": {
+    "0.20": 0.351493848857645,
+    "0.40": 0.810426722429162,
+    "0.60": 1.244853011586709,
+    "0.80": 1.6387472687545521
+   }
+  },
+  "MV5": {
+   "n": 914,
+   "q": {
+    "0.20": 0.57,
+    "0.40": 1.1,
+    "0.60": 1.8,
+    "0.80": 2.7
+   },
+   "q_raw": {
+    "0.20": 0.5656420498295344,
+    "0.40": 1.1025181639582722,
+    "0.60": 1.7687160229310694,
+    "0.80": 2.675287661089921
+   }
+  },
+  "CN60": {
+   "n": 914,
+   "q": {
+    "0.20": 0.0,
+    "0.40": 1.0,
+    "0.60": 2.0,
+    "0.80": 4.0
+   },
+   "q_raw": {
+    "0.20": 0.0,
+    "0.40": 1.0,
+    "0.60": 2.0,
+    "0.80": 4.0
+   }
+  },
+  "ZV6": {
+   "n": 914,
+   "q": {
+    "0.20": 0.0,
+    "0.40": 0.0,
+    "0.60": 0.0,
+    "0.80": 0.0
+   },
+   "q_raw": {
+    "0.20": 0.0,
+    "0.40": 0.0,
+    "0.60": 0.0,
+    "0.80": 0.0
+   }
+  },
+  "TPM60": {
+   "n": 914,
+   "q": {
+    "0.20": 130.0,
+    "0.40": 210.0,
+    "0.60": 330.0,
+    "0.80": 610.0
+   },
+   "q_raw": {
+    "0.20": 130.43666666666667,
+    "0.40": 209.53000000000003,
+    "0.60": 329.1899999999998,
+    "0.80": 606.8666666666668
+   }
+  },
+  "MV5_50": {
+   "n": 914,
+   "q": {
+    "0.50": 1.4
+   },
+   "q_raw": {
+    "0.50": 1.3778550175418016
+   }
+  }
+ },
+ "same_as_base": [
+  "PE_ge_q20",
+  "PE_ge_q40",
+  "PE_ge_q60",
+  "PE_ge_q80",
+  "CN60_ge_q20",
+  "ZV6_ge_q20",
+  "ZV6_ge_q40",
+  "ZV6_ge_q60",
+  "ZV6_ge_q80"
+ ],
+ "cells": [
+  {
+   "cid": "PE_le_q20",
+   "kind": "lad",
+   "col": "pierce_ep",
+   "dir": "le",
+   "X": 0.0,
+   "label": "проколов уровня ≤ 0 (q20)",
+   "also": [
+    "PE_le_q40",
+    "PE_le_q60",
+    "PE_le_q80",
+    "CLEAN"
+   ],
+   "cand_excluded": 68,
+   "cand_rows": 914,
+   "trades_excluded": 29,
+   "trades_remain": 399
+  },
+  {
+   "cid": "ST_ge_q20",
+   "kind": "lad",
+   "col": "spread_tau",
+   "dir": "ge",
+   "X": 0.35,
+   "label": "разброс пивотов, τ ≥ 0,35 (q20)",
+   "also": [],
+   "cand_excluded": 182,
+   "cand_rows": 914,
+   "trades_excluded": 86,
+   "trades_remain": 342
+  },
+  {
+   "cid": "ST_ge_q40",
+   "kind": "lad",
+   "col": "spread_tau",
+   "dir": "ge",
+   "X": 0.81,
+   "label": "разброс пивотов, τ ≥ 0,81 (q40)",
+   "also": [],
+   "cand_excluded": 366,
+   "cand_rows": 914,
+   "trades_excluded": 177,
+   "trades_remain": 251
+  },
+  {
+   "cid": "ST_ge_q60",
+   "kind": "lad",
+   "col": "spread_tau",
+   "dir": "ge",
+   "X": 1.2,
+   "label": "разброс пивотов, τ ≥ 1,2 (q60)",
+   "also": [],
+   "cand_excluded": 537,
+   "cand_rows": 914,
+   "trades_excluded": 260,
+   "trades_remain": 168
+  },
+  {
+   "cid": "ST_ge_q80",
+   "kind": "lad",
+   "col": "spread_tau",
+   "dir": "ge",
+   "X": 1.6,
+   "label": "разброс пивотов, τ ≥ 1,6 (q80)",
+   "also": [],
+   "cand_excluded": 706,
+   "cand_rows": 914,
+   "trades_excluded": 342,
+   "trades_remain": 86
+  },
+  {
+   "cid": "ST_le_q20",
+   "kind": "lad",
+   "col": "spread_tau",
+   "dir": "le",
+   "X": 0.35,
+   "label": "разброс пивотов, τ ≤ 0,35 (q20)",
+   "also": [],
+   "cand_excluded": 732,
+   "cand_rows": 914,
+   "trades_excluded": 342,
+   "trades_remain": 86
+  },
+  {
+   "cid": "ST_le_q40",
+   "kind": "lad",
+   "col": "spread_tau",
+   "dir": "le",
+   "X": 0.81,
+   "label": "разброс пивотов, τ ≤ 0,81 (q40)",
+   "also": [],
+   "cand_excluded": 548,
+   "cand_rows": 914,
+   "trades_excluded": 251,
+   "trades_remain": 177
+  },
+  {
+   "cid": "ST_le_q60",
+   "kind": "lad",
+   "col": "spread_tau",
+   "dir": "le",
+   "X": 1.2,
+   "label": "разброс пивотов, τ ≤ 1,2 (q60)",
+   "also": [],
+   "cand_excluded": 377,
+   "cand_rows": 914,
+   "trades_excluded": 168,
+   "trades_remain": 260
+  },
+  {
+   "cid": "ST_le_q80",
+   "kind": "lad",
+   "col": "spread_tau",
+   "dir": "le",
+   "X": 1.6,
+   "label": "разброс пивотов, τ ≤ 1,6 (q80)",
+   "also": [],
+   "cand_excluded": 208,
+   "cand_rows": 914,
+   "trades_excluded": 86,
+   "trades_remain": 342
+  },
+  {
+   "cid": "MV5_ge_q20",
+   "kind": "lad",
+   "col": "mv5",
+   "dir": "ge",
+   "X": 0.57,
+   "label": "ход за 5 мин, NATR ≥ 0,57 (q20)",
+   "also": [],
+   "cand_excluded": 185,
+   "cand_rows": 914,
+   "trades_excluded": 57,
+   "trades_remain": 371
+  },
+  {
+   "cid": "MV5_ge_q40",
+   "kind": "lad",
+   "col": "mv5",
+   "dir": "ge",
+   "X": 1.1,
+   "label": "ход за 5 мин, NATR ≥ 1,1 (q40)",
+   "also": [],
+   "cand_excluded": 363,
+   "cand_rows": 914,
+   "trades_excluded": 126,
+   "trades_remain": 302
+  },
+  {
+   "cid": "MV5_ge_q60",
+   "kind": "lad",
+   "col": "mv5",
+   "dir": "ge",
+   "X": 1.8,
+   "label": "ход за 5 мин, NATR ≥ 1,8 (q60)",
+   "also": [],
+   "cand_excluded": 558,
+   "cand_rows": 914,
+   "trades_excluded": 209,
+   "trades_remain": 219
+  },
+  {
+   "cid": "MV5_ge_q80",
+   "kind": "lad",
+   "col": "mv5",
+   "dir": "ge",
+   "X": 2.7,
+   "label": "ход за 5 мин, NATR ≥ 2,7 (q80)",
+   "also": [],
+   "cand_excluded": 732,
+   "cand_rows": 914,
+   "trades_excluded": 306,
+   "trades_remain": 122
+  },
+  {
+   "cid": "MV5_le_q20",
+   "kind": "lad",
+   "col": "mv5",
+   "dir": "le",
+   "X": 0.57,
+   "label": "ход за 5 мин, NATR ≤ 0,57 (q20)",
+   "also": [],
+   "cand_excluded": 729,
+   "cand_rows": 914,
+   "trades_excluded": 371,
+   "trades_remain": 57
+  },
+  {
+   "cid": "MV5_le_q40",
+   "kind": "lad",
+   "col": "mv5",
+   "dir": "le",
+   "X": 1.1,
+   "label": "ход за 5 мин, NATR ≤ 1,1 (q40)",
+   "also": [],
+   "cand_excluded": 551,
+   "cand_rows": 914,
+   "trades_excluded": 302,
+   "trades_remain": 126
+  },
+  {
+   "cid": "MV5_le_q60",
+   "kind": "lad",
+   "col": "mv5",
+   "dir": "le",
+   "X": 1.8,
+   "label": "ход за 5 мин, NATR ≤ 1,8 (q60)",
+   "also": [],
+   "cand_excluded": 356,
+   "cand_rows": 914,
+   "trades_excluded": 219,
+   "trades_remain": 209
+  },
+  {
+   "cid": "MV5_le_q80",
+   "kind": "lad",
+   "col": "mv5",
+   "dir": "le",
+   "X": 2.7,
+   "label": "ход за 5 мин, NATR ≤ 2,7 (q80)",
+   "also": [],
+   "cand_excluded": 182,
+   "cand_rows": 914,
+   "trades_excluded": 122,
+   "trades_remain": 306
+  },
+  {
+   "cid": "CN60_ge_q40",
+   "kind": "lad",
+   "col": "cons60",
+   "dir": "ge",
+   "X": 1.0,
+   "label": "минут проторговки за 60 ≥ 1 (q40)",
+   "also": [],
+   "cand_excluded": 194,
+   "cand_rows": 914,
+   "trades_excluded": 148,
+   "trades_remain": 280
+  },
+  {
+   "cid": "CN60_ge_q60",
+   "kind": "lad",
+   "col": "cons60",
+   "dir": "ge",
+   "X": 2.0,
+   "label": "минут проторговки за 60 ≥ 2 (q60)",
+   "also": [],
+   "cand_excluded": 473,
+   "cand_rows": 914,
+   "trades_excluded": 322,
+   "trades_remain": 106
+  },
+  {
+   "cid": "CN60_ge_q80",
+   "kind": "lad",
+   "col": "cons60",
+   "dir": "ge",
+   "X": 4.0,
+   "label": "минут проторговки за 60 ≥ 4 (q80)",
+   "also": [],
+   "cand_excluded": 722,
+   "cand_rows": 914,
+   "trades_excluded": 399,
+   "trades_remain": 29
+  },
+  {
+   "cid": "CN60_le_q20",
+   "kind": "lad",
+   "col": "cons60",
+   "dir": "le",
+   "X": 0.0,
+   "label": "минут проторговки за 60 ≤ 0 (q20)",
+   "also": [
+    "NOCONS"
+   ],
+   "cand_excluded": 720,
+   "cand_rows": 914,
+   "trades_excluded": 280,
+   "trades_remain": 148
+  },
+  {
+   "cid": "CN60_le_q40",
+   "kind": "lad",
+   "col": "cons60",
+   "dir": "le",
+   "X": 1.0,
+   "label": "минут проторговки за 60 ≤ 1 (q40)",
+   "also": [],
+   "cand_excluded": 441,
+   "cand_rows": 914,
+   "trades_excluded": 106,
+   "trades_remain": 322
+  },
+  {
+   "cid": "CN60_le_q60",
+   "kind": "lad",
+   "col": "cons60",
+   "dir": "le",
+   "X": 2.0,
+   "label": "минут проторговки за 60 ≤ 2 (q60)",
+   "also": [],
+   "cand_excluded": 285,
+   "cand_rows": 914,
+   "trades_excluded": 50,
+   "trades_remain": 378
+  },
+  {
+   "cid": "CN60_le_q80",
+   "kind": "lad",
+   "col": "cons60",
+   "dir": "le",
+   "X": 4.0,
+   "label": "минут проторговки за 60 ≤ 4 (q80)",
+   "also": [],
+   "cand_excluded": 124,
+   "cand_rows": 914,
+   "trades_excluded": 20,
+   "trades_remain": 408
+  },
+  {
+   "cid": "ZV6_le_q20",
+   "kind": "lad",
+   "col": "zv6h",
+   "dir": "le",
+   "X": 0.0,
+   "label": "доля пустых минут за 6 ч ≤ 0 (q20)",
+   "also": [
+    "ZV6_le_q40",
+    "ZV6_le_q60",
+    "ZV6_le_q80",
+    "DENSE"
+   ],
+   "cand_excluded": 54,
+   "cand_rows": 914,
+   "trades_excluded": 27,
+   "trades_remain": 401
+  },
+  {
+   "cid": "TPM60_ge_q20",
+   "kind": "lad",
+   "col": "tpm60",
+   "dir": "ge",
+   "X": 130.0,
+   "label": "сделок в минуту за 60 мин ≥ 130 (q20)",
+   "also": [],
+   "cand_excluded": 181,
+   "cand_rows": 914,
+   "trades_excluded": 93,
+   "trades_remain": 335
+  },
+  {
+   "cid": "TPM60_ge_q40",
+   "kind": "lad",
+   "col": "tpm60",
+   "dir": "ge",
+   "X": 210.0,
+   "label": "сделок в минуту за 60 мин ≥ 210 (q40)",
+   "also": [],
+   "cand_excluded": 367,
+   "cand_rows": 914,
+   "trades_excluded": 179,
+   "trades_remain": 249
+  },
+  {
+   "cid": "TPM60_ge_q60",
+   "kind": "lad",
+   "col": "tpm60",
+   "dir": "ge",
+   "X": 330.0,
+   "label": "сделок в минуту за 60 мин ≥ 330 (q60)",
+   "also": [],
+   "cand_excluded": 549,
+   "cand_rows": 914,
+   "trades_excluded": 256,
+   "trades_remain": 172
+  },
+  {
+   "cid": "TPM60_ge_q80",
+   "kind": "lad",
+   "col": "tpm60",
+   "dir": "ge",
+   "X": 610.0,
+   "label": "сделок в минуту за 60 мин ≥ 610 (q80)",
+   "also": [],
+   "cand_excluded": 733,
+   "cand_rows": 914,
+   "trades_excluded": 345,
+   "trades_remain": 83
+  },
+  {
+   "cid": "TPM60_le_q20",
+   "kind": "lad",
+   "col": "tpm60",
+   "dir": "le",
+   "X": 130.0,
+   "label": "сделок в минуту за 60 мин ≤ 130 (q20)",
+   "also": [],
+   "cand_excluded": 733,
+   "cand_rows": 914,
+   "trades_excluded": 335,
+   "trades_remain": 93
+  },
+  {
+   "cid": "TPM60_le_q40",
+   "kind": "lad",
+   "col": "tpm60",
+   "dir": "le",
+   "X": 210.0,
+   "label": "сделок в минуту за 60 мин ≤ 210 (q40)",
+   "also": [],
+   "cand_excluded": 547,
+   "cand_rows": 914,
+   "trades_excluded": 249,
+   "trades_remain": 179
+  },
+  {
+   "cid": "TPM60_le_q60",
+   "kind": "lad",
+   "col": "tpm60",
+   "dir": "le",
+   "X": 330.0,
+   "label": "сделок в минуту за 60 мин ≤ 330 (q60)",
+   "also": [],
+   "cand_excluded": 365,
+   "cand_rows": 914,
+   "trades_excluded": 172,
+   "trades_remain": 256
+  },
+  {
+   "cid": "TPM60_le_q80",
+   "kind": "lad",
+   "col": "tpm60",
+   "dir": "le",
+   "X": 610.0,
+   "label": "сделок в минуту за 60 мин ≤ 610 (q80)",
+   "also": [],
+   "cand_excluded": 181,
+   "cand_rows": 914,
+   "trades_excluded": 83,
+   "trades_remain": 345
+  },
+  {
+   "cid": "ZONE",
+   "kind": "named",
+   "label": "зона: проколов ≥ 1",
+   "also": [],
+   "cand_excluded": 846,
+   "cand_rows": 914,
+   "trades_excluded": 399,
+   "trades_remain": 29
+  },
+  {
+   "cid": "SHARP",
+   "kind": "named",
+   "X": 1.4,
+   "label": "резкий без проторговки: cons60 = 0 и mv5 ≥ 1,4",
+   "also": [],
+   "cand_excluded": 800,
+   "cand_rows": 914,
+   "trades_excluded": 344,
+   "trades_remain": 84
+  },
+  {
+   "cid": "K20_t020",
+   "kind": "bk",
+   "K": 20,
+   "tau": 0.02,
+   "label": "пробиваемость: K = 20, bk ≥ 0,02",
+   "also": [],
+   "cand_excluded": 49,
+   "cand_rows": 914,
+   "trades_excluded": 24,
+   "trades_remain": 404
+  },
+  {
+   "cid": "K20_t035",
+   "kind": "bk",
+   "K": 20,
+   "tau": 0.035,
+   "label": "пробиваемость: K = 20, bk ≥ 0,035",
+   "also": [],
+   "cand_excluded": 101,
+   "cand_rows": 914,
+   "trades_excluded": 49,
+   "trades_remain": 379
+  },
+  {
+   "cid": "K20_t050",
+   "kind": "bk",
+   "K": 20,
+   "tau": 0.05,
+   "label": "пробиваемость: K = 20, bk ≥ 0,05",
+   "also": [],
+   "cand_excluded": 209,
+   "cand_rows": 914,
+   "trades_excluded": 97,
+   "trades_remain": 331
+  },
+  {
+   "cid": "K40_t020",
+   "kind": "bk",
+   "K": 40,
+   "tau": 0.02,
+   "label": "пробиваемость: K = 40, bk ≥ 0,02",
+   "also": [],
+   "cand_excluded": 24,
+   "cand_rows": 914,
+   "trades_excluded": 12,
+   "trades_remain": 416
+  },
+  {
+   "cid": "K40_t035",
+   "kind": "bk",
+   "K": 40,
+   "tau": 0.035,
+   "label": "пробиваемость: K = 40, bk ≥ 0,035",
+   "also": [],
+   "cand_excluded": 61,
+   "cand_rows": 914,
+   "trades_excluded": 30,
+   "trades_remain": 398
+  },
+  {
+   "cid": "K40_t050",
+   "kind": "bk",
+   "K": 40,
+   "tau": 0.05,
+   "label": "пробиваемость: K = 40, bk ≥ 0,05",
+   "also": [],
+   "cand_excluded": 154,
+   "cand_rows": 914,
+   "trades_excluded": 72,
+   "trades_remain": 356
+  },
+  {
+   "cid": "K60_t020",
+   "kind": "bk",
+   "K": 60,
+   "tau": 0.02,
+   "label": "пробиваемость: K = 60, bk ≥ 0,02",
+   "also": [],
+   "cand_excluded": 21,
+   "cand_rows": 914,
+   "trades_excluded": 9,
+   "trades_remain": 419
+  },
+  {
+   "cid": "K60_t035",
+   "kind": "bk",
+   "K": 60,
+   "tau": 0.035,
+   "label": "пробиваемость: K = 60, bk ≥ 0,035",
+   "also": [],
+   "cand_excluded": 48,
+   "cand_rows": 914,
+   "trades_excluded": 23,
+   "trades_remain": 405
+  },
+  {
+   "cid": "K60_t050",
+   "kind": "bk",
+   "K": 60,
+   "tau": 0.05,
+   "label": "пробиваемость: K = 60, bk ≥ 0,05",
+   "also": [],
+   "cand_excluded": 115,
+   "cand_rows": 914,
+   "trades_excluded": 51,
+   "trades_remain": 377
+  }
+ ]
+}

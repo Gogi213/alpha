@@ -1,0 +1,46 @@
+{
+ "res": {
+  "w0/long": {
+   "rows_h775": 41687,
+   "rows_tk604": 41687,
+   "equal": true
+  },
+  "w0/short": {
+   "rows_h775": 48044,
+   "rows_tk604": 48044,
+   "equal": true
+  },
+  "wa/long": {
+   "rows_h775": 219131,
+   "rows_tk604": 219131,
+   "equal": true
+  },
+  "wa/short": {
+   "rows_h775": 255411,
+   "rows_tk604": 255411,
+   "equal": true
+  },
+  "wb/long": {
+   "rows_h775": 240481,
+   "rows_tk604": 240481,
+   "equal": true
+  },
+  "wb/short": {
+   "rows_h775": 237638,
+   "rows_tk604": 237638,
+   "equal": true
+  },
+  "wc/long": {
+   "rows_h775": 234926,
+   "rows_tk604": 234926,
+   "equal": true
+  },
+  "wc/short": {
+   "rows_h775": 236962,
+   "rows_tk604": 236962,
+   "equal": true
+  }
+ },
+ "bad": [],
+ "common": 566
+}

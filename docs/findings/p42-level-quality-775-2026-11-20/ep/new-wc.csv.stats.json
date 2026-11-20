@@ -1,0 +1,12 @@
+{
+ "signals": 109180,
+ "episodes": 53710,
+ "locate_fail": 0,
+ "not_ok": 18,
+ "unsorted_days": 0,
+ "coins": 199,
+ "rows": 53710,
+ "indep": 13921,
+ "labelled": 53692,
+ "seconds": 211
+}
