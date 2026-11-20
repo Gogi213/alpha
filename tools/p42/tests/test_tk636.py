@@ -196,7 +196,7 @@ def test_cell_specs_counts_and_order():
     kinds = [s["kind"] for s in sp]
     assert kinds.count("T") == 16 and kinds.count("N") == 32 and kinds.count("R") == 1 and len(sp) == 49
     assert kinds == sorted(kinds, key="TNR".index), "порядок: пробные, соседи, справочные"
-    assert [s["cid"] for s in sp if s["kind"] == "T"][:8] == ["TOV_25", "TOV_50", "TOV_100", "TOV_200", "TOV_400", "AGE", "VOL", "PEER"]
+    assert [s["cid"] for s in sp if s["kind"] == "T"][:8] == ["TOV_16", "TOV_24", "TOV_36", "TOV_54", "TOV_80", "AGE", "VOL", "PEER"]
     assert len({s["cid"] for s in sp}) == 49
     t = [s for s in sp if s["kind"] == "T"]
     assert len({s["group"] for s in t}) == 16, "у каждой пробной клетки своя группа соседей"
@@ -222,9 +222,10 @@ def test_excl_masks_semantics():
     dd = r6.derive(d, refs)
     thr = r6.quantile_table(dd)
     by = {s["cid"]: s for s in r6.cell_specs()}
-    m = r6.excl_mask(by["TOV_100"], dd, thr)
-    assert eq(m, d["turn24h"] < 100e6), "TOV_X: исключается turn24h < X млн $ (торгуются только ≥ X)"
-    assert r6.excl_mask(by["TOV_50_up"], dd, thr).sum() == (d["turn24h"] < 100e6).sum() and r6.excl_mask(by["TOV_100_dn"], dd, thr).sum() == (d["turn24h"] < 50e6).sum()
+    m = r6.excl_mask(by["TOV_36"], dd, thr)
+    assert eq(m, d["turn24h"] < 36e6), "TOV_X: исключается turn24h < X млн $ (торгуются только ≥ X)"
+    assert eq(r6.excl_mask(by["TOV_36_up"], dd, thr), d["turn24h"] < 54e6) and eq(r6.excl_mask(by["TOV_36_dn"], dd, thr), d["turn24h"] < 24e6), "соседи — соседние ступени лестницы"
+    assert r6.TOV_LADDER == (11, 16, 24, 36, 54, 80, 120) and by["TOV_16_dn"]["x"] == 11 and by["TOV_80_up"]["x"] == 120
     ma = r6.excl_mask(by["AGE"], dd, thr)
     assert not ma[:20].any(), "пусто проходит"
     assert abs(ma.mean() - 0.25) < 0.03

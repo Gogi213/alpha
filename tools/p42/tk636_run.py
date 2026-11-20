@@ -35,7 +35,8 @@ GuardError = st.GuardError
 SIDE_NAME_RU = {"L": "лонг", "S": "шорт"}
 W_TRIAL, W_ALL, COMPS = ft.TRIAL_WINS, ft.WIN_ORDER, ft.COMP
 MIN_COMP = 3                                       # п. 4: композит определён при ≥ 3 из 4 компонент
-TOV_LEVELS = (25, 50, 100, 200, 400)               # п. 5: минимум суточного оборота, млн $ (часовой фиксирован — ключ базы t1h = 0,5 млн $)
+TOV_LADDER = (11, 16, 24, 36, 54, 80, 120)         # п. 5: лестница минимума суточного оборота, млн $ (шаг ×1,5); пробные — внутренние ступени, соседи — соседние ступени
+TOV_LEVELS = TOV_LADDER[1:-1]                      # (16, 24, 36, 54, 80); часовой оборот фиксирован — ключ базы t1h = 0,5 млн $
 Q_MAIN, Q_NB = 0.25, (0.10, 0.40)                  # п. 5: доля исключаемых (основная и соседи)
 FV_PASS = 0.5                                      # движок: `fa=<клетка> fo=lo fv=0.5` — исключает значение 0,0, пропускает 1,0
 N_OLD_TRIAL = 29                                   # 9 (TK-625) + 12 (TK-633) + 8 (TK-634), п. 6 (g1)
@@ -123,11 +124,11 @@ def cell_specs():
     T: 5 + 3 + 8 = 16; N: 10 (TOV, соседние уровни) + 6 (AGE / VOL / PEER) + 16 (COUP) = 32; R: 1. Всего 49 на сторону."""
     T, N = [], []
     g = 0
-    for x in TOV_LEVELS:
+    for i, x in enumerate(TOV_LADDER[1:-1], start=1):
         g += 1
         T.append(dict(cid="TOV_%d" % x, kind="T", feat="TOV", x=x, share=None, group=g, fam="оборот (TOV)"))
-        N.append(dict(cid="TOV_%d_dn" % x, kind="N", feat="TOV", x=x / 2.0, share=None, group=g, fam="оборот (TOV)"))
-        N.append(dict(cid="TOV_%d_up" % x, kind="N", feat="TOV", x=x * 2.0, share=None, group=g, fam="оборот (TOV)"))
+        N.append(dict(cid="TOV_%d_dn" % x, kind="N", feat="TOV", x=TOV_LADDER[i - 1], share=None, group=g, fam="оборот (TOV)"))
+        N.append(dict(cid="TOV_%d_up" % x, kind="N", feat="TOV", x=TOV_LADDER[i + 1], share=None, group=g, fam="оборот (TOV)"))
     for feat, fam in (("AGE", "возраст (AGE)"), ("VOL", "волатильность (VOL)")):
         g += 1
         T.append(dict(cid=feat, kind="T", feat=feat, x=None, share=Q_MAIN, group=g, fam=fam))
