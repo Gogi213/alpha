@@ -326,6 +326,22 @@ def stat_row(st, p8, r34, ser, kinds, pnl, bser, ncoins):
     return r
 
 
+def load_cell(st, p8, u, side, dirs):
+    """Как `tk638_post.load_cell`, но охрана G7 — по всему окну (Σ daily = Σ net всех сделок окна, допуск 1e-4 + 2e-6·n), а не по зачётному срезу:
+    у клеток без `rt` сделки держатся до 3,4 сут., строки daily движка — переоценка по суткам, и срез daily ≠ срез сделок по дате входа (отступление §13.43, найдено на прогоне)."""
+    tables, daily = p8.read_tables(dirs)
+    for w in st.TRADE_WINDOWS:
+        tb, dl = tables[w.name], daily[w.name]
+        tot_d, tot_n = float(sum(dl.values())), float(tb.net.sum())
+        if abs(tot_d - tot_n) > 1e-4 + 2e-6 * len(tb.net):
+            raise SystemExit("G7 окна %s %s: Σ daily %+.6f ≠ Σ net %+.6f" % (w.name, side, tot_d, tot_n))
+    ser = st.splice(tables, u.coins(), daily=None)
+    kinds, pnl = p8.kinds_pnl(tables)
+    if len(pnl) != len(ser.val) or not np.allclose(pnl, ser.val, atol=1e-6):
+        raise SystemExit("%s: P&L сделок из файла ≠ val ряда" % side)
+    return ser, kinds, pnl
+
+
 def load_dirs(st, side, cid):
     return {w.name: (cell_dir(w.name, side, cid), side) for w in st.TRADE_WINDOWS}
 
@@ -337,8 +353,8 @@ def cmd_tables(a):
     bad = []
     for side in SIDES:
         c = block_cells(side)
-        bser, bk, bp = p8.load_cell(u, side, {w.name: (u.base(w.name, side), side) for w in st.TRADE_WINDOWS})
-        gser, gk, gp = p8.load_cell(u, side, load_dirs(st, side, "base"))
+        bser, bk, bp = load_cell(st, p8, u, side, {w.name: (u.base(w.name, side), side) for w in st.TRADE_WINDOWS})
+        gser, gk, gp = load_cell(st, p8, u, side, load_dirs(st, side, "base"))
         gb = p8.keys_of(gser) == p8.keys_of(bser) and len(gp) == len(bp) and bool(np.allclose(gp, bp, atol=1e-6))
         if not gb:
             bad.append("G-base %s: строка базы в пакете ≠ готовой базе h775" % side)
@@ -346,7 +362,7 @@ def cmd_tables(a):
         sig = {}
         for blk in ("A", "B", "C"):
             for x in c[blk]:
-                ser, kinds, pnl = p8.load_cell(u, side, load_dirs(st, side, x["cid"]))
+                ser, kinds, pnl = load_cell(st, p8, u, side, load_dirs(st, side, x["cid"]))
                 r = stat_row(st, p8, r34, ser, kinds, pnl, bser, ncoins)
                 r["block"], r["ax"], r["patch"] = blk, x["ax"], x["patch"]
                 out["cells"][x["cid"]] = r
@@ -395,10 +411,10 @@ def cmd_cross(a):
         cells = block_cells(side)
         d = cross_cells(cells, tab["cells"])
         run_variants(u, side, [(x["cid"], variant_line(r5, u, side, x["patch"])) for x in d], "d")
-        bser, _, _ = p8.load_cell(u, side, {w.name: (u.base(w.name, side), side) for w in st.TRADE_WINDOWS})
+        bser, _, _ = load_cell(st, p8, u, side, {w.name: (u.base(w.name, side), side) for w in st.TRADE_WINDOWS})
         out = dict(side=side, note="описательно: выбрано по P&L тех же 136 суток, 0 испытаний, вне Холма (§13.43 п. 5)", cells={})
         for x in d:
-            ser, kinds, pnl = p8.load_cell(u, side, load_dirs(st, side, x["cid"]))
+            ser, kinds, pnl = load_cell(st, p8, u, side, load_dirs(st, side, x["cid"]))
             r = stat_row(st, p8, r34, ser, kinds, pnl, bser, ncoins)
             r["parts"], r["patch"] = x["parts"], x["patch"]
             out["cells"][x["cid"]] = r
