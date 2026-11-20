@@ -217,6 +217,19 @@ class TestParse(Base):
         self.assertEqual((st["new"], st["amended"], st["reused"]), (1, 1, 4))
         self.assertEqual(self.st.check_db(), [])
 
+    def test_crlf_checkout_same_rows(self):
+        """Файл после checkout с autocrlf (CRLF) — те же строки, что блоб git (LF): повторный перенос ничего не дублирует."""
+        root = Path(self.tmp.name)
+        (root / "docs" / "research").mkdir(parents=True)
+        f = root / "docs" / "research" / "JOURNAL.md"
+        f.write_bytes(JOURNAL.replace("\n", "\r\n").encode("utf-8"))
+        self.st.import_docs(chron.build_docs(root, ["docs/research/JOURNAL.md"], [], None), [])
+        f.write_bytes(JOURNAL.encode("utf-8"))
+        st = self.st.import_docs(chron.build_docs(root, ["docs/research/JOURNAL.md"], [], None), [])["docs/research/JOURNAL.md"]
+        self.assertEqual(st.get("unchanged"), 1)
+        self.assertEqual(self.st.c.execute("SELECT count(*) FROM entry WHERE body LIKE '%' || char(13) || '%'").fetchone()[0], 0)
+        self.assertEqual(self.st.reconstruct("docs/research/JOURNAL.md"), JOURNAL)
+
 
 def independent_count(path):
     """Счёт записей в md, независимый от разбора chron: строки таблиц (без шапки), блоки журнала, заголовки протоколов вне ```."""

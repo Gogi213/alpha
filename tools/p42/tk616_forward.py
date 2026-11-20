@@ -10,8 +10,15 @@ TK-638 / §13.36 п. 13: рядом с `tk626-frozen.json` лежит `tk638-fro
        кандидатов точки или `no_key` > 0 (и любая ошибка таблицы) — `L_n24` на точке НЕ читается (иначе недостающие сутки молча превратили бы клетку в `L_base`); остальные клетки считаются как обычно;
   C3 — `replay-n24` прогоняет `L_n24` в выборке (wa / wb / wc, h775) ТЕМ ЖЕ путём (`run_n24`) и сверяет выходы побайтно с выходами G-638a.
 
+TK-641 / §13.38: третий файл цепочки `tk641-frozen.json` — кандидат вперёд `L_mk2` (`L_base` + `mk=2`, обычная клетка движка, без таблиц). Условия критика C1–C3:
+  C1 — цепочка tk626 → tk638 → tk641 без молчаливого возврата: файл обязателен всегда (нет — остановка, α tk638 `S_base` 0,025 не применяются); его α (`S_base` 0,020, `L_mk2` 0,005)
+       перекрывают α tk638; каждое звено проверяет sha256 предыдущего; `--no-candidate2` — единственный обход: α tk641 применяются, `L_mk2` не читается (в маркере «кандидат 2 не читан»);
+  C2 — в файле полный список `alpha` / `alpha_k` всех клеток; охрана: |Σ α − 0,05| ≤ 1e-12, α_k = α × доли точек у всех клеток;
+  C3 — `replay-mk2` прогоняет `L_mk2` в выборке (wa / wb / wc, h775) замороженным бинарём и сверяет `long-{trades,daily,coinday,entryrej}.csv`, `long-maker.json` побайтно с выходами G-626c.
+
   python3 tk616_forward.py plan  [--freeze …]                       # точки, окна, вселенные, состояние охран — без чтения данных и без запуска движка
   TK616F_GO=1 python3 tk616_forward.py point L2 --bin <alpha-mk> --feat-bin <alpha-feat> [--freeze-sha256 … --freeze-commit … --candidate-sha256 … --candidate-commit …]   # ОДНО чтение точки: движок по окнам и вселенным, таблицы, охраны, вердикт
+  python3 tk616_forward.py replay-mk2 --bin <alpha-mk> --replay-root /data/p42-tk641/replay --windows-root /data/p42-tk621 --tick-store /data/p42-tk599/tick-store --ref-dir /data/p42-tk626/gmk/out   # C3 TK-641
   python3 tk616_forward.py replay-n24 --bin <alpha-mk> --feat-bin <alpha-feat> --replay-root … --windows-root /data/p42-tk621 --symbols-file …/symbols-all.txt --ref <gate-638a.json> --tick-store …   # C3, суток ≥ 14.11 не читает
 
 Охраны (каждая — остановка с сообщением координатору, не правка):
@@ -67,6 +74,9 @@ SEAM_LAST = 72                                         # последние су
 CAND_NAME, CAND_VERSION, CAND_CELL = "tk638-frozen.json", "tk638-frozen-1", "L_n24"      # TK-638: кандидат вперёд рядом с заморозкой
 ALPHA_TOTAL = 0.05                                     # §13.28.1 п. 3: сумма α всех клеток (C1)
 M24_MAX_SHARE = 0.01                                   # C2: доля зачётных кандидатов точки с m24 = 1, выше которой `L_n24` на точке не читается
+CAND2_NAME, CAND2_VERSION, CAND2_CELL = "tk641-frozen.json", "tk641-frozen-1", "L_mk2"    # TK-641: второй кандидат (звено цепочки после tk638)
+REQUIRE_CANDIDATE2 = True                              # нет `tk641-frozen.json` рядом с `--freeze` — остановка (α tk638 перекрыты); False — только тесты прежнего поведения
+FILES_641 = ("long-trades.csv", "long-daily.csv", "long-coinday.csv", "long-entryrej.csv", "long-maker.json")
 REQUIRE_CANDIDATE = True                               # кандидат — часть заморозки вперёд: нет `tk638-frozen.json` рядом с `--freeze` — остановка (второго источника α нет); False — только тесты прежнего поведения tk626
 GuardError = rf.GuardError
 
@@ -493,6 +503,137 @@ def sharpe_of(S):
     return float(np.mean(S) / sd * np.sqrt(365.0)) if sd > 0 else float("nan")
 
 
+# ---- кандидат вперёд `L_mk2` (TK-641, §13.38; условия критика C1–C3) -------------------------------------------------------------------
+
+def candidate2_path(freeze_path):
+    return os.path.join(os.path.dirname(os.path.abspath(freeze_path)), CAND2_NAME)
+
+
+def mk2_keys(base_keys):
+    if not base_keys.endswith(" t24=12") or "mk=" in base_keys:
+        raise GuardError("ключи L_base %r: не кончаются на `t24=12` или уже есть `mk`" % base_keys)
+    return base_keys[: -len(" t24=12")] + " mk=2 t24=12"
+
+
+def load_candidate2(path, fz, freeze_path, cand, cand_path):
+    """C1–C2: файл `tk641-frozen.json` против заморозки (`fz`; сверяются поля без α) и кандидата tk638 (`cand`, файл `cand_path`) до любых данных.
+    Версия; sha256 tk626 и tk638 в файле = sha256 файлов; бинарь / вселенная / доли / точки / окна = заморозке; клетка `L_mk2` = `L_base` + `mk=2` (vid по ключам);
+    α: набор = α tk638 ∪ {L_mk2}, |Σ − 0,05| ≤ 1e-12, S_base + L_mk2 = α(S_base) tk638, остальные α = tk638; α_k = α × доли у всех клеток."""
+    if cand is None:
+        raise GuardError("кандидат %s без %s: цепочка tk626 → tk638 → tk641 разорвана" % (CAND2_NAME, CAND_NAME))
+    if not os.path.exists(path):
+        raise GuardError("нет файла кандидата %s" % path)
+    c = json.load(open(path, encoding="utf-8"))
+    if c.get("version") != CAND2_VERSION:
+        raise GuardError("версия кандидата 2 %r ≠ %r" % (c.get("version"), CAND2_VERSION))
+    bf, pc = c.get("base_freeze", {}), c.get("prev_candidate", {})
+    if bf.get("version") != VERSION or bf.get("sha256") != sha256_text(freeze_path):
+        raise GuardError("кандидат 2 записан против другой заморозки: sha256 %s… ≠ файла %s %s…" % (str(bf.get("sha256"))[:12], freeze_path, sha256_text(freeze_path)[:12]))
+    if pc.get("version") != CAND_VERSION or pc.get("sha256") != sha256_text(cand_path):
+        raise GuardError("кандидат 2 записан против другого %s: sha256 %s… ≠ файла %s…" % (CAND_NAME, str(pc.get("sha256"))[:12], sha256_text(cand_path)[:12]))
+    for k in ("binary", "universe", "point_shares", "points", "windows"):
+        if c.get(k) != fz.get(k):
+            raise GuardError("кандидат 2: поле %r расходится с заморозкой %s" % (k, os.path.basename(freeze_path)))
+    if set(c.get("cells", {})) != {CAND2_CELL}:
+        raise GuardError("кандидат 2: клетки %s ≠ [%s]" % (sorted(c.get("cells", {})), CAND2_CELL))
+    cell, base = c["cells"][CAND2_CELL], fz["cells"].get("L_base")
+    if base is None:
+        raise GuardError("в заморозке нет клетки L_base")
+    keys = mk2_keys(base["keys"])
+    if cell.get("side") != "L" or cell.get("base_keys") != base["keys"] or cell.get("base_vid") != base["vid"] or cell.get("keys") != keys or cell.get("family") is not False:
+        raise GuardError("кандидат 2: клетка %s ≠ L_base + `mk=2`" % CAND2_CELL)
+    if rf.Req("L", keys, False).vid != cell.get("vid"):
+        raise GuardError("кандидат 2: vid %s ≠ вычисленному %s" % (cell.get("vid"), rf.Req("L", keys, False).vid))
+    a, a1 = c.get("alpha", {}), cand["alpha"]
+    if set(a) != set(a1) | {CAND2_CELL}:
+        raise GuardError("α кандидата 2 заданы для %s ≠ клеткам %s + %s" % (sorted(a), CAND_NAME, CAND2_CELL))
+    if not _near(sum(a.values()), ALPHA_TOTAL):
+        raise GuardError("сумма α кандидата 2 %.6f ≠ %.2f" % (sum(a.values()), ALPHA_TOTAL))
+    if not _near(a["S_base"] + a[CAND2_CELL], a1["S_base"]) or a[CAND2_CELL] <= 0:
+        raise GuardError("α: S_base %.6f + %s %.6f ≠ α(S_base) %s %.6f (кандидат берёт α только из доли S_base)" % (a["S_base"], CAND2_CELL, a[CAND2_CELL], CAND_NAME, a1["S_base"]))
+    for k, v in a1.items():
+        if k != "S_base" and not _near(a[k], v):
+            raise GuardError("α(%s) кандидата 2 %.6f ≠ %s %.6f" % (k, a[k], CAND_NAME, v))
+    ak = c.get("alpha_k", {})
+    if set(ak) != set(a) or any(set(ak[k]) != set(fz["point_shares"]) or any(not _near(ak[k][p], a[k] * sh) for p, sh in fz["point_shares"].items()) for k in ak):
+        raise GuardError("α по точкам кандидата 2 ≠ α × доли точек")
+    return c
+
+
+def apply_candidate2(fz, c2, read):
+    """Заморозка с α tk641 (C1); при чтении `L_mk2` — клетка пакета точки (тот же движок, те же охраны префикса и швов)."""
+    out = dict(fz)
+    out["alpha"] = dict(c2["alpha"])
+    if read:
+        cell = c2["cells"][CAND2_CELL]
+        out["cells"] = dict(fz["cells"])
+        out["cells"][CAND2_CELL] = {"side": "L", "keys": cell["keys"], "vid": cell["vid"], "family": False}
+    return out
+
+
+def resolve_candidate2(a, fz, cand, repo):
+    """(кандидат 2, {поля маркера}). Нет файла — `GuardError` всегда (α tk638 перекрыты; молчаливого возврата нет), кроме тестов прежнего поведения (`REQUIRE_CANDIDATE2 = False`).
+    `--no-candidate2` — единственный обход: α tk641 применяются, `L_mk2` не читается."""
+    explicit = getattr(a, "candidate2", "")
+    path = explicit or candidate2_path(a.freeze)
+    if not os.path.exists(path):
+        if explicit or REQUIRE_CANDIDATE2:
+            raise GuardError("нет файла кандидата %s: кандидат %s в силе, α S_base без него (%s) не применяются — читать нельзя (без чтения — `--no-candidate2`, файл всё равно нужен)" % (
+                path, CAND2_CELL, cand["alpha"]["S_base"] if cand else "—"))
+        return None, {}
+    cand_path = getattr(a, "candidate", "") or candidate_path(a.freeze)
+    c2 = load_candidate2(path, fz, a.freeze, cand, cand_path)
+    commit, sha = check_freeze_committed(path, repo, getattr(a, "candidate2_commit", ""), getattr(a, "candidate2_sha256", ""))
+    info = {"candidate2": CAND2_CELL, "candidate2_commit": commit, "candidate2_sha256": sha, "candidate2_read": not getattr(a, "no_candidate2", False)}
+    if not info["candidate2_read"]:
+        info["candidate2_note"] = "кандидат 2 не читан (--no-candidate2): α по кандидату 2 применены (S_base %s)" % c2["alpha"]["S_base"]
+    return c2, info
+
+
+def replay_mk2(a, runner=None, repo=REPO):
+    """C3: `L_mk2` в выборке (wa / wb / wc, h775) замороженным бинарём; `FILES_641` побайтно как выходы G-626c (`--ref-dir/<окно>/<vid>/`). Сутки ≥ 14.11 не читает.
+    Итог — `--out` (`gate-641c.json`); различие или нет файла — код 3."""
+    fz = load_freeze(a.freeze)
+    fcommit, fsha = check_freeze_committed(a.freeze, repo, a.freeze_commit, a.freeze_sha256)
+    cpath = getattr(a, "candidate", "") or candidate_path(a.freeze)
+    cand = load_candidate(cpath, fz, a.freeze)
+    check_freeze_committed(cpath, repo, getattr(a, "candidate_commit", ""), getattr(a, "candidate_sha256", ""))
+    c2, c2info = resolve_candidate2(a, fz, cand, repo)
+    if c2 is None or not c2info["candidate2_read"]:
+        raise GuardError("replay-mk2: нужен кандидат %s без --no-candidate2" % CAND2_NAME)
+    md5, _sha = check_binary(a.bin, fz)
+    cell = c2["cells"][CAND2_CELL]
+    req = rf.Req("L", cell["keys"], False)
+    if not a.ref_dir or not os.path.isdir(a.ref_dir):
+        raise GuardError("--ref-dir: нет выходов G-626c (%r)" % a.ref_dir)
+    wins = rf.WINDOWS
+    os.makedirs(a.replay_root, exist_ok=True)
+    for w in wins:
+        link, src = os.path.join(a.replay_root, w.name), os.path.join(a.windows_root, w.name)
+        if not os.path.lexists(link):
+            os.symlink(src, link)
+        elif os.path.realpath(link) != os.path.realpath(src):
+            raise GuardError("%s указывает не на %s" % (link, src))
+    ntree = check_tree_days(a.replay_root, wins, d(LISTING_AFTER))
+    text = rr.read_symbols(a.symbols_file)[0]
+    paths = UPaths(a.replay_root, uni="replay", tick_store=a.tick_store, sig_cache=a.sig_cache)
+    rr.Engine(paths, runner or rr.SubprocessRunner(), text, a.bin, a.threads, None, windows=tuple(wins), prefix="m").launch([req])
+    res = {"bin_md5": md5, "keys": cell["keys"], "vid": req.vid, "cell": CAND2_CELL, "candidate2_commit": c2info["candidate2_commit"], "candidate2_sha256": c2info["candidate2_sha256"],
+           "freeze_commit": fcommit, "freeze_sha256": fsha, "tree_files": ntree, "ref_dir": a.ref_dir, "windows": {}}
+    for w in wins:
+        files = {}
+        for f in FILES_641:
+            x, y = os.path.join(paths.out(w.name), req.vid, f), os.path.join(a.ref_dir, w.name, req.vid, f)
+            sx, sy = (sha256_stream(x) if os.path.exists(x) else None), (sha256_stream(y) if os.path.exists(y) else None)
+            files[f] = {"sha256": sx, "ref_sha256": sy, "equal": sx is not None and sx == sy}
+        res["windows"][w.name] = {"files": files, "equal": all(v["equal"] for v in files.values())}
+    res["ok"] = all(v["equal"] for v in res["windows"].values())
+    out = a.out or os.path.join(a.replay_root, "gate-641c.json")
+    json.dump(res, open(out, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
+    print("G-641c: %s (%s); %s" % ("ПРОЙДЕНЫ" if res["ok"] else "НЕ ПРОЙДЕНЫ", ", ".join("%s %s" % (n, "=" if v["equal"] else "≠") for n, v in res["windows"].items()), out))
+    return 0 if res["ok"] else 3
+
+
 def cell_point_stats(fz, cell, point, rows, entries_to, rates=None, nboot=NBOOT, uni=None):
     """Статистика клетки на точке. `uni` — вселенная: α_k только у решающей вселенной (`uni` не задан — решающая); у остальных — «описательно»."""
     ndays = (entries_to - F0).days + 1
@@ -825,6 +966,9 @@ def run_point(a, runner=None, today=None, repo=REPO):
     if cand is not None:
         fz = apply_candidate(fz, cand)                                   # C1: α из кандидата (S_base 0,025 + L_n24 0,005), не из tk626-frozen.json
     run_cand = cand is not None and cinfo["candidate_read"]
+    c2, c2info = resolve_candidate2(a, fz, cand, repo)
+    if c2 is not None:
+        fz = apply_candidate2(fz, c2, c2info["candidate2_read"])         # TK-641 C1: α из tk641 (S_base 0,020 + L_mk2 0,005); `L_mk2` — обычная клетка пакета
     pt = get_point(fz, a.point)
     today = today or datetime.datetime.now(datetime.timezone.utc).date()
     check_point_date(pt, today)
@@ -854,7 +998,7 @@ def run_point(a, runner=None, today=None, repo=REPO):
             raise GuardError("данные между точками изменились (%d): %s" % (len(bad), bad[:3]))
     claim_read(a.root, pt["id"], {"point": pt["id"], "bin_md5": md5, "bin_sha256": sha, "freeze_commit": commit, "freeze_sha256": fsha, "tree_files": ntree,
                                  "universe_sha256": uni["sha256"], "universe_n": {n: len(v) for n, v in uni["lists"].items()}, "contracts_sha256": uni["contracts_sha256"],
-                                 **cinfo, "utc": datetime.datetime.now(datetime.timezone.utc).isoformat()})
+                                 **cinfo, **c2info, "utc": datetime.datetime.now(datetime.timezone.utc).isoformat()})
     reqs = reqs_of(fz)
     tabs, byw, n24 = {}, {}, {}
     rn = runner or rr.SubprocessRunner()
@@ -893,7 +1037,7 @@ def run_point(a, runner=None, today=None, repo=REPO):
         rates = rf.load_funding_rates(a.funding, uni["lists"]["all"], months=tuple(months)) or None
     stats = {k: cell_point_stats(fz, k.split("|")[0], pt, rows[k], to, rates, a.nboot, uni=k.split("|")[1]) for k in rows}
     res = {"point": pt, "freeze_commit": commit, "freeze_sha256": fsha, "bin_md5": md5, "stats": stats, "seams": {k: len(x) for k, x in seam.items()},
-           "prefix": {"forced_prev": forced, "diffs": {c: len(x) for c, x in pref.items()}}, "n24": n24, "candidate": cinfo, "tree_files": ntree, "manifest_files": len(man),
+           "prefix": {"forced_prev": forced, "diffs": {c: len(x) for c, x in pref.items()}}, "n24": n24, "candidate": cinfo, "candidate2": c2info, "tree_files": ntree, "manifest_files": len(man),
            "universe": {"n": {n: len(v) for n, v in uni["lists"].items()}, "sha256": uni["sha256"]}}
     json.dump(res, open(os.path.join(a.root, "point-%s.json" % pt["id"]), "w", encoding="utf-8"), ensure_ascii=False, indent=1, default=float)
     if run_cand:
@@ -920,6 +1064,8 @@ def render(res):
           "Вселенная точки: %s; файлов в манифесте %d" % (res["universe"]["n"], res["manifest_files"])]
     if (res.get("candidate") or {}).get("candidate_read") is False:
         L.append("%s (кандидат TK-638): %s" % (CAND_CELL, res["candidate"]["candidate_note"]))
+    if (res.get("candidate2") or {}).get("candidate2_read") is False:
+        L.append("%s (кандидат TK-641): %s" % (CAND2_CELL, res["candidate2"]["candidate2_note"]))
     for u, x in (res.get("n24") or {}).items():
         L.append("%s (кандидат TK-638), вселенная %s: %s; доля кандидатов L_base с m24 = 1 среди зачётных %s; no_key %s%s" % (
             CAND_CELL, u, "прочитана" if x["status"] == "read" else "НЕ ЧИТАЛАСЬ", "—" if x["m24_share"] is None else "%.3f %%" % (100 * x["m24_share"]), x["no_key"] if x["no_key"] is not None else "—",
@@ -936,6 +1082,13 @@ def cmd_plan(a):
         cand = load_candidate(cp, fz, a.freeze)
         fz = apply_candidate(fz, cand)
         print("кандидат %s (%s): α %s; клетка %s vid %s, фильтр %s ≥ %s" % (CAND_NAME, cand["version"], fz["alpha"], CAND_CELL, cand["cells"][CAND_CELL]["vid"], cand["filter"]["name"], cand["filter"]["N"]))
+        cp2 = getattr(a, "candidate2", "") or candidate2_path(a.freeze)
+        if os.path.exists(cp2):
+            c2 = load_candidate2(cp2, fz, a.freeze, cand, cp)
+            fz = apply_candidate2(fz, c2, True)
+            print("кандидат %s (%s): α %s; клетка %s vid %s" % (CAND2_NAME, c2["version"], fz["alpha"], CAND2_CELL, c2["cells"][CAND2_CELL]["vid"]))
+        else:
+            print("кандидата %s рядом с заморозкой нет — чтение точки остановится (кандидат в силе: α S_base 0,020)" % CAND2_NAME)
     else:
         print("кандидата %s рядом с заморозкой нет — чтение точки остановится (кандидат в силе: α S_base 0,025)" % CAND_NAME)
     for w in fz["windows"]:
@@ -949,7 +1102,7 @@ def cmd_plan(a):
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("cmd", choices=["plan", "point", "replay-n24"])
+    ap.add_argument("cmd", choices=["plan", "point", "replay-n24", "replay-mk2"])
     ap.add_argument("point", nargs="?", default="")
     ap.add_argument("--freeze", default=FREEZE)
     ap.add_argument("--freeze-commit", default="")
@@ -967,6 +1120,11 @@ def main(argv=None):
     ap.add_argument("--no-candidate", action="store_true", help="L_n24 не читать (файл кандидата всё равно нужен: α S_base 0,025 уже потрачены); в маркере «кандидат не читан»")
     ap.add_argument("--candidate-commit", default="")
     ap.add_argument("--candidate-sha256", default="")
+    ap.add_argument("--candidate2", default="", help="файл второго кандидата (по умолчанию `%s` рядом с --freeze)" % CAND2_NAME)
+    ap.add_argument("--no-candidate2", action="store_true", help="L_mk2 не читать (файл всё равно нужен: α S_base 0,020 уже потрачены); в маркере «кандидат 2 не читан»")
+    ap.add_argument("--candidate2-commit", default="")
+    ap.add_argument("--candidate2-sha256", default="")
+    ap.add_argument("--ref-dir", default="/data/p42-tk626/gmk/out", help="replay-mk2: выходы G-626c `<окно>/<vid>/long-*`")
     ap.add_argument("--feat-bin", default="", help="`alpha-feat` кандидата (md5 / sha256 — в файле кандидата)")
     ap.add_argument("--replay-root", default="/data/p42-tk638/replay")
     ap.add_argument("--windows-root", default="/data/p42-tk621")
@@ -979,6 +1137,8 @@ def main(argv=None):
             return cmd_plan(a)
         if a.cmd == "replay-n24":
             return replay_n24(a)
+        if a.cmd == "replay-mk2":
+            return replay_mk2(a)
         if not a.point:
             raise GuardError("point: укажите L1…L5")
         return run_point(a)
