@@ -10,6 +10,7 @@ use alpha::breakout::feat::deriv::DerivDirs;
 use alpha::breakout::feat::f12::{self, F12Cfg, StorePxSrc, ZipPxSrc};
 use alpha::breakout::feat::io::{run, Cfg, Mode, StoreCfg};
 use alpha::breakout::feat::pdcompat::parse_date;
+use alpha::breakout::feat::tcount::{self, TcCfg};
 use alpha::breakout::store::{StoreOpts, TickStore};
 use anyhow::Result;
 use clap::{Args, Parser, Subcommand};
@@ -34,6 +35,32 @@ enum Cmd {
     All(Opts),
     /// признаки эпизода f12 (TK-611): уровень, подход, разреженность, корреляции с BTC/ETH
     F12(F12Opts),
+    /// число сделок монеты за 60 мин / 24 ч до минуты сигнала (TK-638)
+    Tcount(TcOpts),
+}
+
+#[derive(Args)]
+struct TcOpts {
+    /// CSV со столбцами `sym`, `sig_ms` (остальные игнорируются)
+    #[arg(long)]
+    eps: PathBuf,
+    /// CSV результата `sym,sig_ms,n60,n24,m60,m24`
+    #[arg(long)]
+    out: PathBuf,
+    /// дата, от которой отсчитан sig_ms (UTC)
+    #[arg(long, default_value = "2026-09-01")]
+    base_date: String,
+    #[arg(long, default_value_t = 4)]
+    threads: usize,
+    /// только эти монеты (через запятую)
+    #[arg(long)]
+    coins: Option<String>,
+    /// корни aggTrades через `:` (по умолчанию SIGFEAT_TRADES или /data/aggtrades/binance)
+    #[arg(long)]
+    trades: Option<String>,
+    /// склад суток TK-607: только чтение
+    #[arg(long)]
+    store: Option<PathBuf>,
 }
 
 #[derive(Args)]
@@ -173,12 +200,53 @@ fn run_f12(o: F12Opts) -> Result<()> {
     Ok(())
 }
 
+fn run_tcount(o: TcOpts) -> Result<()> {
+    let roots: Vec<PathBuf> = o
+        .trades
+        .unwrap_or_else(|| env_or("SIGFEAT_TRADES", "/data/aggtrades/binance"))
+        .split(':')
+        .map(PathBuf::from)
+        .collect();
+    let cfg = TcCfg {
+        eps: o.eps,
+        out: o.out,
+        base_date: o.base_date,
+        threads: o.threads,
+        coins: o
+            .coins
+            .filter(|c| !c.is_empty())
+            .map(|c| c.split(',').map(str::to_string).collect()),
+    };
+    let Some(dir) = o.store else {
+        let src = ZipPxSrc { roots };
+        println!("{}", tcount::run(&cfg, &src)?.json());
+        return Ok(());
+    };
+    let st = Arc::new(TickStore::open(&StoreOpts {
+        dir,
+        cap_gb: 0,
+        min_free_gb: 0,
+    })?);
+    let first = parse_date(&cfg.base_date)?;
+    let src = StorePxSrc::new(&roots, &st, first, false)?;
+    let sum = tcount::run(&cfg, &src)?;
+    eprintln!(
+        "склад: суток {} из склада, {} из zip по отступлениям; {}",
+        src.store_days.load(Ordering::Relaxed),
+        src.fallback.load(Ordering::Relaxed),
+        st.summary()
+    );
+    println!("{}", sum.json());
+    Ok(())
+}
+
 fn main() -> Result<()> {
     let (mode, o) = match Cli::parse().cmd {
         Cmd::Flow(o) => (Mode::Flow, o),
         Cmd::Deriv(o) => (Mode::Deriv, o),
         Cmd::All(o) => (Mode::All, o),
         Cmd::F12(o) => return run_f12(o),
+        Cmd::Tcount(o) => return run_tcount(o),
     };
     let trades = o
         .trades
