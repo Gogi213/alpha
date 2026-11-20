@@ -262,7 +262,7 @@ def cell_block(side, vid, bs):
 def cmd_tables(a):
     res = dict(z_holm=Z_HOLM, z_pow=Z_POW, m_holm=M_HOLM, noise={}, bases={}, rows=[])
     n_cells = sum(len(rules_of(s)) * len(BASES[s]) for s in st.SIDES)
-    for n in (13, M_HOLM, n_cells):
+    for n in (13, M_HOLM, n_cells, 444):           # 444 — контекст: тесты TK-622, из которых отобраны зоны (критик, PASS 20.11)
         res["noise"][str(n)] = dict(zip(("emax_abs_z", "p95_max_abs_z"), r42.emax_abs_z(n)))
     for side in st.SIDES:
         for b in BASES[side]:
@@ -292,7 +292,8 @@ def cmd_tables(a):
                 rid, RULES[rid][3], s_["n"], s_["sum"], d["dsum"], d["lo95"], d["hi95"], d["p2"], d["z"], d["mde_sum"], d["dmean"], s_["sharpe"], s_["rr"]["rr"],
                 "/".join("%+.0f" % x for x in d["windows"])))
     for x in res["rows"]:
-        say("строка %2d %-30s %s %s p2 %.4f Холм %s | %s" % (x["row"], x["metric"], x["rule"], x["base"], x["p2"], x["holm_reject"], x["verdict"]))
+        d = res["bases"][x["base"]]["cells"][x["rule"]]["delta"]
+        say("строка %2d %-30s %s %s ΔΣ %+.1f Δ$/сд %+.3f ± %.3f p2 %.4f Холм %s | %s" % (x["row"], x["metric"], x["rule"], x["base"], d["dsum"], d["dmean"], d["se_mean"], x["p2"], x["holm_reject"], x["verdict"]))
     say("шум: %s" % res["noise"])
 
 
