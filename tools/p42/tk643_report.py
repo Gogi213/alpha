@@ -49,6 +49,7 @@ def main():
     os.makedirs(os.path.join(OUT, NAME), exist_ok=True)
     V = json.load(open(os.path.join(RES, "verdict43.json"), encoding="utf-8"))
     C = {s: json.load(open(os.path.join(RES, "cells43-%s.json" % s), encoding="utf-8")) for s in t.SIDES}
+    G = json.load(open(os.path.join(RES, "gwin43.json"), encoding="utf-8"))
     D = {s: json.load(open(os.path.join(RES, "cross43-%s.json" % s), encoding="utf-8")) for s in t.SIDES if os.path.exists(os.path.join(RES, "cross43-%s.json" % s))}
     L = ["# П-42: стоп и выходы целиком на честной вселенной h775 — совместные сетки (TK-643, §13.43, 20.11.2026)", ""]
     for s in t.SIDES:
@@ -101,7 +102,15 @@ def main():
         if s in D:
             L += ["", "### Блок D — сочетания двух лучших клеток A, B, C (описательно: **выбрано по P&L тех же 136 суток, 0 испытаний, вне Холма**)", "", HDR, SEP]
             L += [row("`%s`" % c, r) for c, r in sorted(D[s]["cells"].items(), key=lambda kv: -kv[1]["delta"]["d"])]
-        L += ["", "Ворота: G-base %s; G-dup групп %d (одинаковые сделки, в Холме оставлены); сделок «конец данных» у базы %d." % ("ok" if C[s]["gbase"] else "ОШИБКА", len(C[s]["gdup"]), C[s]["gwin_forced_base"]), ""]
+        g = G[s]
+        fz = {c: r["forced"] for c, r in g.items() if r["forced"]}
+        mh = max(g.items(), key=lambda kv: kv[1]["max_hold_d"])
+        L += ["", "Ворота: G-base %s; G-dup групп %d (одинаковые сделки, в Холме оставлены); G-win: зачётных сделок, закрытых концом данных окна, — %s; наибольшее удержание %s сут. (`%s`), база %s сут." % (
+            "ok" if C[s]["gbase"] else "ОШИБКА", len(C[s]["gdup"]), ("у %d клеток: %s" % (len(fz), fz)) if fz else "0 у всех клеток и базы", f(mh[1]["max_hold_d"], 2), mh[0], f(g["base"]["max_hold_d"], 2)), ""]
+    L += ["## Отступления", "",
+          "- Охрана G7 в склейке (Σ строк daily движка на зачётном срезе = Σ net сделок среза) не выполняется у клеток без `rt` (`B_off_*`): сделки держатся до нескольких суток, строки daily — переоценка по суткам. Заменена охраной по всему окну (Σ daily = Σ net всех сделок окна, точно); метрика не менялась. **Один ряд для всего:** Sharpe, просадка, KPI В-120, бутстреп Δ и шумовая планка — по ряду сделок по дате входа, у клеток и у базы одним путём (`tk643_run.load_cell`), строки daily движка не используются (`0a46246e7`, принято критиком).",
+          "- При разборе охраны до чтения таблиц видны суммы net трёх клеток на одном окне: `L B_off_off` (wa), `S B_off_off` (wb), `L A_s3_none` (wa); клетки остались в семействе, правило не менялось.",
+          "- Номер раздела §13.43 (§13.38 занят TK-641); блок D — описательный (правки критика до кода).", ""]
     open(os.path.join(OUT, NAME + ".md"), "w", encoding="utf-8", newline="\n").write("\n".join(L) + "\n")
     A = ["# TK-643: все клетки (§13.43)", ""]
     for s in t.SIDES:

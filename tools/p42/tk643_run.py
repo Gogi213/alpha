@@ -422,7 +422,28 @@ def cmd_cross(a):
         say("== %s: клеток D %d" % (side, len(d)))
 
 
-COMMANDS = {"variants": cmd_variants, "cells": cmd_cells, "tables": cmd_tables, "verdict": cmd_verdict, "cross": cmd_cross}
+def cmd_gwin(a):
+    """G-win (условие критика к отступлению G7): по каждой клетке A–D и базе — сделок зачётного среза, закрытых концом данных окна (`forced`), и наибольшее удержание, сут.
+    Охрана «один ряд»: статистика клеток и базы — только ряд сделок по дате входа (`load_cell` без строк daily движка)."""
+    st, r5, p8, _ = _srv()
+    u = r5.Uni("h775")
+    out = {}
+    for side in SIDES:
+        ids = [("base", None)] + [(x["cid"], x) for b in ("A", "B", "C") for x in block_cells(side)[b]]
+        ids += [(cid, None) for cid in json.load(open(q("res", "cross43-%s.json" % side), encoding="utf-8"))["cells"]]
+        res = {}
+        for cid, _x in ids:
+            dirs = {w.name: (u.base(w.name, side), side) for w in st.TRADE_WINDOWS} if cid == "base" else load_dirs(st, side, cid)
+            ser, kinds, pnl = load_cell(st, p8, u, side, dirs)
+            hold = (ser.t_out - ser.t_in) / 86_400_000.0
+            res[cid] = dict(forced=int(sum(1 for k in kinds if k == "forced")), max_hold_d=float(hold.max()) if len(hold) else 0.0)
+        out[side] = res
+        fz = {c: r["forced"] for c, r in res.items() if r["forced"]}
+        say("== %s: клеток с forced > 0: %d %s; наибольшее удержание %.2f сут." % (side, len(fz), fz, max(r["max_hold_d"] for r in res.values())))
+    json.dump(out, open(q("res", "gwin43.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
+
+
+COMMANDS = {"gwin": cmd_gwin, "variants": cmd_variants, "cells": cmd_cells, "tables": cmd_tables, "verdict": cmd_verdict, "cross": cmd_cross}
 
 
 def main():
