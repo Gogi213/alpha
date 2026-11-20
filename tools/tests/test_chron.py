@@ -79,6 +79,60 @@ class TestStore(Base):
             self.st.add_entry(entry("x", corrects="L-5"), [])
         self.assertEqual(self.st.c.execute("SELECT count(*) FROM entry").fetchone()[0], 0)
 
+    def test_prereg_inheritance(self):
+        text = ("# P-91\n## 13. Раздел — записано 18.11.2026 до счёта\nа\n"
+                "### 13.1 Правило\nб\n#### 5. Что считаем (колонки; одним пакетом после PASS)\nв\n"
+                "### 13.2 Результат (20.11.2026, после PASS критика)\nг\n#### 1. Таблица\nд\n"
+                "### 13.3 Поправки после счёта\nе\n### 13.4 Отступления (после PASS)\nж\n"
+                "## 14. Признаки — записано 19.11.2026 ДО любого счёта по меткам\nз\n")
+        root = Path(self.tmp.name)
+        (root / "docs" / "research").mkdir(parents=True)
+        (root / "docs" / "research" / "P-91-test.md").write_text(text, encoding="utf-8", newline="\n")
+        secs = [c["sec"] for c in chron.build_docs(root, ["docs/research/P-91-test.md"], [], None)[0]["chunks"] if c["kind"] == "psec"]
+        got = {s["num"]: (s["prereg"], s["prereg_at"]) for s in secs}
+        self.assertEqual(got["13"], (1, "2026-11-18"))
+        self.assertEqual(got["13.1"], (1, "2026-11-18"))
+        self.assertEqual(got["13.1 п. 5"], (1, "2026-11-18"))  # «после PASS» в спецификации — не метка результата
+        self.assertEqual(got["13.2"][0], 0)  # «Результат» в своём заголовке — наследование снято
+        self.assertEqual(got["13.2 п. 1"][0], 0)  # и у его подпунктов
+        self.assertEqual(got["13.3"][0], 0)
+        self.assertEqual(got["13.4"][0], 0)
+        self.assertEqual(got["14"], (1, "2026-11-19"))  # «ДО любого счёта»
+
+    def test_psec_flag_append_only_latest_wins(self):
+        self.st.new_protocol("P-90-test", "Тест")
+        a = self.st.add_psec({"protocol": "P-90", "body": "## 1. Вопрос\nчто\n", "prereg": True}, [])
+        self.assertEqual(self.st.stats()["sections_prereg"], 1)
+        self.st.flag_psec(a, False, None, "результат после счёта")
+        self.assertEqual(self.st.get(a)["psec"]["prereg"], 0)
+        self.assertEqual(self.st.get("P-90-test")["sections"][0]["prereg"], 0)
+        self.assertEqual([p["prereg"] for p in self.st.protocols() if p["id"] == "P-90-test"], [0])
+        self.assertEqual(self.st.stats()["sections_prereg"], 0)
+        self.st.flag_psec(a, True, "2026-11-20", "вернуть")
+        g = self.st.get(a)
+        self.assertEqual((g["psec"]["prereg"], g["psec"]["prereg_at"], len(g["flags"])), (1, "2026-11-20", 2))
+        self.assertEqual(self.st.c.execute("SELECT prereg FROM psec WHERE id=?", (int(a[3:]),)).fetchone()[0], 1)  # строка раздела не тронута
+        for sql in ("UPDATE psec_flag SET prereg=0", "DELETE FROM psec_flag"):
+            with self.assertRaises(sqlite3.DatabaseError):
+                self.st.c.execute(sql)
+        with self.assertRaises(chron.ChronError):
+            self.st.flag_psec(a, False, None, " ")
+        self.assertEqual(self.st.check_db(), [])
+
+    def test_migrate_v2_to_v3(self):
+        db = os.path.join(self.tmp.name, "old.sqlite")
+        c = sqlite3.connect(db, isolation_level=None)
+        for stmt in chron.split_sql(chron.SCHEMA.replace(chron.MIGRATE[3], "")):
+            c.execute(stmt)
+        c.execute(chron.FTS_SQL)
+        c.execute("PRAGMA user_version=2")
+        c.close()
+        st = chron.Store(chron.connect(db))
+        self.assertEqual(st.c.execute("PRAGMA user_version").fetchone()[0], chron.SCHEMA_VERSION)
+        self.assertEqual(st.check_db(), [])
+        self.assertEqual(st.stats()["flag_fixes"], 0)
+        st.c.close()
+
     def test_psec_draft_lock_amend(self):
         self.st.new_protocol("P-90-test", "Тест")
         a = self.st.add_psec({"protocol": "P-90", "body": "## 1. Вопрос\nчто\n"}, [])

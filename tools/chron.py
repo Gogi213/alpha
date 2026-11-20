@@ -31,7 +31,7 @@ SRV_HOST = "root@5.231.25.224"
 TZ = datetime.timezone(datetime.timedelta(hours=4))
 VERDICTS = ("работает", "не работает", "не ясно", "описательно")
 KINDS = ("verdict", "prereg", "amend", "freeze", "result", "step", "measure", "experiment", "correction", "note")
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 HERE = Path(__file__).resolve().parent if "__file__" in globals() else Path.cwd()
 
 SCHEMA = """
@@ -72,6 +72,18 @@ CREATE INDEX psec_proto ON psec(protocol, ord);
 CREATE TRIGGER psec_locked BEFORE UPDATE ON psec WHEN OLD.locked = 1 BEGIN SELECT RAISE(ABORT, 'chron: раздел записан до счёта и неизменяем — добавь поправку (--amends)'); END;
 CREATE TRIGGER psec_nodelete BEFORE DELETE ON psec BEGIN SELECT RAISE(ABORT, 'chron: раздел протокола удалять нельзя'); END;
 
+-- исправление флага «до счёта» перенесённого раздела (строка psec неизменяема): действует последняя строка (TK-646 v3)
+CREATE TABLE psec_flag(
+  id INTEGER PRIMARY KEY AUTOINCREMENT, psec INTEGER NOT NULL REFERENCES psec(id),
+  prereg INTEGER NOT NULL CHECK (prereg IN (0,1)), prereg_at TEXT, reason TEXT NOT NULL, author TEXT, created TEXT NOT NULL);
+CREATE INDEX psec_flag_psec ON psec_flag(psec, id);
+CREATE TRIGGER psec_flag_noupdate BEFORE UPDATE ON psec_flag BEGIN SELECT RAISE(ABORT, 'chron: исправления флага только добавляются'); END;
+CREATE TRIGGER psec_flag_nodelete BEFORE DELETE ON psec_flag BEGIN SELECT RAISE(ABORT, 'chron: исправления флага только добавляются'); END;
+CREATE VIEW psec_cur AS SELECT p.id, p.protocol, p.ord, p.level, p.num, p.heading, p.body, p.kind, p.alpha,
+  CASE WHEN f.id IS NULL THEN p.prereg ELSE f.prereg END AS prereg, CASE WHEN f.id IS NULL THEN p.prereg_at ELSE f.prereg_at END AS prereg_at,
+  p.locked, p.amends, p.src, p.h, p.author, p.created, f.id AS flag_id, f.reason AS flag_reason
+  FROM psec p LEFT JOIN psec_flag f ON f.id = (SELECT max(id) FROM psec_flag WHERE psec = p.id);
+
 CREATE TABLE link(src TEXT NOT NULL, dst TEXT NOT NULL, rel TEXT NOT NULL, origin TEXT, created TEXT NOT NULL, PRIMARY KEY (src, dst, rel));
 CREATE INDEX link_dst ON link(dst);
 CREATE TRIGGER link_nodelete BEFORE DELETE ON link BEGIN SELECT RAISE(ABORT, 'chron: ссылки только добавляются'); END;
@@ -85,6 +97,7 @@ CREATE TABLE chunk(ver INTEGER NOT NULL REFERENCES doc(ver), ord INTEGER NOT NUL
 CREATE TABLE kb_node(id TEXT PRIMARY KEY, type TEXT, status TEXT, title TEXT, date TEXT, path TEXT);
 CREATE TABLE meta(key TEXT PRIMARY KEY, value TEXT);
 """
+MIGRATE = {3: SCHEMA[SCHEMA.index("-- исправление флага"):SCHEMA.index("CREATE TABLE link(")]}  # user_version → операторы
 FTS_SQL = "CREATE VIRTUAL TABLE fts USING fts5(node UNINDEXED, title, body, tokenize='trigram')"
 
 
@@ -167,6 +180,10 @@ def connect(path, ro=False):
         connect(path).close()  # первая встреча — создать схему
     if ro:
         conn = sqlite3.connect("file:%s?mode=ro" % quote(str(path)), uri=True, timeout=30)
+        if conn.execute("PRAGMA user_version").fetchone()[0] < SCHEMA_VERSION:  # старая схема — перевести (один раз)
+            conn.close()
+            connect(path).close()
+            conn = sqlite3.connect("file:%s?mode=ro" % quote(str(path)), uri=True, timeout=30)
     else:
         Path(path).parent.mkdir(parents=True, exist_ok=True)
         conn = sqlite3.connect(str(path), timeout=60, isolation_level=None)
@@ -179,6 +196,15 @@ def connect(path, ro=False):
                     conn.execute(stmt)
                 conn.execute(FTS_SQL)
                 conn.execute("PRAGMA user_version=%d" % SCHEMA_VERSION)
+            conn.execute("COMMIT")
+        v = conn.execute("PRAGMA user_version").fetchone()[0]
+        if v < SCHEMA_VERSION:
+            conn.execute("BEGIN IMMEDIATE")
+            v = conn.execute("PRAGMA user_version").fetchone()[0]
+            for ver in range(v + 1, SCHEMA_VERSION + 1):
+                for stmt in split_sql(MIGRATE[ver]):
+                    conn.execute(stmt)
+            conn.execute("PRAGMA user_version=%d" % SCHEMA_VERSION)
             conn.execute("COMMIT")
         conn.execute("PRAGMA synchronous=FULL")
     conn.row_factory = sqlite3.Row
@@ -372,6 +398,17 @@ class Store:
             raise ChronError("не раздел: %s" % node)
         self.c.execute("UPDATE psec SET prereg=1, prereg_at=coalesce(prereg_at, ?), locked=1 WHERE id=? AND locked=0", (now(), int(d[3:])))
         return d
+
+    def flag_psec(self, node, prereg, prereg_at, reason, author=None):
+        """Исправить флаг «до счёта» раздела: новая строка psec_flag (строка psec не меняется); читается последняя."""
+        d = self.canon(node)
+        if not d or node_kind(d) != "psec" or not self.exists(d):
+            raise ChronError("не раздел: %s" % node)
+        if not (reason or "").strip():
+            raise ChronError("нужна причина исправления")
+        cur = self.c.execute("INSERT INTO psec_flag(psec, prereg, prereg_at, reason, author, created) VALUES (?,?,?,?,?,?)",
+                             (int(d[3:]), 1 if prereg else 0, prereg_at or None, reason, author, now()))
+        return "%s флаг #%d" % (d, cur.lastrowid)
 
     def sync_kb(self, nodes):
         self.c.execute("BEGIN IMMEDIATE")
@@ -625,17 +662,18 @@ class Store:
             res["entry"] = dict(r)
             res["corrected_by"] = [x[0] for x in self.c.execute("SELECT id FROM entry WHERE corrects=? ORDER BY id", (r["id"],))]
         elif k == "psec":
-            r = self.c.execute("SELECT p.*, r.short FROM psec p JOIN protocol r ON r.id=p.protocol WHERE p.id=?", (int(n[3:]),)).fetchone()
+            r = self.c.execute("SELECT p.*, r.short FROM psec_cur p JOIN protocol r ON r.id=p.protocol WHERE p.id=?", (int(n[3:]),)).fetchone()
             if not r:
                 raise ChronError("нет раздела %s" % n)
             res["psec"] = dict(r)
             res["amended_by"] = [x[0] for x in self.c.execute("SELECT id FROM psec WHERE amends=? ORDER BY id", (r["id"],))]
+            res["flags"] = [dict(x) for x in self.c.execute("SELECT * FROM psec_flag WHERE psec=? ORDER BY id", (r["id"],))]
         else:
             p = self.c.execute("SELECT * FROM protocol WHERE id=?", (n,)).fetchone()
             if p:
                 res["protocol"] = dict(p)
                 res["sections"] = [dict(x) for x in self.c.execute(
-                    "SELECT id, ord, level, num, heading, kind, prereg, prereg_at, locked, amends, length(body) AS bytes FROM psec WHERE protocol=? ORDER BY ord, id", (n,))]
+                    "SELECT id, ord, level, num, heading, kind, prereg, prereg_at, locked, amends, length(body) AS bytes FROM psec_cur WHERE protocol=? ORDER BY ord, id", (n,))]
             kbn = self.c.execute("SELECT * FROM kb_node WHERE id=?", (n,)).fetchone()
             if kbn:
                 res["kb"] = dict(kbn)
@@ -662,7 +700,7 @@ class Store:
     def protocols(self):
         return [dict(r) for r in self.c.execute(
             "SELECT r.id, r.short, r.title, r.path, count(p.id) AS sections, sum(p.prereg) AS prereg, max(p.created) AS last"
-            " FROM protocol r LEFT JOIN psec p ON p.protocol=r.id GROUP BY r.id ORDER BY r.short, r.id")]
+            " FROM protocol r LEFT JOIN psec_cur p ON p.protocol=r.id GROUP BY r.id ORDER BY r.short, r.id")]
 
     def facets(self):
         return {"projects": [r[0] for r in self.c.execute("SELECT project FROM entry WHERE project IS NOT NULL GROUP BY project ORDER BY count(*) DESC")],
@@ -676,7 +714,7 @@ class Store:
         q = lambda s: self.c.execute(s).fetchone()[0]
         return {"entries": q("SELECT count(*) FROM entry"), "entries_imported": q("SELECT count(*) FROM entry WHERE src IS NOT NULL"),
                 "protocols": q("SELECT count(*) FROM protocol"), "sections": q("SELECT count(*) FROM psec"),
-                "sections_prereg": q("SELECT count(*) FROM psec WHERE prereg=1"), "links": q("SELECT count(*) FROM link"),
+                "sections_prereg": q("SELECT count(*) FROM psec_cur WHERE prereg=1"), "flag_fixes": q("SELECT count(*) FROM psec_flag"), "links": q("SELECT count(*) FROM link"),
                 "kb_nodes": q("SELECT count(*) FROM kb_node"), "docs": q("SELECT count(DISTINCT path) FROM doc"),
                 "db_bytes": q("SELECT page_count * page_size FROM pragma_page_count(), pragma_page_size()")}
 
@@ -698,7 +736,8 @@ class Store:
         if self.c.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
             issues.append("integrity_check: не ok")
         trig = {r[0] for r in self.c.execute("SELECT name FROM sqlite_master WHERE type='trigger'")}
-        for t in ("entry_immutable", "entry_nodelete", "psec_locked", "psec_nodelete", "link_nodelete", "link_noupdate"):
+        for t in ("entry_immutable", "entry_nodelete", "psec_locked", "psec_nodelete", "link_nodelete", "link_noupdate",
+                  "psec_flag_noupdate", "psec_flag_nodelete"):
             if t not in trig:
                 issues.append("нет триггера %s" % t)
         for src, dst, rel in self.c.execute("SELECT src, dst, rel FROM link").fetchall():
@@ -724,7 +763,9 @@ ENTRY_START_RE = re.compile(r"^(?:## |\[?\d{2}\.\d{2}(?:\s+\d{1,2}:\d{2})?\s+·)
 TABLE_SEP_RE = re.compile(r"^\|[\s:|-]*-[\s:|-]*\|?\s*$")
 HEAD_RE = re.compile(r"^(#{1,6})\s+(.*?)\s*$")
 FENCE_RE = re.compile(r"^\s{0,3}(```|~~~)")
-PRE_RE = re.compile(r"(?i)\bдо\s+(?:первого\s+)?(?:сч[её]та|чтения)")
+PRE_RE = re.compile(r"(?i)\bдо\s+(?:первого\s+|любого\s+)?(?:сч[её]та|чтения)")
+# метка «после счёта» в заголовке подраздела снимает наследование «до счёта» от раздела (TK-646 v3)
+AFTER_RE = re.compile(r"^(?:§\s*)?\S+\s+результат\b|после\s+сч[её]та|\(после\s+pass\)")
 
 
 def first_line(s):
@@ -1252,9 +1293,9 @@ def build_docs(root, paths, kb_nodes, git, archive_map=None):
                 parent = next((x[1] for x in reversed(nums) if x[1]), None)
                 if sec["num"] and parent and "." in parent and not sec["num"].startswith(parent.split(" ")[0] + ".") and "." not in sec["num"]:
                     sec["num"] = "%s п. %s" % (parent.split(" ")[0], sec["num"])
-                pre_parent = next((x for x in reversed(nums) if x[2]), None)
-                if pre_parent and not sec["prereg"]:
-                    sec["prereg"], sec["prereg_at"] = 1, pre_parent[3]  # подраздел раздела «до счёта» — тоже до счёта
+                pre_parent = nums[-1] if nums and nums[-1][2] else None
+                if pre_parent and not sec["prereg"] and not AFTER_RE.search(fold(ch["heading"])):
+                    sec["prereg"], sec["prereg_at"] = 1, pre_parent[3]  # подраздел раздела «до счёта» — тоже до счёта, если не помечен «после счёта»
                 nums.append((ch["level"], sec["num"], sec["prereg"], sec["prereg_at"]))
                 out = {"kind": "psec", "body": body, "suffix": suffix, "line": ch["line"], "sec": sec}
                 date = sec["prereg_at"]
@@ -1336,7 +1377,7 @@ def rpc_main():
     req = json.loads(base64.b64decode(globals()["RPC"]).decode("utf-8"))
     os.environ.setdefault("CHRON_DB", SRV_DB)
     try:
-        if req["op"] not in RO_OPS | {"add_entry", "add_psec", "edit_psec", "lock_psec", "sync_kb", "import_docs", "new_protocol"}:
+        if req["op"] not in RO_OPS | {"add_entry", "add_psec", "edit_psec", "lock_psec", "flag_psec", "sync_kb", "import_docs", "new_protocol"}:
             raise ChronError("операция %s недоступна" % req["op"])
         res = {"ok": call(req["op"], *req["args"], **req["kw"])}
     except (ChronError, sqlite3.Error) as e:
@@ -1436,6 +1477,9 @@ def cmd_show(a):
                                      " · неизменяем" if s["locked"] else " · черновик"))
         if s["amends"]:
             print("поправка к PS-%d" % s["amends"])
+        for f in r.get("flags", []):
+            print("флаг исправлен %s: %s%s — %s" % (f["created"], "до счёта" if f["prereg"] else "не до счёта",
+                                                  " %s" % f["prereg_at"] if f["prereg_at"] else "", f["reason"]))
         if r["amended_by"]:
             print("поправки: " + ", ".join("PS-%d" % x for x in r["amended_by"]))
         print()
@@ -1492,6 +1536,8 @@ def cmd_psec(a):
         print(call("edit_psec", a.id, read_body(a)))
     elif a.psec_cmd == "lock":
         print(call("lock_psec", a.id))
+    elif a.psec_cmd == "flag":
+        print(call("flag_psec", a.id, a.prereg == "1", a.at, a.reason, author()))
     return 0
 
 
@@ -1629,7 +1675,7 @@ def cmd_backup(a):
     jl = out / ("chron-%s.jsonl" % stamp)
     with open(str(jl) + ".tmp", "w", encoding="utf-8") as f:
         chk.row_factory = sqlite3.Row
-        for t in ("protocol", "entry", "psec", "link", "doc", "chunk", "kb_node"):
+        for t in ("protocol", "entry", "psec", "psec_flag", "link", "doc", "chunk", "kb_node"):
             for r in chk.execute("SELECT * FROM %s" % t):
                 f.write(json.dumps({"t": t, **dict(r)}, ensure_ascii=False) + "\n")
     chk.close()
@@ -1995,6 +2041,11 @@ def main(argv=None):
     x.add_argument("--body-file")
     x = ps.add_parser("lock", help="пометить «до счёта» — дальше только поправки")
     x.add_argument("id")
+    x = ps.add_parser("flag", help="исправить флаг «до счёта» (строка только добавляется; действует последняя)")
+    x.add_argument("id")
+    x.add_argument("--prereg", choices=("0", "1"), required=True)
+    x.add_argument("--at", help="когда записан до счёта (ГГГГ-ММ-ДД[THH:MM+04:00])")
+    x.add_argument("--reason", required=True)
     s.set_defaults(fn=cmd_psec)
     s = sp.add_parser("protocol", help="протоколы: list | new | show")
     ps = s.add_subparsers(dest="protocol_cmd", required=True)
