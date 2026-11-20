@@ -42,7 +42,9 @@ CELLS = {
     "fh24": {"fh": "24"},
     "ALL0": {"pk": "0", "pb": "0", "fh": "0", "fm": "0"},  # все правила владельца выключены
 }
-M_HOLM = len(CELLS)
+# §13.42 п. 10 (до P&L, по `counts`): `ap1`, `fb0` — сделки = базе (Δ = 0 по построению), `fa0` — 0–1 сделка (сравнение «база против нуля»); в семейство Холма не входят, печатаются описательно
+HOLM_CELLS = ("pk0", "pb0", "pb0ap1", "F0", "fh2", "fh8", "fh24", "ALL0")
+M_HOLM = len(HOLM_CELLS)
 ALPHA = 0.05
 FILES = ("trades", "daily", "coinday", "entryrej")
 say = r4.say
@@ -229,8 +231,9 @@ def delta(cs, bs):
     p2 = (1 + int((np.abs(cen) >= abs(dsum)).sum())) / (1 + len(cen))
     lo, hi = np.percentile(bsum, [2.5, 97.5])
     bNc, bNr = Nc[idx].sum(axis=1), Nr[idx].sum(axis=1)
-    bpt = Sc[idx].sum(axis=1) / bNc - Sr[idx].sum(axis=1) / bNr
-    dpt = float(Sc.sum() / Nc.sum() - Sr.sum() / Nr.sum())
+    with np.errstate(divide="ignore", invalid="ignore"):
+        bpt = Sc[idx].sum(axis=1) / bNc - Sr[idx].sum(axis=1) / bNr
+        dpt = float(Sc.sum() / Nc.sum() - Sr.sum() / Nr.sum()) if Nc.sum() > 0 else float("nan")
     return dict(dsum=dsum, se_sum=se, lo95=float(lo), hi95=float(hi), p2=float(p2), z=dsum / se if se > 0 else float("nan"),
                 dmean=dpt, se_mean=float(np.nanstd(bpt, ddof=1)),
                 mde_sum_holm=(Z_HOLM + Z_POW) * se, mde_sum_1=(Z_1 + Z_POW) * se,
@@ -267,7 +270,7 @@ def verdict(d, rej, rb):
 
 def cmd_tables(a):
     res = dict(z_holm=Z_HOLM, z_pow=Z_POW, m_holm=M_HOLM, noise={}, bases={})
-    for n in (M_HOLM, M_HOLM * len(BASES)):
+    for n in (M_HOLM, M_HOLM * len(BASES)):  # 8 и 24
         res["noise"][str(n)] = dict(zip(("emax_abs_z", "p95_max_abs_z"), emax_abs_z(n)))
     for b in BASES:
         bs = load(b)
@@ -277,10 +280,15 @@ def cmd_tables(a):
             cs = load("%s__%s" % (b, c))
             d = delta(cs, bs)
             rows.append((c, cs, d))
-        rej = holm([d["p2"] for _, _, d in rows])
-        for (c, cs, d), rj in zip(rows, rej):
+        fam = [i for i, (c, _, _) in enumerate(rows) if c in HOLM_CELLS]
+        rej = dict(zip(fam, holm([rows[i][2]["p2"] for i in fam])))
+        for i, (c, cs, d) in enumerate(rows):
             rb = robust(cs, bs, d["dsum"])
-            r["cells"][c] = dict(summary(cs), delta=d, holm_reject=bool(rj), robust=rb, verdict=verdict(d, rj, rb))
+            if i in rej:
+                v = verdict(d, rej[i], rb)
+            else:
+                v = "вне семейства (п. 10): " + ("сделки = базе" if keyset(cs) == keyset(bs) else "вырождена, n = %d" % len(cs))
+            r["cells"][c] = dict(summary(cs), delta=d, holm_reject=bool(rej.get(i, False)), in_family=i in rej, robust=rb, verdict=v)
         res["bases"][b] = r
     r4.write_json(q("res", "tables.json"), res)
     for b, r in res["bases"].items():
