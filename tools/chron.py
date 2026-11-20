@@ -905,8 +905,8 @@ def money_values(text):
 def clause_pairs(text):
     """Фразы, где рядом названы и число сделок, и сумма $: [(сделок, $, Шарп | None, фраза)] — числа одного объекта."""
     out = []
-    for cl in re.split(r";|\.\s|\n|·", text):
-        if re.search(r"(?i)плюсов|минусов|прибыльн|убыточн|стоп", cl):  # часть сделок по исходу — не итог объекта
+    for cl in re.split(r";|\.\s|\n|·", re.sub(r"\[[^\]]*\]", "", text)):  # интервал […; …] фразу не рвёт
+        if re.search(r"(?i)плюсов|минусов|прибыльн|убыточн", cl):  # часть сделок по исходу — не итог объекта
             continue
         tc, mv = trade_counts(cl), money_values(cl)
         if len(tc) == 1 and len(mv) == 1:
