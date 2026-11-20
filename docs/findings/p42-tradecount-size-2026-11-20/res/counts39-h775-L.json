@@ -1,0 +1,572 @@
+{
+ "uni": "h775",
+ "side": "L",
+ "n_trades": 428,
+ "dist": {
+  "NC360": {
+   "q05_25_50_75_95": [
+    12492.1,
+    32129.5,
+    49678.0,
+    99749.5,
+    322628.54999999906
+   ],
+   "mean": 98810.00875273523,
+   "n": 914,
+   "n_undefined": 0
+  },
+  "NC720": {
+   "q05_25_50_75_95": [
+    21692.65000000001,
+    52400.25,
+    85291.0,
+    169933.75,
+    586668.2499999988
+   ],
+   "mean": 177090.62363238513,
+   "n": 914,
+   "n_undefined": 0
+  },
+  "SZ60": {
+   "q05_25_50_75_95": [
+    61.653791273273825,
+    137.38716928119533,
+    275.5806211243891,
+    678.9911268722486,
+    2615.8890977842934
+   ],
+   "mean": 712.150433395006,
+   "n": 914,
+   "n_undefined": 0
+  },
+  "SZ360": {
+   "q05_25_50_75_95": [
+    57.49806564167123,
+    136.96958623824446,
+    258.8546526212424,
+    644.0082365505398,
+    2399.251755305882
+   ],
+   "mean": 646.3419834196377,
+   "n": 914,
+   "n_undefined": 0
+  },
+  "SZ1440": {
+   "q05_25_50_75_95": [
+    57.496765501130966,
+    136.05401482428667,
+    260.4529498073932,
+    594.0664875535932,
+    2356.0861543150513
+   ],
+   "mean": 599.6061363648903,
+   "n": 914,
+   "n_undefined": 0
+  }
+ },
+ "ladders": [
+  {
+   "cid": "NC360_q20",
+   "fam": "NC360",
+   "dir": "ge",
+   "N": 29000.0,
+   "ps": [
+    0.2
+   ],
+   "cand_excluded": 185,
+   "cand_rows": 914,
+   "cand_share": 0.2024,
+   "trades_excluded": 94,
+   "trades_remain": 334,
+   "trades_share": 0.2196
+  },
+  {
+   "cid": "NC360_q40",
+   "fam": "NC360",
+   "dir": "ge",
+   "N": 43000.0,
+   "ps": [
+    0.4
+   ],
+   "cand_excluded": 358,
+   "cand_rows": 914,
+   "cand_share": 0.3917,
+   "trades_excluded": 166,
+   "trades_remain": 262,
+   "trades_share": 0.3879
+  },
+  {
+   "cid": "NC360_q60",
+   "fam": "NC360",
+   "dir": "ge",
+   "N": 66000.0,
+   "ps": [
+    0.6
+   ],
+   "cand_excluded": 550,
+   "cand_rows": 914,
+   "cand_share": 0.6018,
+   "trades_excluded": 248,
+   "trades_remain": 180,
+   "trades_share": 0.5794
+  },
+  {
+   "cid": "NC360_q80",
+   "fam": "NC360",
+   "dir": "ge",
+   "N": 120000.0,
+   "ps": [
+    0.8
+   ],
+   "cand_excluded": 741,
+   "cand_rows": 914,
+   "cand_share": 0.8107,
+   "trades_excluded": 345,
+   "trades_remain": 83,
+   "trades_share": 0.8061
+  },
+  {
+   "cid": "NC720_q20",
+   "fam": "NC720",
+   "dir": "ge",
+   "N": 46000.0,
+   "ps": [
+    0.2
+   ],
+   "cand_excluded": 187,
+   "cand_rows": 914,
+   "cand_share": 0.2046,
+   "trades_excluded": 94,
+   "trades_remain": 334,
+   "trades_share": 0.2196
+  },
+  {
+   "cid": "NC720_q40",
+   "fam": "NC720",
+   "dir": "ge",
+   "N": 70000.0,
+   "ps": [
+    0.4
+   ],
+   "cand_excluded": 360,
+   "cand_rows": 914,
+   "cand_share": 0.3939,
+   "trades_excluded": 168,
+   "trades_remain": 260,
+   "trades_share": 0.3925
+  },
+  {
+   "cid": "NC720_q60",
+   "fam": "NC720",
+   "dir": "ge",
+   "N": 110000.0,
+   "ps": [
+    0.6
+   ],
+   "cand_excluded": 547,
+   "cand_rows": 914,
+   "cand_share": 0.5985,
+   "trades_excluded": 250,
+   "trades_remain": 178,
+   "trades_share": 0.5841
+  },
+  {
+   "cid": "NC720_q80",
+   "fam": "NC720",
+   "dir": "ge",
+   "N": 210000.0,
+   "ps": [
+    0.8
+   ],
+   "cand_excluded": 722,
+   "cand_rows": 914,
+   "cand_share": 0.7899,
+   "trades_excluded": 334,
+   "trades_remain": 94,
+   "trades_share": 0.7804
+  },
+  {
+   "cid": "SZ60_ge_q20",
+   "fam": "SZ60",
+   "dir": "ge",
+   "N": 120.0,
+   "ps": [
+    0.2
+   ],
+   "cand_excluded": 188,
+   "cand_rows": 914,
+   "cand_share": 0.2057,
+   "trades_excluded": 86,
+   "trades_remain": 342,
+   "trades_share": 0.2009
+  },
+  {
+   "cid": "SZ60_ge_q40",
+   "fam": "SZ60",
+   "dir": "ge",
+   "N": 210.0,
+   "ps": [
+    0.4
+   ],
+   "cand_excluded": 365,
+   "cand_rows": 914,
+   "cand_share": 0.3993,
+   "trades_excluded": 178,
+   "trades_remain": 250,
+   "trades_share": 0.4159
+  },
+  {
+   "cid": "SZ60_ge_q60",
+   "fam": "SZ60",
+   "dir": "ge",
+   "N": 370.0,
+   "ps": [
+    0.6
+   ],
+   "cand_excluded": 548,
+   "cand_rows": 914,
+   "cand_share": 0.5996,
+   "trades_excluded": 272,
+   "trades_remain": 156,
+   "trades_share": 0.6355
+  },
+  {
+   "cid": "SZ60_ge_q80",
+   "fam": "SZ60",
+   "dir": "ge",
+   "N": 900.0,
+   "ps": [
+    0.8
+   ],
+   "cand_excluded": 731,
+   "cand_rows": 914,
+   "cand_share": 0.7998,
+   "trades_excluded": 352,
+   "trades_remain": 76,
+   "trades_share": 0.8224
+  },
+  {
+   "cid": "SZ60_le_q20",
+   "fam": "SZ60",
+   "dir": "le",
+   "N": 120.0,
+   "ps": [
+    0.2
+   ],
+   "cand_excluded": 726,
+   "cand_rows": 914,
+   "cand_share": 0.7943,
+   "trades_excluded": 342,
+   "trades_remain": 86,
+   "trades_share": 0.7991
+  },
+  {
+   "cid": "SZ60_le_q40",
+   "fam": "SZ60",
+   "dir": "le",
+   "N": 210.0,
+   "ps": [
+    0.4
+   ],
+   "cand_excluded": 549,
+   "cand_rows": 914,
+   "cand_share": 0.6007,
+   "trades_excluded": 250,
+   "trades_remain": 178,
+   "trades_share": 0.5841
+  },
+  {
+   "cid": "SZ60_le_q60",
+   "fam": "SZ60",
+   "dir": "le",
+   "N": 370.0,
+   "ps": [
+    0.6
+   ],
+   "cand_excluded": 366,
+   "cand_rows": 914,
+   "cand_share": 0.4004,
+   "trades_excluded": 156,
+   "trades_remain": 272,
+   "trades_share": 0.3645
+  },
+  {
+   "cid": "SZ60_le_q80",
+   "fam": "SZ60",
+   "dir": "le",
+   "N": 900.0,
+   "ps": [
+    0.8
+   ],
+   "cand_excluded": 183,
+   "cand_rows": 914,
+   "cand_share": 0.2002,
+   "trades_excluded": 76,
+   "trades_remain": 352,
+   "trades_share": 0.1776
+  },
+  {
+   "cid": "SZ360_ge_q20",
+   "fam": "SZ360",
+   "dir": "ge",
+   "N": 110.0,
+   "ps": [
+    0.2
+   ],
+   "cand_excluded": 174,
+   "cand_rows": 914,
+   "cand_share": 0.1904,
+   "trades_excluded": 78,
+   "trades_remain": 350,
+   "trades_share": 0.1822
+  },
+  {
+   "cid": "SZ360_ge_q40",
+   "fam": "SZ360",
+   "dir": "ge",
+   "N": 190.0,
+   "ps": [
+    0.4
+   ],
+   "cand_excluded": 370,
+   "cand_rows": 914,
+   "cand_share": 0.4048,
+   "trades_excluded": 176,
+   "trades_remain": 252,
+   "trades_share": 0.4112
+  },
+  {
+   "cid": "SZ360_ge_q60",
+   "fam": "SZ360",
+   "dir": "ge",
+   "N": 350.0,
+   "ps": [
+    0.6
+   ],
+   "cand_excluded": 548,
+   "cand_rows": 914,
+   "cand_share": 0.5996,
+   "trades_excluded": 269,
+   "trades_remain": 159,
+   "trades_share": 0.6285
+  },
+  {
+   "cid": "SZ360_ge_q80",
+   "fam": "SZ360",
+   "dir": "ge",
+   "N": 810.0,
+   "ps": [
+    0.8
+   ],
+   "cand_excluded": 731,
+   "cand_rows": 914,
+   "cand_share": 0.7998,
+   "trades_excluded": 351,
+   "trades_remain": 77,
+   "trades_share": 0.8201
+  },
+  {
+   "cid": "SZ360_le_q20",
+   "fam": "SZ360",
+   "dir": "le",
+   "N": 110.0,
+   "ps": [
+    0.2
+   ],
+   "cand_excluded": 740,
+   "cand_rows": 914,
+   "cand_share": 0.8096,
+   "trades_excluded": 350,
+   "trades_remain": 78,
+   "trades_share": 0.8178
+  },
+  {
+   "cid": "SZ360_le_q40",
+   "fam": "SZ360",
+   "dir": "le",
+   "N": 190.0,
+   "ps": [
+    0.4
+   ],
+   "cand_excluded": 544,
+   "cand_rows": 914,
+   "cand_share": 0.5952,
+   "trades_excluded": 252,
+   "trades_remain": 176,
+   "trades_share": 0.5888
+  },
+  {
+   "cid": "SZ360_le_q60",
+   "fam": "SZ360",
+   "dir": "le",
+   "N": 350.0,
+   "ps": [
+    0.6
+   ],
+   "cand_excluded": 366,
+   "cand_rows": 914,
+   "cand_share": 0.4004,
+   "trades_excluded": 159,
+   "trades_remain": 269,
+   "trades_share": 0.3715
+  },
+  {
+   "cid": "SZ360_le_q80",
+   "fam": "SZ360",
+   "dir": "le",
+   "N": 810.0,
+   "ps": [
+    0.8
+   ],
+   "cand_excluded": 183,
+   "cand_rows": 914,
+   "cand_share": 0.2002,
+   "trades_excluded": 77,
+   "trades_remain": 351,
+   "trades_share": 0.1799
+  },
+  {
+   "cid": "SZ1440_ge_q20",
+   "fam": "SZ1440",
+   "dir": "ge",
+   "N": 110.0,
+   "ps": [
+    0.2
+   ],
+   "cand_excluded": 176,
+   "cand_rows": 914,
+   "cand_share": 0.1926,
+   "trades_excluded": 80,
+   "trades_remain": 348,
+   "trades_share": 0.1869
+  },
+  {
+   "cid": "SZ1440_ge_q40",
+   "fam": "SZ1440",
+   "dir": "ge",
+   "N": 190.0,
+   "ps": [
+    0.4
+   ],
+   "cand_excluded": 354,
+   "cand_rows": 914,
+   "cand_share": 0.3873,
+   "trades_excluded": 172,
+   "trades_remain": 256,
+   "trades_share": 0.4019
+  },
+  {
+   "cid": "SZ1440_ge_q60",
+   "fam": "SZ1440",
+   "dir": "ge",
+   "N": 350.0,
+   "ps": [
+    0.6
+   ],
+   "cand_excluded": 551,
+   "cand_rows": 914,
+   "cand_share": 0.6028,
+   "trades_excluded": 274,
+   "trades_remain": 154,
+   "trades_share": 0.6402
+  },
+  {
+   "cid": "SZ1440_ge_q80",
+   "fam": "SZ1440",
+   "dir": "ge",
+   "N": 770.0,
+   "ps": [
+    0.8
+   ],
+   "cand_excluded": 729,
+   "cand_rows": 914,
+   "cand_share": 0.7976,
+   "trades_excluded": 351,
+   "trades_remain": 77,
+   "trades_share": 0.8201
+  },
+  {
+   "cid": "SZ1440_le_q20",
+   "fam": "SZ1440",
+   "dir": "le",
+   "N": 110.0,
+   "ps": [
+    0.2
+   ],
+   "cand_excluded": 738,
+   "cand_rows": 914,
+   "cand_share": 0.8074,
+   "trades_excluded": 348,
+   "trades_remain": 80,
+   "trades_share": 0.8131
+  },
+  {
+   "cid": "SZ1440_le_q40",
+   "fam": "SZ1440",
+   "dir": "le",
+   "N": 190.0,
+   "ps": [
+    0.4
+   ],
+   "cand_excluded": 560,
+   "cand_rows": 914,
+   "cand_share": 0.6127,
+   "trades_excluded": 256,
+   "trades_remain": 172,
+   "trades_share": 0.5981
+  },
+  {
+   "cid": "SZ1440_le_q60",
+   "fam": "SZ1440",
+   "dir": "le",
+   "N": 350.0,
+   "ps": [
+    0.6
+   ],
+   "cand_excluded": 363,
+   "cand_rows": 914,
+   "cand_share": 0.3972,
+   "trades_excluded": 154,
+   "trades_remain": 274,
+   "trades_share": 0.3598
+  },
+  {
+   "cid": "SZ1440_le_q80",
+   "fam": "SZ1440",
+   "dir": "le",
+   "N": 770.0,
+   "ps": [
+    0.8
+   ],
+   "cand_excluded": 185,
+   "cand_rows": 914,
+   "cand_share": 0.2024,
+   "trades_excluded": 77,
+   "trades_remain": 351,
+   "trades_share": 0.1799
+  }
+ ],
+ "missing": {
+  "trades": 0,
+  "cand": {
+   "m60": 0,
+   "m360": 0,
+   "m720": 0,
+   "m1440": 0
+  }
+ },
+ "spearman": {
+  "SZ60": {
+   "rho_vs_n24": -0.37657260707250956,
+   "rho_vs_turn24h": 0.5404570248566096
+  },
+  "SZ360": {
+   "rho_vs_n24": -0.3649078464343109,
+   "rho_vs_turn24h": 0.5613817088295984
+  },
+  "SZ1440": {
+   "rho_vs_n24": -0.3529254960208749,
+   "rho_vs_turn24h": 0.579160968455507
+  }
+ }
+}

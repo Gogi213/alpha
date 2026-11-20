@@ -100,8 +100,9 @@ fn missing_day_flags_only_windows_that_touch_it() {
 fn counts_agree_with_tcount() {
     let end = D0 * DAY + 9 * HOUR + 17 * MIN;
     let sig = end + 123;
-    let prev: Vec<i64> = (0..40).map(|k| end - DAY + k * 37 * MIN).collect();
-    let cur: Vec<i64> = (0..30).map(|k| D0 * DAY + k * 17 * MIN).collect();
+    // записи лежат внутри своих суток (`tcount` считает по всему срезу суток, `tsize` — только по суткам, что окно задевает)
+    let prev: Vec<i64> = (0..24).map(|k| end - DAY + k * 37 * MIN).collect();
+    let cur: Vec<i64> = (0..80).map(|k| D0 * DAY + k * 7 * MIN).collect();
     let (pv, cv) = (vs(prev.len()), vs(cur.len()));
     let sz = sizes_at(
         &[(D0 - 1, Some((&prev, &pv))), (D0, Some((&cur, &cv)))],
