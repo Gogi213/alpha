@@ -1,0 +1,8 @@
+[Unit]
+Description=alpha: chronicle DB snapshot + JSONL -> /data/chron/backup -> Storage Box (TK-646)
+
+[Service]
+Type=oneshot
+Nice=19
+IOSchedulingClass=idle
+ExecStart=/usr/bin/python3 /data/chron/chron.py backup --dir /data/chron/backup --keep 30 --box box:chron/

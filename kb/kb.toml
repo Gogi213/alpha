@@ -2,6 +2,7 @@
 title = "alpha · база знаний"
 types = ["decision", "task", "finding", "protocol", "runbook", "rule", "machine"]
 statuses = ["open", "running", "done", "dropped", "superseded"]
+chron = "/chron/"   # TK-646: летопись на том же сайте — пункты «Летопись», «Протоколы» и ссылка «в летописи» на карточке; пусто — нет
 
 [check]
 orphans = "error"   # карточка без единой связи: error — блокирует коммит, warn — только предупреждение

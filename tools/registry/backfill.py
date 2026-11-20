@@ -13,7 +13,7 @@ def iso(d, t=""):
 
 rows = []
 # JOURNAL.md
-for ln in open(os.path.join(R.ROOT, "docs/research/JOURNAL.md"), encoding="utf-8"):
+for ln in open(os.path.join(R.ROOT, "docs/archive/chronicle-2026-11-20/JOURNAL.md"), encoding="utf-8"):
     if not ln.startswith("| ") or ln.startswith("| дата") or ln.startswith("|---"): continue
     c = [x.strip() for x in ln.strip().strip("|").split("|")]
     if len(c) < 6 or not iso(c[0]): continue
@@ -32,7 +32,7 @@ with open(os.path.join(R.ROOT, "docs/plan/runs.csv"), encoding="utf-8", newline=
                          outcome=r["detail"][:500], status="неполно", config_status="конфиг неполон: строка журнала/реестра, команда и входы не сохранены", status_why="runs.csv (пополнялся до 22.09): " + r["kind"],
                          source="backfill-runs", note="docs/plan/runs.csv"))
 # EXPERIMENTS П-таблица
-for ln in open(os.path.join(R.ROOT, "docs/plan/EXPERIMENTS.md"), encoding="utf-8"):
+for ln in open(os.path.join(R.ROOT, "docs/archive/chronicle-2026-11-20/EXPERIMENTS.md"), encoding="utf-8"):
     m = re.match(r"\| (П-\d+[^|]*)\| (\d\d\.\d\d) \| ([^|]*)\| ([^|]*)\| ([^|]*)\| ([^|]*)\| ([^|]*)\|", ln)
     if not m: continue
     rows.append(dict(ts=iso(m[2]), protocol=m[1].strip().replace("П-", "P-"), kind="research", what=m[3].strip(), outcome=f"{m[4].strip()} | {m[6].strip()}"[:500],

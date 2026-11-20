@@ -1,0 +1,9 @@
+[Unit]
+Description=alpha: nightly chronicle backup (TK-646)
+
+[Timer]
+OnCalendar=*-*-* 04:20:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
