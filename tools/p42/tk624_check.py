@@ -17,6 +17,7 @@ import numpy as np
 
 html_path, dom_dir = sys.argv[1:3]
 T625 = sys.argv[3] if len(sys.argv) > 3 else None   # каталог с tk625-step1-h775.json / tk625-step1-o566.json (итоговые таблицы TK-625, только чтение)
+T634 = sys.argv[5] if len(sys.argv) > 5 else None   # TK-634: select34.json (итоги юнита tk634-pnl; рядом отчёт p42-impulse-flow-on-history-2026-11-20.md — каталог выше)
 T633 = sys.argv[4] if len(sys.argv) > 4 else None   # TK-633: select33.json (итоги юнита tk633-pnl; рядом отчёт p42-breakout-history-r2-2026-11-20.md — каталог выше)
 html = open(html_path, encoding="utf-8").read()
 data_dir = os.path.join(os.path.dirname(os.path.abspath(html_path)), "data")
@@ -202,7 +203,7 @@ for s, d in zip(P["stages"], Wd["progress"]["stages"]):
     eq(w + " дальше", d["next"], s["next"])
     eq(w + " вопрос", d["answers"], s["answers"])
 eq("DOM шапка хода работ", Wd["progress"]["headline"], P["headline"])
-eq("этапы: идущих нет, TK-633, TK-626 и TK-625 закрыты (группа «Сделано 20.11»)", ([s["id"] for s in P["stages"] if s["status"] == "running"], [(s["id"], s["status"]) for s in P["stages"] if s.get("group") == "Сделано 20.11"]), ([], [("TK-633", "done"), ("TK-626", "done"), ("TK-625", "done")]))
+eq("этапы: идущих нет, TK-634, TK-633, TK-626 и TK-625 закрыты (группа «Сделано 20.11»)", ([s["id"] for s in P["stages"] if s["status"] == "running"], [(s["id"], s["status"]) for s in P["stages"] if s.get("group") == "Сделано 20.11"]), ([], [("TK-634", "done"), ("TK-633", "done"), ("TK-626", "done"), ("TK-625", "done")]))
 eq("этапы: сегодняшние TK-615…623 на месте", [s["id"] for s in P["stages"] if s.get("group") == "Сделано сегодня, 19.11"], ["TK-599", "TK-615", "TK-616", "TK-617", "TK-618", "TK-619", "TK-620", "TK-621", "TK-622", "TK-623"])
 eq("этапы: точки вперёд", [t["t"].split(" ")[0] for t in next(s for s in P["stages"] if s["id"] == "30.11–31.03")["steps"]], ["30.11", "31.12", "31.01", "28.02", "31.03.2027"])
 
@@ -284,10 +285,10 @@ if Rd:
     eq("DOM раунд 2: заголовок, текст, пометки", (Wr[0]["title"], Wr[0]["text"], Wr[0]["notes"]), (R0["title"], R0["text"], R0.get("notes", [])))
     eq("DOM раунд 2: статус — готово", R0["status"], "done")
     eq("DOM раунд 2: раздел (заголовок, пояснение), таблица (заголовок, колонки, строки) == progress.json",
-       [(x["fold"], x["title"], x["note"], [(t["title"], t["cols"], [(r["bold"], r["cells"]) for r in t["rows"]]) for t in x["tables"]]) for x in Wrs],
+       [(x["fold"], x["title"], x["note"], [(t["title"], t["cols"], [(r["bold"], r["cells"]) for r in t["rows"]]) for t in x["tables"]]) for x in Wrs if x["k"].startswith("0.")],
        [(bool(x.get("fold")), x["title"], x.get("note"), [(t["title"], t["cols"], [(i in t.get("bold", []), r) for i, r in enumerate(t["rows"])]) for t in x["tables"]]) for x in R0["sections"]])
-    eq("DOM раунд 2: таблица единиц целиком видна, без горизонтальной прокрутки (колонки с переносом)", [t["overflow"] <= 0 for x in Wrs for t in x["tables"]], [True])
-    eq("DOM раунд 2: блок раньше итога TK-625 (data-fbox=current ниже), «Признаки» не затронуты", [x["k"] for x in Wrs], ["0.0"])
+    eq("DOM раунд 2: таблица единиц целиком видна, без горизонтальной прокрутки (колонки с переносом)", [t["overflow"] <= 0 for x in Wrs if x["k"].startswith("0.") for t in x["tables"]], [True])
+    eq("DOM раунды: блоки раньше итога TK-625 (data-fbox=current ниже), раунд TK-633 — над раундом TK-634, «Признаки» не затронуты", [x["k"] for x in Wrs], ["0.0", "1.0"])
     if T633:
         # независимый пересчёт строк из select33.json (итоги юнита tk633-pnl, def2, code_id e8959378f147): единицы × диапазон по пробным клеткам h775
         sel = json.load(open(T633, encoding="utf-8"))
@@ -329,6 +330,51 @@ if Rd:
     st33 = [x for x in P["stages"] if x["id"] == "TK-633"]
     eq("TK-633: этап «Ход работ» есть, готово, группа «Сделано 20.11»", [(x["status"], x["group"]) for x in st33], [("done", "Сделано 20.11")])
     eq("TK-633 в «Ход работ» на странице (DOM) — этап и статус", [(s_["status"], s_["badge"]) for s_ in Wd["progress"]["stages"] if s_["id"] == "TK-633"], [("done", "готово")])
+# ── TK-634: блок «Импульс и поток сделок на истории пробоев» (feature.rounds[1], под раундом TK-633) и этап TK-634
+eq("TK-634: два раунда — TK-633, затем TK-634", [x["title"].startswith(w) for x, w in zip(Rd, ("История пробоев, раунд 2 (TK-633", "Импульс и поток сделок на истории пробоев (TK-634"))] + [len(Rd)], [True, True, 2])
+if len(Rd) > 1:
+    R1 = Rd[1]
+    eq("DOM TK-634: заголовок, текст, пометки", (Wr[1]["title"], Wr[1]["text"], Wr[1]["notes"]), (R1["title"], R1["text"], R1.get("notes", [])))
+    eq("DOM TK-634: статус — готово", R1["status"], "done")
+    eq("DOM TK-634: раздел (заголовок, пояснение), таблица (заголовок, колонки, строки) == progress.json",
+       [(x["fold"], x["title"], x["note"], [(t["title"], t["cols"], [(r["bold"], r["cells"]) for r in t["rows"]]) for t in x["tables"]]) for x in Wrs if x["k"].startswith("1.")],
+       [(bool(x.get("fold")), x["title"], x.get("note"), [(t["title"], t["cols"], [(i in t.get("bold", []), r) for i, r in enumerate(t["rows"])]) for t in x["tables"]]) for x in R1["sections"]])
+    eq("DOM TK-634: таблица целиком видна, без горизонтальной прокрутки", [t["overflow"] <= 0 for x in Wrs if x["k"].startswith("1.") for t in x["tables"]], [True])
+    if T634:
+        # независимый пересчёт 8 строк из select34.json (итоги юнита tk634-pnl, def2, code_id f2c1421d7848): клетки h775 — сторона × семейство × история
+        sel4 = json.load(open(T634, encoding="utf-8"))
+        eq("TK-634 select34: def2 / code_id", (sel4["def"], sel4["code_id"]), ("def2", "f2c1421d7848"))
+        eq("TK-634: Холм совместный m = 29 (21 + 8), заморозки нет", (sel4["holm"]["m_joint"], sel4["holm"]["m"], len(sel4["holm"]["ps_old"]), sel4["passed"], sel4["repl"]), (29, 8, 21, [], {}))
+        eq("TK-634: g1 не прошла ни одна пробная клетка (h775)", [r.get("g1") for sd in "LS" for r in sel4["rows"][sd].values() if r["trial"]], [False] * 8)
+        eq("TK-634: исходы единиц", {k: v[0] for k, v in sel4["outcomes"].items()}, {"лонг·импульс": "не работает", "лонг·поток": "не работает", "шорт·импульс": "не ясно", "шорт·поток": "не ясно"})
+        def fm4(v, d=2, sg=True):
+            z = f"{abs(v):.{d}f}".replace(".", ",")
+            return ("−" if v < 0 and float(z.replace(",", ".")) != 0 else ("+" if sg and float(z.replace(",", ".")) != 0 else "")) + z
+        tab4 = R1["sections"][0]["tables"][0]["rows"]
+        eq("TK-634: 8 строк таблицы, исходы по единицам", [r[1] for r in tab4], ["не работает"] * 4 + ["не ясно"] * 4)
+        order4 = [(sd, f"{fam}_{ctx}") for sd in "LS" for fam in ("IMP", "FLOW") for ctx in ("own", "cross")]
+        for row_, (sd, c) in zip(tab4, order4):
+            sl, bs, rr = sel4["slices_h775"][sd][c], sel4["slices_h775"][sd]["база"], sel4["rows"][sd][c]
+            eq(f"TK-634 {sd}/{c}: название", row_[0], f"{'Лонг' if sd == 'L' else 'Шорт'} · {'импульс' if c[0] == 'I' else 'поток'} · {'своя' if c.endswith('own') else 'чужая'} история")
+            eq(f"TK-634 {sd}/{c}: сделок / Σ $ / шарп", row_[2:5], [str(sl["n"]), fm4(sl["sum"]), fm4(sl["sharpe"])])
+            eq(f"TK-634 {sd}/{c}: база (сделок, Σ $, шарп)", row_[5:8], [str(bs["n"]), fm4(bs["sum"]), fm4(bs["sharpe"])])
+            eq(f"TK-634 {sd}/{c}: Δ к базе ± ошибка", row_[8], f"{fm4(rr['d'])} ± {fm4(rr['se'], 2, False)}")
+            eq(f"TK-634 {sd}/{c}: Σ ниже базы, допущена, g1 нет", (sl["sum"] < bs["sum"], rr["admitted"], rr["g1"]), (True, True, False))
+            eq(f"TK-634 {sd}/{c}: Δ == разность $ на сделку (допуск на пересчёт по суткам)", abs((sl["sum"] / sl["n"] - bs["sum"] / bs["n"]) - rr["d"]) < 0.06, True)
+        eq("TK-634: лучший p и порог Холма", (fm4(min(sel4["holm"]["ps"]), 3, False), fm4(0.05 / 29, 4, False)), ("0,075", "0,0017"))
+        eq("TK-634: текст раунда содержит лучший p и порог", ("0,075" in R1["text"], "0,0017" in R1["text"]), (True, True))
+        # сверка с принятым отчётом (таблица «h775 — решающая — деньги по клеткам»): сделки, Σ $ (до целого), $/сделку, шарп по 8 пробным клеткам
+        rep4 = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(T634))), "p42-impulse-flow-on-history-2026-11-20.md")
+        if os.path.exists(rep4):
+            lines4 = [l for l in open(rep4, encoding="utf-8").read().split(chr(10)) if re.match(r"\| (лонг|шорт) · (импульс|поток) · (своя|чужая) история \| пробная \|", l)][:8]
+            eq("отчёт TK-634: 8 строк пробных клеток (h775)", len(lines4), 8)
+            for l, (sd, c) in zip(lines4, order4):
+                f_ = [x.strip() for x in l.strip().strip("|").split("|")]
+                x = sel4["slices_h775"][sd][c]
+                eq(f"отчёт TK-634 {sd}/{c}: сделок, Σ $, $/сделку, шарп", f_[2:6], [str(x["n"]), "%+.0f" % x["sum"], "%+.2f" % (x["sum"] / x["n"]), "%.2f" % x["sharpe"]])
+    st34 = [x for x in P["stages"] if x["id"] == "TK-634"]
+    eq("TK-634: этап «Ход работ» есть, готово, группа «Сделано 20.11»", [(x["status"], x["group"]) for x in st34], [("done", "Сделано 20.11")])
+    eq("TK-634 в «Ход работ» на странице (DOM) — этап и статус", [(s_["status"], s_["badge"]) for s_ in Wd["progress"]["stages"] if s_["id"] == "TK-634"], [("done", "готово")])
 FD = R["features"]
 eq("«Признаки»: пояснение TK-604 на странице", all(n in FD["text"] for n in emb("features-data")["sets"][4]["numbers"]), True)
 eq("«Признаки»: нет горизонтальной прокрутки", FD["overflow"] <= 0, True)

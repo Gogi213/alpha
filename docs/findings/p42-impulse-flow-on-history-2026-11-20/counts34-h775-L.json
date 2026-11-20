@@ -1,0 +1,995 @@
+{
+ "uni": "h775",
+ "side": "L",
+ "n_trades": 428,
+ "fv": {
+  "IMP": {
+   "0.25": 0.37811526479750784,
+   "0.10": 0.25214174454828664,
+   "0.40": 0.457398753894081
+  },
+  "FLOW": {
+   "0.25": 0.3679906542056075,
+   "0.10": 0.270268691588785,
+   "0.40": 0.4432242990654206
+  }
+ },
+ "coverage": {
+  "mv15": [
+   1.0,
+   1.0,
+   1.0,
+   1.0,
+   1.0
+  ],
+  "acc_px": [
+   1.0,
+   1.0,
+   1.0,
+   1.0,
+   1.0
+  ],
+  "vsurge": [
+   1.0,
+   1.0,
+   1.0,
+   1.0,
+   1.0
+  ],
+  "tfv300": [
+   1.0,
+   1.0,
+   1.0,
+   1.0,
+   1.0
+  ],
+  "big300": [
+   1.0,
+   1.0,
+   1.0,
+   1.0,
+   1.0
+  ],
+  "msz_r": [
+   1.0,
+   1.0,
+   1.0,
+   1.0,
+   1.0
+  ],
+  "acc_n": [
+   1.0,
+   1.0,
+   1.0,
+   1.0,
+   1.0
+  ],
+  "comp_IMP": [
+   1.0,
+   1.0,
+   1.0,
+   1.0,
+   1.0
+  ],
+  "comp_IMP_all": 1.0,
+  "comp_FLOW": [
+   1.0,
+   1.0,
+   1.0,
+   1.0,
+   1.0
+  ],
+  "comp_FLOW_all": 1.0,
+  "ok10_d14": 0.9463,
+  "ok05_d14": 0.9463,
+  "ok20_d14": 0.9463,
+  "xok10_d14": 0.9463,
+  "xok05_d14": 0.9463,
+  "xok20_d14": 0.9463
+ },
+ "dist": {
+  "mv15": {
+   "n": 428,
+   "q05_25_50_75_95": [
+    0.54063,
+    2.06086,
+    3.37004,
+    5.13726,
+    8.01144
+   ]
+  },
+  "acc_px": {
+   "n": 428,
+   "q05_25_50_75_95": [
+    -0.1141,
+    0.10448,
+    0.29297,
+    0.52018,
+    1.1222
+   ]
+  },
+  "vsurge": {
+   "n": 428,
+   "q05_25_50_75_95": [
+    0.58945,
+    1.19344,
+    2.2261,
+    3.90043,
+    7.83498
+   ]
+  },
+  "tfv300": {
+   "n": 428,
+   "q05_25_50_75_95": [
+    -0.11615,
+    0.01281,
+    0.10623,
+    0.21477,
+    0.35865
+   ]
+  },
+  "big300": {
+   "n": 428,
+   "q05_25_50_75_95": [
+    0.06426,
+    0.14165,
+    0.2111,
+    0.29515,
+    0.4325
+   ]
+  },
+  "msz_r": {
+   "n": 428,
+   "q05_25_50_75_95": [
+    0.7082,
+    0.89697,
+    1.05659,
+    1.23943,
+    1.63715
+   ]
+  },
+  "acc_n": {
+   "n": 428,
+   "q05_25_50_75_95": [
+    0.52925,
+    0.91429,
+    1.34797,
+    2.12932,
+    5.04592
+   ]
+  },
+  "comp_IMP": {
+   "excl_share_q25": 0.2477
+  },
+  "comp_FLOW": {
+   "excl_share_q25": 0.25
+  }
+ },
+ "cells": [
+  {
+   "cid": "IMP_own",
+   "kind": "T",
+   "fam": "IMP",
+   "ctx": "own",
+   "q": 0.25,
+   "m": "10",
+   "c": 1,
+   "group": 1,
+   "dup_of": null,
+   "E": 208,
+   "f_all": 0.486,
+   "excl_by_month": [
+    37,
+    49,
+    52,
+    46,
+    24
+   ],
+   "remain_by_month": [
+    59,
+    42,
+    48,
+    46,
+    25
+   ],
+   "base_by_month": [
+    96,
+    91,
+    100,
+    92,
+    49
+   ],
+   "admit_floor": true
+  },
+  {
+   "cid": "IMP_own_q10",
+   "kind": "N",
+   "fam": "IMP",
+   "ctx": "own",
+   "q": 0.1,
+   "m": "10",
+   "c": 1,
+   "group": 1,
+   "dup_of": null,
+   "E": 172,
+   "f_all": 0.4019,
+   "excl_by_month": [
+    25,
+    39,
+    48,
+    40,
+    20
+   ],
+   "remain_by_month": [
+    71,
+    52,
+    52,
+    52,
+    29
+   ],
+   "base_by_month": [
+    96,
+    91,
+    100,
+    92,
+    49
+   ],
+   "admit_floor": true
+  },
+  {
+   "cid": "IMP_own_q40",
+   "kind": "N",
+   "fam": "IMP",
+   "ctx": "own",
+   "q": 0.4,
+   "m": "10",
+   "c": 1,
+   "group": 1,
+   "dup_of": null,
+   "E": 248,
+   "f_all": 0.5794,
+   "excl_by_month": [
+    48,
+    58,
+    59,
+    54,
+    29
+   ],
+   "remain_by_month": [
+    48,
+    33,
+    41,
+    38,
+    20
+   ],
+   "base_by_month": [
+    96,
+    91,
+    100,
+    92,
+    49
+   ],
+   "admit_floor": true
+  },
+  {
+   "cid": "IMP_own_m05",
+   "kind": "N",
+   "fam": "IMP",
+   "ctx": "own",
+   "q": 0.25,
+   "m": "05",
+   "c": 1,
+   "group": 1,
+   "dup_of": null,
+   "E": 168,
+   "f_all": 0.3925,
+   "excl_by_month": [
+    34,
+    44,
+    35,
+    35,
+    20
+   ],
+   "remain_by_month": [
+    62,
+    47,
+    65,
+    57,
+    29
+   ],
+   "base_by_month": [
+    96,
+    91,
+    100,
+    92,
+    49
+   ],
+   "admit_floor": true
+  },
+  {
+   "cid": "IMP_own_m20",
+   "kind": "N",
+   "fam": "IMP",
+   "ctx": "own",
+   "q": 0.25,
+   "m": "20",
+   "c": 1,
+   "group": 1,
+   "dup_of": null,
+   "E": 251,
+   "f_all": 0.5864,
+   "excl_by_month": [
+    45,
+    57,
+    64,
+    55,
+    30
+   ],
+   "remain_by_month": [
+    51,
+    34,
+    36,
+    37,
+    19
+   ],
+   "base_by_month": [
+    96,
+    91,
+    100,
+    92,
+    49
+   ],
+   "admit_floor": true
+  },
+  {
+   "cid": "IMP_cross",
+   "kind": "T",
+   "fam": "IMP",
+   "ctx": "cross",
+   "q": 0.25,
+   "m": "10",
+   "c": 1,
+   "group": 2,
+   "dup_of": null,
+   "E": 183,
+   "f_all": 0.4276,
+   "excl_by_month": [
+    33,
+    50,
+    38,
+    38,
+    24
+   ],
+   "remain_by_month": [
+    63,
+    41,
+    62,
+    54,
+    25
+   ],
+   "base_by_month": [
+    96,
+    91,
+    100,
+    92,
+    49
+   ],
+   "admit_floor": true
+  },
+  {
+   "cid": "IMP_cross_q10",
+   "kind": "N",
+   "fam": "IMP",
+   "ctx": "cross",
+   "q": 0.1,
+   "m": "10",
+   "c": 1,
+   "group": 2,
+   "dup_of": null,
+   "E": 146,
+   "f_all": 0.3411,
+   "excl_by_month": [
+    24,
+    41,
+    31,
+    31,
+    19
+   ],
+   "remain_by_month": [
+    72,
+    50,
+    69,
+    61,
+    30
+   ],
+   "base_by_month": [
+    96,
+    91,
+    100,
+    92,
+    49
+   ],
+   "admit_floor": true
+  },
+  {
+   "cid": "IMP_cross_q40",
+   "kind": "N",
+   "fam": "IMP",
+   "ctx": "cross",
+   "q": 0.4,
+   "m": "10",
+   "c": 1,
+   "group": 2,
+   "dup_of": null,
+   "E": 230,
+   "f_all": 0.5374,
+   "excl_by_month": [
+    44,
+    57,
+    51,
+    50,
+    28
+   ],
+   "remain_by_month": [
+    52,
+    34,
+    49,
+    42,
+    21
+   ],
+   "base_by_month": [
+    96,
+    91,
+    100,
+    92,
+    49
+   ],
+   "admit_floor": true
+  },
+  {
+   "cid": "IMP_cross_m05",
+   "kind": "N",
+   "fam": "IMP",
+   "ctx": "cross",
+   "q": 0.25,
+   "m": "05",
+   "c": 2,
+   "group": 2,
+   "dup_of": null,
+   "E": 195,
+   "f_all": 0.4556,
+   "excl_by_month": [
+    40,
+    52,
+    39,
+    41,
+    23
+   ],
+   "remain_by_month": [
+    56,
+    39,
+    61,
+    51,
+    26
+   ],
+   "base_by_month": [
+    96,
+    91,
+    100,
+    92,
+    49
+   ],
+   "admit_floor": true
+  },
+  {
+   "cid": "IMP_cross_m20",
+   "kind": "N",
+   "fam": "IMP",
+   "ctx": "cross",
+   "q": 0.25,
+   "m": "20",
+   "c": 1,
+   "group": 2,
+   "dup_of": null,
+   "E": 237,
+   "f_all": 0.5537,
+   "excl_by_month": [
+    41,
+    63,
+    54,
+    49,
+    30
+   ],
+   "remain_by_month": [
+    55,
+    28,
+    46,
+    43,
+    19
+   ],
+   "base_by_month": [
+    96,
+    91,
+    100,
+    92,
+    49
+   ],
+   "admit_floor": true
+  },
+  {
+   "cid": "FLOW_own",
+   "kind": "T",
+   "fam": "FLOW",
+   "ctx": "own",
+   "q": 0.25,
+   "m": "10",
+   "c": 1,
+   "group": 3,
+   "dup_of": null,
+   "E": 217,
+   "f_all": 0.507,
+   "excl_by_month": [
+    30,
+    53,
+    53,
+    53,
+    28
+   ],
+   "remain_by_month": [
+    66,
+    38,
+    47,
+    39,
+    21
+   ],
+   "base_by_month": [
+    96,
+    91,
+    100,
+    92,
+    49
+   ],
+   "admit_floor": true
+  },
+  {
+   "cid": "FLOW_own_q10",
+   "kind": "N",
+   "fam": "FLOW",
+   "ctx": "own",
+   "q": 0.1,
+   "m": "10",
+   "c": 1,
+   "group": 3,
+   "dup_of": null,
+   "E": 172,
+   "f_all": 0.4019,
+   "excl_by_month": [
+    22,
+    41,
+    45,
+    40,
+    24
+   ],
+   "remain_by_month": [
+    74,
+    50,
+    55,
+    52,
+    25
+   ],
+   "base_by_month": [
+    96,
+    91,
+    100,
+    92,
+    49
+   ],
+   "admit_floor": true
+  },
+  {
+   "cid": "FLOW_own_q40",
+   "kind": "N",
+   "fam": "FLOW",
+   "ctx": "own",
+   "q": 0.4,
+   "m": "10",
+   "c": 1,
+   "group": 3,
+   "dup_of": null,
+   "E": 259,
+   "f_all": 0.6051,
+   "excl_by_month": [
+    41,
+    64,
+    61,
+    62,
+    31
+   ],
+   "remain_by_month": [
+    55,
+    27,
+    39,
+    30,
+    18
+   ],
+   "base_by_month": [
+    96,
+    91,
+    100,
+    92,
+    49
+   ],
+   "admit_floor": true
+  },
+  {
+   "cid": "FLOW_own_m05",
+   "kind": "N",
+   "fam": "FLOW",
+   "ctx": "own",
+   "q": 0.25,
+   "m": "05",
+   "c": 1,
+   "group": 3,
+   "dup_of": null,
+   "E": 179,
+   "f_all": 0.4182,
+   "excl_by_month": [
+    25,
+    44,
+    40,
+    47,
+    23
+   ],
+   "remain_by_month": [
+    71,
+    47,
+    60,
+    45,
+    26
+   ],
+   "base_by_month": [
+    96,
+    91,
+    100,
+    92,
+    49
+   ],
+   "admit_floor": true
+  },
+  {
+   "cid": "FLOW_own_m20",
+   "kind": "N",
+   "fam": "FLOW",
+   "ctx": "own",
+   "q": 0.25,
+   "m": "20",
+   "c": 1,
+   "group": 3,
+   "dup_of": null,
+   "E": 261,
+   "f_all": 0.6098,
+   "excl_by_month": [
+    41,
+    60,
+    66,
+    62,
+    32
+   ],
+   "remain_by_month": [
+    55,
+    31,
+    34,
+    30,
+    17
+   ],
+   "base_by_month": [
+    96,
+    91,
+    100,
+    92,
+    49
+   ],
+   "admit_floor": true
+  },
+  {
+   "cid": "FLOW_cross",
+   "kind": "T",
+   "fam": "FLOW",
+   "ctx": "cross",
+   "q": 0.25,
+   "m": "10",
+   "c": 1,
+   "group": 4,
+   "dup_of": null,
+   "E": 192,
+   "f_all": 0.4486,
+   "excl_by_month": [
+    28,
+    50,
+    41,
+    45,
+    28
+   ],
+   "remain_by_month": [
+    68,
+    41,
+    59,
+    47,
+    21
+   ],
+   "base_by_month": [
+    96,
+    91,
+    100,
+    92,
+    49
+   ],
+   "admit_floor": true
+  },
+  {
+   "cid": "FLOW_cross_q10",
+   "kind": "N",
+   "fam": "FLOW",
+   "ctx": "cross",
+   "q": 0.1,
+   "m": "10",
+   "c": 1,
+   "group": 4,
+   "dup_of": null,
+   "E": 146,
+   "f_all": 0.3411,
+   "excl_by_month": [
+    21,
+    42,
+    30,
+    30,
+    23
+   ],
+   "remain_by_month": [
+    75,
+    49,
+    70,
+    62,
+    26
+   ],
+   "base_by_month": [
+    96,
+    91,
+    100,
+    92,
+    49
+   ],
+   "admit_floor": true
+  },
+  {
+   "cid": "FLOW_cross_q40",
+   "kind": "N",
+   "fam": "FLOW",
+   "ctx": "cross",
+   "q": 0.4,
+   "m": "10",
+   "c": 1,
+   "group": 4,
+   "dup_of": null,
+   "E": 246,
+   "f_all": 0.5748,
+   "excl_by_month": [
+    41,
+    65,
+    50,
+    55,
+    35
+   ],
+   "remain_by_month": [
+    55,
+    26,
+    50,
+    37,
+    14
+   ],
+   "base_by_month": [
+    96,
+    91,
+    100,
+    92,
+    49
+   ],
+   "admit_floor": true
+  },
+  {
+   "cid": "FLOW_cross_m05",
+   "kind": "N",
+   "fam": "FLOW",
+   "ctx": "cross",
+   "q": 0.25,
+   "m": "05",
+   "c": 2,
+   "group": 4,
+   "dup_of": null,
+   "E": 215,
+   "f_all": 0.5023,
+   "excl_by_month": [
+    37,
+    56,
+    46,
+    48,
+    28
+   ],
+   "remain_by_month": [
+    59,
+    35,
+    54,
+    44,
+    21
+   ],
+   "base_by_month": [
+    96,
+    91,
+    100,
+    92,
+    49
+   ],
+   "admit_floor": true
+  },
+  {
+   "cid": "FLOW_cross_m20",
+   "kind": "N",
+   "fam": "FLOW",
+   "ctx": "cross",
+   "q": 0.25,
+   "m": "20",
+   "c": 1,
+   "group": 4,
+   "dup_of": null,
+   "E": 248,
+   "f_all": 0.5794,
+   "excl_by_month": [
+    38,
+    65,
+    56,
+    55,
+    34
+   ],
+   "remain_by_month": [
+    58,
+    26,
+    44,
+    37,
+    15
+   ],
+   "base_by_month": [
+    96,
+    91,
+    100,
+    92,
+    49
+   ],
+   "admit_floor": true
+  },
+  {
+   "cid": "IMP_only",
+   "kind": "R",
+   "fam": "IMP",
+   "ctx": null,
+   "q": 0.25,
+   "m": null,
+   "c": null,
+   "group": 10,
+   "dup_of": null,
+   "E": 106,
+   "f_all": 0.2477,
+   "excl_by_month": [
+    25,
+    31,
+    18,
+    18,
+    14
+   ],
+   "remain_by_month": [
+    71,
+    60,
+    82,
+    74,
+    35
+   ],
+   "base_by_month": [
+    96,
+    91,
+    100,
+    92,
+    49
+   ],
+   "admit_floor": true
+  },
+  {
+   "cid": "FLOW_only",
+   "kind": "R",
+   "fam": "FLOW",
+   "ctx": null,
+   "q": 0.25,
+   "m": null,
+   "c": null,
+   "group": 11,
+   "dup_of": null,
+   "E": 107,
+   "f_all": 0.25,
+   "excl_by_month": [
+    15,
+    27,
+    21,
+    27,
+    17
+   ],
+   "remain_by_month": [
+    81,
+    64,
+    79,
+    65,
+    32
+   ],
+   "base_by_month": [
+    96,
+    91,
+    100,
+    92,
+    49
+   ],
+   "admit_floor": true
+  }
+ ],
+ "quad": {
+  "IMP_own": {
+   "hist_pass_fam_pass": 220,
+   "hist_pass_fam_fail": 65,
+   "hist_fail_fam_pass": 102,
+   "hist_fail_fam_fail": 41
+  },
+  "IMP_cross": {
+   "hist_pass_fam_pass": 245,
+   "hist_pass_fam_fail": 66,
+   "hist_fail_fam_pass": 77,
+   "hist_fail_fam_fail": 40
+  },
+  "FLOW_own": {
+   "hist_pass_fam_pass": 211,
+   "hist_pass_fam_fail": 74,
+   "hist_fail_fam_pass": 110,
+   "hist_fail_fam_fail": 33
+  },
+  "FLOW_cross": {
+   "hist_pass_fam_pass": 236,
+   "hist_pass_fam_fail": 75,
+   "hist_fail_fam_pass": 85,
+   "hist_fail_fam_fail": 32
+  }
+ },
+ "jaccard": {
+  "IMP_own": {
+   "IMP_own_q10": 0.827,
+   "IMP_own_q40": 0.839,
+   "IMP_own_m05": 0.808,
+   "IMP_own_m20": 0.829
+  },
+  "IMP_cross": {
+   "IMP_cross_q10": 0.798,
+   "IMP_cross_q40": 0.796,
+   "IMP_cross_m05": 0.758,
+   "IMP_cross_m20": 0.772
+  },
+  "FLOW_own": {
+   "FLOW_own_q10": 0.793,
+   "FLOW_own_q40": 0.838,
+   "FLOW_own_m05": 0.825,
+   "FLOW_own_m20": 0.831
+  },
+  "FLOW_cross": {
+   "FLOW_cross_q10": 0.76,
+   "FLOW_cross_q40": 0.78,
+   "FLOW_cross_m05": 0.754,
+   "FLOW_cross_m20": 0.774
+  }
+ },
+ "m_trial_nodup": 4,
+ "def": "def2",
+ "code_id": "f2c1421d7848"
+}
