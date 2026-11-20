@@ -127,6 +127,9 @@ pub struct ExitCfg {
     pub cs_hi_m: i64,
     /// §13.31 (`cm`): отступ стопа за дальний край проторговки, NATR ×1000.
     pub cs_m_m: i64,
+    /// TK-649 (`tu`): выход «уровень не тронут за T минут от входа» (0 — выкл.): пока не было сделки `p ≥ L`, первая сделка не раньше `вход + T`
+    /// закрывает остаток рыночным выходом; после касания не действует. Вид выхода `tu`. Только `breakout tick`.
+    pub tu_min: i64,
 }
 
 /// Ручной `Debug`: при выключенных ключах §13.31 строка `params` в meta.json — та же, что у производного `Debug` до §13.31.
@@ -172,6 +175,9 @@ impl std::fmt::Debug for ExitCfg {
                 .field("cs_lo_m", &self.cs_lo_m)
                 .field("cs_hi_m", &self.cs_hi_m)
                 .field("cs_m_m", &self.cs_m_m);
+        }
+        if self.tu_min != 0 {
+            d.field("tu_min", &self.tu_min);
         }
         d.finish()
     }
@@ -264,6 +270,7 @@ impl ExitCfg {
             || self.rt_f_pm > 0
             || self.be_mode == 3
             || self.stop_redesign_opts()
+            || self.tu_min != 0
     }
 
     /// Опции §13.31 (`nx`, `sl`, `cw`, `cl`, `ch`, `cm`) включены — `breakout tick` only.
@@ -367,6 +374,7 @@ impl Params {
                 cs_lo_m: 0,
                 cs_hi_m: 0,
                 cs_m_m: 0,
+                tu_min: 0,
             },
             port: PortCfg {
                 cool_min: 5,
@@ -467,6 +475,7 @@ impl Params {
             "cl" => self.exit.cs_lo_m = pm(f),
             "ch" => self.exit.cs_hi_m = pm(f),
             "cm" => self.exit.cs_m_m = pm(f),
+            "tu" => self.exit.tu_min = f.round() as i64,
             "fv" => self.filt.v = Some(f),
             "c" => self.port.cool_min = u,
             "m" => self.port.m_stops = u,
@@ -543,9 +552,15 @@ impl Params {
     /// §13.31: `nx`, `sl`, `cw/cl/ch/cm` ≥ 0; ключи проторговки заданы только вместе с `cw` (ключ без `cw` — опечатка, а не «выкл.»); `cl < ch`.
     fn validate_stops(&self) -> Result<()> {
         let e = &self.exit;
-        if e.nx_m < 0 || e.sl_m < 0 || e.cs_w < 0 || e.cs_lo_m < 0 || e.cs_hi_m < 0 || e.cs_m_m < 0
+        if e.nx_m < 0
+            || e.sl_m < 0
+            || e.cs_w < 0
+            || e.cs_lo_m < 0
+            || e.cs_hi_m < 0
+            || e.cs_m_m < 0
+            || e.tu_min < 0
         {
-            bail!("nx, sl, cw, cl, ch, cm ≥ 0");
+            bail!("nx, sl, cw, cl, ch, cm, tu ≥ 0");
         }
         if e.cs_w == 0 && (e.cs_lo_m != 0 || e.cs_hi_m != 0 || e.cs_m_m != 0) {
             bail!("cl/ch/cm требуют cw > 0 (проторговка)");

@@ -985,6 +985,8 @@ struct Pos {
     below_since: i64,
     /// §13.31 (`nx`): до касания цена ≤ этого порога (рама) — выход «сценарий отменён»; `i64::MIN` — выкл.
     nx_lvl: i64,
+    /// TK-649 (`tu`): срок касания — `вход + T` (мс); `i64::MAX` — выкл.
+    tu_due: i64,
     /// §13.21: NATR-стоп (`sn`) и шаг лестницы тейков (`tj`); `None` — выкл.
     natr_stop: Option<NatrStop>,
     step: Option<StepLadder>,
@@ -1035,7 +1037,8 @@ impl Pos {
                 be_lvl = Some(e.min(l.far) - nat(kb));
             }
         }
-        let rules = lc.is_some() && (ex.tx_min > 0 || ex.rt_f_pm > 0 || ex.nx_m > 0);
+        let rules =
+            lc.is_some() && (ex.tx_min > 0 || ex.rt_f_pm > 0 || ex.nx_m > 0 || ex.tu_min > 0);
         let lp = lc.map_or(0, |l| l.lp);
         let dist = |x_pm: i64| (i128::from(lp.abs()) * i128::from(x_pm) / 100_000) as i64;
         let unit = i128::from(ea) * i128::from(natr_e8);
@@ -1086,6 +1089,11 @@ impl Pos {
                 (lp - nat(ex.nx_m)).min(e - 1)
             } else {
                 i64::MIN
+            },
+            tu_due: if ex.tu_min > 0 {
+                entry_ms + ex.tu_min * 60_000
+            } else {
+                i64::MAX
             },
             natr_stop,
             step,
@@ -1185,7 +1193,11 @@ impl Pos {
         }
         if self.touched_ms == NONE_MS {
             // §13.31 (`nx`): до касания цена ушла от уровня против позиции на X·NATR — сценарий отменён
-            return (p <= self.nx_lvl).then_some(ExitKind::NoTouch);
+            if p <= self.nx_lvl {
+                return Some(ExitKind::NoTouch);
+            }
+            // TK-649 (`tu`): уровень не тронут за T минут от входа
+            return (ms >= self.tu_due).then_some(ExitKind::TimeNoTouch);
         }
         if !self.broke && p >= self.lp + self.tx_x {
             self.broke = true;

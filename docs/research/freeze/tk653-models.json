@@ -1,0 +1,99 @@
+{
+ "protocol": "П-42 §13.53",
+ "catboost": "1.2.10",
+ "seed": 653,
+ "feats": [
+  "pierce_ep",
+  "spread_tau",
+  "zv6h",
+  "tpm60",
+  "mv5",
+  "cons60",
+  "c5_btc_7d",
+  "c5_eth_7d",
+  "lturn24",
+  "age_h",
+  "natr_bp",
+  "since_touch_prior_h"
+ ],
+ "models": {
+  "L_aug": {
+   "file": "L_aug.cbm",
+   "sha256": "a7b7dc129fe4cab613e265afe4c22c083bc775679299c40eb8bf42c694eb1f51",
+   "q": 1.981485601314135,
+   "cell": [
+    3,
+    50,
+    10
+   ],
+   "iterations": 446
+  },
+  "L_sep": {
+   "file": "L_sep.cbm",
+   "sha256": "68f26be708329c03a41ae89a70637c6b890f689e56bf6f064b32c39940388aee",
+   "q": 0.5986820293153763,
+   "cell": [
+    3,
+    50,
+    10
+   ],
+   "iterations": 10
+  },
+  "L_oct": {
+   "file": "L_oct.cbm",
+   "sha256": "e6f1de6cb8867db2aa87ac335d085f6ee5a4c587314c3f782322ca4675a4c891",
+   "q": 0.6231483627532816,
+   "cell": [
+    1,
+    50,
+    10
+   ],
+   "iterations": 13
+  },
+  "L_nov": {
+   "file": "L_nov.cbm",
+   "sha256": "6ab5232da2aa69ee7e9b8a550733ce5fe94ac15ea1e463642a2e79b8d34d5f2e",
+   "q": 0.634547758971898,
+   "cell": [
+    2,
+    50,
+    3
+   ],
+   "iterations": 22
+  },
+  "S_sep": {
+   "file": "S_sep.cbm",
+   "sha256": "9e4314ab5af2779d90db6bd91415654f910caa164d278482277c1c70226600bb",
+   "q": 1.1725815215965765,
+   "cell": [
+    3,
+    50,
+    10
+   ],
+   "iterations": 10
+  },
+  "S_oct": {
+   "file": "S_oct.cbm",
+   "sha256": "42c009b90ad0d9b36531a9e0d352f0fd9f8840cb9ea0d9597d26b13f053bd970",
+   "q": 0.8916067395504107,
+   "cell": [
+    3,
+    50,
+    10
+   ],
+   "iterations": 22
+  },
+  "S_nov": {
+   "file": "S_nov.cbm",
+   "sha256": "978d74c6bdd947ca9bfaf3483c364d615a441647bf6e856a368455daa5264a12",
+   "q": 1.102787091267025,
+   "cell": [
+    3,
+    200,
+    10
+   ],
+   "iterations": 186
+  }
+ },
+ "t_utc": "2026-11-20T17:44:57Z"
+}

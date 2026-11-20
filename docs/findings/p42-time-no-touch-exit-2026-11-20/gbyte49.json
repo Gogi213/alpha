@@ -1,0 +1,46 @@
+{
+ "bin_sha256": "9009dec27165d53e0195761c53460ae05cb89eb5fd62be6814a1aa0358724b54",
+ "windows": {
+  "wa": {
+   "L_base/meta": "params: отличие только в поле tl: 0",
+   "L_base": {
+    "files": 11,
+    "diff": []
+   },
+   "S_base/meta": "params: отличие только в поле tl: 0",
+   "S_base": {
+    "files": 11,
+    "diff": []
+   },
+   "summary.csv": true
+  },
+  "wb": {
+   "L_base/meta": "params: отличие только в поле tl: 0",
+   "L_base": {
+    "files": 11,
+    "diff": []
+   },
+   "S_base/meta": "params: отличие только в поле tl: 0",
+   "S_base": {
+    "files": 11,
+    "diff": []
+   },
+   "summary.csv": true
+  },
+  "wc": {
+   "L_base/meta": "params: отличие только в поле tl: 0",
+   "L_base": {
+    "files": 11,
+    "diff": []
+   },
+   "S_base/meta": "params: отличие только в поле tl: 0",
+   "S_base": {
+    "files": 11,
+    "diff": []
+   },
+   "summary.csv": true
+  }
+ },
+ "ok": true,
+ "bad": []
+}

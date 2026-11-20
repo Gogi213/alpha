@@ -1,6 +1,6 @@
 // TK-646: клик-тест летописи /chron/ на VPS София (node18, playwright-core 1.48.2), НЕ на ПК владельца. Образец — kb_shots.js.
 // Запуск: PW=/root/arb-settings-test/node_modules/playwright-core CHROME=/usr/bin/google-chrome node chron_shots.js http://5.231.25.224:8091 <каталог выхода> [ширина]
-// Проверяет: ошибки консоли и внешние запросы, список записей и счётчик, поиск (подстрока, регистр, ё), фильтры проект / вердикт / вид / даты,
+// Проверяет (TK-647 — и /chron/m/: фильтры, сортировка, числа записи, фильтр «числа» в списке): ошибки консоли и внешние запросы, список записей и счётчик, поиск (подстрока, регистр, ё), фильтры проект / вердикт / вид / даты,
 // переход в запись (поля, «откуда поля», ссылки и обратные ссылки), раздел протокола, список и текст протокола, навигацию kb ↔ летопись,
 // горизонтальное переполнение; пишет снимки и report.json; код 1 при провале.
 const {chromium} = require(process.env.PW || 'playwright-core');
@@ -31,7 +31,7 @@ const origin = new URL(url).origin;
   const total = await cnt();
   check('всего записей ≥ 224 (223 перенесено + TK-646)', total >= 224, total);
   check('на странице 100 строк и пейджер', (await ids()).length === 100 && !!(await page.$('.pager')), (await ids()).length);
-  check('первая — самая новая (L-224)', (await ids())[0] === 'L-224', (await ids())[0]);
+  check('первая — самая новая (L-' + total + ')', (await ids())[0] === 'L-' + total, (await ids())[0]);
   check('нет переполнения (список)', (await overflow()) <= 1, await overflow());
   await shot('chron-index');
 
@@ -87,6 +87,57 @@ const origin = new URL(url).origin;
   await go('/chron/e/224');
   const e224 = await page.textContent('main');
   check('L-224: TK-646, ссылка на коммит и CHRONICLE.md', /TK-646/.test(e224) && /f5cea9252/.test(e224) && /CHRONICLE\.md/.test(e224), '');
+
+  // ── числа (TK-647): /chron/m/, фильтры, сортировка по заголовку, числа в записи, значок и фильтр в списке
+  const mcnt = async () => parseInt((await page.textContent('#cnt')).replace(/\D/g, ''), 10);
+  const msubmit = async () => { await Promise.all([page.waitForNavigation({waitUntil: 'load'}), page.click('form.ctl button')]); };
+  const col = (k) => page.evaluate(k => [...document.querySelectorAll('main table tbody tr')].map(tr => tr.children[k].textContent.trim()), k);
+  const val = t => t === '—' ? null : parseFloat(t.replace('−', '-'));
+  check('/chron/m/ HTTP 200', (await go('/chron/m/')) === 200);
+  const mt = await mcnt();
+  check('чисел ≥ 14 000', mt >= 14000, mt);
+  check('на странице 200 строк и пейджер', (await col(0)).length === 200 && !!(await page.$('.pager')), (await col(0)).length);
+  check('в меню «Числа»', !!(await page.$('header a[href="/chron/m/"]')), '');
+  check('нет переполнения (числа)', (await overflow()) <= 1, await overflow());
+  await shot('chron-nums');
+  await page.selectOption('#m-project', 'П-42'); await page.selectOption('#m-side', 'short'); await msubmit();
+  const ms = await mcnt();
+  const sides = await col(1);
+  check('П-42 + шорт: 1…всего, у всех строк «шорт»', ms > 0 && ms < mt && sides.every(x => x === 'шорт'), [ms, sides.slice(0, 3)]);
+  await page.selectOption('#m-uni', 'h775'); await page.fill('#m-min', '100'); await msubmit();
+  const tr = (await col(5)).map(val);
+  check('вселенная h775 + сделок ≥ 100', (await mcnt()) > 0 && tr.every(x => x >= 100) && (await col(3)).every(x => x === 'h775'), tr.slice(0, 3));
+  await Promise.all([page.waitForNavigation({waitUntil: 'load'}), page.click('main table thead a:text("Σ $ (500 $)")')]);
+  const u1 = (await col(6)).map(val).filter(x => x !== null);
+  check('сортировка по заголовку Σ $ ↓', u1.length > 1 && u1.every((x, i) => i === 0 || u1[i - 1] >= x), u1.slice(0, 3));
+  await Promise.all([page.waitForNavigation({waitUntil: 'load'}), page.click('main table thead a:text("Σ $ (500 $)")')]);
+  const u2 = (await col(6)).map(val).filter(x => x !== null);
+  check('второй щелчок — Σ $ ↑', u2.length > 1 && u2.every((x, i) => i === 0 || u2[i - 1] <= x), u2.slice(0, 3));
+  await page.selectOption('#m-sort', '-sharpe'); await msubmit();
+  const sh = (await col(8)).map(val).filter(x => x !== null);
+  check('порядок «Шарп ↓»', sh.length > 1 && sh.every((x, i) => i === 0 || sh[i - 1] >= x), sh.slice(0, 3));
+  check('фильтры в адресе', /side=short/.test(page.url()) && /uni=h775/.test(page.url()), page.url());
+  await go('/chron/m/?text=1');
+  check('«из текста» > 1000', (await mcnt()) > 1000, await mcnt());
+  await go('/chron/m/?cell=несуществующая-клетка-xyz');
+  check('пустой результат (числа)', (await mcnt()) === 0 && /Ничего не найдено/.test(await page.textContent('main')), '');
+  const src1 = await (async () => { await go('/chron/m/?entry=L-120'); return page.$('main table tbody tr td:last-child a'); })();
+  check('числа L-120: > 900 строк, у строки ссылка на источник', (await mcnt()) > 900 && !!src1, await mcnt());
+  await shot('chron-nums-entry');
+  check('/chron/e/120 HTTP 200', (await go('/chron/e/120')) === 200);
+  const e120 = await page.textContent('main');
+  check('запись L-120: блок «Числа (N)» и ссылка на все числа', /Числа \(\d+/.test(e120) && !!(await page.$('main a[href="/chron/m/?entry=120"]')), '');
+  check('нет переполнения (запись с числами)', (await overflow()) <= 1, await overflow());
+  await shot('chron-entry-nums');
+  await Promise.all([page.waitForNavigation({waitUntil: 'load'}), page.click('main a[href="/chron/m/?entry=120"]')]);
+  check('переход «все числа записи» → /chron/m/?entry=120', /entry=120/.test(page.url()) && (await mcnt()) > 900, page.url());
+  await go('/chron/');
+  await page.selectOption('#nums', 'есть'); await submit();
+  const nn = await cnt();
+  check('список: фильтр «числа: есть» 60…80, у всех строк значок «чисел»', nn >= 60 && nn <= 80 &&
+        await page.evaluate(() => [...document.querySelectorAll('#list .erow')].every(r => /чисел \d+/.test(r.textContent))), nn);
+  await page.selectOption('#nums', 'нет'); await submit();
+  check('«числа: нет» + «есть» = всего', (await cnt()) + nn === total, [await cnt(), nn, total]);
 
   // ── протоколы
   check('/chron/p/ HTTP 200', (await go('/chron/p/')) === 200);

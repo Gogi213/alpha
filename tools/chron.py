@@ -30,8 +30,10 @@ SRV_DB = "/data/chron/chron.sqlite"
 SRV_HOST = "root@5.231.25.224"
 TZ = datetime.timezone(datetime.timedelta(hours=4))
 VERDICTS = ("работает", "не работает", "не ясно", "описательно")
+METRIC_COLS = ("side", "cell", "uni", "win", "trades", "usd", "mean_usd", "sharpe", "verdict", "same_data", "from_text", "src", "src_commit",
+               "src_ptr", "extra")
 KINDS = ("verdict", "prereg", "amend", "freeze", "result", "step", "measure", "experiment", "correction", "note")
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 HERE = Path(__file__).resolve().parent if "__file__" in globals() else Path.cwd()
 
 SCHEMA = """
@@ -72,18 +74,6 @@ CREATE INDEX psec_proto ON psec(protocol, ord);
 CREATE TRIGGER psec_locked BEFORE UPDATE ON psec WHEN OLD.locked = 1 BEGIN SELECT RAISE(ABORT, 'chron: раздел записан до счёта и неизменяем — добавь поправку (--amends)'); END;
 CREATE TRIGGER psec_nodelete BEFORE DELETE ON psec BEGIN SELECT RAISE(ABORT, 'chron: раздел протокола удалять нельзя'); END;
 
--- исправление флага «до счёта» перенесённого раздела (строка psec неизменяема): действует последняя строка (TK-646 v3)
-CREATE TABLE psec_flag(
-  id INTEGER PRIMARY KEY AUTOINCREMENT, psec INTEGER NOT NULL REFERENCES psec(id),
-  prereg INTEGER NOT NULL CHECK (prereg IN (0,1)), prereg_at TEXT, reason TEXT NOT NULL, author TEXT, created TEXT NOT NULL);
-CREATE INDEX psec_flag_psec ON psec_flag(psec, id);
-CREATE TRIGGER psec_flag_noupdate BEFORE UPDATE ON psec_flag BEGIN SELECT RAISE(ABORT, 'chron: исправления флага только добавляются'); END;
-CREATE TRIGGER psec_flag_nodelete BEFORE DELETE ON psec_flag BEGIN SELECT RAISE(ABORT, 'chron: исправления флага только добавляются'); END;
-CREATE VIEW psec_cur AS SELECT p.id, p.protocol, p.ord, p.level, p.num, p.heading, p.body, p.kind, p.alpha,
-  CASE WHEN f.id IS NULL THEN p.prereg ELSE f.prereg END AS prereg, CASE WHEN f.id IS NULL THEN p.prereg_at ELSE f.prereg_at END AS prereg_at,
-  p.locked, p.amends, p.src, p.h, p.author, p.created, f.id AS flag_id, f.reason AS flag_reason
-  FROM psec p LEFT JOIN psec_flag f ON f.id = (SELECT max(id) FROM psec_flag WHERE psec = p.id);
-
 CREATE TABLE link(src TEXT NOT NULL, dst TEXT NOT NULL, rel TEXT NOT NULL, origin TEXT, created TEXT NOT NULL, PRIMARY KEY (src, dst, rel));
 CREATE INDEX link_dst ON link(dst);
 CREATE TRIGGER link_nodelete BEFORE DELETE ON link BEGIN SELECT RAISE(ABORT, 'chron: ссылки только добавляются'); END;
@@ -97,7 +87,53 @@ CREATE TABLE chunk(ver INTEGER NOT NULL REFERENCES doc(ver), ord INTEGER NOT NUL
 CREATE TABLE kb_node(id TEXT PRIMARY KEY, type TEXT, status TEXT, title TEXT, date TEXT, path TEXT);
 CREATE TABLE meta(key TEXT PRIMARY KEY, value TEXT);
 """
-MIGRATE = {3: SCHEMA[SCHEMA.index("-- исправление флага"):SCHEMA.index("CREATE TABLE link(")]}  # user_version → операторы
+PSEC_CUR_V3 = """CREATE VIEW psec_cur AS SELECT p.id, p.protocol, p.ord, p.level, p.num, p.heading, p.body, p.kind, p.alpha,
+  CASE WHEN f.id IS NULL THEN p.prereg ELSE f.prereg END AS prereg, CASE WHEN f.id IS NULL THEN p.prereg_at ELSE f.prereg_at END AS prereg_at,
+  p.locked, p.amends, p.src, p.h, p.author, p.created, f.id AS flag_id, f.reason AS flag_reason
+  FROM psec p LEFT JOIN psec_flag f ON f.id = (SELECT max(id) FROM psec_flag WHERE psec = p.id);
+"""
+# user_version → операторы; новая БД = SCHEMA + все шаги по порядку
+MIGRATE = {3: """
+-- исправление флага «до счёта» перенесённого раздела (строка psec неизменяема): действует последняя строка (TK-646 v3)
+CREATE TABLE psec_flag(
+  id INTEGER PRIMARY KEY AUTOINCREMENT, psec INTEGER NOT NULL REFERENCES psec(id),
+  prereg INTEGER NOT NULL CHECK (prereg IN (0,1)), prereg_at TEXT, reason TEXT NOT NULL, author TEXT, created TEXT NOT NULL);
+CREATE INDEX psec_flag_psec ON psec_flag(psec, id);
+CREATE TRIGGER psec_flag_noupdate BEFORE UPDATE ON psec_flag BEGIN SELECT RAISE(ABORT, 'chron: исправления флага только добавляются'); END;
+CREATE TRIGGER psec_flag_nodelete BEFORE DELETE ON psec_flag BEGIN SELECT RAISE(ABORT, 'chron: исправления флага только добавляются'); END;
+""" + PSEC_CUR_V3,
+           4: """
+-- числа записи: запись × сторона × клетка × вселенная × окно (TK-647); строки только добавляются
+CREATE TABLE metric(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  entry INTEGER NOT NULL REFERENCES entry(id),
+  side TEXT CHECK (side IS NULL OR side IN ('long','short','both')),
+  cell TEXT, uni TEXT, win TEXT,                     -- клетка / вариант; вселенная; окно
+  trades INTEGER, usd REAL, mean_usd REAL, sharpe REAL,   -- сделок; Σ $ на ставку 500 $; $ / сделку; Шарп годовой по дневному
+  verdict TEXT CHECK (verdict IS NULL OR verdict IN ('работает','не работает','не ясно','описательно')),
+  same_data INTEGER CHECK (same_data IS NULL OR same_data IN (0,1)),   -- «найдено на этих данных»
+  from_text INTEGER NOT NULL DEFAULT 0 CHECK (from_text IN (0,1)),     -- 1 = «из текста» (таблица отчёта md / запись), не файл результатов
+  src TEXT NOT NULL, src_commit TEXT, src_ptr TEXT,  -- файл в git; коммит, где он таким записан; место (путь JSON / строка)
+  extra TEXT,                                        -- JSON: прочие числа строки (p, lo90 / hi90, ворота, сырой $ при иной ставке)
+  h TEXT NOT NULL UNIQUE, author TEXT, created TEXT NOT NULL);
+CREATE INDEX metric_entry ON metric(entry);
+CREATE TRIGGER metric_noupdate BEFORE UPDATE ON metric BEGIN SELECT RAISE(ABORT, 'chron: числа только добавляются — исправление новой записью (--corrects)'); END;
+CREATE TRIGGER metric_nodelete BEFORE DELETE ON metric BEGIN SELECT RAISE(ABORT, 'chron: числа только добавляются'); END;
+
+-- поправка номера раздела (строка psec неизменяема): действует последняя (TK-647)
+CREATE TABLE psec_num(
+  id INTEGER PRIMARY KEY AUTOINCREMENT, psec INTEGER NOT NULL REFERENCES psec(id), num TEXT NOT NULL, reason TEXT NOT NULL,
+  author TEXT, created TEXT NOT NULL);
+CREATE INDEX psec_num_psec ON psec_num(psec, id);
+CREATE TRIGGER psec_num_noupdate BEFORE UPDATE ON psec_num BEGIN SELECT RAISE(ABORT, 'chron: поправки номера только добавляются'); END;
+CREATE TRIGGER psec_num_nodelete BEFORE DELETE ON psec_num BEGIN SELECT RAISE(ABORT, 'chron: поправки номера только добавляются'); END;
+DROP VIEW psec_cur;
+CREATE VIEW psec_cur AS SELECT p.id, p.protocol, p.ord, p.level, coalesce(n.num, p.num) AS num, p.heading, p.body, p.kind, p.alpha,
+  CASE WHEN f.id IS NULL THEN p.prereg ELSE f.prereg END AS prereg, CASE WHEN f.id IS NULL THEN p.prereg_at ELSE f.prereg_at END AS prereg_at,
+  p.locked, p.amends, p.src, p.h, p.author, p.created, f.id AS flag_id, f.reason AS flag_reason, n.id AS num_id
+  FROM psec p LEFT JOIN psec_flag f ON f.id = (SELECT max(id) FROM psec_flag WHERE psec = p.id)
+  LEFT JOIN psec_num n ON n.id = (SELECT max(id) FROM psec_num WHERE psec = p.id);
+"""}
 FTS_SQL = "CREATE VIRTUAL TABLE fts USING fts5(node UNINDEXED, title, body, tokenize='trigram')"
 
 
@@ -192,7 +228,7 @@ def connect(path, ro=False):
             conn.execute("PRAGMA journal_mode=WAL")
             conn.execute("BEGIN IMMEDIATE")
             if conn.execute("PRAGMA user_version").fetchone()[0] == 0:
-                for stmt in split_sql(SCHEMA):
+                for stmt in split_sql(SCHEMA) + [x for v in sorted(MIGRATE) for x in split_sql(MIGRATE[v])]:
                     conn.execute(stmt)
                 conn.execute(FTS_SQL)
                 conn.execute("PRAGMA user_version=%d" % SCHEMA_VERSION)
@@ -227,6 +263,11 @@ def split_sql(script):
     return out
 
 
+# время записи для порядка «новые первыми»: дата без времени, записанная в тот же день, — время создания (иначе запись 20.11
+# без часа оказалась бы ниже записи 20.11 19:38, сделанной раньше неё)
+ENTRY_TS = "(CASE WHEN length(e.ts) = 10 AND substr(e.created, 1, 10) = e.ts THEN e.created ELSE coalesce(e.ts, '') END)"
+
+
 class Store:
     def __init__(self, conn):
         self.c = conn
@@ -250,7 +291,7 @@ class Store:
 
     def resolve_psec(self, proto, num):
         """«P-42 §13.28» → PS-id: раздел главного файла протокола с этим номером (первая запись, не поправка)."""
-        rows = self.c.execute("SELECT p.id FROM psec p JOIN protocol r ON r.id = p.protocol WHERE (r.short=? OR r.id=?) AND p.num=? "
+        rows = self.c.execute("SELECT p.id FROM psec_cur p JOIN protocol r ON r.id = p.protocol WHERE (r.short=? OR r.id=?) AND p.num=? "
                               "ORDER BY (r.id <> (SELECT value FROM meta WHERE key='main:' || ?)), p.amends IS NOT NULL, p.id LIMIT 1",
                               (proto, proto, num, proto)).fetchone()
         return "PS-%d" % rows[0] if rows else None
@@ -273,8 +314,8 @@ class Store:
         self.c.execute("INSERT INTO fts(node, title, body) VALUES (?,?,?)", (node, fold(title), fold(body)))
 
     # ── запись
-    def add_entry(self, e, links, author=None):
-        """e: поля записи; links: ссылки (строки ввода). Битая ссылка — отказ, ничего не пишется."""
+    def add_entry(self, e, links, author=None, metrics=None):
+        """e: поля записи; links: ссылки (строки ввода); metrics: строки чисел (TK-647). Битая ссылка — отказ, ничего не пишется."""
         if e.get("verdict") and e["verdict"] not in VERDICTS:
             raise ChronError("вердикт «%s» — только %s" % (e["verdict"], " / ".join(VERDICTS)))
         if e.get("kind") not in KINDS:
@@ -311,6 +352,8 @@ class Store:
                 dsts.append("L-%d" % e["corrects"])
             self._links(nid, dsts, "add", self.kb_types())
             self._fts(nid, e["title"] + " " + (e.get("hypothesis") or ""), body)
+            if metrics:
+                self._metric_rows(cur.lastrowid, metrics, author)
             self.c.execute("COMMIT")
             return nid
         except BaseException:
@@ -410,6 +453,58 @@ class Store:
                              (int(d[3:]), 1 if prereg else 0, prereg_at or None, reason, author, now()))
         return "%s флаг #%d" % (d, cur.lastrowid)
 
+    def num_psec(self, node, num, reason, author=None):
+        """Поправить номер раздела (строка psec неизменяема): новая строка psec_num; читается последняя (вид psec_cur)."""
+        d = self.canon(node)
+        if not d or node_kind(d) != "psec" or not self.exists(d):
+            raise ChronError("не раздел: %s" % node)
+        if not (num or "").strip() or not (reason or "").strip():
+            raise ChronError("нужны номер и причина")
+        cur = self.c.execute("INSERT INTO psec_num(psec, num, reason, author, created) VALUES (?,?,?,?,?)",
+                             (int(d[3:]), num.strip(), reason, author, now()))
+        return "%s номер «%s» #%d" % (d, num.strip(), cur.lastrowid)
+
+    # ── числа записи (TK-647): строки metric только добавляются; повтор (тот же h) не пишется
+    def _metric_rows(self, eid, rows, author):
+        n = 0
+        for r in rows:
+            if r.get("verdict") and r["verdict"] not in VERDICTS:
+                raise ChronError("вердикт «%s» — только %s" % (r["verdict"], " / ".join(VERDICTS)))
+            if not r.get("src"):
+                raise ChronError("у числа нет источника (src)")
+            if r.get("side") not in (None, "long", "short", "both"):
+                raise ChronError("сторона «%s» — только long / short / both" % r["side"])
+            h = r.get("h") or sha(json.dumps([eid] + [r.get(k) for k in METRIC_COLS], ensure_ascii=False, default=str))
+            cur = self.c.execute(
+                "INSERT OR IGNORE INTO metric(entry, side, cell, uni, win, trades, usd, mean_usd, sharpe, verdict, same_data, from_text, src,"
+                " src_commit, src_ptr, extra, h, author, created) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (eid, r.get("side"), r.get("cell"), r.get("uni"), r.get("win"), r.get("trades"), r.get("usd"), r.get("mean_usd"),
+                 r.get("sharpe"), r.get("verdict"), r.get("same_data"), 1 if r.get("from_text") else 0, r["src"], r.get("src_commit"),
+                 r.get("src_ptr"), json.dumps(r["extra"], ensure_ascii=False) if r.get("extra") else None, h, author, now()))
+            n += cur.rowcount
+        return n
+
+    def add_metrics(self, rows, author=None):
+        """rows: [{entry: id, side, cell, uni, win, trades, usd, mean_usd, sharpe, verdict, same_data, from_text, src, src_commit, src_ptr, extra, h}]
+        → {new, same}: одной транзакцией; запись должна существовать."""
+        self.c.execute("BEGIN IMMEDIATE")
+        try:
+            ids = {r[0] for r in self.c.execute("SELECT id FROM entry")}
+            bad = sorted({r["entry"] for r in rows if r["entry"] not in ids})
+            if bad:
+                raise ChronError("нет записей: %s" % ", ".join("L-%d" % b for b in bad))
+            new = 0
+            by = {}
+            for r in rows:
+                by.setdefault(r["entry"], []).append(r)
+            for eid, rs in by.items():
+                new += self._metric_rows(eid, rs, author)
+            self.c.execute("COMMIT")
+            return {"new": new, "same": len(rows) - new}
+        except BaseException:
+            self.c.execute("ROLLBACK")
+            raise
+
     def sync_kb(self, nodes):
         self.c.execute("BEGIN IMMEDIATE")
         self.c.execute("DELETE FROM kb_node")
@@ -497,7 +592,7 @@ class Store:
                              else n - (j - i + 1 - k) if p is None else p + (n - p) * k / (j - i + 1))
         excl = ",".join(str(u) for u in used) or "0"
         d["_gone"] = [dict(r) for r in self.c.execute(
-            "SELECT id, num, heading FROM psec WHERE protocol=? AND src LIKE ? AND id NOT IN (%s) AND id NOT IN (SELECT amends FROM psec WHERE amends IS NOT NULL)"
+            "SELECT id, num, heading FROM psec_cur WHERE protocol=? AND src LIKE ? AND id NOT IN (%s) AND id NOT IN (SELECT amends FROM psec WHERE amends IS NOT NULL)"
             % excl, (pid, d["path"] + ":%"))]
 
     def _import_chunk(self, d, ch, i, used, st):
@@ -599,11 +694,17 @@ class Store:
         if f.get("until"):
             where.append("substr(e.ts, 1, 10) <= ?")
             args.append(f["until"])
+        if f.get("nums"):  # есть числа: «файл» — из файлов результатов, «текст» — только из текста, «нет»
+            where.append({"есть": "EXISTS (SELECT 1 FROM metric m WHERE m.entry = e.id)",
+                          "файл": "EXISTS (SELECT 1 FROM metric m WHERE m.entry = e.id AND m.from_text = 0)",
+                          "текст": "EXISTS (SELECT 1 FROM metric m WHERE m.entry = e.id) AND NOT EXISTS (SELECT 1 FROM metric m WHERE m.entry = e.id AND m.from_text = 0)",
+                          "нет": "NOT EXISTS (SELECT 1 FROM metric m WHERE m.entry = e.id)"}.get(f["nums"], "1"))
         sql = " FROM entry e" + (" WHERE " + " AND ".join(where) if where else "")
         total = self.c.execute("SELECT count(*)" + sql, args).fetchone()[0]
         rows = self.c.execute("SELECT e.id, e.ts, e.task, e.project, e.kind, e.verdict, e.title, e.usd, e.trades, e.sharpe, e.same_data, e.corrects,"
-                              " (SELECT max(c.id) FROM entry c WHERE c.corrects = e.id) AS corrected_by" + sql +
-                              " ORDER BY coalesce(e.ts, '') DESC, e.id DESC LIMIT ? OFFSET ?",
+                              " (SELECT max(c.id) FROM entry c WHERE c.corrects = e.id) AS corrected_by,"
+                              " (SELECT count(*) FROM metric m WHERE m.entry = e.id) AS n_metrics" + sql +
+                              " ORDER BY " + ENTRY_TS + " DESC, e.id DESC LIMIT ? OFFSET ?",
                               args + [int(f.get("limit") or 50), int(f.get("offset") or 0)]).fetchall()
         return {"rows": [dict(r) for r in rows], "total": total}
 
@@ -641,7 +742,7 @@ class Store:
         if k == "entry":
             r = self.c.execute("SELECT title FROM entry WHERE id=?", (int(n[2:]),)).fetchone()
         elif k == "psec":
-            r = self.c.execute("SELECT r.short || ' §' || coalesce(p.num, '') || ' ' || p.heading FROM psec p JOIN protocol r ON r.id=p.protocol WHERE p.id=?",
+            r = self.c.execute("SELECT r.short || ' §' || coalesce(p.num, '') || ' ' || p.heading FROM psec_cur p JOIN protocol r ON r.id=p.protocol WHERE p.id=?",
                                (int(n[3:]),)).fetchone()
         elif k in ("commit", "file"):
             return n.split(":", 1)[1]
@@ -649,7 +750,7 @@ class Store:
             r = self.c.execute("SELECT title FROM protocol WHERE id=? UNION ALL SELECT title FROM kb_node WHERE id=?", (n, n)).fetchone()
         return r[0][:200] if r else ""
 
-    def get(self, ref):
+    def get(self, ref, metrics_limit=200):
         n = self.canon(ref)
         if not n:
             raise ChronError("не найдено: %s" % ref)
@@ -661,6 +762,8 @@ class Store:
                 raise ChronError("нет записи %s" % n)
             res["entry"] = dict(r)
             res["corrected_by"] = [x[0] for x in self.c.execute("SELECT id FROM entry WHERE corrects=? ORDER BY id", (r["id"],))]
+            res["metrics_total"] = self.c.execute("SELECT count(*) FROM metric WHERE entry=?", (r["id"],)).fetchone()[0]
+            res["metrics"] = [dict(x) for x in self.c.execute("SELECT * FROM metric WHERE entry=? ORDER BY id LIMIT ?", (r["id"], metrics_limit))]
         elif k == "psec":
             r = self.c.execute("SELECT p.*, r.short FROM psec_cur p JOIN protocol r ON r.id=p.protocol WHERE p.id=?", (int(n[3:]),)).fetchone()
             if not r:
@@ -668,6 +771,7 @@ class Store:
             res["psec"] = dict(r)
             res["amended_by"] = [x[0] for x in self.c.execute("SELECT id FROM psec WHERE amends=? ORDER BY id", (r["id"],))]
             res["flags"] = [dict(x) for x in self.c.execute("SELECT * FROM psec_flag WHERE psec=? ORDER BY id", (r["id"],))]
+            res["nums"] = [dict(x) for x in self.c.execute("SELECT * FROM psec_num WHERE psec=? ORDER BY id", (r["id"],))]
         else:
             p = self.c.execute("SELECT * FROM protocol WHERE id=?", (n,)).fetchone()
             if p:
@@ -714,7 +818,8 @@ class Store:
         q = lambda s: self.c.execute(s).fetchone()[0]
         return {"entries": q("SELECT count(*) FROM entry"), "entries_imported": q("SELECT count(*) FROM entry WHERE src IS NOT NULL"),
                 "protocols": q("SELECT count(*) FROM protocol"), "sections": q("SELECT count(*) FROM psec"),
-                "sections_prereg": q("SELECT count(*) FROM psec_cur WHERE prereg=1"), "flag_fixes": q("SELECT count(*) FROM psec_flag"), "links": q("SELECT count(*) FROM link"),
+                "sections_prereg": q("SELECT count(*) FROM psec_cur WHERE prereg=1"), "flag_fixes": q("SELECT count(*) FROM psec_flag"), "num_fixes": q("SELECT count(*) FROM psec_num"),
+                "metrics": q("SELECT count(*) FROM metric"), "entries_with_metrics": q("SELECT count(DISTINCT entry) FROM metric"), "links": q("SELECT count(*) FROM link"),
                 "kb_nodes": q("SELECT count(*) FROM kb_node"), "docs": q("SELECT count(DISTINCT path) FROM doc"),
                 "db_bytes": q("SELECT page_count * page_size FROM pragma_page_count(), pragma_page_size()")}
 
@@ -730,6 +835,86 @@ class Store:
                     why.setdefault(f, {}).setdefault(r, []).append(i)
         return {"total": self.c.execute("SELECT count(*) FROM entry WHERE src IS NOT NULL").fetchone()[0], "filled": filled, "why": why}
 
+    METRIC_SORT = {"usd": "m.usd", "sharpe": "m.sharpe", "trades": "m.trades", "mean": "m.mean_usd", "date": ENTRY_TS, "entry": "m.entry"}
+
+    def metrics_query(self, f):
+        """Числа по фильтрам: entry, project, side, uni, win, cell (подстрока), verdict ('—' = пусто), same_data, text (0/1),
+        min_trades, src (подстрока); sort: usd | sharpe | trades | mean | date | entry, «-» в начале — по убыванию; limit, offset."""
+        where, args = [], []
+        if f.get("entry"):
+            where.append("m.entry = ?")
+            args.append(int(str(f["entry"]).lstrip("LЛ-")))
+        for k, col in (("project", "e.project"), ("side", "m.side"), ("uni", "m.uni"), ("win", "m.win")):
+            if f.get(k):
+                if f[k] == "—":
+                    where.append("%s IS NULL" % col)
+                else:
+                    where.append("%s = ?" % col)
+                    args.append(f[k].replace("P-", "П-", 1) if k == "project" else f[k])
+        if f.get("verdict"):
+            where.append("m.verdict IS NULL" if f["verdict"] == "—" else "m.verdict = ?")
+            args += [] if f["verdict"] == "—" else [f["verdict"]]
+        for k, col in (("same_data", "m.same_data"), ("text", "m.from_text")):
+            if f.get(k) not in (None, ""):
+                where.append("%s = ?" % col if str(f[k]) in ("0", "1") else "%s IS NULL" % col)
+                args += [int(f[k])] if str(f[k]) in ("0", "1") else []
+        for k, col in (("cell", "m.cell"), ("src", "m.src")):
+            if f.get(k):
+                where.append("instr(lower(%s), ?) > 0" % col)
+                args.append(f[k].lower())
+        if f.get("min_trades") not in (None, ""):
+            where.append("m.trades >= ?")
+            args.append(int(f["min_trades"]))
+        if f.get("has_usd"):
+            where.append("m.usd IS NOT NULL")
+        sql = " FROM metric m JOIN entry e ON e.id = m.entry" + (" WHERE " + " AND ".join(where) if where else "")
+        total = self.c.execute("SELECT count(*)" + sql, args).fetchone()[0]
+        srt = f.get("sort") or "-date"
+        col = self.METRIC_SORT.get(srt.lstrip("-"))
+        if not col:
+            raise ChronError("сортировка «%s» — только %s" % (srt, ", ".join(self.METRIC_SORT)))
+        order = "%s IS NULL, %s %s, m.id" % (col, col, "DESC" if srt.startswith("-") else "ASC")
+        rows = self.c.execute("SELECT m.*, e.project, e.task, e.ts, e.title, e.kind" + sql + " ORDER BY " + order + " LIMIT ? OFFSET ?",
+                              args + [int(f.get("limit") or 100), int(f.get("offset") or 0)]).fetchall()
+        return {"rows": [dict(r) for r in rows], "total": total}
+
+    def metrics_facets(self):
+        q = lambda col: [r[0] for r in self.c.execute("SELECT %s FROM metric WHERE %s IS NOT NULL GROUP BY %s ORDER BY count(*) DESC LIMIT 60" % (col, col, col))]
+        return {"uni": q("uni"), "win": q("win"),
+                "projects": [r[0] for r in self.c.execute("SELECT e.project FROM metric m JOIN entry e ON e.id=m.entry WHERE e.project IS NOT NULL"
+                                                          " GROUP BY e.project ORDER BY count(*) DESC")]}
+
+    def metrics_coverage(self):
+        """По проектам: записей, с числами (из файла / только из текста), строк, и сколько строк с каждым полем."""
+        out = []
+        for r in self.c.execute(
+                "SELECT coalesce(e.project, '—') AS project, count(*) AS entries,"
+                " sum(EXISTS (SELECT 1 FROM metric m WHERE m.entry = e.id)) AS with_metrics,"
+                " sum(EXISTS (SELECT 1 FROM metric m WHERE m.entry = e.id AND m.from_text = 0)) AS from_files,"
+                " sum(EXISTS (SELECT 1 FROM metric m WHERE m.entry = e.id) AND NOT EXISTS (SELECT 1 FROM metric m WHERE m.entry = e.id AND m.from_text = 0)) AS text_only,"
+                " sum(e.kind IN ('verdict', 'result', 'experiment')) AS outcome,"
+                " sum(e.kind IN ('verdict', 'result', 'experiment') AND EXISTS (SELECT 1 FROM metric m WHERE m.entry = e.id)) AS outcome_with"
+                " FROM entry e GROUP BY 1 ORDER BY entries DESC"):
+            d = dict(r)
+            d.update(dict(self.c.execute(
+                "SELECT count(*) AS rows, count(m.side) AS side, count(m.uni) AS uni, count(m.win) AS win, count(m.usd) AS usd,"
+                " count(m.mean_usd) AS mean_usd, count(m.sharpe) AS sharpe, count(m.verdict) AS verdict, count(m.same_data) AS same_data,"
+                " sum(m.from_text) AS from_text FROM metric m JOIN entry e ON e.id = m.entry WHERE coalesce(e.project, '—') = ?", (d["project"],)).fetchone()))
+            out.append(d)
+        return out
+
+    def entries_for_metrics(self):
+        """Записи для metrics-import: поля, текст, файлы из ссылок."""
+        out = []
+        for r in self.c.execute("SELECT id, project, task, kind, title, body, usd, trades, sharpe, same_data, verdict, src, parsed FROM entry ORDER BY id"):
+            d = dict(r)
+            d["links"] = [x[0][5:] for x in self.c.execute("SELECT dst FROM link WHERE src=? AND dst LIKE 'file:%'", ("L-%d" % r["id"],))]
+            out.append(d)
+        return out
+
+    def metrics_sources(self):
+        return [list(r) for r in self.c.execute("SELECT DISTINCT src, src_commit FROM metric")]
+
     def check_db(self):
         """Внутренняя целостность: битые ссылки (кроме commit/file — их проверяет клиент по git), триггеры, FTS, снимки md."""
         issues = []
@@ -737,7 +922,7 @@ class Store:
             issues.append("integrity_check: не ok")
         trig = {r[0] for r in self.c.execute("SELECT name FROM sqlite_master WHERE type='trigger'")}
         for t in ("entry_immutable", "entry_nodelete", "psec_locked", "psec_nodelete", "link_nodelete", "link_noupdate",
-                  "psec_flag_noupdate", "psec_flag_nodelete"):
+                  "psec_flag_noupdate", "psec_flag_nodelete", "metric_noupdate", "metric_nodelete", "psec_num_noupdate", "psec_num_nodelete"):
             if t not in trig:
                 issues.append("нет триггера %s" % t)
         for src, dst, rel in self.c.execute("SELECT src, dst, rel FROM link").fetchall():
@@ -748,6 +933,11 @@ class Store:
         n_fts = self.c.execute("SELECT count(*) FROM fts").fetchone()[0]
         if n_nodes != n_fts:
             issues.append("FTS: строк %d, узлов %d" % (n_fts, n_nodes))
+        for r in self.c.execute("SELECT id, entry FROM metric WHERE entry NOT IN (SELECT id FROM entry)"):
+            issues.append("число #%d — нет записи L-%d" % (r[0], r[1]))
+        n_m = self.c.execute("SELECT count(*) FROM metric WHERE from_text = 0 AND src NOT LIKE 'docs/%'").fetchone()[0]
+        if n_m:
+            issues.append("чисел из файла вне docs/: %d" % n_m)
         for r in self.c.execute("SELECT id FROM entry WHERE corrects IS NOT NULL AND corrects NOT IN (SELECT id FROM entry)"):
             issues.append("L-%d исправляет несуществующую запись" % r[0])
         for r in self.c.execute("SELECT path, max(ver) AS ver, sha256 FROM doc GROUP BY path"):
@@ -1296,6 +1486,8 @@ def build_docs(root, paths, kb_nodes, git, archive_map=None):
                 pre_parent = nums[-1] if nums and nums[-1][2] else None
                 if pre_parent and not sec["prereg"] and not AFTER_RE.search(fold(ch["heading"])):
                     sec["prereg"], sec["prereg_at"] = 1, pre_parent[3]  # подраздел раздела «до счёта» — тоже до счёта, если не помечен «после счёта»
+                elif pre_parent and sec["prereg"] and not sec["prereg_at"]:
+                    sec["prereg_at"] = pre_parent[3]  # своя метка «до счёта» без даты — дата раздела (§13.28 п. 8, TK-647)
                 nums.append((ch["level"], sec["num"], sec["prereg"], sec["prereg_at"]))
                 out = {"kind": "psec", "body": body, "suffix": suffix, "line": ch["line"], "sec": sec}
                 date = sec["prereg_at"]
@@ -1370,14 +1562,16 @@ def call(op, *args, **kw):
     return res["ok"]
 
 
-RO_OPS = {"query", "search", "links_of", "get", "protocol_text", "protocols", "facets", "links_all", "stats", "fields_report", "check_db", "reconstruct", "exists", "label"}
+RO_OPS = {"query", "search", "links_of", "get", "protocol_text", "protocols", "facets", "links_all", "stats", "fields_report", "check_db", "reconstruct",
+          "exists", "label", "metrics_query", "metrics_facets", "metrics_coverage", "metrics_sources", "entries_for_metrics"}
 
 
 def rpc_main():
     req = json.loads(base64.b64decode(globals()["RPC"]).decode("utf-8"))
     os.environ.setdefault("CHRON_DB", SRV_DB)
     try:
-        if req["op"] not in RO_OPS | {"add_entry", "add_psec", "edit_psec", "lock_psec", "flag_psec", "sync_kb", "import_docs", "new_protocol"}:
+        if req["op"] not in RO_OPS | {"add_entry", "add_psec", "edit_psec", "lock_psec", "flag_psec", "num_psec", "add_metrics", "sync_kb", "import_docs",
+                                      "new_protocol"}:
             raise ChronError("операция %s недоступна" % req["op"])
         res = {"ok": call(req["op"], *req["args"], **req["kw"])}
     except (ChronError, sqlite3.Error) as e:
@@ -1414,14 +1608,149 @@ def verify_git_links(links):
         raise ChronError("нет в git: %s" % ", ".join(bad))
 
 
+def metrics_module():
+    sys.path.insert(0, str(HERE))
+    try:
+        import chron_metrics
+        return chron_metrics
+    finally:
+        sys.path.pop(0)
+
+
+def parse_metrics(args):
+    """--metric … → строки чисел; источник проверяется по git (файл есть, коммит есть; без коммита — последний коммит файла)."""
+    if not args:
+        return []
+    cm = metrics_module()
+    rows = []
+    for x in args:
+        try:
+            rows.append(cm.parse_metric_arg(x))
+        except (ValueError, KeyError) as e:
+            raise ChronError(str(e) if str(e) else "--metric: неверное значение в «%s»" % x)
+    root = repo_root()
+    if not root:
+        raise ChronError("--metric проверяется по git — запусти из репозитория")
+    g, repo = Git(root), cm.Repo(root)
+    for r in rows:
+        path = re.sub(r":\d+(-\d+)?$", "", r["src"])
+        if not g.file_ok(path):
+            raise ChronError("--metric: файла нет в git: %s" % r["src"])
+        if r["src_commit"] and not g.commits([r["src_commit"]]).get(r["src_commit"]):
+            raise ChronError("--metric: коммита нет: %s" % r["src_commit"])
+        r["src_commit"] = r["src_commit"] or repo.commit(path)
+        if not path.endswith(cm.DATA_EXT) and not r["from_text"]:
+            raise ChronError("--metric: %s — не файл результатов (JSON / CSV); число из текста — с text=1" % r["src"])
+    return rows
+
+
 def cmd_add(a):
     links = list(a.link or [])
     verify_git_links(links)
+    metrics = parse_metrics(a.metric)
     e = {"ts": a.ts, "task": a.task, "project": a.project.replace("P-", "П-", 1) if a.project else None, "kind": a.kind,
          "hypothesis": a.hyp, "verdict": a.verdict, "usd": a.usd, "trades": a.trades, "sharpe": a.sharpe,
          "same_data": 1 if a.same_data else (0 if a.not_same_data else None), "title": a.title, "body": read_body(a),
          "corrects": a.corrects}
-    print(call("add_entry", e, [canon_ref(l) if not isinstance(canon_ref(l), tuple) else list(canon_ref(l)) for l in links], author()))
+    print(call("add_entry", e, [canon_ref(l) if not isinstance(canon_ref(l), tuple) else list(canon_ref(l)) for l in links], author(), metrics))
+    return 0
+
+
+SIDE_RU = {"long": "лонг", "short": "шорт", "both": "обе"}
+
+
+def fmt_num(v, nd=2):
+    return "—" if v is None else ("%.*f" % (nd, v)).replace("-", "−")
+
+
+def mean_derived(m):
+    """$ / сделку = Σ $ / сделок (посчитан из них; в источнике не напечатан или совпадает) — помечается «= Σ/n»."""
+    n, u, x = m.get("trades"), m.get("usd"), m.get("mean_usd")
+    return bool(n) and u is not None and x is not None and abs(x - u / n) <= 1e-9 * max(1.0, abs(x))
+
+
+def fmt_metric_row(m, with_entry=True):
+    return "%s%-5s %-22s %-6s %-9s %6s %9s %8s %6s %-11s %s%s%s%s" % (
+        ("L-%-5s " % m["entry"]) if with_entry else "", SIDE_RU.get(m["side"], "—"), (m["cell"] or "—")[:22], m["uni"] or "—", (m["win"] or "—")[:9],
+        m["trades"] if m["trades"] is not None else "—", fmt_num(m["usd"]), fmt_num(m["mean_usd"], 3) + ("=Σ/n" if mean_derived(m) else ""), fmt_num(m["sharpe"]), m["verdict"] or "—",
+        "найдено на этих данных " if m["same_data"] == 1 else "", "«из текста» " if m["from_text"] else "", m["src"],
+        ("@%s" % m["src_commit"] if m["src_commit"] else "") + ("#%s" % m["src_ptr"] if m["src_ptr"] else ""))
+
+
+def metric_filters(a):
+    f = {k: getattr(a, k, None) for k in ("entry", "project", "side", "uni", "win", "cell", "verdict", "same_data", "text", "min_trades", "src", "sort")}
+    f["limit"] = a.n
+    return f
+
+
+def cmd_metrics(a):
+    if a.coverage:
+        cov = call("metrics_coverage")
+        print("%-9s %6s %9s %8s %9s %8s %7s | строк: сторона вселенная окно $ $/сд Шарп вердикт найдено «из текста»" % (
+            "проект", "записей", "с числами", "из файла", "из текста", "с итогом", "с числ."))
+        for c in cov:
+            print("%-9s %6d %9d %8d %9d %8d %7d | %5d: %d %d %d %d %d %d %d %d %d" % (
+                c["project"], c["entries"], c["with_metrics"], c["from_files"], c["text_only"], c["outcome"], c["outcome_with"], c["rows"],
+                c["side"], c["uni"], c["win"], c["usd"], c["mean_usd"], c["sharpe"], c["verdict"], c["same_data"], c["from_text"] or 0))
+        t = {k: sum(c[k] or 0 for c in cov) for k in ("entries", "with_metrics", "from_files", "text_only", "outcome", "outcome_with", "rows")}
+        print("всего: записей %(entries)d, с числами %(with_metrics)d (из файла %(from_files)d, только из текста %(text_only)d); "
+              "с итогом (verdict / result / experiment) %(outcome)d, из них с числами %(outcome_with)d; строк %(rows)d" % t)
+        return 0
+    res = call("metrics_query", metric_filters(a))
+    for m in res["rows"]:
+        print(fmt_metric_row(m))
+    print("— %d из %d" % (len(res["rows"]), res["total"]), file=sys.stderr)
+    return 0
+
+
+def entry_text_metrics(ents, root):
+    """Числа, разобранные из текста записи при переносе (entry.usd / trades / sharpe, TK-646) → строка «из текста», источник — строка снимка."""
+    out = []
+    for e in ents:
+        if e["usd"] is None and e["trades"] is None:
+            continue
+        m = re.match(r"^(.*):(\d+)$", e["src"] or "")
+        if not m:
+            continue
+        f = root / m.group(1)
+        path = "%s/%s" % (ARCHIVE_DIR, Path(m.group(1)).name) if f.exists() and STUB_MARK in f.read_text(encoding="utf-8")[:2000] else m.group(1)
+        why = json.loads(e["parsed"] or "{}").get("usd", "")
+        r = {"entry": e["id"], "side": None, "cell": "итог записи", "uni": None, "win": None, "trades": e["trades"], "usd": e["usd"],
+             "mean_usd": (e["usd"] / e["trades"]) if e["usd"] is not None and e["trades"] else None, "sharpe": e["sharpe"], "verdict": e["verdict"],
+             "same_data": e["same_data"], "from_text": 1, "src": path, "src_commit": None, "src_ptr": "строка %s" % m.group(2),
+             "extra": {"parsed": why[:200]} if why else None}
+        r["h"] = sha(json.dumps([e["id"]] + [r.get(k) for k in METRIC_COLS], ensure_ascii=False, default=str))
+        out.append(r)
+    return out
+
+
+def cmd_metrics_import(a):
+    """Числа записей из файлов результатов в git (chron_metrics) → таблица metric на srv; повтор не дублирует."""
+    root = repo_root()
+    if not root:
+        raise ChronError("metrics-import — из репозитория")
+    cm = metrics_module()
+    ents = call("entries_for_metrics")
+    rows, _ = cm.build(root, ents)
+    rows += entry_text_metrics(ents, root)
+    if a.entry:
+        keep = {int(x.lstrip("LЛ-")) for x in a.entry}
+        rows = [r for r in rows if r["entry"] in keep]
+    by = {}
+    for r in rows:
+        by.setdefault(r["entry"], [0, 0])[r["from_text"]] += 1
+    print("строк %d (из файлов %d, «из текста» %d), записей %d, файлов %d" % (
+        len(rows), sum(v[0] for v in by.values()), sum(v[1] for v in by.values()), len(by), len({r["src"] for r in rows})))
+    if a.dry_run:
+        for eid in sorted(by):
+            print("  L-%-5d из файлов %5d  из текста %4d" % (eid, by[eid][0], by[eid][1]))
+        return 0
+    res = {"new": 0, "same": 0}
+    for i in range(0, len(rows), 4000):  # частями: один ssh-вызов не раздувается
+        x = call("add_metrics", rows[i:i + 4000], author())
+        res["new"] += x["new"]
+        res["same"] += x["same"]
+    print("записано новых %d, уже были %d" % (res["new"], res["same"]))
     return 0
 
 
@@ -1471,12 +1800,18 @@ def cmd_show(a):
         print("источник: %s · автор %s · записано %s" % (e["src"] or "chron add", e["author"] or "—", e["created"]))
         print()
         print(e["body"] or e["title"])
+        if r.get("metrics"):
+            print("\nчисла (%d из %d; все — `chron.py metrics --entry %s`):" % (len(r["metrics"]), r["metrics_total"], n))
+            for m in r["metrics"]:
+                print("  " + fmt_metric_row(m, with_entry=False))
     elif "psec" in r:
         s = r["psec"]
         print("%s · %s §%s · %s%s%s" % (n, s["short"], s["num"] or "—", s["kind"], " · до счёта %s" % (s["prereg_at"] or "") if s["prereg"] else "",
                                      " · неизменяем" if s["locked"] else " · черновик"))
         if s["amends"]:
             print("поправка к PS-%d" % s["amends"])
+        for f in r.get("nums", []):
+            print("номер исправлен %s: «%s» — %s" % (f["created"], f["num"], f["reason"]))
         for f in r.get("flags", []):
             print("флаг исправлен %s: %s%s — %s" % (f["created"], "до счёта" if f["prereg"] else "не до счёта",
                                                   " %s" % f["prereg_at"] if f["prereg_at"] else "", f["reason"]))
@@ -1538,6 +1873,8 @@ def cmd_psec(a):
         print(call("lock_psec", a.id))
     elif a.psec_cmd == "flag":
         print(call("flag_psec", a.id, a.prereg == "1", a.at, a.reason, author()))
+    elif a.psec_cmd == "num":
+        print(call("num_psec", a.id, a.num, a.reason, author()))
     return 0
 
 
@@ -1621,6 +1958,13 @@ def cmd_check(a):
         for s, d in gitl:
             if (d.startswith("commit:") and not ok.get(d[7:])) or (d.startswith("file:") and not g.file_ok(d[5:])):
                 issues.append("битая ссылка: %s → %s (нет в git)" % (s, d))
+        msrc = call("metrics_sources")
+        okc = g.commits([c for _, c in msrc if c])
+        for src, c in msrc:
+            if not g.file_ok(re.sub(r":\d+(-\d+)?$", "", src)):
+                issues.append("число: файла нет в git: %s" % src)
+            if c and not okc.get(c):
+                issues.append("число: коммита нет: %s (%s)" % (c, src))
     else:
         print("chron: не в репозитории — ссылки на коммиты и файлы (%d) не проверены" % len(gitl), file=sys.stderr)
     for i in issues:
@@ -1671,11 +2015,11 @@ def cmd_backup(a):
     src.close()
     chk = sqlite3.connect(str(dst) + ".tmp")
     ok = chk.execute("PRAGMA integrity_check").fetchone()[0]
-    n = chk.execute("SELECT (SELECT count(*) FROM entry), (SELECT count(*) FROM psec), (SELECT count(*) FROM link)").fetchone()
+    n = chk.execute("SELECT (SELECT count(*) FROM entry), (SELECT count(*) FROM psec), (SELECT count(*) FROM link), (SELECT count(*) FROM metric)").fetchone()
     jl = out / ("chron-%s.jsonl" % stamp)
     with open(str(jl) + ".tmp", "w", encoding="utf-8") as f:
         chk.row_factory = sqlite3.Row
-        for t in ("protocol", "entry", "psec", "psec_flag", "link", "doc", "chunk", "kb_node"):
+        for t in ("protocol", "entry", "psec", "psec_flag", "psec_num", "metric", "link", "doc", "chunk", "kb_node"):
             for r in chk.execute("SELECT * FROM %s" % t):
                 f.write(json.dumps({"t": t, **dict(r)}, ensure_ascii=False) + "\n")
     chk.close()
@@ -1689,7 +2033,7 @@ def cmd_backup(a):
         j = old.with_suffix(".jsonl")
         if j.exists():
             j.unlink()
-    print("backup: %s (записей %d, разделов %d, ссылок %d)" % (dst, n[0], n[1], n[2]))
+    print("backup: %s (записей %d, разделов %d, ссылок %d, чисел %d)" % (dst, n[0], n[1], n[2], n[3]))
     if a.box:
         r = subprocess.run(["rsync", "-a", "--delete", "-e", "ssh -F /root/.ssh/config", str(out) + "/", a.box], capture_output=True, text=True)
         if r.returncode:
@@ -1720,6 +2064,9 @@ EXTRA_CSS = """
 .sec{border-top:1px solid var(--line);padding-top:4px;margin-top:10px}.sec .meta{margin:2px 0 4px}
 .amend{border-left:3px solid #ecd3a8;padding-left:10px}
 .pager{display:flex;gap:14px;margin:12px 0}
+table.m{font-size:13px}table.m td,table.m th{padding:4px 7px;white-space:nowrap}table.m td.c{white-space:normal;min-width:140px;max-width:340px;overflow-wrap:anywhere}
+table.m td.n{text-align:right;font-variant-numeric:tabular-nums}table.m th a{color:inherit}.neg{color:var(--bad)}.pos{color:var(--ok)}
+.ft{color:var(--mut);font-size:12px}.ctl input.sm{flex:0 1 110px}
 article.body{overflow-wrap:anywhere}
 @media(max-width:640px){.erow{grid-template-columns:1fr auto}.erow .t{grid-column:1/-1}.fields th{width:110px}}
 """
@@ -1736,7 +2083,8 @@ class Site:
     def page(self, title, body, cur=""):
         css = (self.kb.CSS if self.kb else "") + EXTRA_CSS
         nav = "".join('<a href="%s"%s>%s</a>' % (h, ' class="cur"' if k == cur else "", l) for k, h, l in (
-            ("cards", "/index.html", "Карточки"), ("graph", "/graph.html", "Граф"), ("chron", "/chron/", "Летопись"), ("proto", "/chron/p/", "Протоколы")))
+            ("cards", "/index.html", "Карточки"), ("graph", "/graph.html", "Граф"), ("chron", "/chron/", "Летопись"), ("nums", "/chron/m/", "Числа"),
+            ("proto", "/chron/p/", "Протоколы")))
         return ('<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
                 '<link rel="icon" href="data:,"><title>%s</title><style>%s</style></head><body><header class="top"><b>alpha</b><nav>%s</nav></header>'
                 '<main>%s</main></body></html>' % (html.escape(title), css, nav, body))
@@ -1780,6 +2128,8 @@ class Site:
 
     def erow(self, r):
         corr = ' <span class="badge">исправлена L-%s</span>' % r["corrected_by"] if r.get("corrected_by") else ""
+        if r.get("n_metrics"):
+            corr += ' <a class="badge" href="/chron/m/?entry=%d">чисел %d</a>' % (r["id"], r["n_metrics"])
         return ('<div class="erow"><a class="id" href="/chron/e/%d">L-%d</a><span class="d">%s</span><span class="t">%s'
                 '<span class="b">%s%s%s%s%s</span></span></div>') % (
             r["id"], r["id"], html.escape((r.get("ts") or "")[:16].replace("T", " ")), html.escape(r["title"]),
@@ -1789,7 +2139,7 @@ class Site:
 
     def index(self, qs):
         st = self.store()
-        f = {k: (qs.get(k) or [""])[0].strip() for k in ("q", "project", "verdict", "kind", "since", "until", "task")}
+        f = {k: (qs.get(k) or [""])[0].strip() for k in ("q", "project", "verdict", "kind", "since", "until", "task", "nums")}
         page_n = max(1, int((qs.get("page") or ["1"])[0] or 1))
         f.update(limit=100, offset=(page_n - 1) * 100)
         res = st.query(f)
@@ -1799,10 +2149,11 @@ class Site:
             return '<select name="%s" id="%s"><option value="">%s</option>%s</select>' % (name, name, first, "".join(
                 '<option%s>%s</option>' % (" selected" if f[name] == v else "", html.escape(v)) for v in vals))
         ctl = ('<form class="ctl" method="get" action="/chron/"><input id="q" name="q" type="search" placeholder="поиск по тексту" value="%s">'
-               '%s%s%s<input type="date" name="since" id="since" value="%s" title="с"><input type="date" name="until" id="until" value="%s" title="по">'
+               '%s%s%s%s<input type="date" name="since" id="since" value="%s" title="с"><input type="date" name="until" id="until" value="%s" title="по">'
                '<input type="hidden" name="task" value="%s"><button>найти</button></form>') % (
             html.escape(f["q"]), sel("project", fc["projects"], "все проекты"), sel("verdict", fc["verdicts"] + ["—"], "любой вердикт"),
-            sel("kind", fc["kinds"], "любой вид"), html.escape(f["since"]), html.escape(f["until"]), html.escape(f["task"]))
+            sel("kind", fc["kinds"], "любой вид"), sel("nums", ["есть", "файл", "текст", "нет"], "числа: любые"),
+            html.escape(f["since"]), html.escape(f["until"]), html.escape(f["task"]))
         rows = "".join(self.erow(r) for r in res["rows"]) or "<p>Ничего не найдено.</p>"
         q = {k: v for k, v in f.items() if v and k not in ("limit", "offset")}
         pager = ""
@@ -1844,9 +2195,97 @@ class Site:
         else:
             content = '<article class="body">%s</article>' % self.md(e["body"], st)
         src = '<p class="meta">%s · автор %s · записано %s</p>' % (html.escape(e["src"] or "chron add"), html.escape(e["author"] or "—"), html.escape(e["created"]))
-        body = '%s<h1>L-%d <span style="color:var(--mut);font-weight:400">· %s</span></h1>%s%s%s%s%s' % (
-            meta, n, html.escape(e["title"]), ('<table class="fields">%s</table>' % tbl) if tbl else "", notes, content, src, self.links_html(r["links"]))
+        mt = ""
+        if r["metrics_total"]:
+            mt = '<h2 id="nums">Числа (%d%s)</h2>%s' % (r["metrics_total"], ", показаны первые %d" % len(r["metrics"]) if r["metrics_total"] > len(r["metrics"]) else "",
+                                                     self.metrics_table(r["metrics"], with_entry=False))
+            mt += '<p><a href="/chron/m/?entry=%d">все числа записи — фильтры и сортировка</a></p>' % n
+        body = '%s<h1>L-%d <span style="color:var(--mut);font-weight:400">· %s</span></h1>%s%s%s%s%s%s' % (
+            meta, n, html.escape(e["title"]), ('<table class="fields">%s</table>' % tbl) if tbl else "", notes, mt, content, src, self.links_html(r["links"]))
         return self.page("L-%d — %s" % (n, e["title"][:80]), body, "chron")
+
+    def src_href(self, m):
+        path = re.sub(r":\d+(-\d+)?$", "", m["src"])
+        ref = m["src_commit"] or "master"
+        line = re.match(r"^строка (\d+)", m["src_ptr"] or "")
+        return "https://github.com/slayfactory/alpha/blob/%s/%s%s" % (quote(ref), quote(path), "#L%s" % line.group(1) if line else "")
+
+    def metrics_table(self, rows, with_entry=True, sort_link=None):
+        def th(key, label):
+            if not sort_link or not key:
+                return "<th>%s</th>" % label
+            return '<th><a href="%s">%s</a></th>' % (html.escape(sort_link(key)), label)
+
+        def money(v, nd=2):
+            if v is None:
+                return "—"
+            return '<span class="%s">%s</span>' % ("neg" if v < 0 else "pos" if v > 0 else "", fmt_num(v, nd))
+        head = "".join([th("entry", "запись")] if with_entry else []) + "".join(th(k, l) for k, l in (
+            (None, "сторона"), (None, "клетка"), (None, "вселенная"), (None, "окно"), ("trades", "сделок"), ("usd", "Σ $ (500 $)"),
+            ("mean", "$ / сделку"), ("sharpe", "Шарп"), (None, "вердикт"), (None, "найдено на этих данных"), (None, "источник")))
+        body = []
+        for m in rows:
+            ex = json.loads(m["extra"]) if m.get("extra") else {}
+            note = []
+            if ex.get("usd_raw") is not None:
+                note.append("$ в файле %s (ставка не названа)" % fmt_num(ex["usd_raw"]))
+            if ex.get("pass") is not None:
+                note.append("ворота: %s" % ("да" if ex["pass"] else "нет"))
+            if ex.get("verdict_text"):
+                note.append(ex["verdict_text"][:80])
+            body.append("<tr>%s<td>%s</td><td class=\"c\">%s%s</td><td>%s</td><td>%s</td><td class=\"n\">%s</td><td class=\"n\">%s</td><td class=\"n\">%s</td>"
+                        "<td class=\"n\">%s</td><td>%s</td><td>%s</td><td><a href=\"%s\">%s</a>%s</td></tr>" % (
+                ('<td><a href="/chron/e/%d">L-%d</a></td>' % (m["entry"], m["entry"])) if with_entry else "",
+                SIDE_RU.get(m["side"], "—"), html.escape(m["cell"] or "—"), ('<div class="ft">%s</div>' % html.escape("; ".join(note))) if note else "",
+                html.escape(m["uni"] or "—"), html.escape(m["win"] or "—"), m["trades"] if m["trades"] is not None else "—", money(m["usd"]),
+                money(m["mean_usd"], 3) + (' <span class="ft">= Σ/n</span>' if mean_derived(m) else ""), fmt_num(m["sharpe"]), html.escape(m["verdict"] or "—"), {1: "да", 0: "нет"}.get(m["same_data"], "—"),
+                html.escape(self.src_href(m)), html.escape(Path(re.sub(r":\d+$", "", m["src"])).name),
+                ' <span class="ft">%s%s</span>' % (html.escape((m["src_ptr"] or "")[:60]), " · «из текста»" if m["from_text"] else "")))
+        return '<div class="tw"><table class="m"><thead><tr>%s</tr></thead><tbody>%s</tbody></table></div>' % (head, "".join(body))
+
+    def metrics_page(self, qs):
+        st = self.store()
+        keys = ("entry", "project", "side", "uni", "win", "cell", "verdict", "same_data", "text", "min_trades", "src", "sort")
+        f = {k: (qs.get(k) or [""])[0].strip() for k in keys}
+        f["sort"] = f["sort"] or "-date"
+        page_n = max(1, int((qs.get("page") or ["1"])[0] or 1))
+        q = {k: v for k, v in f.items() if v}
+        res = st.metrics_query(dict(f, limit=200, offset=(page_n - 1) * 200))
+        fc = st.metrics_facets()
+
+        def sel(name, vals, first, labels=None):
+            return '<select name="%s" id="m-%s"><option value="">%s</option>%s</select>' % (name, name, first, "".join(
+                '<option value="%s"%s>%s</option>' % (html.escape(v), " selected" if f[name] == v else "", html.escape((labels or {}).get(v, v))) for v in vals))
+
+        def sort_link(key):
+            cur = f["sort"]
+            nxt = ("-" + key) if cur != "-" + key else key
+            return "?" + urlencode(dict(q, sort=nxt))
+        ctl = ('<form class="ctl" method="get" action="/chron/m/">'
+               '<input name="cell" id="m-cell" type="search" placeholder="клетка (подстрока)" value="%s">%s%s%s%s%s%s%s'
+               '<input class="sm" name="min_trades" id="m-min" type="number" min="0" placeholder="сделок ≥" value="%s">'
+               '<input class="sm" name="entry" id="m-entry" placeholder="L-N" value="%s">'
+               '%s<button>показать</button></form>') % (
+            html.escape(f["cell"]), sel("project", fc["projects"], "все проекты"), sel("side", ["long", "short", "both", "—"], "любая сторона", SIDE_RU),
+            sel("uni", fc["uni"], "любая вселенная"), sel("win", fc["win"], "любое окно"), sel("verdict", list(VERDICTS) + ["—"], "любой вердикт"),
+            sel("same_data", ["1", "0", "—"], "найдено на этих данных: всё", {"1": "найдено на этих данных", "0": "не на этих данных", "—": "не сказано"}),
+            sel("text", ["0", "1"], "источник: любой", {"0": "из файлов результатов", "1": "«из текста»"}),
+            html.escape(f["min_trades"]), html.escape(f["entry"]),
+            sel("sort", ["-date", "-usd", "usd", "-sharpe", "sharpe", "-trades", "-mean", "mean", "entry"], "порядок",
+                {"-date": "новые записи", "-usd": "Σ $ ↓", "usd": "Σ $ ↑", "-sharpe": "Шарп ↓", "sharpe": "Шарп ↑", "-trades": "сделок ↓",
+                 "-mean": "$ / сделку ↓", "mean": "$ / сделку ↑", "entry": "по записи"}))
+        pager = ""
+        if res["total"] > 200:
+            pages = (res["total"] + 199) // 200
+            pager = '<div class="pager">%s<span>стр. %d из %d</span>%s</div>' % (
+                ('<a href="?%s">← назад</a>' % urlencode(dict(q, page=page_n - 1))) if page_n > 1 else "", page_n, pages,
+                ('<a href="?%s">дальше →</a>' % urlencode(dict(q, page=page_n + 1))) if page_n < pages else "")
+        note = ('<p class="meta">Σ $ — на ставку 500 $ (движок П-42); у других проектов ставка в файле не названа — $ пуст, сумма файла в примечании. '
+                'Шарп — годовой по дневному ряду. «= Σ/n» — $ / сделку равен Σ $ / сделок (посчитан из них, если в источнике не напечатан). '
+                '«из текста» — число из таблицы отчёта md, не из файла результатов.</p>')
+        body = '<h1>Числа</h1>%s%s<p id="cnt">%d строк</p>%s%s' % (ctl, note, res["total"],
+                                                                   self.metrics_table(res["rows"], True, sort_link) if res["rows"] else "<p>Ничего не найдено.</p>", pager)
+        return self.page("Числа", body, "nums")
 
     def section(self, n):
         st = self.store()
@@ -1942,6 +2381,8 @@ def make_handler(site):
                     return self.send_html(site.section(int(m.group(1))))
                 if p in ("/chron/p", "/chron/p/"):
                     return self.send_html(site.protocols())
+                if p in ("/chron/m", "/chron/m/"):
+                    return self.send_html(site.metrics_page(parse_qs(u.query)))
                 m = re.match(r"^/chron/p/(.+?)/?$", p)
                 if m:
                     out = site.protocol(m.group(1))
@@ -2006,6 +2447,8 @@ def main(argv=None):
     s.add_argument("--link", action="append", help="L-N, PS-N, «P-42 §13.28», TK-NNN, В-NNN, карточка kb, SHA коммита, путь файла (повторяемо)")
     s.add_argument("--corrects", help="L-N: эта запись исправляет ту")
     s.add_argument("--ts", help="когда сделано (по умолчанию — сейчас, GMT+4)")
+    s.add_argument("--metric", action="append", help="число записи (повторяемо): «side=long; cell=L_n24; uni=h775; win=01.07–13.11; trades=181; usd=294.31;"
+                   " sharpe=5.11; verdict=не ясно; same_data=1; src=файл[@коммит][#место]»; text=1 — «из текста» (src = файл:строка)")
     s.set_defaults(fn=cmd_add)
     s = sp.add_parser("find", help="поиск по тексту + фильтры")
     flt(s, q=True)
@@ -2041,6 +2484,10 @@ def main(argv=None):
     x.add_argument("--body-file")
     x = ps.add_parser("lock", help="пометить «до счёта» — дальше только поправки")
     x.add_argument("id")
+    x = ps.add_parser("num", help="исправить номер раздела (строка только добавляется; действует последняя)")
+    x.add_argument("id")
+    x.add_argument("--num", required=True)
+    x.add_argument("--reason", required=True)
     x = ps.add_parser("flag", help="исправить флаг «до счёта» (строка только добавляется; действует последняя)")
     x.add_argument("id")
     x.add_argument("--prereg", choices=("0", "1"), required=True)
@@ -2068,6 +2515,26 @@ def main(argv=None):
     sp.add_parser("sync-kb", help="обновить узлы kb (карточки) в БД").set_defaults(fn=cmd_sync_kb)
     sp.add_parser("check", help="целостность и битые ссылки; код 1 при ошибках").set_defaults(fn=cmd_check)
     sp.add_parser("stats").set_defaults(fn=cmd_stats)
+    s = sp.add_parser("metrics", help="числа записей (сторона × клетка × вселенная × окно): фильтры, сортировка, --coverage")
+    s.add_argument("--entry", help="L-N")
+    s.add_argument("--project")
+    s.add_argument("--side", choices=("long", "short", "both", "—"))
+    s.add_argument("--uni")
+    s.add_argument("--win")
+    s.add_argument("--cell", help="подстрока клетки")
+    s.add_argument("--verdict", help="работает | не работает | не ясно | описательно | —")
+    s.add_argument("--same-data", dest="same_data", choices=("0", "1", "—"))
+    s.add_argument("--text", choices=("0", "1"), help="1 — только «из текста», 0 — только из файлов")
+    s.add_argument("--min-trades", dest="min_trades", type=int)
+    s.add_argument("--src", help="подстрока пути источника")
+    s.add_argument("--sort", default="-date", help="usd | sharpe | trades | mean | date | entry; «-» — по убыванию")
+    s.add_argument("-n", type=int, default=100)
+    s.add_argument("--coverage", action="store_true", help="покрытие по проектам")
+    s.set_defaults(fn=cmd_metrics)
+    s = sp.add_parser("metrics-import", help="числа записей из файлов результатов в git → БД (повтор не дублирует)")
+    s.add_argument("--entry", action="append", help="только эти L-N")
+    s.add_argument("--dry-run", action="store_true")
+    s.set_defaults(fn=cmd_metrics_import)
     s = sp.add_parser("fields", help="перенесённые записи: заполненные поля и почему пусто")
     s.add_argument("--ids", action="store_true", help="номера записей по каждой причине")
     s.set_defaults(fn=cmd_fields)
