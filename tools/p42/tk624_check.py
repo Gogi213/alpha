@@ -76,22 +76,33 @@ ST = [0]
 for n in ML:
     ST.append(ST[-1] + n)
 SER = {k: (np.array(B["cells"][k]["daily_sum"]), np.array(B["cells"][k]["daily_n"])) for k in B["cells"]}
-SER["SL"] = (SER["S_base"][0] + SER["L_base"][0], SER["S_base"][1] + SER["L_base"][1])
+SER["SL"] = (SER["S_b775"][0] + SER["L_b775"][0], SER["S_b775"][1] + SER["L_b775"][1])   # TK-645: сумма баз 775
 MON = {k: [stats(S[ST[m]:ST[m + 1]], N[ST[m]:ST[m + 1]]) for m in range(len(ML))] for k, (S, N) in SER.items()}
 TOT = {k: stats(S, N) for k, (S, N) in SER.items()}
 
 # ── 1. принятые отчёты: итоги и помесячная таблица (p42-maker-entry-2026-11-19.md)
-ACC_TOT = {"L_base": (7.06, 621), "S_base": (259.14, 431), "S_mk1": (248.05, 372)}
+ACC_TOT = {"L_base": (7.06, 621), "S_base": (259.14, 431), "S_mk1": (248.05, 372),
+           # TK-645: 775 монет — базы U2 (p42-honest-universe-2026-11-19.md), L_n24 (p42-turnover-grid-2026-11-20.md), NC360_q20 (p42-tradecount-size-2026-11-20.md)
+           "L_b775": (193.17, 428), "S_b775": (223.14, 319), "L_n24": (294.31, 181), "S_nc360": (258.91, 252),
+           "S_mk775": (199.77, 272), "L_mk2": (180.83, 327)}   # p42-forward-refreeze-2026-11-20.md, p42-lmk2-forward-2026-11-20.md
 ACC_M = {"L_base": [(-128.59, 130), (124.86, 131), (6.80, 152), (-95.47, 143), (99.46, 65)],
          "S_base": [(71.11, 96), (77.46, 108), (-22.88, 92), (110.61, 95), (22.85, 40)],
          "S_mk1": [(65.26, 81), (66.87, 93), (-4.30, 78), (85.79, 83), (34.43, 37)]}
+ACC_M0 = {"L_n24": [88, 74, 50, 76, 6], "S_nc360": [75, 62, 25, 64, 33]}
+ACC_M1 = {"L_mk2": [12.4, 31.4, 77.0, 30.2, 29.9]}   # p42-lmk2-forward-2026-11-20.md, до 0,1 $   # TK-645: помесячно в отчётах — целые $
 eq("окно: 136 суток", (B["days"], sum(ML), len(B["month_names"])), (136, 136, 5))
 for k in ACC_TOT:
     eq(f"{k}: итог $ == принятый", round(TOT[k]["sum"], 2), ACC_TOT[k][0], 0.0051)
     eq(f"{k}: сделок == принятому", TOT[k]["trades"], ACC_TOT[k][1])
-    for m, (s_, n_) in enumerate(ACC_M[k]):
+    for m, (s_, n_) in enumerate(ACC_M.get(k, [])):
         eq(f"{k}: {B['month_names'][m]} $ == принятый", round(MON[k][m]["sum"], 2), s_, 0.0051)
         eq(f"{k}: {B['month_names'][m]} сделок == принятому", MON[k][m]["trades"], n_)
+for k, ms in ACC_M0.items():
+    for m, s_ in enumerate(ms):
+        eq(f"{k}: {B['month_names'][m]} $ == принятый (целые)", round(MON[k][m]["sum"]), s_)
+for k, ms in ACC_M1.items():
+    for m, s_ in enumerate(ms):
+        eq(f"{k}: {B['month_names'][m]} $ == принятый (0,1)", round(MON[k][m]["sum"], 1), s_)
 # ── 2. строки bases.json (tk624_table.py) == независимый пересчёт
 for k in ACC_TOT:
     rows = B["cells"][k]["rows"]
@@ -101,6 +112,10 @@ for k in ACC_TOT:
         for f in ("sum", "trades", "mean", "sharpe", "maxdd"):
             eq(f"bases.json {k} строка {i} {f}", float(r[f]), float(st[f]), 1e-6)
         eq(f"bases.json {k} строка {i} дней в плюсе", (r["days_pos"], r["days_with_trades"]), (st["pos"], st["tdays"]))
+
+LINES = {"short": ["S_b775", "S_mk775", "S_nc360"], "long": ["L_b775", "L_n24", "L_mk2"], "both": ["L_b775", "S_b775", "SL"]}   # TK-645: страница рисует ряды 775 контрактов
+NAMES = {"L_base": "Лонг · вход по рынку (L_base, 566 монет)", "S_base": "Шорт · вход по рынку (S_base, 566 монет)", "S_mk1": "Шорт · вход лимиткой (S_mk1, 566 монет)", "S_b775": "Шорт · вход по рынку (S_base)", "S_mk775": "Шорт · вход лимиткой (S_mk1)", "L_b775": "Лонг · вход по рынку (L_base)", "L_n24": "Лонг · сделок за 24 ч ≥ 220 000 (L_n24)", "L_mk2": "Лонг · вход лимиткой на цене уровня (L_mk2)", "S_nc360": "Шорт · сделок за 6 ч ≥ 26 000 (NC360_q20, найдено на этих данных)", "SL": "Шорт + лонг (S_base + L_base)"}
+COL = {"L_base": "#eb6834", "S_base": "#2a78d6", "S_mk1": "#1baf7a", "S_b775": "#2a78d6", "S_mk775": "#1baf7a", "L_b775": "#eb6834", "L_n24": "#a3369c", "L_mk2": "#b8860b", "S_nc360": "#0e7490", "SL": "#52525b"}
 
 # ── 3. DOM: таблица «Где мы»
 W = P["where"]
@@ -122,7 +137,7 @@ for b in Wd["boxes"]:
 eq("DOM где: три блока", sorted(b["k"] for b in Wd["boxes"]), ["broken", "candidate", "next"])
 eq("DOM где: ссылка на «Базы»", Wd["link"], "#equity/short/bases")
 eq("DOM где: легенда", Wd["legend"], [w["name"] for w in W["rows"]])
-eq("DOM где: кривые", [(p["chart"], p["stroke"]) for p in Wd["paths"]], [(f"wh.{w['id']}", c) for w, c in zip(W["rows"], ["#2a78d6", "#1baf7a", "#eb6834"])])
+eq("DOM где: кривые", [(p["chart"], p["stroke"]) for p in Wd["paths"]], [(f"wh.{w['id']}", COL[w["id"]]) for w in W["rows"]])
 for p in Wd["paths"]:
     eq(f"DOM где {p['chart']}: конец кривой == итог", p["final"], TOT[p["chart"].split(".")[1]]["sum"], 1e-6)
 
@@ -134,8 +149,7 @@ def tip_expect(keys, i):
     out = [f"{s[8:10]}.{s[5:7]}"]
     for k in keys:
         S, N = SER[k]
-        names = {"L_base": "Лонг · вход по рынку (L_base)", "S_base": "Шорт · вход по рынку (S_base)", "S_mk1": "Шорт · вход лимиткой (S_mk1)", "SL": "Шорт + лонг (S_base + L_base)"}
-        out += [names[k], "Прибыль суток · сделок", f"{money(S[i])} $ · {ints(int(N[i]))}", "Накоплено", f"{money(float(np.cumsum(S)[i]))} $"]
+        out += [NAMES[k], "Прибыль суток · сделок", f"{money(S[i])} $ · {ints(int(N[i]))}", "Накоплено", f"{money(float(np.cumsum(S)[i]))} $"]
     return " | ".join(out)
 
 
@@ -153,9 +167,6 @@ def tip_check(what, keys, hovers):
 tip_check("где", [w["id"] for w in W["rows"]], R["where"]["hover"])
 
 # ── 4. DOM: вид «Базы»
-LINES = {"short": ["S_base", "S_mk1"], "long": ["L_base"], "both": ["L_base", "S_base", "SL"]}
-NAMES = {"L_base": "Лонг · вход по рынку (L_base)", "S_base": "Шорт · вход по рынку (S_base)", "S_mk1": "Шорт · вход лимиткой (S_mk1)", "SL": "Шорт + лонг (S_base + L_base)"}
-COL = {"L_base": "#eb6834", "S_base": "#2a78d6", "S_mk1": "#1baf7a", "SL": "#52525b"}
 for side, keys in LINES.items():
     d = Bd[side]
     eq(f"базы {side}: таблиц", [t["line"] for t in d["dom"]["tables"]], keys)
@@ -178,7 +189,7 @@ for side, keys in LINES.items():
     eq(f"базы {side}: переключатель компаундинга скрыт", d["cmpHidden"], True)
     eq(f"базы {side}: переполнение страницы", d["overflowX"] <= 0, True)
     eq(f"базы {side}: переполнение таблиц", d["dom"]["tableOverflow"] <= 0, True)
-    eq(f"базы {side}: в примечании итоги баз", all(f"{k} {money(TOT[k]['sum'])} $" in d["dom"]["note"] for k in ACC_TOT), True)
+    eq(f"базы {side}: в примечании итоги линий", all(f"{NAMES[k]} {money(TOT[k]['sum'])} $" in d["dom"]["note"] for k in keys if k != "SL"), True)
     eq(f"базы {side}: заголовок карточки", d["dom"]["head"].startswith("Базы за 136 суток: 01.07 — 13.11"), True)
 eq("базы: описание «short»", "Синяя — вход по рынку" in Bd["short"]["desc"], True)
 
@@ -204,8 +215,8 @@ for s, d in zip(P["stages"], Wd["progress"]["stages"]):
     eq(w + " дальше", d["next"], s["next"])
     eq(w + " вопрос", d["answers"], s["answers"])
 eq("DOM шапка хода работ", Wd["progress"]["headline"], P["headline"])
-eq("этапы: идущих нет, TK-636, TK-634, TK-633, TK-626 и TK-625 закрыты (группа «Сделано 20.11»)", ([s["id"] for s in P["stages"] if s["status"] == "running"], [(s["id"], s["status"]) for s in P["stages"] if s.get("group") == "Сделано 20.11"]), ([], [("TK-636", "done"), ("TK-634", "done"), ("TK-633", "done"), ("TK-626", "done"), ("TK-625", "done")]))
-eq("этапы: сегодняшние TK-615…623 на месте", [s["id"] for s in P["stages"] if s.get("group") == "Сделано сегодня, 19.11"], ["TK-599", "TK-615", "TK-616", "TK-617", "TK-618", "TK-619", "TK-620", "TK-621", "TK-622", "TK-623"])
+eq("этапы (TK-645): идёт только TK-644; TK-643…625 закрыты (группа «Сделано 20.11»)", ([s["id"] for s in P["stages"] if s["status"] == "running"], [(s["id"], s["status"]) for s in P["stages"] if s.get("group") == "Сделано 20.11"]), (["TK-644"], [("TK-643", "done"), ("TK-642", "done"), ("TK-641", "done"), ("TK-637", "done"), ("TK-639", "done"), ("TK-638", "done"), ("TK-636", "done"), ("TK-634", "done"), ("TK-633", "done"), ("TK-626", "done"), ("TK-625", "done")]))
+eq("этапы: TK-615…623 на месте (группа «Сделано 19.11», TK-645)", [s["id"] for s in P["stages"] if s.get("group") == "Сделано 19.11"], ["TK-599", "TK-615", "TK-616", "TK-617", "TK-618", "TK-619", "TK-620", "TK-621", "TK-622", "TK-623"])
 eq("этапы: точки вперёд", [t["t"].split(" ")[0] for t in next(s for s in P["stages"] if s["id"] == "30.11–31.03")["steps"]], ["30.11", "31.12", "31.01", "28.02", "31.03.2027"])
 
 # ── 6. состояния, хеши, ошибки, переполнение
@@ -289,7 +300,7 @@ if Rd:
        [(x["fold"], x["title"], x["note"], [(t["title"], t["cols"], [(r["bold"], r["cells"]) for r in t["rows"]]) for t in x["tables"]]) for x in Wrs if x["k"].startswith("0.")],
        [(bool(x.get("fold")), x["title"], x.get("note"), [(t["title"], t["cols"], [(i in t.get("bold", []), r) for i, r in enumerate(t["rows"])]) for t in x["tables"]]) for x in R0["sections"]])
     eq("DOM раунд 2: таблица единиц целиком видна, без горизонтальной прокрутки (колонки с переносом)", [t["overflow"] <= 0 for x in Wrs if x["k"].startswith("0.") for t in x["tables"]], [True])
-    eq("DOM раунды: блоки раньше итога TK-625 (data-fbox=current ниже), раунд TK-633 — над раундом TK-634, раунд TK-636 — под ним (три раздела), «Признаки» не затронуты", [x["k"] for x in Wrs], ["0.0", "1.0", "2.0", "2.1", "2.2"])
+    eq("DOM раунды: блоки раньше итога TK-625 (data-fbox=current ниже), раунд TK-633 — над раундом TK-634, раунд TK-636 — под ним (три раздела), «Признаки» не затронуты", [x["k"] for x in Wrs], ["0.0", "1.0", "2.0", "2.1", "2.2", "3.0", "3.1", "3.2", "4.0", "4.1"])   # TK-645: + раунды TK-638 и TK-639
     if T633:
         # независимый пересчёт строк из select33.json (итоги юнита tk633-pnl, def2, code_id e8959378f147): единицы × диапазон по пробным клеткам h775
         sel = json.load(open(T633, encoding="utf-8"))
@@ -332,7 +343,7 @@ if Rd:
     eq("TK-633: этап «Ход работ» есть, готово, группа «Сделано 20.11»", [(x["status"], x["group"]) for x in st33], [("done", "Сделано 20.11")])
     eq("TK-633 в «Ход работ» на странице (DOM) — этап и статус", [(s_["status"], s_["badge"]) for s_ in Wd["progress"]["stages"] if s_["id"] == "TK-633"], [("done", "готово")])
 # ── TK-634: блок «Импульс и поток сделок на истории пробоев» (feature.rounds[1], под раундом TK-633) и этап TK-634
-eq("TK-634: три раунда — TK-633, TK-634, затем TK-636", [x["title"].startswith(w) for x, w in zip(Rd, ("История пробоев, раунд 2 (TK-633", "Импульс и поток сделок на истории пробоев (TK-634", "Монета как признак (TK-636"))] + [len(Rd)], [True, True, True, 3])
+eq("TK-634: три раунда — TK-633, TK-634, затем TK-636", [x["title"].startswith(w) for x, w in zip(Rd, ("История пробоев, раунд 2 (TK-633", "Импульс и поток сделок на истории пробоев (TK-634", "Монета как признак (TK-636"))] + [len(Rd)], [True, True, True, 5])   # TK-645: + раунды TK-638, TK-639
 if len(Rd) > 1:
     R1 = Rd[1]
     eq("DOM TK-634: заголовок, текст, пометки", (Wr[1]["title"], Wr[1]["text"], Wr[1]["notes"]), (R1["title"], R1["text"], R1.get("notes", [])))
