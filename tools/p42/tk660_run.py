@@ -28,6 +28,7 @@ K_VALS = (0, 5, 10, 15, 20, 25)                 # п. 5; 0 — база (клю�
 PRIOR_TRIALS = 26                               # п. 7 (ж): семья «вход» шорта — 18 (§13.19, §13.24) + 8 (§13.55)
 OFF_FILES = ("long-trades.csv", "long-daily.csv", "long-coinday.csv", "long-entryrej.csv",
              "short-trades.csv", "short-daily.csv", "short-coinday.csv", "short-entryrej.csv")
+TL_FIELD = ", tl: 0 }"                          # §13.60.2
 EK_META = "ek_[filled,expired,touched,rejected,not_placed]"
 
 
@@ -118,6 +119,7 @@ def g_off(st):
                 if not filecmp.cmp(os.path.join(a_, f), os.path.join(b_, f), shallow=False):
                     bad.append("%s-%s/%s" % (w.name, side, f))
             ma, mb = (json.load(open(os.path.join(d, "meta.json"), encoding="utf-8")) for d in (a_, b_))
+            ma["params"] = ma["params"].replace(TL_FIELD, " }", 1)      # §13.60.2: поле `tl` печатается с v22 (TK-603), alpha-master — до него
             if ma != mb:
                 bad.append("%s-%s/meta.json" % (w.name, side))
     return bad
