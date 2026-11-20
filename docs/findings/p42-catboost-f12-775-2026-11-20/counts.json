@@ -1,0 +1,82 @@
+{
+ "L": {
+  "months": {
+   "aug": [
+    91,
+    42
+   ],
+   "sep": [
+    100,
+    23
+   ],
+   "oct": [
+    92,
+    16
+   ],
+   "nov": [
+    49,
+    13
+   ]
+  },
+  "blocks": {
+   "aug": [
+    91,
+    42
+   ],
+   "sep": [
+    100,
+    23
+   ],
+   "oct_nov": [
+    141,
+    29
+   ]
+  },
+  "test_all": [
+   332,
+   94
+  ],
+  "in_base": 173,
+  "only_cell": 17,
+  "mode": "merged",
+  "blocks_used": [
+   "aug_nov"
+  ]
+ },
+ "S": {
+  "months": {
+   "aug": [
+    81,
+    81
+   ],
+   "sep": [
+    67,
+    13
+   ],
+   "oct": [
+    65,
+    24
+   ],
+   "nov": [
+    29,
+    13
+   ]
+  },
+  "blocks": {
+   "sep_nov": [
+    161,
+    50
+   ]
+  },
+  "test_all": [
+   161,
+   50
+  ],
+  "in_base": 204,
+  "only_cell": 4,
+  "mode": "blocks",
+  "blocks_used": [
+   "sep_nov"
+  ]
+ }
+}
