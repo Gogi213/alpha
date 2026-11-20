@@ -32,7 +32,7 @@ def test_schema_and_semantics():
 def test_counts_and_known_names():
     f = load("ml_features.json")
     n = {s["id"]: sum(len(g["features"]) for g in s["groups"]) for s in f["sets"]}
-    assert n == {"f12": 12, "flow": 30, "setup": 46, "toxic": 13, "breakability": 6}, n
+    assert n == {"f12": 12, "flow": 30, "setup": 46, "toxic": 13, "breakability": 6, "history": 4, "impulse": 6, "coin": 10, "tcount": 9}, n
     names = {x["name"] for s in f["sets"] for g in s["groups"] for x in g["features"]}
     assert {"lturn24", "bd_thin30", "mk60_1800", "bk60"} <= names
 
@@ -43,7 +43,7 @@ def test_semantic_checks_catch_bad_data():
     for mutate, msg in [
         (lambda d: d["sets"][0]["groups"][0]["features"][1].update(name=d["sets"][0]["groups"][0]["features"][0]["name"]), "повторяется"),
         (lambda d: d["sets"][0]["groups"][0]["features"][0].update(src=["нет-такого"]), "не из sources"),
-        (lambda d: d["sets"][3].update(numbers=["+0,5"]), "цифр быть не должно"),
+        (lambda d: d["sets"][3].update(status="running", numbers=["+0,5"]), "цифр быть не должно"),
     ]:
         d = json.loads(json.dumps(f))
         mutate(d)

@@ -1,5 +1,5 @@
 """Тесты tk616_forward.py, tk626_freeze.py (TK-616 §13.28 п. 7–8, TK-626 §13.28.1) на синтетике — без движка и без реальных данных: геометрия заморозки, охраны (вселенная точки, деревья, манифест),
-префикс, швы, правило решения, сквозной `run_point` с подменным раннером (три вселенные × три клетки), кандидат `L_n24` (TK-638: C1 α из кандидата, C2 охрана таблицы, C3 `replay-n24`). Без pytest: `PYTHONUTF8=1 python3 tools/p42/tests/test_tk616_forward.py`.
+префикс, швы, правило решения, сквозной `run_point` с подменным раннером (три вселенные × три клетки), кандидат `L_n24` (TK-638: C1 α из кандидата, C2 охрана таблицы, C3 `replay-n24`), кандидат `L_mk2` (TK-641: цепочка α tk626 → tk638 → tk641, `--no-candidate2`, C3 `replay-mk2`). Без pytest: `PYTHONUTF8=1 python3 tools/p42/tests/test_tk616_forward.py`.
 """
 import argparse
 import contextlib
@@ -24,6 +24,7 @@ import tk616_freeze as old  # noqa: E402
 import tk626_freeze as fz  # noqa: E402
 
 fw.REQUIRE_CANDIDATE = False                          # прежние тесты — заморозка tk626 без кандидата; охрана «нет кандидата — остановка» (TK-638, FIX критика) включается в своих тестах через `strict()`
+fw.REQUIRE_CANDIDATE2 = False                         # TK-641: то же для `tk641-frozen.json` (`strict2()` в своих тестах)
 NB = 4000
 DAY = rf.DAY_MS
 CRYPTO, TRADFI = ["AAAUSDT", "BBBUSDT", "CCCUSDT", "DDDUSDT"], ["EEEUSDT", "FFFUSDT"]
@@ -1185,6 +1186,186 @@ def test_replay_n24_compares_outputs_with_the_g638a_reference_byte_for_byte():
         late = os.path.join(root, "win", "wc", "klines", COINS[0], "%s-klines-2026-11-14.zip" % COINS[0])                  # сутки ≥ 14.11 не читаются
         open(late, "w").close()
         expect_guard(lambda: replay("replay5"), "позже 2026-11-13")
+
+
+
+# ---- TK-641: второй кандидат `L_mk2` (tk641-frozen.json; C1–C3 критика) --------------------------------------------------------------
+
+@contextlib.contextmanager
+def strict2():
+    fw.REQUIRE_CANDIDATE2 = True
+    try:
+        yield
+    finally:
+        fw.REQUIRE_CANDIDATE2 = False
+
+
+def make_candidate2(e, c, cpath, mutate=None):
+    """Кандидат 2 `tk641-frozen-1` против заморозки и кандидата 1 среды `e`: α S_base 0,025 → 0,020 + L_mk2 0,005, клетка = L_base + `mk=2`; пишется рядом с заморозкой."""
+    f = json.loads(json.dumps(e.fz))
+    base = f["cells"]["L_base"]
+    keys = fw.mk2_keys(base["keys"])
+    alpha = dict(c["alpha"])
+    alpha["S_base"] = round(alpha["S_base"] - 0.005, 10)
+    alpha["L_mk2"] = 0.005
+    c2 = {"version": "tk641-frozen-1", "base_freeze": {"version": "tk626-frozen-1", "sha256": fw.sha256_text(e.freeze)},
+          "prev_candidate": {"version": "tk638-frozen-1", "sha256": fw.sha256_text(cpath)}, "binary": f["binary"], "universe": f["universe"], "point_shares": f["point_shares"],
+          "points": f["points"], "windows": f["windows"],
+          "cells": {"L_mk2": {"side": "L", "base_keys": base["keys"], "base_vid": base["vid"], "keys": keys, "vid": rf.Req("L", keys, False).vid, "family": False, "candidate": True}},
+          "alpha": alpha, "alpha_k": {k: {p: v * s for p, s in f["point_shares"].items()} for k, v in alpha.items()}}
+    if mutate:
+        mutate(c2)
+    path = fw.candidate2_path(e.freeze)
+    json.dump(c2, open(path, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
+    return c2, path
+
+
+def cand2_env(t, mutate=None):
+    e, c, cp = cand_env(t)
+    c2, cp2 = make_candidate2(e, c, cp, mutate)
+    return e, c, cp, c2, cp2
+
+
+def cand2_kw(e, cp, cp2, **kw):
+    out = cand_kw(e, cp, candidate2="", candidate2_commit="c0ffee", candidate2_sha256=fw.sha256_text(cp2))
+    out.update(kw)
+    return out
+
+
+def test_candidate2_real_files_chain_alpha_and_cell():
+    """Реальная цепочка репозитория tk626 → tk638 → tk641: α S_base 0,020 (0,025 tk638 и 0,03 tk626 при наличии tk641 — провал), L_mk2 = L_base + mk=2, vid G-626c."""
+    fz0 = fw.load_freeze(fw.FREEZE)
+    cp, cp2 = fw.candidate_path(fw.FREEZE), fw.candidate2_path(fw.FREEZE)
+    assert os.path.basename(cp2) == "tk641-frozen.json"
+    c = fw.load_candidate(cp, fz0, fw.FREEZE)
+    c2 = fw.load_candidate2(cp2, fz0, fw.FREEZE, c, cp)
+    fz = fw.apply_candidate2(fw.apply_candidate(fz0, c), c2, True)
+    assert fz["alpha"] == {"S_base": 0.02, "S_mk1": 0.01, "L_base": 0.01, "L_n24": 0.005, "L_mk2": 0.005} and abs(sum(fz["alpha"].values()) - 0.05) <= 1e-12
+    assert fz["alpha"]["S_base"] not in (0.025, 0.03) and c["alpha"]["S_base"] == 0.025 and fz0["alpha"]["S_base"] == 0.03       # файлы tk626 / tk638 не меняются
+    cell = c2["cells"]["L_mk2"]
+    assert cell["vid"] == "cf280a1e8fc7c" and cell["keys"] == fz0["cells"]["L_base"]["keys"].replace(" t24=12", " mk=2 t24=12") and fz["cells"]["L_mk2"]["vid"] == "cf280a1e8fc7c"
+    assert abs(fw.alpha_k(fz, "S_base", "L5") - 0.0132) < 1e-12 and abs(fw.alpha_k(fz, "S_base", "L2") - 0.0008) < 1e-12 and abs(fw.alpha_k(fz, "L_mk2", "L5") - 0.0033) < 1e-12
+    assert all(abs(c2["alpha_k"][k][p] - c2["alpha"][k] * s) < 1e-12 for k in c2["alpha"] for p, s in fz0["point_shares"].items())
+    assert "L_mk2" not in fw.apply_candidate2(fz0, c2, False)["cells"]
+
+
+def test_candidate2_guards_every_rule():
+    def bad(needle, mutate):
+        with tmp() as t:
+            e, c, cp, c2, cp2 = cand2_env(t, mutate)
+            expect_guard(lambda: fw.load_candidate2(cp2, fw.load_freeze(e.freeze), e.freeze, c, cp), needle)
+
+    with tmp() as t:
+        e, c, cp, c2, cp2 = cand2_env(t)
+        fz = fw.load_freeze(e.freeze)
+        assert fw.load_candidate2(cp2, fz, e.freeze, c, cp)["alpha"]["S_base"] == 0.02
+        expect_guard(lambda: fw.load_candidate2(cp2, fz, e.freeze, None, cp), "цепочка tk626 → tk638 → tk641 разорвана")
+        expect_guard(lambda: fw.load_candidate2(os.path.join(t, "нет.json"), fz, e.freeze, c, cp), "нет файла кандидата")
+        open(cp, "a").write("\n ")                                                                     # tk638 изменён после записи tk641
+        expect_guard(lambda: fw.load_candidate2(cp2, fz, e.freeze, c, cp), "против другого tk638")
+        open(e.freeze, "a").write("\n ")
+        expect_guard(lambda: fw.load_candidate2(cp2, fz, e.freeze, c, cp), "против другой заморозки")
+    bad("версия кандидата 2", lambda x: x.update(version="tk641-frozen-2"))
+    bad("против другого tk638", lambda x: x["prev_candidate"].update(sha256="0" * 64))
+    bad("против другого tk638", lambda x: x["prev_candidate"].update(version="tk638-frozen-2"))
+    bad("поле 'binary'", lambda x: x["binary"].update(md5="0" * 32))
+    bad("поле 'points'", lambda x: x["points"][1].update(d="2026-12-30"))
+    bad("клетки", lambda x: x["cells"].update(X=dict(x["cells"]["L_mk2"])))
+    bad("клетка L_mk2", lambda x: x["cells"]["L_mk2"].update(keys=x["cells"]["L_mk2"]["keys"].replace("mk=2", "mk=1")))
+    bad("клетка L_mk2", lambda x: x["cells"]["L_mk2"].update(family=True))
+    bad("vid", lambda x: x["cells"]["L_mk2"].update(vid="cf280a1e8fc7d"))
+    bad("α кандидата 2 заданы", lambda x: x["alpha"].pop("L_n24"))
+    bad("сумма α кандидата 2", lambda x: x["alpha"].update(S_base=0.025))                               # tk638 S_base 0,025 при наличии L_mk2: сумма 0,055
+    bad("α: S_base", lambda x: x["alpha"].update(L_mk2=0.006, L_base=0.009))
+    bad("α(S_mk1) кандидата 2", lambda x: x["alpha"].update(L_n24=0.006, S_mk1=0.009))
+    bad("α по точкам", lambda x: x["alpha_k"]["S_base"].update(L5=0.0165))                              # α_k S_base от 0,025 вместо 0,020
+    bad("α по точкам", lambda x: x["alpha_k"].pop("L_mk2"))
+
+
+def test_run_point_with_candidate2_reads_l_mk2_with_its_alpha_and_marks_the_read():
+    with strict(), strict2(), tmp() as t:
+        e, c, cp, c2, cp2 = cand2_env(t)
+        rc, r = run_c(e, "L1", D("2026-12-01"), D("2026-11-30"), **cand2_kw(e, cp, cp2))
+        assert rc == 0
+        marker = read_json(e.fwd, "READ-L1.started")
+        assert marker["candidate2"] == "L_mk2" and marker["candidate2_read"] is True and marker["candidate2_sha256"] == fw.sha256_text(cp2) and marker["candidate"] == "L_n24"
+        p1 = read_json(e.fwd, "point-L1.json")
+        mk = {"L_mk2|%s" % u for u in fw.UNI_NAMES}
+        assert mk <= set(p1["stats"]) and all(p1["stats"][k]["n"] > 0 for k in mk)
+        rc2, _ = run_c(e, "L2", D("2027-01-01"), D("2026-12-31"), **cand2_kw(e, cp, cp2))
+        s = read_json(e.fwd, "point-L2.json")["stats"]
+        assert abs(s["S_base|all"]["alpha_k"] - 0.020 * 0.04) < 1e-12 and s["S_base|all"]["alpha_k"] not in (0.025 * 0.04, 0.03 * 0.04)       # C1: S_base 0,020, не 0,025
+        assert abs(s["L_mk2|all"]["alpha_k"] - 0.005 * 0.04) < 1e-12 and abs(s["L_n24|all"]["alpha_k"] - 0.005 * 0.04) < 1e-12 and s["L_mk2|crypto"]["alpha_k"] == 0.0
+        assert read_json(e.fwd, "point-L2.json")["prefix"]["diffs"]["L_mk2|all"] == 0
+
+
+def test_missing_candidate2_stops_the_read_and_no_candidate2_keeps_alpha_without_reading_l_mk2():
+    with strict(), strict2(), tmp() as t:
+        e, c, cp = cand_env(t)                                                                     # tk641 рядом нет
+        prepare(e, "L1", D("2026-11-30"))
+        r = N24Runner(D("2026-11-30"))
+        go = lambda **kw: fw.run_point(e.args("L1", **cand2_kw(e, cp, cp, **kw)), runner=r, today=D("2026-12-01"), repo=e.root)  # noqa: E731
+        expect_guard(lambda: go(), "нет файла кандидата")
+        expect_guard(lambda: go(no_candidate2=True), "нет файла кандидата")                        # флаг файл не заменяет
+        assert r.calls == 0 and not os.path.exists(os.path.join(e.fwd, "READ-L1.started"))
+    with strict(), strict2(), tmp() as t:
+        e, c, cp, c2, cp2 = cand2_env(t)
+        rc, r = run_c(e, "L1", D("2026-12-01"), D("2026-11-30"), **cand2_kw(e, cp, cp2, no_candidate2=True))
+        marker = read_json(e.fwd, "READ-L1.started")
+        assert rc == 0 and marker["candidate2_read"] is False and "кандидат 2 не читан" in marker["candidate2_note"] and "0.02" in marker["candidate2_note"]
+        p1 = read_json(e.fwd, "point-L1.json")
+        assert not any(k.startswith("L_mk2|") for k in p1["stats"]) and "кандидат 2 не читан" in fw.render(p1)
+        rc2, _ = run_c(e, "L2", D("2027-01-01"), D("2026-12-31"), **cand2_kw(e, cp, cp2, no_candidate2=True))
+        s = read_json(e.fwd, "point-L2.json")["stats"]
+        assert abs(s["S_base|all"]["alpha_k"] - 0.020 * 0.04) < 1e-12 and "L_mk2|all" not in s
+
+
+def test_plan_prints_the_candidate2_alpha():
+    with tmp() as t:
+        e, c, cp, c2, cp2 = cand2_env(t)
+        out = subprocess.run([sys.executable, "-I", "-X", "utf8", os.path.join(HERE, "..", "tk616_forward.py"), "plan", "--freeze", e.freeze, "--root", e.fwd], capture_output=True, text=True,
+                             encoding="utf-8", env=dict(os.environ, PYTHONUTF8="1"))
+        assert out.returncode == 0 and "tk641-frozen.json (tk641-frozen-1)" in out.stdout and "'L_mk2': 0.005" in out.stdout and "α(S_base) 0.0008" in out.stdout, out.stdout + out.stderr
+
+
+def test_replay_mk2_compares_outputs_with_g626c_byte_for_byte():
+    old_files = fw.FILES_641
+    fw.FILES_641 = ("long-trades.csv",)                                                            # подменный движок пишет только trades.csv
+    try:
+        with tmp() as t:
+            e, c, cp, c2, cp2 = cand2_env(t)
+            root = os.path.join(t, "r")
+            os.makedirs(root)
+            write_list(os.path.join(root, "symbols-all.txt"), COINS)
+            mk_tree(os.path.join(root, "win"), "", rf.WINDOWS, D("2026-11-13"), coins=COINS)
+            ref = os.path.join(root, "ref")
+            os.makedirs(ref)
+            vid = c2["cells"]["L_mk2"]["vid"]
+
+            def replay(name, **kw):
+                a = dict(freeze=e.freeze, freeze_commit="c0ffee", freeze_sha256=fw.sha256_text(e.freeze), bin=e.bin, threads=1, tick_store="", sig_cache="", **cand2_kw(e, cp, cp2),
+                         replay_root=os.path.join(root, name), windows_root=os.path.join(root, "win"), symbols_file=os.path.join(root, "symbols-all.txt"), ref_dir=ref, out="")
+                a.update(kw)
+                return fw.replay_mk2(argparse.Namespace(**a), runner=FakeRunner(D("2026-11-13")), repo=e.root)
+
+            assert replay("rp1") == 3                                                              # эталона нет: не пройдено
+            res = read_json(root, "rp1", "gate-641c.json")
+            assert res["ok"] is False and res["vid"] == vid and all(v["files"]["long-trades.csv"]["ref_sha256"] is None for v in res["windows"].values())
+            for w in rf.WINDOWS:                                                                    # эталон = выходам
+                os.makedirs(os.path.join(ref, w.name, vid))
+                shutil.copy(os.path.join(root, "rp1", "out", "replay", w.name, vid, "long-trades.csv"), os.path.join(ref, w.name, vid, "long-trades.csv"))
+            assert replay("rp2") == 0 and read_json(root, "rp2", "gate-641c.json")["ok"] is True
+            open(os.path.join(ref, "wb", vid, "long-trades.csv"), "a").write("x\n")                  # одно различие — не пройдено
+            assert replay("rp3") == 3
+            r3 = read_json(root, "rp3", "gate-641c.json")
+            assert r3["windows"]["wb"]["equal"] is False and r3["windows"]["wa"]["equal"] and r3["windows"]["wc"]["equal"]
+            expect_guard(lambda: replay("rp4", no_candidate2=True), "без --no-candidate2")
+            expect_guard(lambda: replay("rp5", ref_dir=os.path.join(root, "нет")), "--ref-dir")
+            late = os.path.join(root, "win", "wc", "klines", COINS[0], "%s-klines-2026-11-14.zip" % COINS[0])
+            open(late, "w").close()
+            expect_guard(lambda: replay("rp6"), "позже 2026-11-13")
+    finally:
+        fw.FILES_641 = old_files
 
 
 def main():

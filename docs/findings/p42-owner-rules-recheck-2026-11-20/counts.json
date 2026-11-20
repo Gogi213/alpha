@@ -1,0 +1,248 @@
+{
+ "L_base": {
+  "n": 428,
+  "cells": {
+   "pk0": {
+    "n": 491,
+    "in_base": 421,
+    "only_cell": 70,
+    "only_base": 7,
+    "identical": false
+   },
+   "pb0": {
+    "n": 451,
+    "in_base": 427,
+    "only_cell": 24,
+    "only_base": 1,
+    "identical": false
+   },
+   "ap1": {
+    "n": 428,
+    "in_base": 428,
+    "only_cell": 0,
+    "only_base": 0,
+    "identical": true
+   },
+   "pb0ap1": {
+    "n": 436,
+    "in_base": 428,
+    "only_cell": 8,
+    "only_base": 0,
+    "identical": false
+   },
+   "F0": {
+    "n": 813,
+    "in_base": 195,
+    "only_cell": 618,
+    "only_base": 233,
+    "identical": false
+   },
+   "fa0": {
+    "n": 1,
+    "in_base": 1,
+    "only_cell": 0,
+    "only_base": 427,
+    "identical": false
+   },
+   "fb0": {
+    "n": 428,
+    "in_base": 428,
+    "only_cell": 0,
+    "only_base": 0,
+    "identical": true
+   },
+   "fh2": {
+    "n": 356,
+    "in_base": 314,
+    "only_cell": 42,
+    "only_base": 114,
+    "identical": false
+   },
+   "fh8": {
+    "n": 533,
+    "in_base": 354,
+    "only_cell": 179,
+    "only_base": 74,
+    "identical": false
+   },
+   "fh24": {
+    "n": 651,
+    "in_base": 287,
+    "only_cell": 364,
+    "only_base": 141,
+    "identical": false
+   },
+   "ALL0": {
+    "n": 1003,
+    "in_base": 194,
+    "only_cell": 809,
+    "only_base": 234,
+    "identical": false
+   }
+  }
+ },
+ "S_base": {
+  "n": 319,
+  "cells": {
+   "pk0": {
+    "n": 371,
+    "in_base": 314,
+    "only_cell": 57,
+    "only_base": 5,
+    "identical": false
+   },
+   "pb0": {
+    "n": 343,
+    "in_base": 317,
+    "only_cell": 26,
+    "only_base": 2,
+    "identical": false
+   },
+   "ap1": {
+    "n": 319,
+    "in_base": 319,
+    "only_cell": 0,
+    "only_base": 0,
+    "identical": true
+   },
+   "pb0ap1": {
+    "n": 336,
+    "in_base": 318,
+    "only_cell": 18,
+    "only_base": 1,
+    "identical": false
+   },
+   "F0": {
+    "n": 687,
+    "in_base": 197,
+    "only_cell": 490,
+    "only_base": 122,
+    "identical": false
+   },
+   "fa0": {
+    "n": 0,
+    "in_base": 0,
+    "only_cell": 0,
+    "only_base": 319,
+    "identical": false
+   },
+   "fb0": {
+    "n": 319,
+    "in_base": 319,
+    "only_cell": 0,
+    "only_base": 0,
+    "identical": true
+   },
+   "fh2": {
+    "n": 249,
+    "in_base": 235,
+    "only_cell": 14,
+    "only_base": 84,
+    "identical": false
+   },
+   "fh8": {
+    "n": 408,
+    "in_base": 294,
+    "only_cell": 114,
+    "only_base": 25,
+    "identical": false
+   },
+   "fh24": {
+    "n": 519,
+    "in_base": 256,
+    "only_cell": 263,
+    "only_base": 63,
+    "identical": false
+   },
+   "ALL0": {
+    "n": 860,
+    "in_base": 192,
+    "only_cell": 668,
+    "only_base": 127,
+    "identical": false
+   }
+  }
+ },
+ "S_mk1": {
+  "n": 272,
+  "cells": {
+   "pk0": {
+    "n": 315,
+    "in_base": 267,
+    "only_cell": 48,
+    "only_base": 5,
+    "identical": false
+   },
+   "pb0": {
+    "n": 289,
+    "in_base": 270,
+    "only_cell": 19,
+    "only_base": 2,
+    "identical": false
+   },
+   "ap1": {
+    "n": 272,
+    "in_base": 272,
+    "only_cell": 0,
+    "only_base": 0,
+    "identical": true
+   },
+   "pb0ap1": {
+    "n": 282,
+    "in_base": 271,
+    "only_cell": 11,
+    "only_base": 1,
+    "identical": false
+   },
+   "F0": {
+    "n": 583,
+    "in_base": 174,
+    "only_cell": 409,
+    "only_base": 98,
+    "identical": false
+   },
+   "fa0": {
+    "n": 0,
+    "in_base": 0,
+    "only_cell": 0,
+    "only_base": 272,
+    "identical": false
+   },
+   "fb0": {
+    "n": 272,
+    "in_base": 272,
+    "only_cell": 0,
+    "only_base": 0,
+    "identical": true
+   },
+   "fh2": {
+    "n": 213,
+    "in_base": 201,
+    "only_cell": 12,
+    "only_base": 71,
+    "identical": false
+   },
+   "fh8": {
+    "n": 344,
+    "in_base": 253,
+    "only_cell": 91,
+    "only_base": 19,
+    "identical": false
+   },
+   "fh24": {
+    "n": 442,
+    "in_base": 222,
+    "only_cell": 220,
+    "only_base": 50,
+    "identical": false
+   },
+   "ALL0": {
+    "n": 720,
+    "in_base": 170,
+    "only_cell": 550,
+    "only_base": 102,
+    "identical": false
+   }
+  }
+ }
+}
