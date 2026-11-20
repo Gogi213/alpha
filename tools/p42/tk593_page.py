@@ -28,7 +28,9 @@ features_path = sys.argv[9] if len(sys.argv) > 9 else f"{out_dir}/data/features.
 bases_path = sys.argv[10] if len(sys.argv) > 10 else f"{out_dir}/data/bases.json"
 universe_path = sys.argv[11] if len(sys.argv) > 11 else f"{out_dir}/data/universe.json"
 # итоги баз по принятым отчётам: (Σ $, сделок) — p42-maker-entry-2026-11-19.md (L_base, S_base, S_mk1) и p42-retitration-full-2026-11-19.md
-ACCEPTED_BASES = {"L_base": (7.06, 621), "S_base": (259.14, 431), "S_mk1": (248.05, 372)}
+ACCEPTED_BASES = {"L_base": (7.06, 621), "S_base": (259.14, 431), "S_mk1": (248.05, 372),
+                  # TK-645 (tk645_best.py): 775 монет — базы U2 TK-621, L_n24 TK-638, NC360_q20 TK-639
+                  "L_b775": (193.17, 428), "S_b775": (223.14, 319), "L_n24": (294.31, 181), "S_nc360": (258.91, 252)}
 BAR = 0.02
 DIRS = ("A->B", "B->A")
 SET = "f12"
