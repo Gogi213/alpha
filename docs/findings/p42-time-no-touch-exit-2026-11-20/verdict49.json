@@ -1,0 +1,352 @@
+{
+ "L": {
+  "side": "L",
+  "m_holm": 12,
+  "trials_noise": 398,
+  "passed": [],
+  "cells": {
+   "tu5": {
+    "gates": {
+     "a": true,
+     "b": false,
+     "c": false,
+     "d": false,
+     "e": false,
+     "f": false,
+     "g": false
+    },
+    "passed": false,
+    "neighbours": {
+     "T": [
+      "tu15"
+     ]
+    },
+    "noise": {
+     "sharpe": 1.1575033114173363,
+     "se": 1.6397406245706772,
+     "trials": 398,
+     "noise_bar": 4.891780927858679,
+     "deflated": -3.734277616441342,
+     "t_raw": 0.7059063452309099,
+     "t_deflated": -2.2773587239866453,
+     "survives": false
+    }
+   },
+   "tu15": {
+    "gates": {
+     "a": true,
+     "b": false,
+     "c": false,
+     "d": false,
+     "e": true,
+     "f": false,
+     "g": false
+    },
+    "passed": false,
+    "neighbours": {
+     "T": [
+      "tu5",
+      "tu30"
+     ]
+    },
+    "noise": {
+     "sharpe": 1.7697938320194881,
+     "se": 1.6417487204375363,
+     "trials": 398,
+     "noise_bar": 4.897771610113919,
+     "deflated": -3.127977778094431,
+     "t_raw": 1.0779931240316893,
+     "t_deflated": -1.905271945185866,
+     "survives": false
+    }
+   },
+   "tu30": {
+    "gates": {
+     "a": true,
+     "b": false,
+     "c": false,
+     "d": false,
+     "e": true,
+     "f": false,
+     "g": false
+    },
+    "passed": false,
+    "neighbours": {
+     "T": [
+      "tu15",
+      "tu60"
+     ]
+    },
+    "noise": {
+     "sharpe": 2.1110004579310657,
+     "se": 1.643230680582624,
+     "trials": 398,
+     "noise_bar": 4.902192690048732,
+     "deflated": -2.7911922321176665,
+     "t_raw": 1.2846647052516018,
+     "t_deflated": -1.6986003639659535,
+     "survives": false
+    }
+   },
+   "tu60": {
+    "gates": {
+     "a": true,
+     "b": false,
+     "c": false,
+     "d": false,
+     "e": true,
+     "f": false,
+     "g": false
+    },
+    "passed": false,
+    "neighbours": {
+     "T": [
+      "tu30",
+      "tu120"
+     ]
+    },
+    "noise": {
+     "sharpe": 2.072548317256281,
+     "se": 1.6430507140674793,
+     "trials": 398,
+     "noise_bar": 4.901655802230472,
+     "deflated": -2.829107484974191,
+     "t_raw": 1.261402523678379,
+     "t_deflated": -1.7218625455391763,
+     "survives": false
+    }
+   },
+   "tu120": {
+    "gates": {
+     "a": true,
+     "b": false,
+     "c": false,
+     "d": false,
+     "e": true,
+     "f": false,
+     "g": false
+    },
+    "passed": false,
+    "neighbours": {
+     "T": [
+      "tu60",
+      "tu240"
+     ]
+    },
+    "noise": {
+     "sharpe": 2.300231918133884,
+     "se": 1.6441642196466213,
+     "trials": 398,
+     "noise_bar": 4.904977684529105,
+     "deflated": -2.604745766395221,
+     "t_raw": 1.3990280840853422,
+     "t_deflated": -1.584236985132213,
+     "survives": false
+    }
+   },
+   "tu240": {
+    "gates": {
+     "a": true,
+     "b": false,
+     "c": true,
+     "d": false,
+     "e": true,
+     "f": true,
+     "g": false
+    },
+    "passed": false,
+    "neighbours": {
+     "T": [
+      "tu120"
+     ]
+    },
+    "noise": {
+     "sharpe": 2.3814342722072817,
+     "se": 1.6445891999944529,
+     "trials": 398,
+     "noise_bar": 4.906245513555895,
+     "deflated": -2.5248112413486132,
+     "t_raw": 1.4480420230263669,
+     "t_deflated": -1.5352230461911882,
+     "survives": false
+    }
+   }
+  },
+  "answer": "нет: база стороны остаётся"
+ },
+ "S": {
+  "side": "S",
+  "m_holm": 12,
+  "trials_noise": 398,
+  "passed": [],
+  "cells": {
+   "tu5": {
+    "gates": {
+     "a": true,
+     "b": false,
+     "c": false,
+     "d": false,
+     "e": false,
+     "f": false,
+     "g": false
+    },
+    "passed": false,
+    "neighbours": {
+     "T": [
+      "tu15"
+     ]
+    },
+    "noise": {
+     "sharpe": 2.8074394064226587,
+     "se": 1.647058112680551,
+     "trials": 398,
+     "noise_bar": 4.913610934531279,
+     "deflated": -2.1061715281086206,
+     "t_raw": 1.7045175181181753,
+     "t_deflated": -1.2787475510993795,
+     "survives": false
+    }
+   },
+   "tu15": {
+    "gates": {
+     "a": true,
+     "b": false,
+     "c": false,
+     "d": false,
+     "e": false,
+     "f": false,
+     "g": false
+    },
+    "passed": false,
+    "neighbours": {
+     "T": [
+      "tu5",
+      "tu30"
+     ]
+    },
+    "noise": {
+     "sharpe": 2.8671399737816556,
+     "se": 1.647436167233062,
+     "trials": 398,
+     "noise_bar": 4.914738771472044,
+     "deflated": -2.0475987976903887,
+     "t_raw": 1.7403648352561891,
+     "t_deflated": -1.242900233961366,
+     "survives": false
+    }
+   },
+   "tu30": {
+    "gates": {
+     "a": true,
+     "b": false,
+     "c": false,
+     "d": false,
+     "e": false,
+     "f": false,
+     "g": false
+    },
+    "passed": false,
+    "neighbours": {
+     "T": [
+      "tu15",
+      "tu60"
+     ]
+    },
+    "noise": {
+     "sharpe": 2.8798693107471736,
+     "se": 1.6475177934045198,
+     "trials": 398,
+     "noise_bar": 4.914982283978088,
+     "deflated": -2.035112973230915,
+     "t_raw": 1.7480049819650543,
+     "t_deflated": -1.2352600872525008,
+     "survives": false
+    }
+   },
+   "tu60": {
+    "gates": {
+     "a": true,
+     "b": false,
+     "c": false,
+     "d": false,
+     "e": false,
+     "f": false,
+     "g": false
+    },
+    "passed": false,
+    "neighbours": {
+     "T": [
+      "tu30",
+      "tu120"
+     ]
+    },
+    "noise": {
+     "sharpe": 2.541605586968637,
+     "se": 1.645470341037549,
+     "trials": 398,
+     "noise_bar": 4.908874190850818,
+     "deflated": -2.367268603882181,
+     "t_raw": 1.5446073524278967,
+     "t_deflated": -1.4386577167896584,
+     "survives": false
+    }
+   },
+   "tu120": {
+    "gates": {
+     "a": true,
+     "b": false,
+     "c": false,
+     "d": false,
+     "e": false,
+     "f": false,
+     "g": false
+    },
+    "passed": false,
+    "neighbours": {
+     "T": [
+      "tu60",
+      "tu240"
+     ]
+    },
+    "noise": {
+     "sharpe": 2.7162021178498508,
+     "se": 1.6464955586936267,
+     "trials": 398,
+     "noise_bar": 4.9119326868725395,
+     "deflated": -2.1957305690226887,
+     "t_raw": 1.6496868779925271,
+     "t_deflated": -1.333578191225028,
+     "survives": false
+    }
+   },
+   "tu240": {
+    "gates": {
+     "a": true,
+     "b": false,
+     "c": false,
+     "d": false,
+     "e": false,
+     "f": false,
+     "g": false
+    },
+    "passed": false,
+    "neighbours": {
+     "T": [
+      "tu120"
+     ]
+    },
+    "noise": {
+     "sharpe": 3.3467921932271563,
+     "se": 1.6507585355195384,
+     "trials": 398,
+     "noise_bar": 4.9246502767281655,
+     "deflated": -1.5778580835010092,
+     "t_raw": 2.027426859358222,
+     "t_deflated": -0.9558382098593327,
+     "survives": false
+    }
+   }
+  },
+  "answer": "нет: база стороны остаётся"
+ }
+}

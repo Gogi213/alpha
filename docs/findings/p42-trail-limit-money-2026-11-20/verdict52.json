@@ -1,0 +1,336 @@
+{
+ "m": 12,
+ "trials_noise": 400,
+ "sides": {
+  "L": {
+   "cells": {
+    "tl1_rr1": {
+     "gates": {
+      "a": true,
+      "b": false,
+      "c": false,
+      "d": false,
+      "e": false,
+      "f": false,
+      "g": false
+     },
+     "passed": false,
+     "neighbours": [
+      "tl1_rr2"
+     ],
+     "noise": {
+      "sharpe": 0.7164403353137686,
+      "se": 1.6388137823030453,
+      "trials": 400,
+      "noise_bar": 4.891533843526309,
+      "deflated": -4.175093508212541,
+      "t_raw": 0.43717006962618177,
+      "t_deflated": -2.5476314351867546,
+      "survives": false
+     }
+    },
+    "tl1_rr2": {
+     "gates": {
+      "a": true,
+      "b": false,
+      "c": false,
+      "d": false,
+      "e": false,
+      "f": false,
+      "g": false
+     },
+     "passed": false,
+     "neighbours": [
+      "tl1_rr1",
+      "tl1_rr3"
+     ],
+     "noise": {
+      "sharpe": 1.7960513782266783,
+      "se": 1.6418535532346445,
+      "trials": 400,
+      "noise_bar": 4.900606956377233,
+      "deflated": -3.104555578150555,
+      "t_raw": 1.09391691767408,
+      "t_deflated": -1.8908845871388562,
+      "survives": false
+     }
+    },
+    "tl1_rr3": {
+     "gates": {
+      "a": true,
+      "b": false,
+      "c": false,
+      "d": false,
+      "e": true,
+      "f": false,
+      "g": false
+     },
+     "passed": false,
+     "neighbours": [
+      "tl1_rr2"
+     ],
+     "noise": {
+      "sharpe": 1.5859866819256505,
+      "se": 1.6410579372806835,
+      "trials": 400,
+      "noise_bar": 4.898232200680597,
+      "deflated": -3.3122455187549464,
+      "t_raw": 0.966441614214859,
+      "t_deflated": -2.0183598905980773,
+      "survives": false
+     }
+    },
+    "tl2_rr1": {
+     "gates": {
+      "a": true,
+      "b": false,
+      "c": false,
+      "d": false,
+      "e": false,
+      "f": false,
+      "g": false
+     },
+     "passed": false,
+     "neighbours": [
+      "tl2_rr2"
+     ],
+     "noise": {
+      "sharpe": 0.9770474769474821,
+      "se": 1.6393087470882908,
+      "trials": 400,
+      "noise_bar": 4.893011215162139,
+      "deflated": -3.915963738214657,
+      "t_raw": 0.5960118731037672,
+      "t_deflated": -2.3887896317091686,
+      "survives": false
+     }
+    },
+    "tl2_rr2": {
+     "gates": {
+      "a": true,
+      "b": false,
+      "c": true,
+      "d": true,
+      "e": true,
+      "f": false,
+      "g": false
+     },
+     "passed": false,
+     "neighbours": [
+      "tl2_rr1",
+      "tl2_rr3"
+     ],
+     "noise": {
+      "sharpe": 2.0369471241472334,
+      "se": 1.6428870230599748,
+      "trials": 400,
+      "noise_bar": 4.903691658667057,
+      "deflated": -2.8667445345198237,
+      "t_raw": 1.2398583076962275,
+      "t_deflated": -1.7449431971167082,
+      "survives": false
+     }
+    },
+    "tl2_rr3": {
+     "gates": {
+      "a": true,
+      "b": false,
+      "c": false,
+      "d": false,
+      "e": true,
+      "f": false,
+      "g": false
+     },
+     "passed": false,
+     "neighbours": [
+      "tl2_rr2"
+     ],
+     "noise": {
+      "sharpe": 1.7769671560285067,
+      "se": 1.6417772071949106,
+      "trials": 400,
+      "noise_bar": 4.900379078602948,
+      "deflated": -3.1234119225744417,
+      "t_raw": 1.082343662855801,
+      "t_deflated": -1.902457841957135,
+      "survives": false
+     }
+    }
+   },
+   "passed": [],
+   "answer": "нет: база стороны остаётся",
+   "rule_tl2": {
+    "d": 0.020746439252336435,
+    "lower": 0.003236449258583901,
+    "margin": -0.05,
+    "not_worse": true,
+    "answer": "tl=2 не хуже базы (нижняя граница ≥ −0.05 $/сделку)"
+   }
+  },
+  "S": {
+   "cells": {
+    "tl1_rr1": {
+     "gates": {
+      "a": true,
+      "b": false,
+      "c": false,
+      "d": false,
+      "e": false,
+      "f": false,
+      "g": false
+     },
+     "passed": false,
+     "neighbours": [
+      "tl1_rr2"
+     ],
+     "noise": {
+      "sharpe": 3.4454577768413235,
+      "se": 1.6515046384816656,
+      "trials": 400,
+      "noise_bar": 4.929413530145619,
+      "deflated": -1.4839557533042957,
+      "t_raw": 2.086253769174366,
+      "t_deflated": -0.8985477356385699,
+      "survives": false
+     }
+    },
+    "tl1_rr2": {
+     "gates": {
+      "a": true,
+      "b": false,
+      "c": false,
+      "d": false,
+      "e": false,
+      "f": false,
+      "g": false
+     },
+     "passed": false,
+     "neighbours": [
+      "tl1_rr1",
+      "tl1_rr3"
+     ],
+     "noise": {
+      "sharpe": 3.6511849814635275,
+      "se": 1.6531288869284502,
+      "trials": 400,
+      "noise_bar": 4.934261589353772,
+      "deflated": -1.2830766078902447,
+      "t_raw": 2.2086511283748176,
+      "t_deflated": -0.7761503764381187,
+      "survives": false
+     }
+    },
+    "tl1_rr3": {
+     "gates": {
+      "a": true,
+      "b": false,
+      "c": false,
+      "d": false,
+      "e": true,
+      "f": false,
+      "g": false
+     },
+     "passed": false,
+     "neighbours": [
+      "tl1_rr2"
+     ],
+     "noise": {
+      "sharpe": 3.6241679919499545,
+      "se": 1.6529103050665293,
+      "trials": 400,
+      "noise_bar": 4.933609165883386,
+      "deflated": -1.3094411739334313,
+      "t_raw": 2.192598098542366,
+      "t_deflated": -0.7922034062705698,
+      "survives": false
+     }
+    },
+    "tl2_rr1": {
+     "gates": {
+      "a": true,
+      "b": false,
+      "c": false,
+      "d": false,
+      "e": false,
+      "f": false,
+      "g": false
+     },
+     "passed": false,
+     "neighbours": [
+      "tl2_rr2"
+     ],
+     "noise": {
+      "sharpe": 4.022631626582786,
+      "se": 1.6562954380040062,
+      "trials": 400,
+      "noise_bar": 4.9437131157691585,
+      "deflated": -0.9210814891863723,
+      "t_raw": 2.428692088550603,
+      "t_deflated": -0.5561094162623326,
+      "survives": false
+     }
+    },
+    "tl2_rr2": {
+     "gates": {
+      "a": true,
+      "b": false,
+      "c": false,
+      "d": false,
+      "e": true,
+      "f": false,
+      "g": false
+     },
+     "passed": false,
+     "neighbours": [
+      "tl2_rr1",
+      "tl2_rr3"
+     ],
+     "noise": {
+      "sharpe": 4.198857270771337,
+      "se": 1.6579026464849271,
+      "trials": 400,
+      "noise_bar": 4.94851031406156,
+      "deflated": -0.7496530432902224,
+      "t_raw": 2.532631985161326,
+      "t_deflated": -0.45216951965160995,
+      "survives": false
+     }
+    },
+    "tl2_rr3": {
+     "gates": {
+      "a": true,
+      "b": false,
+      "c": false,
+      "d": false,
+      "e": true,
+      "f": false,
+      "g": false
+     },
+     "passed": false,
+     "neighbours": [
+      "tl2_rr2"
+     ],
+     "noise": {
+      "sharpe": 4.055120069323456,
+      "se": 1.6565866736355879,
+      "trials": 400,
+      "noise_bar": 4.944582396320559,
+      "deflated": -0.8894623269971031,
+      "t_raw": 2.4478767901856804,
+      "t_deflated": -0.5369247146272559,
+      "survives": false
+     }
+    }
+   },
+   "passed": [],
+   "answer": "нет: база стороны остаётся",
+   "rule_tl2": {
+    "d": 0.005384238244514061,
+    "lower": -0.023738283872909542,
+    "margin": -0.05,
+    "not_worse": true,
+    "answer": "tl=2 не хуже базы (нижняя граница ≥ −0.05 $/сделку)"
+   }
+  }
+ }
+}

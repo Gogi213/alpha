@@ -27,6 +27,8 @@ pub enum ExitKind {
     Return,
     /// §13.31 (`nx`): до касания цена ушла от уровня против позиции на X·NATR — сценарий отменён.
     NoTouch,
+    /// TK-649 (`tu`): уровень не тронут за T минут от входа.
+    TimeNoTouch,
 }
 
 impl ExitKind {
@@ -39,6 +41,7 @@ impl ExitKind {
             ExitKind::TimeExit => "tx",
             ExitKind::Return => "rt",
             ExitKind::NoTouch => "nt",
+            ExitKind::TimeNoTouch => "tu",
         }
     }
 }

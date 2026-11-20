@@ -1,0 +1,115 @@
+{
+ "geq": {
+  "wa-L/btc_mv5": {
+   "rows": 386,
+   "both": 386,
+   "only_mine": 0,
+   "only_old": 0,
+   "max_abs": 0.0
+  },
+  "wa-L/btc_mv15": {
+   "rows": 386,
+   "both": 386,
+   "only_mine": 0,
+   "only_old": 0,
+   "max_abs": 0.0
+  },
+  "wa-S/btc_mv5": {
+   "rows": 242,
+   "both": 242,
+   "only_mine": 0,
+   "only_old": 0,
+   "max_abs": 0.0
+  },
+  "wa-S/btc_mv15": {
+   "rows": 242,
+   "both": 242,
+   "only_mine": 0,
+   "only_old": 0,
+   "max_abs": 0.0
+  },
+  "wb-L/btc_mv5": {
+   "rows": 413,
+   "both": 413,
+   "only_mine": 0,
+   "only_old": 0,
+   "max_abs": 0.0
+  },
+  "wb-L/btc_mv15": {
+   "rows": 413,
+   "both": 413,
+   "only_mine": 0,
+   "only_old": 0,
+   "max_abs": 0.0
+  },
+  "wb-S/btc_mv5": {
+   "rows": 219,
+   "both": 219,
+   "only_mine": 0,
+   "only_old": 0,
+   "max_abs": 0.0
+  },
+  "wb-S/btc_mv15": {
+   "rows": 219,
+   "both": 219,
+   "only_mine": 0,
+   "only_old": 0,
+   "max_abs": 0.0
+  },
+  "wc-L/btc_mv5": {
+   "rows": 423,
+   "both": 423,
+   "only_mine": 0,
+   "only_old": 0,
+   "max_abs": 0.0
+  },
+  "wc-L/btc_mv15": {
+   "rows": 423,
+   "both": 423,
+   "only_mine": 0,
+   "only_old": 0,
+   "max_abs": 0.0
+  },
+  "wc-S/btc_mv5": {
+   "rows": 214,
+   "both": 214,
+   "only_mine": 0,
+   "only_old": 0,
+   "max_abs": 0.0
+  },
+  "wc-S/btc_mv15": {
+   "rows": 214,
+   "both": 214,
+   "only_mine": 0,
+   "only_old": 0,
+   "max_abs": 0.0
+  }
+ },
+ "g3x": {
+  "wa-L": {
+   "k": 120,
+   "bad": 0
+  },
+  "wa-S": {
+   "k": 120,
+   "bad": 0
+  },
+  "wb-L": {
+   "k": 120,
+   "bad": 0
+  },
+  "wb-S": {
+   "k": 120,
+   "bad": 0
+  },
+  "wc-L": {
+   "k": 120,
+   "bad": 0
+  },
+  "wc-S": {
+   "k": 120,
+   "bad": 0
+  }
+ },
+ "bad": []
+}

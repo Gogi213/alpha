@@ -1,0 +1,156 @@
+{
+ "L": {
+  "base": 428,
+  "cells": {
+   "B60_with": {
+    "n": 267,
+    "in_base": 250,
+    "only_cell": 17,
+    "only_base": 178
+   },
+   "B60_agst": {
+    "n": 195,
+    "in_base": 178,
+    "only_cell": 17,
+    "only_base": 250
+   },
+   "B60_nag20": {
+    "n": 348,
+    "in_base": 328,
+    "only_cell": 20,
+    "only_base": 100
+   },
+   "B60_nwi80": {
+    "n": 359,
+    "in_base": 356,
+    "only_cell": 3,
+    "only_base": 72
+   },
+   "B240_with": {
+    "n": 249,
+    "in_base": 235,
+    "only_cell": 14,
+    "only_base": 193
+   },
+   "B240_agst": {
+    "n": 202,
+    "in_base": 193,
+    "only_cell": 9,
+    "only_base": 235
+   },
+   "B240_nag20": {
+    "n": 334,
+    "in_base": 325,
+    "only_cell": 9,
+    "only_base": 103
+   },
+   "B240_nwi80": {
+    "n": 353,
+    "in_base": 351,
+    "only_cell": 2,
+    "only_base": 77
+   },
+   "B1440_with": {
+    "n": 244,
+    "in_base": 237,
+    "only_cell": 7,
+    "only_base": 191
+   },
+   "B1440_agst": {
+    "n": 195,
+    "in_base": 191,
+    "only_cell": 4,
+    "only_base": 237
+   },
+   "B1440_nag20": {
+    "n": 345,
+    "in_base": 340,
+    "only_cell": 5,
+    "only_base": 88
+   },
+   "B1440_nwi80": {
+    "n": 343,
+    "in_base": 340,
+    "only_cell": 3,
+    "only_base": 88
+   }
+  }
+ },
+ "S": {
+  "base": 319,
+  "cells": {
+   "B60_with": {
+    "n": 216,
+    "in_base": 212,
+    "only_cell": 4,
+    "only_base": 107
+   },
+   "B60_agst": {
+    "n": 110,
+    "in_base": 107,
+    "only_cell": 3,
+    "only_base": 212
+   },
+   "B60_nag20": {
+    "n": 254,
+    "in_base": 251,
+    "only_cell": 3,
+    "only_base": 68
+   },
+   "B60_nwi80": {
+    "n": 258,
+    "in_base": 253,
+    "only_cell": 5,
+    "only_base": 66
+   },
+   "B240_with": {
+    "n": 196,
+    "in_base": 190,
+    "only_cell": 6,
+    "only_base": 129
+   },
+   "B240_agst": {
+    "n": 130,
+    "in_base": 129,
+    "only_cell": 1,
+    "only_base": 190
+   },
+   "B240_nag20": {
+    "n": 255,
+    "in_base": 252,
+    "only_cell": 3,
+    "only_base": 67
+   },
+   "B240_nwi80": {
+    "n": 264,
+    "in_base": 262,
+    "only_cell": 2,
+    "only_base": 57
+   },
+   "B1440_with": {
+    "n": 180,
+    "in_base": 178,
+    "only_cell": 2,
+    "only_base": 141
+   },
+   "B1440_agst": {
+    "n": 142,
+    "in_base": 141,
+    "only_cell": 1,
+    "only_base": 178
+   },
+   "B1440_nag20": {
+    "n": 259,
+    "in_base": 255,
+    "only_cell": 4,
+    "only_base": 64
+   },
+   "B1440_nwi80": {
+    "n": 258,
+    "in_base": 256,
+    "only_cell": 2,
+    "only_base": 63
+   }
+  }
+ }
+}

@@ -3789,6 +3789,85 @@ fn nx_exits_before_touch_when_price_is_x_natr_below_the_level_and_not_after() {
 }
 
 #[test]
+fn tu_key_parses_validates_defaults_off_and_keeps_the_params_debug_string() {
+    use super::params::parse_variant;
+    let (_, p0) = parse_variant("x ew=5").expect("разбор");
+    assert_eq!(p0.exit.tu_min, 0);
+    assert!(!p0.exit.level_opts() && !p0.exit.lvl_exit_opts());
+    // выключено — `Debug` ExitCfg без поля `tu_min` (meta.json базы байт в байт)
+    assert!(!format!("{:?}", p0.exit).contains("tu_min"));
+    let (_, p) = parse_variant("x tu=30").expect("разбор");
+    assert_eq!(p.exit.tu_min, 30);
+    assert!(p.exit.level_opts() && p.exit.lvl_exit_opts());
+    assert!(format!("{:?}", p.exit).ends_with("tl: 0, tu_min: 30 }"));
+    let (_, p) = parse_variant("x nx=1 tu=15").expect("разбор");
+    assert!(format!("{:?}", p.exit).ends_with("cs_m_m: 0, tu_min: 15 }"));
+    assert!(parse_variant("x tu=-1").is_err());
+    let (_, p) = parse_variant("x tu=60").expect("разбор");
+    assert!(
+        super::cli::reject_tick_only(&p, "x tu=60").is_err(),
+        "минутный движок отвергает"
+    );
+}
+
+#[test]
+fn tu_exits_at_first_trade_t_minutes_after_entry_while_level_untouched_and_not_after_touch() {
+    let mut ex = ex_test();
+    ex.tu_min = 1; // вход 1000 мс → срок 61 000 мс; уровень 100,3
+    let t = vec![
+        (30_000, 100.1, true),
+        (60_999, 100.2, true),
+        (61_000, 100.05, true),
+        (62_000, 90.0, true),
+    ];
+    let out = run_lc(t, Side::Long, &ex, 100.3, 99.9);
+    assert_eq!((out.kind, out.exit_ms), (ExitKind::TimeNoTouch, 61_000));
+    assert_eq!(out.kind.name(), "tu");
+    // первая сделка после срока (между сделками срок прошёл) — выход на ней
+    let t = vec![(30_000, 100.1, true), (90_000, 100.0, true)];
+    let out = run_lc(t, Side::Long, &ex, 100.3, 99.9);
+    assert_eq!((out.kind, out.exit_ms), (ExitKind::TimeNoTouch, 90_000));
+    // касание до срока (сделка ≥ уровня) — правило не действует
+    let t = vec![
+        (30_000, 100.3, false),
+        (61_000, 100.0, true),
+        (120_000, 99.9, true),
+    ];
+    let out = run_lc(t, Side::Long, &ex, 100.3, 99.9);
+    assert_eq!(out.kind, ExitKind::Forced);
+    // касание сделкой ровно в срок — касание засчитано раньше проверки срока
+    let t = vec![(61_000, 100.3, false), (62_000, 100.0, true)];
+    let out = run_lc(t, Side::Long, &ex, 100.3, 99.9);
+    assert_eq!(out.kind, ExitKind::Forced);
+    // жёсткий стоп до срока срабатывает как раньше
+    let t = vec![(30_000, 94.0, true), (61_000, 100.0, true)];
+    let out = run_lc(t, Side::Long, &ex, 100.3, 99.9);
+    assert_eq!(out.kind, ExitKind::HardStop);
+    // выключено — выхода нет
+    ex.tu_min = 0;
+    let t = vec![(30_000, 100.1, true), (90_000, 100.0, true)];
+    let out = run_lc(t, Side::Long, &ex, 100.3, 99.9);
+    assert_eq!(out.kind, ExitKind::Forced);
+    // шорт зеркально: уровень 99,7 (пол), вход 100,0
+    ex.tu_min = 1;
+    let t = vec![
+        (30_000, 99.8, false),
+        (61_000, 99.9, false),
+        (62_000, 99.0, false),
+    ];
+    let out = run_lc(t, Side::Short, &ex, 99.7, 99.8);
+    assert_eq!((out.kind, out.exit_ms), (ExitKind::TimeNoTouch, 61_000));
+    let t = vec![(30_000, 99.7, true), (61_000, 99.9, false)];
+    let out = run_lc(t, Side::Short, &ex, 99.7, 99.8);
+    assert_eq!(out.kind, ExitKind::Forced);
+    // вместе с `nx`: что раньше — то и выход
+    ex.nx_m = 1000; // порог 99,8
+    let t = vec![(30_000, 99.8, true), (61_000, 100.0, true)];
+    let out = run_lc(t, Side::Long, &ex, 100.3, 99.9);
+    assert_eq!((out.kind, out.exit_ms), (ExitKind::NoTouch, 30_000));
+}
+
+#[test]
 fn sl_is_level_minus_k_natr_capped_by_hard_stop_and_works_after_touch() {
     let mut ex = ex_test();
     ex.sl_m = 1500; // 1,5 NATR = 0,75: уровень 100,3 → стоп 99,55
