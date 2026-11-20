@@ -87,6 +87,21 @@ def cmd_g8(a):
         sys.exit(1)
 
 
+def ln24_ref(u):
+    """Сделки замороженного кандидата `L_n24` (клетка `N24_q60` TK-638, лонг; условие критика 20.11: у клетки, названной «вперёд», рядом с шумовой планкой печатается пересечение сделок с `L_n24`)."""
+    dirs = {w.name: (p8.kind_dir(u, "ladd", w.name, "L", "N24_q60"), "L") for w in st.TRADE_WINDOWS}
+    ser, _, _ = p8.load_cell(u, "L", dirs)
+    return set(p8.keys_of(ser))
+
+
+def overlap(ks, ref):
+    c = set(ks)
+    inter = len(c & ref)
+    union = len(c | ref)
+    return dict(ref=len(ref), cell=len(c), inter=inter, jaccard=inter / union if union else float("nan"),
+                share_cell_in_ref=inter / len(c) if c else float("nan"), share_ref_in_cell=inter / len(ref) if ref else float("nan"))
+
+
 def cmd_tables(a):
     """База и клетки лестниц: все клетки со всеми колонками, ни одна не отбрасывается; доля сделок клетки, что есть среди сделок базы."""
     u = r5.Uni(a.uni)
@@ -96,12 +111,17 @@ def cmd_tables(a):
         bkeys = p8.keys_of(bser)
         bset = set(bkeys)
         out = dict(uni=u.name, side=side, base=p8.cell_stats(bser, bk, bp), ladders={})
+        ref = ln24_ref(u) if side == "L" else None
+        if ref is not None:
+            out["base"]["ln24"] = overlap(bkeys, ref)
         for cid, _ in ladder_variants(u, side):
             ser, kinds, pnl = p8.load_cell(u, side, {w.name: (kind_dir(u, "ladd39", w.name, side, cid), side) for w in st.TRADE_WINDOWS})
             r = p8.cell_stats(ser, kinds, pnl)
             ks = p8.keys_of(ser)
             r["in_base"] = sum(1 for k in ks if k in bset)
             r["in_base_share"] = r["in_base"] / len(ks) if ks else float("nan")
+            if ref is not None:
+                r["ln24"] = overlap(ks, ref)
             out["ladders"][cid] = r
         r4.write_json(q("res", "cells39-%s-%s.json" % (u.name, side)), out)
         say("== %s %s: база %d сделок, клеток лестниц %d" % (u.name, side, len(bkeys), len(out["ladders"])))

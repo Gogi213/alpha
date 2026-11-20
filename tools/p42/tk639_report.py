@@ -59,21 +59,28 @@ def noise(sharpe, trials=N_ALL):
     return se, sb.significance(sharpe, se, trials)
 
 
-def row_cells(name, c, base_share=False):
+def ov_txt(c):
+    """Пересечение сделок клетки с замороженным `L_n24` (только лонг): Jaccard и доля сделок клетки внутри `L_n24`."""
+    o = c.get("ln24")
+    return "—" if o is None else "%s (%s %%)" % (f(o["jaccard"], 2), f(100 * o["share_cell_in_ref"], 0))
+
+
+def row_cells(name, c, base_share=False, with_ov=False):
     st = c["rr"]["stops"]
     return "| %s | %d%s | %s | %s | %s | %s…%s | %s | %s | %s | %s |" % (
         name, c["n"], " мало" if c["few"] else "", f(c["sum"], 1, True), f(c["mean"], 2, True), f(c["sharpe"], 2, True), f(c["lo90"], 2, True), f(c["hi90"], 2, True),
-        " | ".join(f(m[1], 0, True) + (" (мало)" if c["months_few"][i] else "") for i, m in enumerate(c["months"])), f(c["rr"]["rr"]), f(st["mean_loss_pct"], 1) if st["n"] else "нет стопов", f(c["maxdd"], 1))
+        " | ".join(f(m[1], 0, True) + (" (мало)" if c["months_few"][i] else "") for i, m in enumerate(c["months"])), f(c["rr"]["rr"]), f(st["mean_loss_pct"], 1) if st["n"] else "нет стопов", f(c["maxdd"], 1)) \
+        + ((" %s |" % ov_txt(c)) if with_ov else "")
 
 
 def ladder_table(R, CN, u, s, fams):
     b = R[(u, s)]["base"]
-    cols = "| ступень | сделок | Σ $ | $ на сделку | Шарп | 90 % инт. $/сд. | " + " | ".join("Σ " + m for m in MONTHS) + " | R:R | стоп, % маржи | макс. просадка, $ |"
+    cols = "| ступень | сделок | Σ $ | $ на сделку | Шарп | 90 % инт. $/сд. | " + " | ".join("Σ " + m for m in MONTHS) + " | R:R | стоп, % маржи | макс. просадка, $ |" + (" J с `L_n24` (доля сделок клетки в `L_n24`) |" if s == "L" else "")
     lines = [cols, "|---|" + "---:|" * (len(cols.split("|")) - 3)]
-    lines.append(row_cells("**база (без фильтра)**", b))
+    lines.append(row_cells("**база (без фильтра)**", b, with_ov=s == "L"))
     for c in CN[(u, s)]["ladders"]:
         if c["fam"] in fams:
-            lines.append(row_cells(label(c), R[(u, s)]["ladders"][c["cid"]]))
+            lines.append(row_cells(label(c), R[(u, s)]["ladders"][c["cid"]], with_ov=s == "L"))
     return "\n".join(lines)
 
 
@@ -104,7 +111,7 @@ def build():
     md = []
     md.append("# П-42 §13.37 (TK-639): число сделок за 6 и 12 ч и средний размер сделки — 20.11.2026\n")
     bh = {s: R[("h775", s)]["base"] for s in "LS"}
-    md.append("**R:R и убыток стопа (измерено; ставка 500 $, плечо 2, маржа 250 $):** база h775 — лонг R:R %s, средний убыток стопа %s $ = %s %% маржи; шорт R:R %s, %s $ = %s %% маржи. Для каждой клетки колонки R:R и «стоп, % маржи» — в таблицах ниже.\n" % (
+    md.append("**R:R и убыток стопа (измерено; ставка 500 $, плечо 2, маржа 250 $):** база h775 — лонг R:R %s, средний убыток стопа %s $ = %s %% маржи; шорт R:R %s, %s $ = %s %% маржи. Для каждой клетки колонки R:R и «стоп, %% маржи» — в таблицах ниже.\n" % (
         f(bh["L"]["rr"]["rr"]), f(bh["L"]["rr"]["stops"]["mean_loss"]), f(-bh["L"]["rr"]["stops"]["mean_loss_pct"], 1), f(bh["S"]["rr"]["rr"]), f(bh["S"]["rr"]["stops"]["mean_loss"]), f(-bh["S"]["rr"]["stops"]["mean_loss_pct"], 1)))
     md.append("@@ANSWER@@\n")
     md.append("## Ворота и порядок\n")
@@ -150,6 +157,10 @@ def build():
             cc = R[("h775", s)]["ladders"][c["cid"]]
             lines.append("| %s: %s | %d | %s | %s | %s |" % (kind, label(c), cc["n"], f(cc["sum"], 1, True), f(cc["mean"], 2, True), f(cc["sharpe"], 2, True)))
         md.append("\n".join(lines) + "\n")
+        if s == "L":
+            o = best_m[2]["ln24"]
+            md.append("**Пересечение с замороженным `L_n24` (условие критика 20.11: клетка «вперёд» не должна быть копией `L_n24`).** Клетка `%s`: %d сделок, `L_n24` — %d сделок, общих %d; Jaccard %s; в `L_n24` лежит %s %% сделок клетки, в клетке — %s %% сделок `L_n24`. Колонка «J с `L_n24`» есть у всех лонговых клеток выше и в приложении.\n" % (
+                best_m[1], o["cell"], o["ref"], o["inter"], f(o["jaccard"], 2), f(100 * o["share_cell_in_ref"], 0), f(100 * o["share_ref_in_cell"], 0)))
     md.append("@@TAIL@@\n")
     md.append("Файлы: `docs/findings/p42-tradecount-size-2026-11-20/{res,gates}/` (счётные JSON), `cells-all.md` (все клетки, все колонки), srv `/data/p42-tk639/`.\n")
     return "\n".join(md), R, CN, nz
@@ -158,15 +169,15 @@ def build():
 def appendix(R, CN):
     out = ["# Приложение: все клетки (TK-639, §13.37)\n", "Колонки: сделок; Σ $; $ на сделку; Шарп (год); 90 % интервал $/сд. (бутстреп по суткам, блок 4); Σ $ по месяцам (июль, август, сентябрь, октябрь, 01–13.11; «м» — месяц с n < 20); макс. просадка, $ (и % маржи 250 $); "
            "KPI В-120 (дней под водой: самый долгий / p90); R:R; средний убыток стопа, $ (% маржи при плече 2), стопов; доля сделок клетки, что есть в базе. «мало» — n < 70.\n"]
-    head = "| клетка | сделок | Σ $ | $/сд. | Шарп | 90 % инт. | Σ по месяцам | макс. просадка | KPI | R:R | стоп | в базе |"
-    sep = "|---|---:|---:|---:|---:|---|---|---:|---|---:|---:|---:|"
+    head = "| клетка | сделок | Σ $ | $/сд. | Шарп | 90 % инт. | Σ по месяцам | макс. просадка | KPI | R:R | стоп | в базе | J с `L_n24` |"
+    sep = "|---|---:|---:|---:|---:|---|---|---:|---|---:|---:|---:|---:|"
 
     def row(name, c):
         st = c["rr"]["stops"]
         return "| %s | %d%s | %s | %s | %s | %s…%s | %s | %s (%s %%) | %s / %s | %s | %s (%s %%), %d | %s |" % (
             name, c["n"], " мало" if c["few"] else "", f(c["sum"], 1, True), f(c["mean"], 2, True), f(c["sharpe"], 2, True), f(c["lo90"], 2, True), f(c["hi90"], 2, True),
             " / ".join(f(m[1], 0, True) + ("м" if c["months_few"][i] else "") for i, m in enumerate(c["months"])), f(c["maxdd"], 1), f(c["maxdd_pct_margin"], 0), c["kpi"]["longest"], f(c["kpi"]["p90"], 0), f(c["rr"]["rr"]),
-            f(st["mean_loss"], 2) if st["n"] else "—", f(st["mean_loss_pct"], 1) if st["n"] else "—", st["n"], f(100 * c["in_base_share"], 0) + " %" if "in_base_share" in c else "—")
+            f(st["mean_loss"], 2) if st["n"] else "—", f(st["mean_loss_pct"], 1) if st["n"] else "—", st["n"], f(100 * c["in_base_share"], 0) + " %" if "in_base_share" in c else "—") + " %s |" % ov_txt(c)
     for u in ("h775", "o566"):
         for s in "LS":
             out.append("## %s %s\n" % (u, SIDE[s]))
