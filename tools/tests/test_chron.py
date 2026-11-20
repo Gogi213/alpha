@@ -360,5 +360,221 @@ class TestRealMigration(Base):
         self.assertEqual(self.st.check_db(), [])
 
 
+class _Root:
+    def __init__(self, root):
+        self.root = Path(root)
+
+
+def mrow(eid, **kw):
+    r = {"entry": eid, "side": "long", "cell": "c", "uni": "h775", "win": "all", "trades": 10, "usd": 5.0, "mean_usd": 0.5, "sharpe": 1.0,
+         "verdict": None, "same_data": None, "from_text": 0, "src": "docs/x.json", "src_commit": None, "src_ptr": None, "extra": None}
+    r.update(kw)
+    return r
+
+
+class TestMetrics(Base):
+    """TK-647: таблица metric, поправка номера раздела, дата «до счёта» от родителя."""
+
+    def test_migrate_v3_to_v4(self):
+        db = os.path.join(self.tmp.name, "v3.sqlite")
+        c = sqlite3.connect(db, isolation_level=None)
+        for stmt in chron.split_sql(chron.SCHEMA) + chron.split_sql(chron.MIGRATE[3]):
+            c.execute(stmt)
+        c.execute(chron.FTS_SQL)
+        c.execute("PRAGMA user_version=3")
+        c.close()
+        st = chron.Store(chron.connect(db))
+        try:
+            self.assertEqual(st.c.execute("PRAGMA user_version").fetchone()[0], 4)
+            for t in ("metric", "psec_num", "psec_cur", "metric_noupdate", "metric_nodelete", "psec_num_noupdate", "psec_num_nodelete"):
+                self.assertIsNotNone(st.c.execute("SELECT 1 FROM sqlite_master WHERE name=?", (t,)).fetchone(), t)
+            st.new_protocol("P-90-test", "Тест")
+            a = st.add_psec({"protocol": "P-90", "body": "## 1. Вопрос\nчто\n"}, [])
+            st.flag_psec(a, True, "2026-11-20", "проверка")  # psec_flag из v3 читается видом v4
+            self.assertEqual(st.get(a)["psec"]["prereg_at"], "2026-11-20")
+            self.assertEqual(st.check_db(), [])
+        finally:
+            st.c.close()
+
+    def test_metric_append_only_dedup(self):
+        e = int(self.st.add_entry(entry("числа"), [])[2:])
+        self.assertEqual(self.st.add_metrics([mrow(e), mrow(e, side="short", usd=-3.0)]), {"new": 2, "same": 0})
+        self.assertEqual(self.st.add_metrics([mrow(e)]), {"new": 0, "same": 1})  # повтор не пишется
+        for sql in ("UPDATE metric SET usd=0", "DELETE FROM metric"):
+            with self.assertRaises(sqlite3.DatabaseError):
+                self.st.c.execute(sql)
+        for bad in (mrow(e, verdict="хорошо"), mrow(e, side="up"), mrow(e, src=""), mrow(999)):
+            with self.assertRaises(chron.ChronError):
+                self.st.add_metrics([mrow(e, cell="новая"), bad])
+        self.assertEqual(self.st.c.execute("SELECT count(*) FROM metric").fetchone()[0], 2)  # битая партия не пишет ничего
+        self.assertEqual(self.st.check_db(), [])
+
+    def test_add_entry_with_metrics(self):
+        n = self.st.add_entry(entry("вердикт"), [], None, [mrow(None, trades=7)])
+        q = self.st.metrics_query({"entry": n})
+        self.assertEqual((q["total"], q["rows"][0]["trades"]), (1, 7))
+
+    def test_metrics_query_filter_sort(self):
+        a = int(self.st.add_entry(entry("а", project="П-42", ts="2026-11-01"), [])[2:])
+        b = int(self.st.add_entry(entry("б", project="П-02", ts="2026-11-02"), [])[2:])
+        self.st.add_metrics([mrow(a, cell="L_n24", usd=10.0, sharpe=2.0, trades=100),
+                             mrow(a, side="short", cell="S_n24", usd=-4.0, sharpe=None, trades=50, uni="o566"),
+                             mrow(b, cell="x", usd=None, trades=5, from_text=1, verdict="не ясно")])
+        q = self.st.metrics_query
+        self.assertEqual(q({})["total"], 3)
+        self.assertEqual([r["cell"] for r in q({"sort": "-usd"})["rows"]], ["L_n24", "S_n24", "x"])  # пустое — в конце
+        self.assertEqual([r["cell"] for r in q({"sort": "usd"})["rows"]], ["S_n24", "L_n24", "x"])
+        self.assertEqual(q({"sort": "-sharpe"})["rows"][0]["cell"], "L_n24")
+        self.assertEqual(q({"project": "P-42"})["total"], 2)
+        self.assertEqual(q({"side": "short"})["rows"][0]["cell"], "S_n24")
+        self.assertEqual(q({"uni": "o566"})["total"], 1)
+        self.assertEqual(q({"cell": "n24"})["total"], 2)
+        self.assertEqual(q({"text": "1"})["rows"][0]["cell"], "x")
+        self.assertEqual(q({"verdict": "—"})["total"], 2)
+        self.assertEqual(q({"min_trades": 60})["total"], 1)
+        self.assertEqual(q({"has_usd": 1})["total"], 2)
+        self.assertEqual(q({"sort": "-date"})["rows"][0]["entry"], b)
+        with self.assertRaises(chron.ChronError):
+            q({"sort": "цвет"})
+        cov = {r["project"]: r for r in self.st.metrics_coverage()}
+        self.assertEqual((cov["П-42"]["with_metrics"], cov["П-42"]["rows"], cov["П-02"]["text_only"]), (1, 2, 1))
+
+    def test_cli_add_metric(self):
+        src = "docs/research/freeze/tk626-frozen.json"
+        rc, out = self.cli("add", "--title", "числа П-90", "--project", "P-90", "--body", "т", "--metric",
+                           "side=long; cell=L_n24; uni=h775; win=all; trades=181; usd=294,31; sharpe=5.11; verdict=не ясно; same_data=1; src=%s#selection" % src)
+        self.assertEqual((rc, out.strip()), (0, "L-1"))
+        m = self.st.metrics_query({"entry": "L-1"})["rows"][0]
+        self.assertEqual((m["side"], m["trades"], m["usd"], m["same_data"], m["src_ptr"]), ("long", 181, 294.31, 1, "selection"))
+        self.assertTrue(m["src_commit"])  # без @коммита — последний коммит файла
+        self.assertAlmostEqual(m["mean_usd"], 294.31 / 181)
+        for bad in ("side=long; trades=1; src=docs/нет-такого.json", "side=long; trades=1; src=%s@0000000deadbeef" % src,
+                    "side=long; trades=1; src=AGENTS.md", "side=вверх; trades=1; src=%s" % src, "trades=1", "цвет=1; src=%s" % src):
+            rc, _ = self.cli("add", "--title", "битое", "--body", "т", "--metric", bad)
+            self.assertEqual(rc, 2, bad)
+        self.assertEqual(self.st.c.execute("SELECT count(*) FROM entry").fetchone()[0], 1)  # отказ — без записи
+        rc, _ = self.cli("add", "--title", "из текста", "--body", "т", "--metric", "side=both; trades=3; usd=1; text=1; src=AGENTS.md")
+        self.assertEqual(rc, 0)
+        rc, out = self.cli("metrics", "--sort=-usd")
+        self.assertIn("L_n24", out)
+
+    def test_num_psec(self):
+        self.st.new_protocol("P-90-test", "Тест")
+        a = self.st.add_psec({"protocol": "P-90", "body": "## 8. Раздел\nтекст\n"}, [])
+        self.st.num_psec(a, "8а", "пересборка")
+        self.assertEqual(self.st.get(a)["psec"]["num"], "8а")
+        self.assertEqual(self.st.resolve_psec("P-90", "8а"), a)
+        self.assertEqual(self.st.c.execute("SELECT num FROM psec WHERE id=?", (int(a[3:]),)).fetchone()[0], "8")  # строка не тронута
+        self.st.num_psec(a, "8б", "вторая")
+        self.assertEqual(self.st.get(a)["psec"]["num"], "8б")  # последняя
+        for sql in ("UPDATE psec_num SET num='x'", "DELETE FROM psec_num"):
+            with self.assertRaises(sqlite3.DatabaseError):
+                self.st.c.execute(sql)
+        for args in ((a, " ", "r"), (a, "9", " "), ("PS-999", "9", "r")):
+            with self.assertRaises(chron.ChronError):
+                self.st.num_psec(*args)
+        rc, _ = self.cli("psec", "num", a, "--num", "8в", "--reason", "cli")
+        self.assertEqual((rc, self.st.get(a)["psec"]["num"]), (0, "8в"))
+        self.assertEqual(self.st.check_db(), [])
+
+    def test_list_order_date_only_same_day(self):
+        day = chron.now()[:10]
+        self.st.add_entry(entry("с часом", ts=day + "T00:01+04:00"), [])
+        self.st.add_entry(entry("без часа", ts=day), [])  # создана позже — выше
+        self.st.add_entry(entry("старая без часа", ts="2026-01-02"), [])
+        self.assertEqual([r["title"] for r in self.st.query({})["rows"]], ["без часа", "с часом", "старая без часа"])
+
+    def test_prereg_date_from_parent(self):
+        text = ("# P-91\n## 13. Раздел — записано 18.11.2026 до счёта\nа\n"
+                "### 13.5 Правило (до счёта)\nб\n### 13.6 Своё — записано 19.11.2026 до счёта\nв\n")
+        root = Path(self.tmp.name)
+        (root / "docs" / "research").mkdir(parents=True)
+        (root / "docs" / "research" / "P-91-test.md").write_text(text, encoding="utf-8", newline="\n")
+        secs = [c["sec"] for c in chron.build_docs(root, ["docs/research/P-91-test.md"], [], None)[0]["chunks"] if c["kind"] == "psec"]
+        got = {s["num"]: (s["prereg"], s["prereg_at"]) for s in secs}
+        self.assertEqual(got["13.5"], (1, "2026-11-18"))  # своя метка без даты — дата родителя
+        self.assertEqual(got["13.6"], (1, "2026-11-19"))
+
+
+class TestMetricFiles(unittest.TestCase):
+    """chron_metrics: строки чисел из JSON / CSV / таблиц md на маленьких файлах."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        self.repo = _Root(self.root)
+        import chron_metrics
+        self.cm = chron_metrics
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def put(self, name, text):
+        (self.root / name).write_text(text, encoding="utf-8")
+        return name
+
+    def test_json(self):
+        f = self.put("tk900-h775.json", json.dumps({
+            "cells": {"L_n24": {"n": 10, "sum": 20.0, "sharpe": 1.5, "p": 0.04, "verdict": "не ясно: мало"},
+                      "S_n24": {"trades": 4, "usd": -2.0, "months": [{"month": "2026-07", "n": 4, "sum": -2.0}]}},
+            "diag": {"n": 1, "sum": 1}}))
+        rows = self.cm.rows_from_json(self.repo, f, True)
+        self.assertEqual(len(rows), 3)  # diag пропущен; S — итог + месяц
+        l = next(r for r in rows if r["cell"] == "L_n24")
+        self.assertEqual((l["side"], l["uni"], l["trades"], l["usd"], l["mean_usd"], l["sharpe"], l["verdict"], l["extra"]["p"]),
+                         ("long", "h775", 10, 20.0, 2.0, 1.5, "не ясно", 0.04))
+        m = next(r for r in rows if r["win"] == "2026-07")
+        self.assertEqual((m["side"], m["trades"], m["usd"]), ("short", 4, -2.0))
+        other = self.cm.rows_from_json(self.repo, f, False)  # не П-42: $ не пересчитан
+        self.assertTrue(all(r["usd"] is None and "usd_raw" in r["extra"] for r in other))
+
+    def test_csv(self):
+        f = self.put("r.csv", "# заметка\nside,family,n,usd,b1_n,b1_usd,a_n,a_usd\nL,f1,10,5.0,99,9.0,3,1.0\nS,f2,8,-4.0,99,9.0,2,2.0\n")
+        rows = self.cm.rows_from_csv(self.repo, f, True)
+        self.assertEqual(sorted((r["side"], r["cell"], r["win"] or "", r["trades"], r["usd"]) for r in rows),
+                         [("long", "f1", "", 10, 5.0), ("long", "f1", "a", 3, 1.0), ("short", "f2", "", 8, -4.0), ("short", "f2", "a", 2, 2.0)])
+        self.assertEqual(rows[0]["src_ptr"], "строка 3")  # строка файла с учётом комментария
+
+    def test_md_tables(self):
+        f = self.put("rep.md", "\n".join([
+            "# Отчёт", "## Таблица h775", "",
+            "лонг, D = 7 сут.:", "",
+            "| n_ok | сделок | Σ $ | $/сделку | Sharpe | Σ $ (сделок) по месяцам |", "|---|---:|---:|---:|---:|---|",
+            "| 0 | 245 | +154 | +0.63 | 2.11 | +1 (2) |", "",
+            "| кандидат | сделок | сумма | среднее на сделку |", "|---|---:|---:|---:|", "| шорт C | 191 | −19,59 | −0,103 |", "",
+            "| кандидат | сделок | $/сделку (bps) |", "|---|---:|---:|", "| база | 57 | −4.25 (−8) |", "",
+            "| N | итог | $/сделку |", "|---|---|---:|", "| 3 | x | 1.0 |", "",
+            "| монета | сделок | Σ $ |", "|---|---:|---:|", "| BTCUSDT | 5 | 1 |", ""]))
+        rows = self.cm.rows_from_md(self.repo, f, True)
+        got = [(r["side"], r["cell"], r["uni"], r["trades"], r["usd"], r["mean_usd"], r["sharpe"], r["from_text"]) for r in rows]
+        self.assertEqual(got, [("long", "лонг, D = 7 сут. / 0", "h775", 245, 154.0, 0.63, 2.11, 1),
+                               ("short", "шорт C", "h775", 191, -19.59, -0.103, None, 1),
+                               (None, "база", "h775", 57, None, -4.25, None, 1)])
+        other = self.cm.rows_from_md(self.repo, f, False)
+        self.assertTrue(all(r["usd"] is None for r in other))  # не П-42: $ не пересчитан
+        self.assertEqual([("usd_raw" in r["extra"], r["extra"].get("mean_raw")) for r in other], [(True, 0.63), (False, -0.103), (False, -4.25)])  # «сумма» без $ — только у П-42
+
+    def test_md_coin_rows_and_selected(self):
+        f = self.put("rep2.md", "\n".join([
+            "| клетка | сделок | Σ $ |", "|---|---:|---:|", "| база | 10 | 5 |", "| BTCUSDT | 4 | 2 |", "| 1000PEPEUSDT лонг | 3 | 1 |", "",
+            "| сторона | цель | выбранных (из всех) | сумма $ выбранных | среднее $ на сделку (S0) |", "|---|---|---:|---:|---:|",
+            "| шорт | T1 | 76 (из 300) | +73.13 | +0.962 |", ""]))
+        got = [(r["side"], r["cell"], r["trades"], r["usd"]) for r in self.cm.rows_from_md(self.repo, f, True)]
+        self.assertEqual(got, [(None, "база", 10, 5.0), ("short", "шорт / T1", 76, 73.13)])  # строки по монете — не клетки
+
+    def test_mean_derived_mark(self):
+        self.assertTrue(chron.mean_derived({"trades": 3, "usd": 1.0, "mean_usd": 1.0 / 3}))
+        self.assertFalse(chron.mean_derived({"trades": 3, "usd": 1.0, "mean_usd": 0.33}))  # напечатано в источнике
+        self.assertFalse(chron.mean_derived({"trades": 0, "usd": 0.0, "mean_usd": None}))
+        self.assertIn("=Σ/n", chron.fmt_metric_row(dict(mrow(1, trades=4, usd=2.0, mean_usd=0.5), src_commit=None)))
+
+    def test_parse_metric_arg(self):
+        r = self.cm.parse_metric_arg("side=обе; trades=1 200; usd=−3,5; src=docs/a.json@abc1234#x/y")
+        self.assertEqual((r["side"], r["trades"], r["usd"], r["src"], r["src_commit"], r["src_ptr"]), ("both", 1200, -3.5, "docs/a.json", "abc1234", "x/y"))
+        for bad in ("trades=1", "side=long; foo=1; src=a", "side=x; src=a", "trades; src=a"):
+            with self.assertRaises((ValueError, KeyError)):
+                self.cm.parse_metric_arg(bad)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=1)
