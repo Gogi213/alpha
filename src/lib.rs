@@ -7,6 +7,9 @@ pub mod binlog;
 pub mod book;
 pub mod breakout;
 pub mod bybit;
+// Коллекторы — epoll, AF_PACKET, eventfd, sched_setaffinity: только Linux
+// (живут на srv). На Windows модуль не собирается (TK-635).
+#[cfg(target_os = "linux")]
 pub mod collector;
 pub mod commands;
 pub mod feed;

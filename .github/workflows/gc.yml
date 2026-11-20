@@ -11,6 +11,10 @@ name: GC
 
 on:
   push:
+    # Только ветки: теги archive/* — снимки влитых веток, код уже проверен (TK-635).
+    # Один tags-ignore без branches отключил бы и ветки.
+    branches:
+      - "**"
   pull_request:
   workflow_dispatch:
 
