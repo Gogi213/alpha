@@ -1,0 +1,62 @@
+{
+ "wb-L": {
+  "rows": 413,
+  "rows_omega": 156,
+  "defined": {
+   "bd_imb02": 156,
+   "bd_imb1": 156,
+   "bd_imb2": 156,
+   "bd_thin5": 156,
+   "bd_thin30": 156,
+   "bd_depth_turn": 156,
+   "bd_age_s": 156,
+   "bd_mode": 156
+  },
+  "sha256": "1e280e73b50452d71ffc701f631f23a8c681d1997adbd8447dbcf2991387d7cf"
+ },
+ "wb-S": {
+  "rows": 219,
+  "rows_omega": 90,
+  "defined": {
+   "bd_imb02": 90,
+   "bd_imb1": 90,
+   "bd_imb2": 90,
+   "bd_thin5": 90,
+   "bd_thin30": 90,
+   "bd_depth_turn": 90,
+   "bd_age_s": 90,
+   "bd_mode": 90
+  },
+  "sha256": "1fe1bc2f36a6998d31b2f40940be654ef4dc8959239e6f1b6019b31d5b6525a2"
+ },
+ "wc-L": {
+  "rows": 423,
+  "rows_omega": 419,
+  "defined": {
+   "bd_imb02": 416,
+   "bd_imb1": 416,
+   "bd_imb2": 416,
+   "bd_thin5": 416,
+   "bd_thin30": 416,
+   "bd_depth_turn": 416,
+   "bd_age_s": 416,
+   "bd_mode": 416
+  },
+  "sha256": "779c40e29dbd452b9b6fb6859004035fd97d96da42a312544b472173f5d34336"
+ },
+ "wc-S": {
+  "rows": 214,
+  "rows_omega": 208,
+  "defined": {
+   "bd_imb02": 205,
+   "bd_imb1": 205,
+   "bd_imb2": 205,
+   "bd_thin5": 205,
+   "bd_thin30": 205,
+   "bd_depth_turn": 205,
+   "bd_age_s": 205,
+   "bd_mode": 205
+  },
+  "sha256": "914205be775059bedb97bd789adcdedfae95010acf30e90f5c7e370db42648cf"
+ }
+}
