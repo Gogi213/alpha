@@ -11,6 +11,9 @@ MONTHS = ("июл", "авг", "сен", "окт", "01–13.11")
 NAMES = {"L": "лонг", "S": "шорт"}
 UNI = {"h775": "честная вселенная h775 — РЕШАЮЩАЯ", "o566": "старые 566 монет o566 — справочно"}
 KIND = {"T": "пробная", "N": "сосед", "R": "справ."}
+# Срез 0,3 даёт один крупный кластер (55–205 монет) и один средний: cc и PEER — связь с широкой группой рынка, не сектор (критик, 20.11).
+FAM_LABEL = {"соседи по кластеру (PEER)": "связь с широкой группой рынка: соседи по кластеру (PEER)"}
+TOV_IDS = ("TOV_16", "TOV_24", "TOV_36", "TOV_54", "TOV_80")
 
 
 def money(x):
@@ -42,7 +45,7 @@ def rr_txt(v):
     r = v.get("rr")
     if not r:
         return "—"
-    return "R:R %s, стоп %s сд. (%s %% маржи)" % (sh(r["rr"]), r["stops"], "%.2f" % r["stop_loss_pct"] if r["stop_loss_pct"] == r["stop_loss_pct"] else "—")
+    return "R:R %s, стоп %s сд. (%s %% маржи)" % (sh(r["rr"]), r["stops"], "%.2f" % r["stop_loss_pct"] if r["stop_loss_pct"] is not None and r["stop_loss_pct"] == r["stop_loss_pct"] else "—")
 
 
 def kind_of(cid, r):
@@ -77,9 +80,50 @@ def answer_block(sel):
     for s in ("L", "S"):
         for fam, g in sel["groups"][s].items():
             b = g["best"]
-            lines.append("| %s · %s | %d | %d | %d | %d | %d | %d | %s |" % (NAMES[s], fam, g["trial"], g["admitted"], g["g1"], g["g2"], g["g3"], g["g4"], g["g5"],
+            lines.append("| %s · %s | %d | %d | %d | %d | %d | %d | %d | %s |" % (NAMES[s], FAM_LABEL.get(fam, fam), g["trial"], g["admitted"], g["g1"], g["g2"], g["g3"], g["g4"], g["g5"],
                                                                    "%s ± %.2f (%s)" % (per(b["d"]), b["se"], b["cid"]) if b else "—"))
     return "\n".join(lines) + "\n"
+
+
+def g5_reach(root, s):
+    """(g5) по построению (counts, без P&L): клетка TOV_X достижима, если у неё ≥ 2 допущенных соседа с J ≤ 0,8."""
+    c = json.load(open(os.path.join(root, "counts36-h775-%s.json" % s), encoding="utf-8"))
+    adm = {x["cid"]: x["admit_floor"] for x in c["cells"]}
+    return {cid: sum(1 for nb, j in c["jaccard"][cid].items() if adm.get(nb) and j <= 0.8) >= 2 for cid in TOV_IDS}
+
+
+def tov_ladder(sel, root):
+    """Все пять уровней TOV_X одной лесенкой (просьба владельца: перебор суточного оборота при фиксированном часовом t1h = 0,5 млн $); не только лучший."""
+    out = ["##### Лесенка суточного оборота TOV_X (торгуются только сделки с `turn24h ≥ X` млн $; ставка 500 $; Sharpe — годовой по суточному ряду; найдено на этих данных)\n",
+           "Помечено «виден P&L до записи» (эффект ключа `t24 = 12`, TK-621): максимум исхода — «кандидат для вперёд», не «работает». **На o566 нет ключа `t24 = 12`, поэтому повтор TOV на o566 по построению близок к подтверждению (тот же эффект `t24`, уже прочитанный в TK-621, U0 → U1) — не независимое подтверждение.** Колонка «g5 по построению» — по `counts` (≥ 2 допущенных соседа с J ≤ 0,8), до P&L.\n"]
+    for s in ("L", "S"):
+        reach = g5_reach(root, s)
+        out.append("**%s, h775 (решающая)**\n" % NAMES[s])
+        out.append("| ступень | g5 по построению | сделок | Σ $ | $/сделку | Sharpe | Δ ± SE $/сделку | p | допуск | g1 | g2 | g3 | g4 | g5 | прошла | Σ $ (сделок) по месяцам: %s | Sharpe по месяцам |" % " · ".join(MONTHS))
+        out.append("|---|---|---:|---:|---:|---:|---|---:|---|---|---|---|---|---|---|---|---|")
+        b = sel["slices_h775"][s]["база"]
+        out.append("| база (ключ 12 млн $) | — | %d | %s | %s | %s | — | — | — | — | — | — | — | — | — | %s | %s |" % (b["n"], money(b["sum"]), per(b["mean"]), sh(b["sharpe"]), mon(b), mon_sh(b)))
+        for cid in TOV_IDS:
+            r, v = sel["rows"][s].get(cid), sel["slices_h775"][s].get(cid)
+            if r is None or v is None:
+                continue
+            out.append("| %s млн $ | %s | %d | %s | %s | %s | %s ± %.2f | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |" % (
+                cid[4:], "да" if reach[cid] else "нет", v["n"], money(v["sum"]), per(v["mean"]), sh(v["sharpe"]), per(r["d"]), r["se"],
+                "%.4f" % r["p"] if r.get("p") is not None else "—", "да" if r.get("admitted") else "нет",
+                yes(r, "g1"), yes(r, "g2"), yes(r, "g3"), yes(r, "g4"), yes(r, "g5"), "**ДА**" if r.get("pass") else "нет", mon(v), mon_sh(v)))
+        out.append("")
+        out.append("**%s, o566 (справочно; без ключа `t24 = 12`)**\n" % NAMES[s])
+        out.append("| ступень | сделок | Σ $ | $/сделку | Sharpe | Δ ± SE $/сделку | g2 | g3 | g4 |")
+        out.append("|---|---:|---:|---:|---:|---|---|---|---|")
+        b = sel["slices_o566"][s]["база"]
+        out.append("| база | %d | %s | %s | %s | — | — | — | — |" % (b["n"], money(b["sum"]), per(b["mean"]), sh(b["sharpe"])))
+        for cid in TOV_IDS:
+            r, v = sel["rows_o566"][s].get(cid), sel["slices_o566"][s].get(cid)
+            if r is None or v is None or r.get("d") is None:
+                continue
+            out.append("| %s млн $ | %d | %s | %s | %s | %s ± %.2f | %s | %s | %s |" % (cid[4:], v["n"], money(v["sum"]), per(v["mean"]), sh(v["sharpe"]), per(r["d"]), r["se"], yes(r, "g2"), yes(r, "g3"), yes(r, "g4")))
+        out.append("")
+    return "\n".join(out) + "\n"
 
 
 def money_tables(sel, kinds):
@@ -177,6 +221,7 @@ if __name__ == "__main__":
     sel = json.load(open(os.path.join(root, "select36.json"), encoding="utf-8"))
     print(rr_first(root))
     print(answer_block(sel))
+    print(tov_ladder(sel, root))
     print(money_tables(sel, ("T", "R")))
     print("\n---\n")
     print("Соседи (плато, не пробные):\n")
