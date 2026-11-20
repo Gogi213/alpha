@@ -113,7 +113,7 @@ def build(res, out):
         best = max(cells.items(), key=lambda kv: kv[1]["sharpe"])
         nz = noise(best[1]["sharpe"], n_cells)
         nz_all = noise(best[1]["sharpe"], n_cells + PRIOR)
-        L.append("**Шумовой эталон (%s):** клеток стороны %d (после слияния дублей); наибольший Шарп — `%s` %s (n %d, Σ %s $); ожидаемый максимум шума %s, дефлированный Шарп %s, выше планки — %s. С прежними %d клетками TK-638/639 (контекст): планка %s, дефлированный %s.\n" % (
+        L.append("**Шумовой эталон (%s):** клеток стороны %d (после слияния дублей); наибольший Шарп — `%s` %s (n %d, Σ %s $); ожидаемый максимум шума %s, дефлированный Шарп %s, значим (survives) — %s. С прежними %d клетками TK-638/639 (контекст): планка %s, дефлированный %s.\n" % (
             SIDE[side], n_cells, best[0], f(best[1]["sharpe"], 2), best[1]["n"], f(best[1]["sum"], 1, True), f(nz["noise_bar"]), f(nz["deflated"]), "да" if nz["survives"] else "нет",
             PRIOR, f(nz_all["noise_bar"]), f(nz_all["deflated"])))
         nb = neighbours(defs, best[0])
