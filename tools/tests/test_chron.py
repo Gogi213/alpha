@@ -477,6 +477,13 @@ class TestMetrics(Base):
         self.assertEqual((rc, self.st.get(a)["psec"]["num"]), (0, "8в"))
         self.assertEqual(self.st.check_db(), [])
 
+    def test_list_order_date_only_same_day(self):
+        day = chron.now()[:10]
+        self.st.add_entry(entry("с часом", ts=day + "T00:01+04:00"), [])
+        self.st.add_entry(entry("без часа", ts=day), [])  # создана позже — выше
+        self.st.add_entry(entry("старая без часа", ts="2026-01-02"), [])
+        self.assertEqual([r["title"] for r in self.st.query({})["rows"]], ["без часа", "с часом", "старая без часа"])
+
     def test_prereg_date_from_parent(self):
         text = ("# P-91\n## 13. Раздел — записано 18.11.2026 до счёта\nа\n"
                 "### 13.5 Правило (до счёта)\nб\n### 13.6 Своё — записано 19.11.2026 до счёта\nв\n")

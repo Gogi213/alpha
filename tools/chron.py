@@ -263,6 +263,11 @@ def split_sql(script):
     return out
 
 
+# время записи для порядка «новые первыми»: дата без времени, записанная в тот же день, — время создания (иначе запись 20.11
+# без часа оказалась бы ниже записи 20.11 19:38, сделанной раньше неё)
+ENTRY_TS = "(CASE WHEN length(e.ts) = 10 AND substr(e.created, 1, 10) = e.ts THEN e.created ELSE coalesce(e.ts, '') END)"
+
+
 class Store:
     def __init__(self, conn):
         self.c = conn
@@ -699,7 +704,7 @@ class Store:
         rows = self.c.execute("SELECT e.id, e.ts, e.task, e.project, e.kind, e.verdict, e.title, e.usd, e.trades, e.sharpe, e.same_data, e.corrects,"
                               " (SELECT max(c.id) FROM entry c WHERE c.corrects = e.id) AS corrected_by,"
                               " (SELECT count(*) FROM metric m WHERE m.entry = e.id) AS n_metrics" + sql +
-                              " ORDER BY coalesce(e.ts, '') DESC, e.id DESC LIMIT ? OFFSET ?",
+                              " ORDER BY " + ENTRY_TS + " DESC, e.id DESC LIMIT ? OFFSET ?",
                               args + [int(f.get("limit") or 50), int(f.get("offset") or 0)]).fetchall()
         return {"rows": [dict(r) for r in rows], "total": total}
 
@@ -830,7 +835,7 @@ class Store:
                     why.setdefault(f, {}).setdefault(r, []).append(i)
         return {"total": self.c.execute("SELECT count(*) FROM entry WHERE src IS NOT NULL").fetchone()[0], "filled": filled, "why": why}
 
-    METRIC_SORT = {"usd": "m.usd", "sharpe": "m.sharpe", "trades": "m.trades", "mean": "m.mean_usd", "date": "coalesce(e.ts, '')", "entry": "m.entry"}
+    METRIC_SORT = {"usd": "m.usd", "sharpe": "m.sharpe", "trades": "m.trades", "mean": "m.mean_usd", "date": ENTRY_TS, "entry": "m.entry"}
 
     def metrics_query(self, f):
         """Числа по фильтрам: entry, project, side, uni, win, cell (подстрока), verdict ('—' = пусто), same_data, text (0/1),
