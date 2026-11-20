@@ -33,7 +33,7 @@ COMP = ("cb", "ce", "bt", "cc")
 CLU_DAYS, CLU_MIN_PAIRS, CLU_CUT, CLU_MIN_SIZE, CLU_MIN_OBS = 14, 2000, 0.3, 3, 100
 PEER_W = (("peer5", 5), ("peer15", 15), ("peer60", 60))
 PEERALL_W = 15
-REFRESH_WINDOW = {7: "wa", 8: "wa", 9: "wa", 10: "wb", 11: "wc"}     # месяц → окно, чей кэш покрывает 14 суток до обновления
+REFRESH_WINDOW = {7: "wa", 8: "wa", 9: "wb", 10: "wb", 11: "wc"}     # месяц → окно, чей кэш покрывает 14 суток до обновления (wa — данные до 29.08, поэтому 01.09 — по wb)
 REFS = ("BTCUSDT", "ETHUSDT")
 OUT_COLS = (["cls", "turn24h", "natr_bp", "age_d", "clu_id", "clu_n"] + [n for n, _ in PEER_W] + ["peerall15"] + ["%s_%s" % (c, w) for w in WIN_ORDER for c in COMP])
 GEQ_PAIRS = (("cb_24h", "c5_btc_24h"), ("ce_24h", "c5_eth_24h"), ("cb_7d", "c5_btc_7d"), ("ce_7d", "c5_eth_7d"))
@@ -238,11 +238,20 @@ class Events:
         return len({s for s in self.all_s[i:j] if s != sym})
 
 
-def load_events(uni, window, side):
+def load_events_df(uni, window, side):
+    """События стороны с записанным пересечением: (sym, cross_ms). Условие `ok_ev` НЕ используется (п. 4 §13.35: ok_ev смотрит на сутки после `cross_ms`); `cross_ms` пишется движком событий только при `ok_ev = 1` — события без записи пересечения (NATR ≤ 0, конец сетки) отсутствуют."""
     import pandas as pd
-    d = pd.read_csv(os.path.join(EV_DIR[uni], window + ".csv"), usecols=["side", "sym", "cross_ms", "ok_ev"])
-    d = d[(d["side"] == SIDE_NAME[side]) & (d["ok_ev"] == 1) & d["cross_ms"].notna()]
+    d = pd.read_csv(os.path.join(EV_DIR[uni], window + ".csv"), usecols=["side", "sym", "cross_ms"])
+    d = d[(d["side"] == SIDE_NAME[side]) & d["cross_ms"].notna()]
+    return d[["sym", "cross_ms"]].reset_index(drop=True)
+
+
+def events_of(d):
     return Events(d["sym"].to_numpy(dtype=object), d["cross_ms"].to_numpy(dtype=np.float64).astype(np.int64))
+
+
+def load_events(uni, window, side):
+    return events_of(load_events_df(uni, window, side))
 
 
 # ---- контракты и возраст -------------------------------------------------------------------------------------------------------------
@@ -303,8 +312,8 @@ def month_clusters(wobj, t0_date, month):
     """Метки кластеров месяца по 14 суткам до его начала — из матриц окна `wobj` (`month_clusters` читает только эти блоки)."""
     first = datetime.date(2026, month, 1)
     a, b = refresh_blocks(t0_date, first)
-    if a < 0:
-        return None
+    if a < 0 or b > wobj.R5.shape[1]:
+        raise RuntimeError("месяц %d: 14 суток до обновления вне кэша окна (блоки %d…%d из %d)" % (month, a, b, wobj.R5.shape[1]))
     bi, ei = wobj.ix.get(REFS[0]), wobj.ix.get(REFS[1])
     return cluster_labels(wobj.R5, bi, ei, a, b)
 
@@ -424,7 +433,9 @@ def cmd_g3x(a):
                 bad.append("clusters %02d: метки изменились от мусора после дня обновления" % mon)
         for side in ("L", "S"):
             tab = pd.read_csv(os.path.join(ROOT, "feat", u.name, "%s-%s.csv" % (w.name, side)))
-            ev = load_events(u.name, w.name, side)
+            evd = load_events_df(u.name, w.name, side)
+            ev = events_of(evd)
+            all_syms = np.asarray(evd["sym"].unique(), dtype=object)
             pick = rng.choice(len(tab), size=min(a.k // 6 + 1, len(tab)), replace=False)
             for i in pick:
                 sym, sig_ms = tab["sym"].iloc[i], int(tab["sig_ms"].iloc[i])
@@ -441,10 +452,16 @@ def cmd_g3x(a):
                     x, y = base[c], trash[c]
                     if not ((x != x and y != y) or x == y):
                         bad.append("%s %s %d: %s %r ≠ %r (мусор после t)" % (w.name, sym, sig_ms, c, x, y))
-                # события: мусор позже t не меняет счёт соседей
-                ev2 = Events(np.concatenate([ev.all_s, ev.all_s[:5]]), np.concatenate([ev.all_t, np.full(5, sig_ms + 5 * MIN_MS, dtype=np.int64)]))
+                # события: все с cross_ms >= t заменены мусором (сдвиг в [t, t + 6 ч)), плюс 20 лишних в [t, t + 1 ч) — счёт соседей на [t − W, t) не меняется
+                cm = evd["cross_ms"].to_numpy(dtype=np.float64).astype(np.int64)
+                late = cm >= sig_ms
+                cm2 = cm.copy()
+                cm2[late] = sig_ms + rng.integers(0, 6 * 60 * MIN_MS, int(late.sum()))
+                extra_s = rng.choice(all_syms, 20)
+                extra_t = sig_ms + rng.integers(0, 60 * MIN_MS, 20)
+                ev2 = Events(np.concatenate([evd["sym"].to_numpy(dtype=object), extra_s]), np.concatenate([cm2, extra_t]).astype(np.int64))
                 tr2 = row_values(wobj, labels_by_month, ev2, sym, sig_ms, abs_ms, contracts.get(sym))
-                for c in [n for n, _ in PEER_W]:
+                for c in [n for n, _ in PEER_W] + ["peerall15"]:
                     x, y = base[c], tr2[c]
                     if not ((x != x and y != y) or x == y):
                         bad.append("%s %s %d: %s %r ≠ %r (события ≥ t)" % (w.name, sym, sig_ms, c, x, y))
