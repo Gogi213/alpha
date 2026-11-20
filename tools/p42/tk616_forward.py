@@ -67,6 +67,7 @@ SEAM_LAST = 72                                         # последние су
 CAND_NAME, CAND_VERSION, CAND_CELL = "tk638-frozen.json", "tk638-frozen-1", "L_n24"      # TK-638: кандидат вперёд рядом с заморозкой
 ALPHA_TOTAL = 0.05                                     # §13.28.1 п. 3: сумма α всех клеток (C1)
 M24_MAX_SHARE = 0.01                                   # C2: доля зачётных кандидатов точки с m24 = 1, выше которой `L_n24` на точке не читается
+REQUIRE_CANDIDATE = True                               # кандидат — часть заморозки вперёд: нет `tk638-frozen.json` рядом с `--freeze` — остановка (второго источника α нет); False — только тесты прежнего поведения tk626
 GuardError = rf.GuardError
 
 
@@ -593,17 +594,23 @@ def check_feat_binary(path, cand):
 
 
 def resolve_candidate(a, fz, repo):
-    """(кандидат, {поля маркера}) или (None, {}): файл `--candidate`, иначе `tk638-frozen.json` рядом с `--freeze`, если он есть. Найденный кандидат — целиком под охраной (C1, коммит, `alpha-feat`)."""
+    """(кандидат, {поля маркера}): файл `--candidate`, иначе `tk638-frozen.json` рядом с `--freeze`. Кандидат в силе (α уже потрачены: S_base 0,025), поэтому нет файла — `GuardError`, молчаливого возврата к α tk626 нет.
+    Файл найден — целиком под охраной (C1, коммит); `--no-candidate` — α по кандидату применяются, но `L_n24` не читается (маркер: «кандидат не читан»); иначе ещё и `alpha-feat` (md5 / sha256)."""
     explicit = getattr(a, "candidate", "")
     path = explicit or candidate_path(a.freeze)
     if not os.path.exists(path):
-        if explicit:
-            raise GuardError("нет файла кандидата %s" % path)
+        if explicit or REQUIRE_CANDIDATE:
+            raise GuardError("нет файла кандидата %s: кандидат %s в силе, α S_base без него (0,03) не применяются — читать нельзя (без чтения кандидата — `--no-candidate`, файл всё равно нужен)" % (path, CAND_CELL))
         return None, {}
     cand = load_candidate(path, fz, a.freeze)
     commit, sha = check_freeze_committed(path, repo, getattr(a, "candidate_commit", ""), getattr(a, "candidate_sha256", ""))
+    info = {"candidate": CAND_CELL, "candidate_commit": commit, "candidate_sha256": sha, "candidate_read": False}
+    if getattr(a, "no_candidate", False):
+        info["candidate_note"] = "кандидат не читан (--no-candidate): α по кандидату применены (S_base %s)" % cand["alpha"]["S_base"]
+        return cand, info
     fmd5, fsha = check_feat_binary(getattr(a, "feat_bin", ""), cand)
-    return cand, {"candidate": CAND_CELL, "candidate_commit": commit, "candidate_sha256": sha, "feat_bin_md5": fmd5, "feat_bin_sha256": fsha}
+    info.update({"feat_bin_md5": fmd5, "feat_bin_sha256": fsha, "candidate_read": True})
+    return cand, info
 
 
 def n24_req(cand):
@@ -733,8 +740,8 @@ def replay_n24(a, runner=None, repo=REPO):
     fz = load_freeze(a.freeze)
     fcommit, fsha = check_freeze_committed(a.freeze, repo, a.freeze_commit, a.freeze_sha256)
     cand, cinfo = resolve_candidate(a, fz, repo)
-    if cand is None:
-        raise GuardError("нет файла кандидата %s рядом с заморозкой" % CAND_NAME)
+    if cand is None or not cinfo["candidate_read"]:
+        raise GuardError("replay-n24: нужен кандидат %s без --no-candidate" % CAND_NAME)
     md5, _sha = check_binary(a.bin, fz)
     if not a.ref or not os.path.exists(a.ref):
         raise GuardError("--ref: нет эталона G-638a (%r)" % a.ref)
@@ -817,6 +824,7 @@ def run_point(a, runner=None, today=None, repo=REPO):
     cand, cinfo = resolve_candidate(a, fz, repo)
     if cand is not None:
         fz = apply_candidate(fz, cand)                                   # C1: α из кандидата (S_base 0,025 + L_n24 0,005), не из tk626-frozen.json
+    run_cand = cand is not None and cinfo["candidate_read"]
     pt = get_point(fz, a.point)
     today = today or datetime.datetime.now(datetime.timezone.utc).date()
     check_point_date(pt, today)
@@ -857,7 +865,7 @@ def run_point(a, runner=None, today=None, repo=REPO):
         t, b = read_cell_tables(paths, reqs, wins_used)
         for c in reqs:
             tabs[key_of(c, u)], byw[key_of(c, u)] = t[c], b[c]
-        if cand is not None:                                             # C2: любая охрана таблицы `L_n24` — клетка не читается, остальные считаются
+        if run_cand:                                                     # C2: любая охрана таблицы `L_n24` — клетка не читается, остальные считаются
             t24, n24[u] = run_n24(paths, rn, uni["text"][u], a.bin, a.threads, wins_used, cand, a.feat_bin, a.tick_store, lambda w: (max(w.lod, F0), min(w.hid, to)))
             if t24 is not None:
                 tabs[key_of(CAND_CELL, u)] = t24
@@ -885,10 +893,10 @@ def run_point(a, runner=None, today=None, repo=REPO):
         rates = rf.load_funding_rates(a.funding, uni["lists"]["all"], months=tuple(months)) or None
     stats = {k: cell_point_stats(fz, k.split("|")[0], pt, rows[k], to, rates, a.nboot, uni=k.split("|")[1]) for k in rows}
     res = {"point": pt, "freeze_commit": commit, "freeze_sha256": fsha, "bin_md5": md5, "stats": stats, "seams": {k: len(x) for k, x in seam.items()},
-           "prefix": {"forced_prev": forced, "diffs": {c: len(x) for c, x in pref.items()}}, "n24": n24, "tree_files": ntree, "manifest_files": len(man),
+           "prefix": {"forced_prev": forced, "diffs": {c: len(x) for c, x in pref.items()}}, "n24": n24, "candidate": cinfo, "tree_files": ntree, "manifest_files": len(man),
            "universe": {"n": {n: len(v) for n, v in uni["lists"].items()}, "sha256": uni["sha256"]}}
     json.dump(res, open(os.path.join(a.root, "point-%s.json" % pt["id"]), "w", encoding="utf-8"), ensure_ascii=False, indent=1, default=float)
-    if cand is not None:
+    if run_cand:
         json.dump(n24, open(os.path.join(a.root, "READ-%s.n24.json" % pt["id"]), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
     open(os.path.join(a.root, "READ-%s.done" % pt["id"]), "w").close()
     print(render(res))
@@ -910,6 +918,8 @@ def render(res):
             f2(s["fund_bound"]), s["fund_mode"], "да" if s["fund_ok"] else "нет", s["decision"]))
     L += ["", "Швы окон: различий %s; префикс-охрана: %s; forced точки-предшественницы: %s" % (res["seams"], res["prefix"]["diffs"] or "нет предшественницы", res["prefix"]["forced_prev"] or "—"),
           "Вселенная точки: %s; файлов в манифесте %d" % (res["universe"]["n"], res["manifest_files"])]
+    if (res.get("candidate") or {}).get("candidate_read") is False:
+        L.append("%s (кандидат TK-638): %s" % (CAND_CELL, res["candidate"]["candidate_note"]))
     for u, x in (res.get("n24") or {}).items():
         L.append("%s (кандидат TK-638), вселенная %s: %s; доля кандидатов L_base с m24 = 1 среди зачётных %s; no_key %s%s" % (
             CAND_CELL, u, "прочитана" if x["status"] == "read" else "НЕ ЧИТАЛАСЬ", "—" if x["m24_share"] is None else "%.3f %%" % (100 * x["m24_share"]), x["no_key"] if x["no_key"] is not None else "—",
@@ -927,7 +937,7 @@ def cmd_plan(a):
         fz = apply_candidate(fz, cand)
         print("кандидат %s (%s): α %s; клетка %s vid %s, фильтр %s ≥ %s" % (CAND_NAME, cand["version"], fz["alpha"], CAND_CELL, cand["cells"][CAND_CELL]["vid"], cand["filter"]["name"], cand["filter"]["N"]))
     else:
-        print("кандидата %s рядом с заморозкой нет: α — из заморозки" % CAND_NAME)
+        print("кандидата %s рядом с заморозкой нет — чтение точки остановится (кандидат в силе: α S_base 0,025)" % CAND_NAME)
     for w in fz["windows"]:
         print("окно %s T0 %s зачёт %s…%s" % (w["name"], w["t0"], w["lo"], w["hi"]))
     for p in fz["points"]:
@@ -954,6 +964,7 @@ def main(argv=None):
     ap.add_argument("--funding", default="")
     ap.add_argument("--nboot", type=int, default=NBOOT)
     ap.add_argument("--candidate", default="", help="файл кандидата (по умолчанию `%s` рядом с --freeze, если он есть)" % CAND_NAME)
+    ap.add_argument("--no-candidate", action="store_true", help="L_n24 не читать (файл кандидата всё равно нужен: α S_base 0,025 уже потрачены); в маркере «кандидат не читан»")
     ap.add_argument("--candidate-commit", default="")
     ap.add_argument("--candidate-sha256", default="")
     ap.add_argument("--feat-bin", default="", help="`alpha-feat` кандидата (md5 / sha256 — в файле кандидата)")

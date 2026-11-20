@@ -23,6 +23,7 @@ import tk616_forward as fw  # noqa: E402
 import tk616_freeze as old  # noqa: E402
 import tk626_freeze as fz  # noqa: E402
 
+fw.REQUIRE_CANDIDATE = False                          # прежние тесты — заморозка tk626 без кандидата; охрана «нет кандидата — остановка» (TK-638, FIX критика) включается в своих тестах через `strict()`
 NB = 4000
 DAY = rf.DAY_MS
 CRYPTO, TRADFI = ["AAAUSDT", "BBBUSDT", "CCCUSDT", "DDDUSDT"], ["EEEUSDT", "FFFUSDT"]
@@ -31,6 +32,15 @@ NEW1, NEW2 = ("NEWAUSDT", False, "2026-11-20", "2026-11-30"), ("NEWBUSDT", True,
 BIN_BYTES = b"synthetic-binary"
 D = datetime.date.fromisoformat
 UNIS = {"all": COINS, "crypto": CRYPTO, "tradfi": TRADFI}
+
+
+@contextlib.contextmanager
+def strict():
+    fw.REQUIRE_CANDIDATE = True
+    try:
+        yield
+    finally:
+        fw.REQUIRE_CANDIDATE = False
 
 
 @contextlib.contextmanager
@@ -1047,6 +1057,7 @@ def test_n24_m24_share_gate_is_per_universe_and_leaves_other_cells_unchanged():
     assert p3["n24"]["all"]["status"] == "skip" and p3["n24"]["crypto"]["status"] == "skip" and p3["n24"]["tradfi"]["status"] == "read"
     assert p3["n24"]["all"]["m24_share"] > 0.01 and "> 1 %" in p3["n24"]["all"]["reason"] and "не читается" in p3["n24"]["all"]["reason"]
     assert "L_n24|all" not in p3["stats"] and "L_n24|crypto" not in p3["stats"] and "L_n24|tradfi" in p3["stats"]
+    assert abs(p3["stats"]["S_base|all"]["alpha_k"] - 0.025 * 0.04) < 1e-12 and abs(base["stats"]["S_base|all"]["alpha_k"] - 0.025 * 0.04) < 1e-12        # α(S_base) 0,025 и при пропуске L_n24 (α уже потрачены)
     for k in KEYS:                                                   # остальные клетки — те же числа, что без сбоя
         assert p3["stats"][k] == base["stats"][k] and p1["stats"][k] == base["stats"][k], k
     assert p3["prefix"]["diffs"] == {k: 0 for k in list(KEYS) + ["L_n24|tradfi"]}                  # префикс-охрана — только по клеткам, посчитанным сейчас (L_n24|all на L1 был)
@@ -1082,6 +1093,34 @@ def test_n24_cell_skipped_on_a_later_point_or_read_after_a_skip_does_not_break_t
         assert rc == 0 and all(x["status"] == "read" for x in p2["n24"].values()) and p2["stats"]["L_n24|all"]["n"] > 0
 
 
+def test_missing_candidate_file_stops_the_read_and_no_candidate_keeps_alpha_without_reading_l_n24():
+    with strict(), tmp() as t:
+        e = Env(t)                                                                                 # tk638-frozen.json рядом с заморозкой нет
+        prepare(e, "L1", D("2026-11-30"))
+        r = N24Runner(D("2026-11-30"))
+        marker = os.path.join(e.fwd, "READ-L1.started")
+        expect_guard(lambda: fw.run_point(e.args("L1"), runner=r, today=D("2026-12-01"), repo=e.root), "нет файла кандидата")
+        expect_guard(lambda: fw.run_point(e.args("L1", no_candidate=True), runner=r, today=D("2026-12-01"), repo=e.root), "нет файла кандидата")      # флаг файл не заменяет
+        ra = argparse.Namespace(freeze=e.freeze, freeze_commit="c0ffee", freeze_sha256=fw.sha256_text(e.freeze), candidate="", candidate_commit="", candidate_sha256="", feat_bin="", bin=e.bin, ref="")
+        expect_guard(lambda: fw.replay_n24(ra, runner=r, repo=e.root), "нет файла кандидата")
+        assert r.calls == 0 and not os.path.exists(marker)
+    with tmp() as t:
+        e, c, cp = cand_env(t)
+        prepare(e, "L1", D("2026-11-30"))
+        r = N24Runner(D("2026-11-30"))
+        expect_guard(lambda: fw.replay_n24(replay_args(e, cp, t, "", no_candidate=True), runner=r, repo=e.root), "без --no-candidate")
+        rc = fw.run_point(e.args("L1", **cand_kw(e, cp, no_candidate=True, feat_bin="")), runner=r, today=D("2026-12-01"), repo=e.root)          # alpha-feat не нужен: L_n24 не читается
+        assert rc == 0 and r.calls == 3 and all("tcount" not in x[0] and "--ftab" not in x[0] and not (x[1] or {}).get("P42_SIGSX_ONLY") for x in r.log)
+        marker = read_json(e.fwd, "READ-L1.started")
+        assert marker["candidate_read"] is False and "кандидат не читан" in marker["candidate_note"] and marker["candidate_commit"] == "c0ffee" and "feat_bin_md5" not in marker
+        p1 = read_json(e.fwd, "point-L1.json")
+        assert set(p1["stats"]) == set(KEYS) and p1["n24"] == {} and not os.path.exists(os.path.join(e.fwd, "READ-L1.n24.json"))
+        assert "кандидат не читан" in fw.render(p1)
+        rc2, _ = run_c(e, "L2", D("2027-01-01"), D("2026-12-31"), runner=N24Runner(D("2026-12-31")), **cand_kw(e, cp, no_candidate=True))
+        p2 = read_json(e.fwd, "point-L2.json")
+        assert rc2 == 0 and abs(p2["stats"]["S_base|all"]["alpha_k"] - 0.025 * 0.04) < 1e-12 and "L_n24|all" not in p2["stats"]          # α(S_base) 0,025, не 0,03
+
+
 def test_plan_prints_the_candidate_alpha():
     def plan(e):
         return subprocess.run([sys.executable, "-I", "-X", "utf8", os.path.join(HERE, "..", "tk616_forward.py"), "plan", "--freeze", e.freeze, "--root", e.fwd], capture_output=True, text=True,
@@ -1092,7 +1131,7 @@ def test_plan_prints_the_candidate_alpha():
         out = plan(e)
         assert out.returncode == 0 and "tk638-frozen.json (tk638-frozen-1)" in out.stdout and "'L_n24': 0.005" in out.stdout and "α(S_base) 0.0010" in out.stdout, out.stdout + out.stderr
     with tmp() as t:
-        assert "кандидата tk638-frozen.json рядом с заморозкой нет" in plan(Env(t)).stdout
+        assert "кандидата tk638-frozen.json рядом с заморозкой нет — чтение точки остановится" in plan(Env(t)).stdout
 
 
 def replay_args(e, cp, root, ref, **kw):
