@@ -520,6 +520,40 @@ ROW_KEYS = ("side", "cell", "uni", "win", "trades", "usd", "mean_usd", "sharpe",
 GAP_REASONS = ("предрегистрация", "заморозка", "не запускалось", "числа не вписаны", "чисел сделок нет")
 
 
+def _line_span(ptr):
+    """«строка 12» / «12» / «12-14» → (12, 14); иначе None."""
+    m = re.fullmatch(r"(?:строка\s*)?(\d+)(?:\s*[-–]\s*(\d+))?", (ptr or "").strip())
+    return (int(m.group(1)), int(m.group(2) or m.group(1))) if m else None
+
+
+def _nums_in(text):
+    """Числа текста: как написаны, с группами разрядов (11 224 843), с «млн» / «тыс.», «ноль» = 0; запятая — десятичная."""
+    t = re.sub(r"(?<=\d),(?=\d)", ".", re.sub(r"[   ]", " ", text))
+    out = {0.0} if re.search(r"\bнол[ья]\b", t) else set()
+    for m in re.finditer(r"\d+(?:\.\d+)?", t):
+        out.add(float(m.group(0)))
+    for m in re.finditer(r"(?<![\w.-])\d{1,3}(?: \d{3})+(?:\.\d+)?(?![\d.])", t):
+        out.add(float(m.group(0).replace(" ", "")))
+    for m in re.finditer(r"(\d+(?:\.\d+)?)\s*(млн|тыс)", t):
+        out.add(round(float(m.group(1)) * (1e6 if m.group(2) == "млн" else 1e3), 6))
+    return out
+
+
+def check_text_line(raw, ptr, row, where=""):
+    """Строка «из текста»: место есть в файле (не дальше конца) и каждое число строки (trades / usd / sharpe / extra) стоит на этой строке."""
+    sp = _line_span(ptr)
+    if not sp:
+        return
+    lines = raw.splitlines()
+    if sp[0] < 1 or sp[1] > len(lines) or sp[0] > sp[1]:
+        raise ValueError("%s: строка %s — в файле %d строк" % (where, ptr, len(lines)))
+    have = _nums_in(" ".join(lines[sp[0] - 1:sp[1]]))
+    vals = [row.get(k) for k in ("trades", "usd", "sharpe")] + list((row.get("extra") or {}).values())
+    miss = [v for v in vals if isinstance(v, (int, float)) and not isinstance(v, bool) and not any(abs(abs(v) - h) < 1e-9 for h in have)]
+    if miss:
+        raise ValueError("%s: на строке %s нет чисел %s" % (where, ptr, ", ".join("%g" % v for v in miss)))
+
+
 def read_at(repo, path, commit=None):
     """Текст файла: из дерева, а с коммитом — ровно та версия (удалённый файл — из истории)."""
     if commit:
@@ -611,7 +645,7 @@ def spec_rows(root, spec, entries):
         cand = []
         for r in it.get("rows") or []:
             ln = r.get("line") or it.get("line")
-            cand.append((dict(base, **r), "строка %d" % ln if ln else it.get("ptr")))
+            cand.append((dict(base, **r), "строка %s" % ln if ln else it.get("ptr")))
         if it.get("pick"):
             obj = recs = None
             if src.endswith(".json"):
@@ -643,6 +677,9 @@ def spec_rows(root, spec, entries):
                         r["extra"] = dict(r["extra"], note=pk["note"]) if r["extra"] else {"note": pk["note"]}
                     cand.append((r, "/".join(pth) if recs is None else pth[0]))
         for r, ptr in cand:
+            if text:
+                check_text_line(raw, ptr, r, "%s (%s)" % (where, r.get("cell")))
+            replaces = r.pop("replaces", None)  # прежнее место той же строки в БД (неверное) — строка заменяется, не дублируется
             bad = set(r) - set(ROW_KEYS) - {"line", "mean"}
             if bad:
                 raise ValueError("%s: лишние поля %s" % (where, ", ".join(sorted(bad))))
@@ -666,5 +703,7 @@ def spec_rows(root, spec, entries):
                 row["extra"] = dict(row["extra"] or {}, stake="позиция 500 $ (--order-usd 500)")
             row.update(entry=eid, from_text=text, src=src, src_commit=commit, src_ptr=ptr)
             row["h"] = row_hash(eid, row)
+            if replaces:
+                row["replaces"] = replaces
             out.append(row)
     return out, gaps

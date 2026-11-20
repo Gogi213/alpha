@@ -298,18 +298,18 @@ for title, keys, base, tab in (
             ("2 ч", "отскок", 20441, (0.62, 1.08, 1.65, 2.21), (79, 59, 29, 12, 7, 2)), ("2 ч", "пробой", 15151, (0.59, 1.07, 1.73, 2.39), (76, 57, 27, 13, 7, 3))))):
     for i, (h, out, n, q, sh) in enumerate(tab):
         xs_rows.append(r("%s, H = %s, %s" % (title, h, out), line=base + i, extra=dict(n=n, **dict(zip(XQ, q)), **dict(zip(keys, sh)))))
-xs_rows.append(r("касаний на входе (сила ×соседи ≥ 300 %, ≥ $1k), 94 монеты", line=11, extra={"touches": 38150, "coins": 94}))
+xs_rows.append(r("касаний на входе (сила ×соседи ≥ 300 %, ≥ $1k), 94 монеты", line="10-11", replaces="строка 11", extra={"touches": 38150, "coins": 94}))
 text(183, XS, None, xs_rows, win="09-16–09-17")
 text(184, E, 122, [r("markout при силе ×поток ≥ 100 %", extra={"bps_per_h": 10.6}), r("возраст работает с, мин", extra={"age_min": 45})])
 text(185, E, 123, [r("сила ≥ 100 % ∩ возраст ≥ 15 мин: касаний в сутки на пул", extra={"touches_per_day": 3})])
 DL = "docs/archive/findings/density-lifetime-2026-09-19.md"
 DB = "docs/archive/findings/density-bots-2026-09-19.md"
-text(186, DL, None, [r("умерших сильных плотностей (полы В-66), 100 монет", line=10, extra={"levels": 11224843, "coins": 100}),
+text(186, DL, None, [r("умерших сильных плотностей (полы В-66), 100 монет", line="5-10", replaces="строка 10", extra={"levels": 11224843, "coins": 100}),
                      *[r("жизнь плотности " + b, line=ln, extra={"levels": n, "share_pct": pc}) for b, ln, n, pc in (
                          ("< 10 с", 14, 7614747, 67.8), ("10–60 с", 15, 2388835, 21.3), ("1–10 мин", 16, 1139708, 10.2), ("10–60 мин", 17, 78875, 0.7), ("≥ 1 ч", 18, 2678, 0.02))],
                      r("квантили жизни, с (p90 / p99 — мин)", line=20, extra={"p10": 0.1, "p25": 0.5, "p50": 3.0, "p75": 16.7, "p90_min": 1.1, "p99_min": 8.1})], win="09-16–09-17")
-text(186, DB, None, [r("чужие боты: выход при съедании плотности, % (их дефолты)", line=65, extra={"trigger1_pct": 50, "close1_pct": 50, "trigger2_pct": 80, "close2_pct": 100}),
-                     r("DensityBounceGuard: задержка до Binance (их пример, VPN), мс", line=82, extra={"latency_ms": 178})])
+text(186, DB, None, [r("чужие боты: выход при съедании плотности, % (их дефолты)", line=29, replaces="строка 65", extra={"trigger1_pct": 50, "close1_pct": 50, "trigger2_pct": 80}),
+                     r("DensityBounceGuard: задержка до Binance (их пример, VPN), мс", line=46, replaces="строка 82", extra={"latency_ms": 178})])
 text(187, E, 125, [r("монет < 100 касаний за двое суток", extra={"coins": 23}), r("CAP / AXL: касаний", extra={"touches": 0})])
 text(188, E, 126, [r("задержка живыми ордерами, DOGE, 100 циклов, мс", extra={"place_ms": 4.2, "cancel_ms": 4.0, "taker_ms": 5.7, "cycles": 100})])
 text(189, E, 127, [r("круги a45", side="long", extra={"bps_min": 12, "bps_max": 17}), r("круги a45", side="short", extra={"bps_min": -19, "bps_max": -16})])

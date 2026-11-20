@@ -3041,7 +3041,8 @@
     },
     {
      "cell": "касаний на входе (сила ×соседи ≥ 300 %, ≥ $1k), 94 монеты",
-     "line": 11,
+     "line": "10-11",
+     "replaces": "строка 11",
      "extra": {
       "touches": 38150,
       "coins": 94
@@ -3092,7 +3093,8 @@
    "rows": [
     {
      "cell": "умерших сильных плотностей (полы В-66), 100 монет",
-     "line": 10,
+     "line": "5-10",
+     "replaces": "строка 10",
      "extra": {
       "levels": 11224843,
       "coins": 100
@@ -3161,17 +3163,18 @@
    "rows": [
     {
      "cell": "чужие боты: выход при съедании плотности, % (их дефолты)",
-     "line": 65,
+     "line": 29,
+     "replaces": "строка 65",
      "extra": {
       "trigger1_pct": 50,
       "close1_pct": 50,
-      "trigger2_pct": 80,
-      "close2_pct": 100
+      "trigger2_pct": 80
      }
     },
     {
      "cell": "DensityBounceGuard: задержка до Binance (их пример, VPN), мс",
-     "line": 82,
+     "line": 46,
+     "replaces": "строка 82",
      "extra": {
       "latency_ms": 178
      }

@@ -33,7 +33,7 @@ VERDICTS = ("работает", "не работает", "не ясно", "оп�
 METRIC_COLS = ("side", "cell", "uni", "win", "trades", "usd", "mean_usd", "sharpe", "verdict", "same_data", "from_text", "src", "src_commit",
                "src_ptr", "extra")
 KINDS = ("verdict", "prereg", "amend", "freeze", "result", "step", "measure", "experiment", "correction", "note")
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 # почему у записи нет чисел (TK-661): строка metric_gap — объяснение пробела в БД, не в карточке
 GAP_REASONS = ("предрегистрация", "заморозка", "не запускалось", "числа не вписаны", "чисел сделок нет")
 HERE = Path(__file__).resolve().parent if "__file__" in globals() else Path.cwd()
@@ -147,6 +147,16 @@ CREATE TABLE metric_gap(
 CREATE INDEX metric_gap_entry ON metric_gap(entry);
 CREATE TRIGGER metric_gap_noupdate BEFORE UPDATE ON metric_gap BEGIN SELECT RAISE(ABORT, 'chron: пометки «нет чисел» только добавляются'); END;
 CREATE TRIGGER metric_gap_nodelete BEFORE DELETE ON metric_gap BEGIN SELECT RAISE(ABORT, 'chron: пометки «нет чисел» только добавляются'); END;
+""",
+           6: """
+-- замена строки чисел (TK-661): прежняя строка остаётся, но не действует (неверное место в источнике и т. п.); только добавляются
+CREATE TABLE metric_fix(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  metric INTEGER NOT NULL UNIQUE REFERENCES metric(id), replaced_by INTEGER NOT NULL REFERENCES metric(id),
+  reason TEXT NOT NULL, author TEXT, created TEXT NOT NULL, CHECK (metric <> replaced_by));
+CREATE TRIGGER metric_fix_noupdate BEFORE UPDATE ON metric_fix BEGIN SELECT RAISE(ABORT, 'chron: замены чисел только добавляются'); END;
+CREATE TRIGGER metric_fix_nodelete BEFORE DELETE ON metric_fix BEGIN SELECT RAISE(ABORT, 'chron: замены чисел только добавляются'); END;
+CREATE VIEW metric_cur AS SELECT * FROM metric WHERE id NOT IN (SELECT metric FROM metric_fix);
 """}
 FTS_SQL = "CREATE VIRTUAL TABLE fts USING fts5(node UNINDEXED, title, body, tokenize='trigram')"
 
@@ -519,6 +529,29 @@ class Store:
             self.c.execute("ROLLBACK")
             raise
 
+    def add_metric_fixes(self, rows, author=None):
+        """rows: [{entry, src, cell, replaces: прежний src_ptr, h: новая строка, reason}] → {new, same}: прежняя строка не действует,
+        действует новая; прежняя ищется по записи + источнику + клетке + месту и должна быть одна; повтор не пишется."""
+        self.c.execute("BEGIN IMMEDIATE")
+        try:
+            new = 0
+            for r in rows:
+                nid = self.c.execute("SELECT id FROM metric WHERE h=?", (r["h"],)).fetchone()
+                if not nid:
+                    raise ChronError("замена L-%s %s: новой строки нет в БД" % (r["entry"], r.get("cell")))
+                old = self.c.execute("SELECT id FROM metric WHERE entry=? AND src=? AND cell IS ? AND src_ptr=? AND id<>?",
+                                     (r["entry"], r["src"], r.get("cell"), r["replaces"], nid[0])).fetchall()
+                if len(old) != 1:
+                    raise ChronError("замена L-%s %s (%s): прежних строк %d, нужна одна" % (r["entry"], r.get("cell"), r["replaces"], len(old)))
+                cur = self.c.execute("INSERT OR IGNORE INTO metric_fix(metric, replaced_by, reason, author, created) VALUES (?,?,?,?,?)",
+                                     (old[0][0], nid[0], r.get("reason") or "неверное место в источнике", author, now()))
+                new += cur.rowcount
+            self.c.execute("COMMIT")
+            return {"new": new, "same": len(rows) - new}
+        except BaseException:
+            self.c.execute("ROLLBACK")
+            raise
+
     def add_gaps(self, rows, author=None):
         """rows: [{entry, reason, note, src, src_ptr}] → {new, same}: пометка «нет чисел» (TK-661); повтор (запись + причина) не пишется."""
         self.c.execute("BEGIN IMMEDIATE")
@@ -729,18 +762,18 @@ class Store:
             where.append("substr(e.ts, 1, 10) <= ?")
             args.append(f["until"])
         if f.get("nums"):  # есть числа: «файл» — из файлов результатов, «текст» — только из текста, «нет»
-            where.append({"есть": "EXISTS (SELECT 1 FROM metric m WHERE m.entry = e.id)",
-                          "файл": "EXISTS (SELECT 1 FROM metric m WHERE m.entry = e.id AND m.from_text = 0)",
-                          "текст": "EXISTS (SELECT 1 FROM metric m WHERE m.entry = e.id) AND NOT EXISTS (SELECT 1 FROM metric m WHERE m.entry = e.id AND m.from_text = 0)",
-                          "нет": "NOT EXISTS (SELECT 1 FROM metric m WHERE m.entry = e.id)",
-                          "пометка": "EXISTS (SELECT 1 FROM metric_gap g WHERE g.entry = e.id) AND NOT EXISTS (SELECT 1 FROM metric m WHERE m.entry = e.id)",
-                          "без объяснения": "NOT EXISTS (SELECT 1 FROM metric m WHERE m.entry = e.id) AND NOT EXISTS (SELECT 1 FROM metric_gap g WHERE g.entry = e.id)"
+            where.append({"есть": "EXISTS (SELECT 1 FROM metric_cur m WHERE m.entry = e.id)",
+                          "файл": "EXISTS (SELECT 1 FROM metric_cur m WHERE m.entry = e.id AND m.from_text = 0)",
+                          "текст": "EXISTS (SELECT 1 FROM metric_cur m WHERE m.entry = e.id) AND NOT EXISTS (SELECT 1 FROM metric_cur m WHERE m.entry = e.id AND m.from_text = 0)",
+                          "нет": "NOT EXISTS (SELECT 1 FROM metric_cur m WHERE m.entry = e.id)",
+                          "пометка": "EXISTS (SELECT 1 FROM metric_gap g WHERE g.entry = e.id) AND NOT EXISTS (SELECT 1 FROM metric_cur m WHERE m.entry = e.id)",
+                          "без объяснения": "NOT EXISTS (SELECT 1 FROM metric_cur m WHERE m.entry = e.id) AND NOT EXISTS (SELECT 1 FROM metric_gap g WHERE g.entry = e.id)"
                           }.get(f["nums"], "1"))
         sql = " FROM entry e" + (" WHERE " + " AND ".join(where) if where else "")
         total = self.c.execute("SELECT count(*)" + sql, args).fetchone()[0]
         rows = self.c.execute("SELECT e.id, e.ts, e.task, e.project, e.kind, e.verdict, e.title, e.usd, e.trades, e.sharpe, e.same_data, e.corrects,"
                               " (SELECT max(c.id) FROM entry c WHERE c.corrects = e.id) AS corrected_by,"
-                              " (SELECT count(*) FROM metric m WHERE m.entry = e.id) AS n_metrics,"
+                              " (SELECT count(*) FROM metric_cur m WHERE m.entry = e.id) AS n_metrics,"
                               " (SELECT group_concat(g.reason, ', ') FROM metric_gap g WHERE g.entry = e.id) AS gap" + sql +
                               " ORDER BY " + ENTRY_TS + " DESC, e.id DESC LIMIT ? OFFSET ?",
                               args + [int(f.get("limit") or 50), int(f.get("offset") or 0)]).fetchall()
@@ -800,9 +833,12 @@ class Store:
                 raise ChronError("нет записи %s" % n)
             res["entry"] = dict(r)
             res["corrected_by"] = [x[0] for x in self.c.execute("SELECT id FROM entry WHERE corrects=? ORDER BY id", (r["id"],))]
-            res["metrics_total"] = self.c.execute("SELECT count(*) FROM metric WHERE entry=?", (r["id"],)).fetchone()[0]
-            res["metrics"] = [dict(x) for x in self.c.execute("SELECT * FROM metric WHERE entry=? ORDER BY id LIMIT ?", (r["id"], metrics_limit))]
+            res["metrics_total"] = self.c.execute("SELECT count(*) FROM metric_cur WHERE entry=?", (r["id"],)).fetchone()[0]
+            res["metrics"] = [dict(x) for x in self.c.execute("SELECT * FROM metric_cur WHERE entry=? ORDER BY id LIMIT ?", (r["id"], metrics_limit))]
             # пометка неудаляема: у записи появились числа — «снята: числа добавлены», в покрытии не считается
+            res["metric_fixes"] = [dict(x) for x in self.c.execute(
+                "SELECT f.metric, f.replaced_by, f.reason, m.src_ptr AS old_ptr, n.src_ptr AS new_ptr FROM metric_fix f"
+                " JOIN metric m ON m.id = f.metric JOIN metric n ON n.id = f.replaced_by WHERE m.entry=? ORDER BY f.id", (r["id"],))]
             res["gaps"] = [dict(x, lifted=1 if res["metrics_total"] else 0) for x in self.c.execute("SELECT * FROM metric_gap WHERE entry=? ORDER BY id", (r["id"],))]
         elif k == "psec":
             r = self.c.execute("SELECT p.*, r.short FROM psec_cur p JOIN protocol r ON r.id=p.protocol WHERE p.id=?", (int(n[3:]),)).fetchone()
@@ -859,7 +895,7 @@ class Store:
         return {"entries": q("SELECT count(*) FROM entry"), "entries_imported": q("SELECT count(*) FROM entry WHERE src IS NOT NULL"),
                 "protocols": q("SELECT count(*) FROM protocol"), "sections": q("SELECT count(*) FROM psec"),
                 "sections_prereg": q("SELECT count(*) FROM psec_cur WHERE prereg=1"), "flag_fixes": q("SELECT count(*) FROM psec_flag"), "num_fixes": q("SELECT count(*) FROM psec_num"),
-                "metrics": q("SELECT count(*) FROM metric"), "entries_with_metrics": q("SELECT count(DISTINCT entry) FROM metric"), "links": q("SELECT count(*) FROM link"),
+                "metrics": q("SELECT count(*) FROM metric_cur"), "entries_with_metrics": q("SELECT count(DISTINCT entry) FROM metric_cur"), "links": q("SELECT count(*) FROM link"),
                 "kb_nodes": q("SELECT count(*) FROM kb_node"), "docs": q("SELECT count(DISTINCT path) FROM doc"),
                 "db_bytes": q("SELECT page_count * page_size FROM pragma_page_count(), pragma_page_size()")}
 
@@ -907,7 +943,7 @@ class Store:
             args.append(int(f["min_trades"]))
         if f.get("has_usd"):
             where.append("m.usd IS NOT NULL")
-        sql = " FROM metric m JOIN entry e ON e.id = m.entry" + (" WHERE " + " AND ".join(where) if where else "")
+        sql = " FROM metric_cur m JOIN entry e ON e.id = m.entry" + (" WHERE " + " AND ".join(where) if where else "")
         total = self.c.execute("SELECT count(*)" + sql, args).fetchone()[0]
         srt = f.get("sort") or "-date"
         col = self.METRIC_SORT.get(srt.lstrip("-"))
@@ -919,9 +955,9 @@ class Store:
         return {"rows": [dict(r) for r in rows], "total": total}
 
     def metrics_facets(self):
-        q = lambda col: [r[0] for r in self.c.execute("SELECT %s FROM metric WHERE %s IS NOT NULL GROUP BY %s ORDER BY count(*) DESC LIMIT 60" % (col, col, col))]
+        q = lambda col: [r[0] for r in self.c.execute("SELECT %s FROM metric_cur WHERE %s IS NOT NULL GROUP BY %s ORDER BY count(*) DESC LIMIT 60" % (col, col, col))]
         return {"uni": q("uni"), "win": q("win"),
-                "projects": [r[0] for r in self.c.execute("SELECT e.project FROM metric m JOIN entry e ON e.id=m.entry WHERE e.project IS NOT NULL"
+                "projects": [r[0] for r in self.c.execute("SELECT e.project FROM metric_cur m JOIN entry e ON e.id=m.entry WHERE e.project IS NOT NULL"
                                                           " GROUP BY e.project ORDER BY count(*) DESC")]}
 
     def metrics_coverage(self):
@@ -929,19 +965,19 @@ class Store:
         out = []
         for r in self.c.execute(
                 "SELECT coalesce(e.project, '—') AS project, count(*) AS entries,"
-                " sum(EXISTS (SELECT 1 FROM metric m WHERE m.entry = e.id)) AS with_metrics,"
-                " sum(EXISTS (SELECT 1 FROM metric m WHERE m.entry = e.id AND m.from_text = 0)) AS from_files,"
-                " sum(EXISTS (SELECT 1 FROM metric m WHERE m.entry = e.id) AND NOT EXISTS (SELECT 1 FROM metric m WHERE m.entry = e.id AND m.from_text = 0)) AS text_only,"
+                " sum(EXISTS (SELECT 1 FROM metric_cur m WHERE m.entry = e.id)) AS with_metrics,"
+                " sum(EXISTS (SELECT 1 FROM metric_cur m WHERE m.entry = e.id AND m.from_text = 0)) AS from_files,"
+                " sum(EXISTS (SELECT 1 FROM metric_cur m WHERE m.entry = e.id) AND NOT EXISTS (SELECT 1 FROM metric_cur m WHERE m.entry = e.id AND m.from_text = 0)) AS text_only,"
                 " sum(e.kind IN ('verdict', 'result', 'experiment')) AS outcome,"
-                " sum(e.kind IN ('verdict', 'result', 'experiment') AND EXISTS (SELECT 1 FROM metric m WHERE m.entry = e.id)) AS outcome_with,"
-                " sum(e.kind IN ('verdict', 'result', 'experiment') AND NOT EXISTS (SELECT 1 FROM metric m WHERE m.entry = e.id)"
+                " sum(e.kind IN ('verdict', 'result', 'experiment') AND EXISTS (SELECT 1 FROM metric_cur m WHERE m.entry = e.id)) AS outcome_with,"
+                " sum(e.kind IN ('verdict', 'result', 'experiment') AND NOT EXISTS (SELECT 1 FROM metric_cur m WHERE m.entry = e.id)"
                 "     AND EXISTS (SELECT 1 FROM metric_gap g WHERE g.entry = e.id)) AS outcome_gap"
                 " FROM entry e GROUP BY 1 ORDER BY entries DESC"):
             d = dict(r)
             d.update(dict(self.c.execute(
                 "SELECT count(*) AS rows, count(m.side) AS side, count(m.uni) AS uni, count(m.win) AS win, count(m.usd) AS usd,"
                 " count(m.mean_usd) AS mean_usd, count(m.sharpe) AS sharpe, count(m.verdict) AS verdict, count(m.same_data) AS same_data,"
-                " sum(m.from_text) AS from_text FROM metric m JOIN entry e ON e.id = m.entry WHERE coalesce(e.project, '—') = ?", (d["project"],)).fetchone()))
+                " sum(m.from_text) AS from_text FROM metric_cur m JOIN entry e ON e.id = m.entry WHERE coalesce(e.project, '—') = ?", (d["project"],)).fetchone()))
             out.append(d)
         return out
 
@@ -965,7 +1001,7 @@ class Store:
         trig = {r[0] for r in self.c.execute("SELECT name FROM sqlite_master WHERE type='trigger'")}
         for t in ("entry_immutable", "entry_nodelete", "psec_locked", "psec_nodelete", "link_nodelete", "link_noupdate",
                   "psec_flag_noupdate", "psec_flag_nodelete", "metric_noupdate", "metric_nodelete", "psec_num_noupdate", "psec_num_nodelete",
-                  "metric_gap_noupdate", "metric_gap_nodelete"):
+                  "metric_gap_noupdate", "metric_gap_nodelete", "metric_fix_noupdate", "metric_fix_nodelete"):
             if t not in trig:
                 issues.append("нет триггера %s" % t)
         for src, dst, rel in self.c.execute("SELECT src, dst, rel FROM link").fetchall():
@@ -976,6 +1012,9 @@ class Store:
         n_fts = self.c.execute("SELECT count(*) FROM fts").fetchone()[0]
         if n_nodes != n_fts:
             issues.append("FTS: строк %d, узлов %d" % (n_fts, n_nodes))
+        for r in self.c.execute("SELECT f.metric FROM metric_fix f JOIN metric m ON m.id = f.metric JOIN metric n ON n.id = f.replaced_by"
+                                " WHERE m.entry <> n.entry OR f.replaced_by IN (SELECT metric FROM metric_fix)"):
+            issues.append("замена числа #%d — другая запись или замена заменённой" % r[0])
         for r in self.c.execute("SELECT id, entry FROM metric WHERE entry NOT IN (SELECT id FROM entry)"):
             issues.append("число #%d — нет записи L-%d" % (r[0], r[1]))
         n_m = self.c.execute("SELECT count(*) FROM metric WHERE from_text = 0 AND src NOT LIKE 'docs/%'").fetchone()[0]
@@ -1617,7 +1656,7 @@ def rpc_main():
     req = json.loads(base64.b64decode(globals()["RPC"]).decode("utf-8"))
     os.environ.setdefault("CHRON_DB", SRV_DB)
     try:
-        if req["op"] not in RO_OPS | {"add_entry", "add_psec", "edit_psec", "lock_psec", "flag_psec", "num_psec", "add_metrics", "add_gaps", "sync_kb", "import_docs",
+        if req["op"] not in RO_OPS | {"add_entry", "add_psec", "edit_psec", "lock_psec", "flag_psec", "num_psec", "add_metrics", "add_gaps", "add_metric_fixes", "sync_kb", "import_docs",
                                       "new_protocol"}:
             raise ChronError("операция %s недоступна" % req["op"])
         res = {"ok": call(req["op"], *req["args"], **req["kw"])}
@@ -1688,6 +1727,12 @@ def parse_metrics(args):
         r["src_commit"] = r["src_commit"] or repo.commit(path)
         if not path.endswith(cm.DATA_EXT) and not r["from_text"]:
             raise ChronError("--metric: %s — не файл результатов (JSON / CSV); число из текста — с text=1" % r["src"])
+        if r["from_text"]:
+            m = re.search(r":(\d+(?:-\d+)?)$", r["src"])
+            try:
+                cm.check_text_line(cm.read_at(repo, path, r["src_commit"]), r.get("src_ptr") or (m.group(1) if m else None), r, "--metric %s" % r["src"])
+            except ValueError as e:
+                raise ChronError(str(e))
     return rows
 
 
@@ -1828,7 +1873,10 @@ def cmd_metrics_spec(a):
         return 0
     x = call("add_metrics", rows, author()) if rows else {"new": 0, "same": 0}
     y = call("add_gaps", gaps, author()) if gaps else {"new": 0, "same": 0}
-    print("записано чисел новых %d, уже были %d; пометок новых %d, уже были %d" % (x["new"], x["same"], y["new"], y["same"]))
+    fx = [{k: r.get(k) for k in ("entry", "src", "cell", "replaces", "h")} for r in rows if r.get("replaces")]
+    z = call("add_metric_fixes", fx, author()) if fx else {"new": 0, "same": 0}
+    print("записано чисел новых %d, уже были %d; пометок новых %d, уже были %d; замен новых %d, уже были %d" % (
+        x["new"], x["same"], y["new"], y["same"], z["new"], z["same"]))
     return 0
 
 
@@ -1882,6 +1930,8 @@ def cmd_show(a):
             print("\nчисла (%d из %d; все — `chron.py metrics --entry %s`):" % (len(r["metrics"]), r["metrics_total"], n))
             for m in r["metrics"]:
                 print("  " + fmt_metric_row(m, with_entry=False))
+        for fx in r.get("metric_fixes") or []:
+            print("  заменена строка #%d (%s) → #%d (%s): %s" % (fx["metric"], fx["old_ptr"], fx["replaced_by"], fx["new_ptr"], fx["reason"]))
         for gp in r.get("gaps") or []:
             print("\n%s: %s%s%s" % ("снята: числа добавлены (было «нет чисел»)" if gp.get("lifted") else "нет чисел", gp["reason"], " — " + gp["note"] if gp["note"] else "",
                                          " (%s%s)" % (gp["src"], " " + gp["src_ptr"] if gp["src_ptr"] else "") if gp["src"] else ""))
@@ -2101,7 +2151,7 @@ def cmd_backup(a):
     jl = out / ("chron-%s.jsonl" % stamp)
     with open(str(jl) + ".tmp", "w", encoding="utf-8") as f:
         chk.row_factory = sqlite3.Row
-        for t in ("protocol", "entry", "psec", "psec_flag", "psec_num", "metric", "metric_gap", "link", "doc", "chunk", "kb_node"):
+        for t in ("protocol", "entry", "psec", "psec_flag", "psec_num", "metric", "metric_gap", "metric_fix", "link", "doc", "chunk", "kb_node"):
             for r in chk.execute("SELECT * FROM %s" % t):
                 f.write(json.dumps({"t": t, **dict(r)}, ensure_ascii=False) + "\n")
     chk.close()
@@ -2284,6 +2334,9 @@ class Site:
             mt = '<h2 id="nums">Числа (%d%s)</h2>%s' % (r["metrics_total"], ", показаны первые %d" % len(r["metrics"]) if r["metrics_total"] > len(r["metrics"]) else "",
                                                      self.metrics_table(r["metrics"], with_entry=False))
             mt += '<p><a href="/chron/m/?entry=%d">все числа записи — фильтры и сортировка</a></p>' % n
+        if r.get("metric_fixes"):
+            mt += '<p class="meta">заменено строк: %d — %s (прежние в БД, не действуют)</p>' % (len(r["metric_fixes"]), "; ".join(
+                "#%d %s → #%d %s" % (fx["metric"], html.escape(fx["old_ptr"] or ""), fx["replaced_by"], html.escape(fx["new_ptr"] or "")) for fx in r["metric_fixes"]))
         if r.get("gaps"):
             mt += "".join(('<p class="gap meta">снята: числа добавлены · <s>нет чисел: %s%s%s</s></p>' if gp.get("lifted") else '<p class="gap"><b>Нет чисел: %s</b>%s%s</p>') % (
                 html.escape(gp["reason"]), " — " + html.escape(gp["note"]) if gp["note"] else "",
