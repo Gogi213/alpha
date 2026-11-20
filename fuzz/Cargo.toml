@@ -11,6 +11,12 @@ cargo-fuzz = true
 libfuzzer-sys = "0.4"
 alpha = { path = ".." }
 
+# Патч корня не действует в отдельной рабочей области: без этой строки
+# собирался hftbacktest с crates.io без правок vendor/ (prof, PartialFill),
+# и Fuzz краснел с 06.10 (TK-635).
+[patch.crates-io]
+hftbacktest = { path = "../vendor/hftbacktest" }
+
 [[bin]]
 name = "reader"
 path = "fuzz_targets/reader.rs"

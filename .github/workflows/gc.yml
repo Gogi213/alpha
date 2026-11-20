@@ -11,6 +11,9 @@ name: GC
 
 on:
   push:
+    # Теги archive/* — снимки влитых веток: код уже проверен (TK-635).
+    tags-ignore:
+      - "archive/**"
   pull_request:
   workflow_dispatch:
 

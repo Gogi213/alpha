@@ -7,6 +7,8 @@ name: Fuzz
 
 on:
   push:
+    tags-ignore:
+      - "archive/**"
     paths:
       - "fuzz/**"
       - "src/binlog/**"

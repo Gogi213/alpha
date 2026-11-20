@@ -18,6 +18,7 @@ enum TopCommand {
         cmd: LobCommand,
     },
     /// Коллекторы рынка по WebSocket (G-022): приём, запись, health.
+    #[cfg(target_os = "linux")]
     Collect {
         #[command(subcommand)]
         cmd: alpha::collector::cli::CollectCommand,
@@ -38,6 +39,7 @@ fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
     match cli.cmd {
         TopCommand::Lob { cmd } => dispatch(cmd),
+        #[cfg(target_os = "linux")]
         TopCommand::Collect { cmd } => alpha::collector::cli::dispatch(cmd),
         TopCommand::Statarb { cmd } => alpha::statarb::cli::dispatch(cmd),
         TopCommand::Breakout { cmd } => alpha::breakout::cli::dispatch(cmd),
