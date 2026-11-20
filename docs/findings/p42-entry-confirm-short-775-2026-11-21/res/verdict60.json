@@ -1,0 +1,152 @@
+{
+ "side": "S",
+ "m": 5,
+ "trials_noise": 31,
+ "passed": [],
+ "cells": {
+  "K_k5": {
+   "gates": {
+    "a": true,
+    "b": false,
+    "c": false,
+    "d": false,
+    "e": false,
+    "f": false,
+    "g": false
+   },
+   "passed": false,
+   "neighbours": {
+    "k": [
+     "K_k10"
+    ]
+   },
+   "noise": {
+    "sharpe": 2.112998535509572,
+    "se": 1.6432401220059392,
+    "trials": 31,
+    "noise_bar": 3.4292387694656896,
+    "deflated": -1.3162402339561177,
+    "t_raw": 1.2858732617422879,
+    "t_deflated": -0.8010029796189216,
+    "survives": false
+   },
+   "by_selection": false
+  },
+  "K_k10": {
+   "gates": {
+    "a": true,
+    "b": false,
+    "c": false,
+    "d": false,
+    "e": false,
+    "f": false,
+    "g": false
+   },
+   "passed": false,
+   "neighbours": {
+    "k": [
+     "K_k5",
+     "K_k15"
+    ]
+   },
+   "noise": {
+    "sharpe": 2.0128624148285614,
+    "se": 1.6427778830887483,
+    "trials": 31,
+    "noise_bar": 3.428274134051571,
+    "deflated": -1.4154117192230098,
+    "t_raw": 1.2252797140438614,
+    "t_deflated": -0.8615965273173479,
+    "survives": false
+   },
+   "by_selection": false
+  },
+  "K_k15": {
+   "gates": {
+    "a": false,
+    "b": false,
+    "c": false,
+    "d": false,
+    "e": false,
+    "f": false,
+    "g": false
+   },
+   "passed": false,
+   "neighbours": {
+    "k": [
+     "K_k10",
+     "K_k20"
+    ]
+   },
+   "noise": {
+    "sharpe": 0.13446779974425108,
+    "se": 1.638258223187825,
+    "trials": 31,
+    "noise_bar": 3.418842163185302,
+    "deflated": -3.2843743634410507,
+    "t_raw": 0.08207973434285301,
+    "t_deflated": -2.0047965070183564,
+    "survives": false
+   },
+   "by_selection": false
+  },
+  "K_k20": {
+   "gates": {
+    "a": false,
+    "b": false,
+    "c": false,
+    "d": false,
+    "e": false,
+    "f": false,
+    "g": false
+   },
+   "passed": false,
+   "neighbours": {
+    "k": [
+     "K_k15",
+     "K_k25"
+    ]
+   },
+   "noise": {
+    "sharpe": 2.401528215904158,
+    "se": 1.6446966215999066,
+    "trials": 31,
+    "noise_bar": 3.4322783038638924,
+    "deflated": -1.0307500879597344,
+    "t_raw": 1.4601648622394752,
+    "t_deflated": -0.6267113791217341,
+    "survives": false
+   },
+   "by_selection": true
+  },
+  "K_k25": {
+   "gates": {
+    "a": false,
+    "b": false,
+    "c": false,
+    "d": false,
+    "e": false,
+    "f": false,
+    "g": false
+   },
+   "passed": false,
+   "neighbours": {
+    "k": [
+     "K_k20"
+    ]
+   },
+   "noise": {
+    "sharpe": 0.6913130451028004,
+    "se": 1.6387741043750745,
+    "trials": 31,
+    "noise_bar": 3.419918743378338,
+    "deflated": -2.728605698275538,
+    "t_raw": 0.42184767458625655,
+    "t_deflated": -1.6650285667749531,
+    "survives": false
+   },
+   "by_selection": false
+  }
+ },
+ "answer": "нет: база шорта остаётся"
+}

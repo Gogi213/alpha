@@ -1,0 +1,56 @@
+{
+ "cells": [
+  {
+   "cid": "K_k5",
+   "block": "K",
+   "ax": {
+    "k": 5
+   },
+   "patch": {
+    "ek": 5
+   }
+  },
+  {
+   "cid": "K_k10",
+   "block": "K",
+   "ax": {
+    "k": 10
+   },
+   "patch": {
+    "ek": 10
+   }
+  },
+  {
+   "cid": "K_k15",
+   "block": "K",
+   "ax": {
+    "k": 15
+   },
+   "patch": {
+    "ek": 15
+   }
+  },
+  {
+   "cid": "K_k20",
+   "block": "K",
+   "ax": {
+    "k": 20
+   },
+   "patch": {
+    "ek": 20
+   }
+  },
+  {
+   "cid": "K_k25",
+   "block": "K",
+   "ax": {
+    "k": 25
+   },
+   "patch": {
+    "ek": 25
+   }
+  }
+ ],
+ "m": 5,
+ "trials_noise": 31
+}
