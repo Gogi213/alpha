@@ -45,7 +45,11 @@ class Cells(unittest.TestCase):
 
     def test_patch_matches_tk618(self):
         import json
-        fz = json.load(open(os.path.join(os.path.dirname(__file__), "..", "..", "docs", "research", "freeze", "tk618-cells.json"), encoding="utf-8"))
+        pth = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "docs", "research", "freeze", "tk618-cells.json")
+        if not os.path.exists(pth):
+            self.skipTest("нет дерева репо (srv)")
+        with open(pth, encoding="utf-8") as f:
+            fz = json.load(f)
         ref = {c["id"]: {k: float(v) for k, v in c["patch"].items()} for c in fz["cells"]}
         for c in t.cells():
             self.assertEqual({k: float(v) for k, v in c["patch"].items()}, ref[c["cid"]], c["cid"])
