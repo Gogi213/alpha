@@ -61,9 +61,12 @@ const base = url.split('#')[0];
   await top('where-top');
   await page.locator('#where').screenshot({path: `${out}/where-block.png`});
   await page.locator('#feature').screenshot({path: `${out}/feature-block.png`});
-  // TK-633: блок «История пробоев, раунд 2» (ответ + таблица единиц) — отдельный снимок
-  const rclip = await page.evaluate(() => { const a = document.querySelector('#feature [data-fround="0"]'), z = document.querySelector('#feature [data-rsec="0.0"]'); if (!a || !z) return null; const ra = a.getBoundingClientRect(), rz = z.getBoundingClientRect(); return {x: Math.max(0, ra.x - 8 + scrollX), y: ra.y - 8 + scrollY, width: Math.min(document.documentElement.scrollWidth, ra.width + 16), height: rz.bottom - ra.top + 16}; });
-  if (rclip) await page.screenshot({path: `${out}/feature-round2.png`, fullPage: true, clip: rclip});
+  // TK-633 / TK-634: блок раунда (ответ + таблица) — отдельный снимок на раунд: feature-round2.png (TK-633), feature-round3.png (TK-634)
+  for (const [ri, nm] of [[0, 'round2'], [1, 'round3']]) {
+    await page.evaluate(() => document.querySelectorAll('*').forEach(el => { const ps = getComputedStyle(el).position; if (ps === 'sticky' || ps === 'fixed') el.style.position = 'static'; }));   // липкая шапка не закрывает таблицу на снимке
+    const rclip = await page.evaluate((ri) => { const a = document.querySelector(`#feature [data-fround="${ri}"]`), z = document.querySelector(`#feature [data-rsec="${ri}.0"]`); if (!a || !z) return null; const ra = a.getBoundingClientRect(), rz = z.getBoundingClientRect(); return {x: Math.max(0, ra.x - 8 + scrollX), y: ra.y - 8 + scrollY, width: Math.min(document.documentElement.scrollWidth, ra.width + 16), height: rz.bottom - ra.top + 16}; }, ri);
+    if (rclip) await page.screenshot({path: `${out}/feature-${nm}.png`, fullPage: true, clip: rclip});
+  }
   await page.evaluate(() => document.querySelectorAll('#feature details').forEach(d => { d.open = true; }));
   await page.waitForTimeout(150);
   await page.locator('#feature').screenshot({path: `${out}/feature-block-open.png`});

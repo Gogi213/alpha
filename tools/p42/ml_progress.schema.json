@@ -65,7 +65,7 @@
         "title": {"type": "string", "minLength": 1},
         "lead": {"type": "string", "minLength": 1},
         "current": {"$ref": "#/$defs/ftblock"},
-        "rounds": {"type": "array", "items": {"$ref": "#/$defs/ftblock"}, "description": "TK-633: следующие раунды признака (новее — первыми); тот же вид, что у current"}
+        "rounds": {"type": "array", "items": {"$ref": "#/$defs/ftblock"}, "description": "TK-633 / TK-634: следующие раунды признака, в порядке показа на странице (TK-633, под ним TK-634); тот же вид, что у current"}
       }
     },
     "ftblock": {"type": "object", "additionalProperties": false, "required": ["title", "status", "text"], "properties": {
