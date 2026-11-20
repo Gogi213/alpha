@@ -943,9 +943,9 @@ function shapeCard(wid, side, width) {
 const B = JSON.parse(document.getElementById('bases-data').textContent);
 const BS_COL = {L_base: '#eb6834', S_base: '#2a78d6', S_mk1: '#1baf7a', SL: '#52525b', L_b775: '#eb6834', S_b775: '#2a78d6', L_n24: '#a3369c', S_nc360: '#0e7490'};
 const BS_DASH = {L_b775: '6 4', S_b775: '6 4'};
-const BS_NAME = {L_base: 'Лонг · вход по рынку (L_base)', S_base: 'Шорт · вход по рынку (S_base)', S_mk1: 'Шорт · вход лимиткой (S_mk1)', SL: 'Шорт + лонг (S_base + L_base)',
-  L_b775: 'Лонг-база на 775 монетах (L_base, TK-621)', S_b775: 'Шорт-база на 775 монетах (S_base, TK-621)',
-  L_n24: 'Лонг · число сделок за 24 ч ≥ 220 000 (L_n24, 775 монет, заморожен)', S_nc360: 'Шорт · число сделок за 6 ч ≥ 26 000 (NC360_q20, 775 монет, найдено на этих данных)'};
+const BS_NAME = {L_base: 'Лонг · вход по рынку (L_base, 566 монет)', S_base: 'Шорт · вход по рынку (S_base, 566 монет)', S_mk1: 'Шорт · вход лимиткой (S_mk1, 566 монет)', SL: 'Шорт + лонг (S_base + L_base)',
+  L_b775: 'Лонг-база, 775 монет (L_base)', S_b775: 'Шорт-база, 775 монет (S_base)',
+  L_n24: 'Лонг · сделок за 24 ч ≥ 220 000 (L_n24, 775 монет)', S_nc360: 'Шорт · сделок за 6 ч ≥ 26 000 (NC360_q20, 775 монет)'};
 const BS_LINES = {short: ['S_base', 'S_mk1', 'S_b775', 'S_nc360'], long: ['L_base', 'L_b775', 'L_n24'], both: ['L_base', 'S_base', 'SL']};
 const BS_MSHORT = ['июл', 'авг', 'сен', 'окт', 'ноя'];
 const BS_DESC = {
