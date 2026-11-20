@@ -1,0 +1,15 @@
+{
+ "L": {
+  "lots": 428,
+  "days": 126,
+  "crypto": 296,
+  "tradfi": 132
+ },
+ "S": {
+  "lots": 544,
+  "days": 109,
+  "crypto": 276,
+  "tradfi": 268
+ },
+ "ok": true
+}
