@@ -431,8 +431,21 @@ def test_e4_profile_poc():
     assert all(x[0] != 24 * 60 for x in e4.src_levels(a, 1, 3, 0))
 
 
+# ---- D / шорт вместе с S_base: пересечение сделок ----------------------------------------------------------------------------------------
+
+def test_combo_overlap():
+    import tk668_combo as cb
+    M = 60_000
+    mk = lambda sym, ti, to: dict(sym=np.array(sym, dtype=object), t_in=np.array(ti, np.int64), t_out=np.array(to, np.int64))  # noqa: E731
+    b = mk(["A", "A", "B"], [0, 100 * M, 0], [10 * M, 110 * M, 10 * M])
+    a = mk(["A", "A", "A", "B", "C", "B"], [5 * M, 10 * M, 96 * M, 20 * M, 0, 0], [8 * M, 20 * M, 99 * M, 30 * M, 10 * M, 3 * M])
+    ov, nr, anyb, same = cb.overlap(a, b)
+    assert ov.tolist() == [True, False, False, False, False, True]      # [5; 8) внутри [0; 10); [10; 20) начинается ровно в выход — нет; [96; 99) до [100; 110) — нет; чужая монета / далеко — нет
+    assert nr.tolist() == [True, False, True, False, False, True]       # вход в пределах 5 мин: 5 и 0 — да; 10 и 0 — нет; 96 и 100 — да (без пересечения); 20 и 0 — нет
+    assert anyb.tolist() == [True, False, True, False, False, True] and same.tolist() == [False, False, False, False, False, True]
+
 def main():
-    tests = [(k, v) for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
+    tests =[(k, v) for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     fails = 0
     for name, fn in tests:
         try:

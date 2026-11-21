@@ -79,12 +79,12 @@ def main():
             st, d = c["stats"], c["delta"]
             print("| %s | %d | %s | %s | %.2f | %s ± %.1f | %s |" % (cid, st["n"], f(st["sum"], 1), f(st["mean"], 3), st["sharpe"], f(d["dsum"], 1), d["se_sum"], f(d["z"])))
     if e4:
-        print("\n#### E4 / 45 — новые источники уровней (линия; Холм m_L = %d, шумовая планка max|z| %.2f)\n\n| источник × сторона | n | Σ $ | $/сделку | Sharpe | месяцы (сделок: Σ $) | R:R | стопов | убыток стопа ср. $ (%% маржи) | среднее суточное $ ± SE | z | p | l1 | l2 | l3 | l4 | l5 | ответ |\n|---|---:|---:|---:|---:|---|---:|---:|---|---|---:|---:|---|---|---|---|---|---|" % (e4["m_L"], e4["noise_bar_z"]))
+        print("\n#### E4 / 45 — новые источники уровней (линия; Холм m_L = %d, шумовая планка max|z| %.2f)\n\n| источник × сторона | n | Σ $ | $/сделку | Sharpe | месяцы (сделок: Σ $) | R:R | стопов | убыток стопа ср. $ (%% маржи) | макс. просадка $ (%% маржи 250 $) | суток до нового максимума: дольше всего / p90 | среднее суточное $ ± SE | z | p | l1 | l2 | l3 | l4 | l5 | ответ |\n|---|---:|---:|---:|---:|---|---:|---:|---|---|---|---:|---:|---|---|---|---|---|---|---|" % (e4["m_L"], e4["noise_bar_z"]))
         for nm, r in e4["cells"].items():
             st, ln = r["stats"], r["line"]
-            print("| %s (%s) | %d | %s | %s | %.2f | %s | %.2f | %d | %s (%.2f %%) | %s ± %.3f | %s | %.4f | %s | %s | %s | %s | %s | %s |" % (
+            print("| %s (%s) | %d | %s | %s | %.2f | %s | %.2f | %d | %s (%.2f %%) | %.1f (%.1f %%) | %d / %.1f | %s ± %.3f | %s | %.4f | %s | %s | %s | %s | %s | %s |" % (
                 nm, SRC[nm[0]], st["n"], f(st["sum"], 1), f(st["mean"], 3), st["sharpe"], months(st["months"]), st["rr"]["rr"], st["rr"]["stops"]["n"], f(st["rr"]["stops"]["mean_loss"]),
-                st["rr"]["stops"]["mean_loss_pct"], f(ln["mean_day"], 3), ln["se_day"], f(ln["z"]), ln["p"], ln["l1"], ln["l2"], ln["l3"], ln["l4"], ln["l5"], ln["outcome"]))
+                st["rr"]["stops"]["mean_loss_pct"], st["maxdd"], st["maxdd_pct_margin"], st["kpi"]["longest"], st["kpi"]["p90"], f(ln["mean_day"], 3), ln["se_day"], f(ln["z"]), ln["p"], ln["l1"], ln["l2"], ln["l3"], ln["l4"], ln["l5"], ln["outcome"]))
 
 
 if __name__ == "__main__":
