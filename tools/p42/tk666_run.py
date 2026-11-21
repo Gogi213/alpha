@@ -30,6 +30,7 @@ import tk634_run as r34  # noqa: E402
 import tk636_feat as f36  # noqa: E402
 import tk638_post as p8  # noqa: E402
 import tk666_feat as ft  # noqa: E402
+import selection_bias as sb  # noqa: E402
 
 ROOT = ft.ROOT
 SIDES = st.SIDES
@@ -701,6 +702,7 @@ def evaluate_666(sides, om, ps_old):
     ps_new = [rows[s][cid]["p"] if rows[s][cid]["admitted"] else 1.0 for s, cid in trial]
     rej_all = st.holm_reject(list(ps_old) + ps_new, ALPHA)[len(ps_old):]
     rej_new = st.holm_reject(ps_new, ALPHA) if ps_new else []
+    rej_ctx = st.holm_reject(list(ps_old) + ps_new + [1.0] * N_CTX_EXTRA, ALPHA)[len(ps_old):len(ps_old) + len(ps_new)]
     rej_side = {}
     for s in sides:
         idx = [i for i, (ss, _) in enumerate(trial) if ss == s]
@@ -710,6 +712,7 @@ def evaluate_666(sides, om, ps_old):
         r = rows[s][cid]
         ok = bool(r["admitted"] and r["d"] > 0)
         r["g1"], r["g1_new_only"], r["g1_side"] = bool(rej_all[i] and ok), bool(rej_new[i] and ok), bool(rej_side.get(i) and ok)
+        r["g1_ctx53"] = bool(rej_ctx[i] and ok)
     passed = []
     for s, sd in sides.items():
         by = {c.cid: c for c in sd.cells}
@@ -769,9 +772,43 @@ def cell_stats_full(ser, kinds, pnl):
     return r
 
 
-def group_ctx_ps():
-    """Контекст (п. 6): 53 прежних p (TK-648 — 12, TK-651 — 17, TK-656 — 24), если читаются из готовых json; иначе None."""
-    return None
+def dsr(sharpe, trials):
+    """Дефлированный Sharpe рядом с сырым (`selection_bias.significance`): SE годового Sharpe суточного ряда 136 сут. — как TK-638 / TK-641."""
+    se = math.sqrt(365.0 / st.NDAYS * (1 + sharpe * sharpe / 730.0))
+    return sb.significance(sharpe, se, trials)
+
+
+def ctx_n24(om):
+    """Справочно (п. 5): 4 составные клетки на `L_n24` (TK-638 `N24_q60`): ряд базы — `L_n24` TK-638, клетка — прогон с таблицей `N24_q60` И клетка; Δ ± SE по тому же `cell_row`, без Холма и ответа."""
+    u = uni()
+    ser, kinds, pnl = p8.load_cell(u, "L", {w.name: (p8.kind_dir(u, "ladd", w.name, "L", "N24_q60"), "L") for w in st.TRADE_WINDOWS})
+    W, S, R, day, d = trade_cols("L")
+    thr = thresholds(d)
+    names = ("F25", "P25", "C02", "R05")
+    specs = {sp["cid"]: sp for sp in cell_specs()}
+    ex_map = {cid: {} for cid in names}
+    for w in st.TRADE_WINDOWS:
+        rows = rows_of(w.name, "L")
+        dr = derive(rows.raw, "L")
+        for cid in names:
+            for sym, rel, e in zip(rows.sym, rows.rel, excl_mask(specs[cid], dr, thr)):
+                ex_map[cid][(sym, w.t0_ms + int(rel))] = bool(e)
+    cells = []
+    for g, cid in enumerate(names, 1):
+        try:
+            ex = np.array([ex_map[cid][(sy, int(k))] for sy, k in zip(ser.sym_name, ser.key_ms)], dtype=bool)
+        except KeyError as e:
+            raise GuardError("L_n24: сделки %s нет среди кандидатов (%s)" % (e, cid))
+        c_ser, c_kinds, c_pnl = p8.load_cell(u, "L", {w.name: (n24_dir(w.name, "N24_" + cid), "L") for w in st.TRADE_WINDOWS})
+        cells.append((s5.Cell("N24_" + cid, "-", g, 0.0, None, False, None, c_ser, ex), c_kinds, c_pnl))
+    sd = s5.SideCells(ser, [c for c, _, _ in cells], len(u.coins()))
+    out = dict(base=cell_stats_full(ser, kinds, pnl), cells={})
+    for c, k_, p_ in cells:
+        r = s5.cell_row(sd, c, np.asarray(om))
+        r["admitted"], r["subset"] = admitted_666(r) if r["n_c"] > 0 and r["n_r"] > 0 else (False, False)
+        r["stats"] = cell_stats_full(c.series, k_, p_)
+        out["cells"][c.cid] = r
+    return out
 
 
 def cmd_select(a):
@@ -813,9 +850,21 @@ def cmd_select(a):
                 cid, "пробная" if r["trial"] else "справ.", "%.3f" % r["d"], "%.3f" % r["se"], "%.2f" % r["z"], "%.4f" % r["p"], r["n_c"], r["n_ex"], "%.0f" % sl["sum"] if sl else "—",
                 "%.2f" % sl["sharpe"] if sl else "—", "%.2f" % sl["rr"]["rr"] if sl else "—", r["admitted"], " (подмножество)" if r["subset"] else "", r.get("g1"), r.get("g2"), r.get("g3"), r.get("g4"), r.get("g5"),
                 " ПРОШЛА" if r.get("pass") else ""))
+    for s in SIDES:
+        for cid in ("F25", "P25", "C02", "R05"):
+            sl = slices[s].get(cid)
+            if sl:
+                x = dsr(sl["sharpe"], N_GATE[0])
+                say("   DSR %s %s: Sharpe %.2f, SE %.2f, планка шума (N = %d) %.2f, дефлированный %.2f, переживает %s" % (s, cid, sl["sharpe"], x["se"], N_GATE[0], x["noise_bar"], x["deflated"], x["survives"]))
     for (s, cid), o in outcomes.items():
         say("ИСХОД %s %s: %s" % (SIDE_NAME_RU[s], cid, o))
-    out = dict(holm=ev["holm"], passed=ev["passed"], rows=ev["rows"], outcomes={"%s/%s" % k: v for k, v in outcomes.items()}, mde={"%s/%s" % k: v for k, v in mde.items()},
+    n24 = ctx_n24(om)
+    b = n24["base"]
+    say("== справочно L_n24: %d сделок, Σ %+.2f $, %+.3f $/сделку, Sharpe %.2f, R:R %.2f" % (b["n"], b["sum"], b["mean"], b["sharpe"], b["rr"]["rr"]))
+    for cid, r in n24["cells"].items():
+        t = r["stats"]
+        say("   %-9s Δ %+.3f ± %.3f $/сд., z %.2f, p %.4f, n %d, исключено %d, Σ %+.2f, Sharpe %.2f, допуск %s" % (cid, r["d"], r["se"], r["z"], r["p"], r["n_c"], r["n_ex"], t["sum"], t["sharpe"], r["admitted"]))
+    out = dict(n24=n24, holm=ev["holm"], passed=ev["passed"], rows=ev["rows"], outcomes={"%s/%s" % k: v for k, v in outcomes.items()}, mde={"%s/%s" % k: v for k, v in mde.items()},
                z_holm=z_holm, noise_bars=bars, slices=slices)
     write_json(q("res", "select666.json"), stamp(r33.jsonable(out)))
     say("метка: код %s" % code_id())

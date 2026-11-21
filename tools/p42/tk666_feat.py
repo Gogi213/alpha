@@ -215,9 +215,12 @@ class Prem:
         target = (int(ms) - 60_000) // 60_000 * 60_000
         for k in range(PREM_MAX_AGE_S // 60 + 1):
             o = target - 60_000 * k
+            age = (int(ms) - (o + 60_000)) / 1000.0
+            if age > PREM_MAX_AGE_S:
+                break
             d = self.day(sym, day_of(o))
             if d is not None and o in d:
-                return d[o], (int(ms) - (o + 60_000)) / 1000.0
+                return d[o], age
         return float("nan"), float("nan")
 
 
