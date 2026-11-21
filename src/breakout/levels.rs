@@ -33,6 +33,8 @@ pub struct Level {
     pub first_bar: u32,
     /// Только при `build_levels_tracked(.., true)`: для каждой версии цены — члены уровня (бар, цена ×1e8); иначе пусто.
     pub mem: Vec<Vec<(u32, i64)>>,
+    /// Источник уровня (TK-668): 0 — пивоты; иначе значение `LevelCfg::lx` (1 `D`, 2 `W`, 3 `P`). Уровень источника «свежий» по построению: `fresh_ok` его пропускает.
+    pub src: u8,
 }
 
 #[derive(Clone, Copy)]
@@ -176,6 +178,9 @@ fn build_levels_impl(
     track: bool,
     count: bool,
 ) -> Vec<Level> {
+    if cfg.lx != 0 {
+        return build_source_levels(sym, cfg, side);
+    }
     let Some(bars) = sym.bars_for(cfg.tf_min) else {
         return Vec::new();
     };
@@ -309,6 +314,7 @@ fn build_levels_impl(
                     } else {
                         Vec::new()
                     },
+                    src: 0,
                 });
                 live.push(Live {
                     id: levels.len() - 1,
@@ -318,4 +324,120 @@ fn build_levels_impl(
         }
     }
     levels
+}
+
+// ───────────── TK-668 (`lx`): уровни из источника вместо пивотов ─────────────
+
+/// Источник `lx` читает только закрытые часовые бары (`bars_for(60)`); минутки — лишь профиль `lx = 3`.
+const SRC_TF_MIN: usize = 60;
+const DAY_BARS: usize = 24;
+const WEEK_BARS: usize = 168;
+/// `lx = 3`: минимум минут суток с данными, при меньшем числе профиля нет.
+const PROFILE_MIN_MINUTES: usize = 1200;
+/// `lx = 3`: ширина корзины — `средняя tp суток / PROFILE_BIN_DIV` (0,10 %).
+const PROFILE_BIN_DIV: i64 = 1000;
+
+/// Источник уровней `lx ≠ 0` (§13.68): периоды подряд — сутки (`lx = 1, 3`) или календарные недели UTC (`lx = 2`, первый понедельник — на `lw` суток
+/// от начала сетки). Уровень периода рождается готовым на первой минуте следующего периода и живёт один период, но не дольше закрытия первого
+/// закрытого часового бара за ценой (в раме стороны, как у пивотных уровней: `end` — конец этого бара). Период без данных (бар `ok = false`; для
+/// профиля — меньше `PROFILE_MIN_MINUTES` минут с данными) уровня не даёт. Журнала членов нет (`mem` пуст): дальний край зоны — `None`.
+fn build_source_levels(sym: &Sym, cfg: &LevelCfg, side: Side) -> Vec<Level> {
+    let Some(bars) = sym.bars_for(SRC_TF_MIN) else {
+        return Vec::new();
+    };
+    let f = Frame {
+        b: bars,
+        s: side.s(),
+    };
+    let nb = bars.ok.len();
+    let (step, first) = if cfg.lx == 2 {
+        (WEEK_BARS, cfg.lw * DAY_BARS)
+    } else {
+        (DAY_BARS, 0)
+    };
+    let mut out = Vec::new();
+    let mut a = first;
+    while a + step < nb {
+        let born_bar = a + step;
+        let found = if cfg.lx == 3 {
+            profile_poc(sym, &f, a, born_bar)
+        } else {
+            range_extreme(&f, a, born_bar)
+        };
+        if let Some((price, first_bar)) = found {
+            let life_end = (born_bar + step).min(nb);
+            let end_bar = (born_bar..life_end).find(|&b| bars.ok[b] && f.cl(b) > price);
+            let born = (born_bar * SRC_TF_MIN) as u32;
+            out.push(Level {
+                born,
+                end: end_bar.map_or(((born_bar + step) * SRC_TF_MIN) as u32, |b| {
+                    ((b + 1) * SRC_TF_MIN) as u32
+                }),
+                segs: vec![(born, price.abs())],
+                first_bar: first_bar as u32,
+                mem: Vec::new(),
+                src: cfg.lx,
+            });
+        }
+        a += step;
+    }
+    out
+}
+
+/// `lx = 1, 2`: цена уровня периода — максимум `h` (лонг) / минимум `l` (шорт) баров `a..z` (в раме стороны — максимум `hi`) и первый бар с ним;
+/// любой бар периода без данных — `None`.
+fn range_extreme(f: &Frame, a: usize, z: usize) -> Option<(i64, usize)> {
+    if !(a..z).all(|i| f.b.ok[i]) {
+        return None;
+    }
+    let price = (a..z).map(|i| f.hi(i)).max()?;
+    let first = (a..z).find(|&i| f.hi(i) == price)?;
+    Some((price, first))
+}
+
+/// `lx = 3`: профиль объёма минуток баров `a..z` (одни сутки): `tp = (h + l + c) / 3`, корзины шириной 0,10 % средней `tp` суток (сетка корзин от нуля
+/// цены: корзина — `tp / ширина`, целочисленно), вес — оборот `qv`. Цена — центр корзины с наибольшим оборотом (ничья — нижняя), в раме стороны;
+/// бар — час минуты с наибольшим оборотом в корзине (ничья — ранняя минута). Меньше `PROFILE_MIN_MINUTES` минут с данными или нулевой оборот — `None`.
+#[allow(clippy::needless_range_loop)] // m индексирует сразу несколько рядов монеты
+fn profile_poc(sym: &Sym, f: &Frame, a: usize, z: usize) -> Option<(i64, usize)> {
+    let (m0, m1) = (a * SRC_TF_MIN, z * SRC_TF_MIN);
+    let mut mins: Vec<(i64, i64, usize)> = Vec::with_capacity(m1 - m0);
+    let mut sum_tp: i128 = 0;
+    for m in m0..m1 {
+        if sym.o[m] == 0 {
+            continue;
+        }
+        let tp = (sym.h[m] + sym.l[m] + sym.c[m]) / 3;
+        sum_tp += i128::from(tp);
+        mins.push((tp, sym.qv[m], m));
+    }
+    if mins.len() < PROFILE_MIN_MINUTES {
+        return None;
+    }
+    let mean = (sum_tp / mins.len() as i128) as i64;
+    let w = (mean / PROFILE_BIN_DIV).max(1);
+    let mut cells: Vec<(i64, i64, usize)> = mins
+        .iter()
+        .map(|&(tp, qv, m)| (tp.div_euclid(w), qv, m))
+        .collect();
+    cells.sort_unstable_by_key(|&(bin, _, m)| (bin, m));
+    let mut best: Option<(i128, i64, usize)> = None;
+    for grp in cells.chunk_by(|x, y| x.0 == y.0) {
+        let total: i128 = grp.iter().map(|x| i128::from(x.1)).sum();
+        if best.is_none_or(|(t, _, _)| total > t) {
+            let mut peak = grp[0];
+            for &x in grp {
+                if x.1 > peak.1 {
+                    peak = x;
+                }
+            }
+            best = Some((total, grp[0].0, peak.2));
+        }
+    }
+    let (total, bin, peak_min) = best?;
+    if total <= 0 {
+        return None;
+    }
+    let poc = bin * w + w / 2;
+    Some((f.s * poc, peak_min / SRC_TF_MIN))
 }
