@@ -6,7 +6,7 @@
 use super::data::NATR_PERIODS;
 use anyhow::{bail, Context, Result};
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Clone, PartialEq, Eq, Hash)]
 pub struct LevelCfg {
     pub tf_min: usize,
     pub k: usize,
@@ -17,6 +17,30 @@ pub struct LevelCfg {
     /// §13.11: уровень умирает от прокола с первого пивота (минутный high/low за ценой > τ; предыстория и
     /// перепроверка при смене версии цены). Только `breakout tick`.
     pub pk: bool,
+    /// TK-668 (`lx`): источник уровней — 0 пивоты (как раньше); 1 `D` (вчерашний максимум / минимум суток UTC); 2 `W` (прошлая календарная неделя UTC);
+    /// 3 `P` (центр самой оборотной корзины профиля объёма вчерашних суток). При `lx ≠ 0` уровни строятся только из источника по закрытым часовым барам
+    /// (`k`, `d`, `n_bounce`, `tau`-группировка, `l_days` не действуют), правило «свежий уровень» (`fh/fk/fm/fb`) не действует. Только `breakout tick`.
+    pub lx: u8,
+    /// TK-668 (`lw`): для `lx = 2` — дни от начала сетки до первого понедельника окна (0…6); задаёт драйвер по дате `T0`.
+    pub lw: usize,
+}
+
+/// Ручной `Debug`: отпечаток параметров в `meta.json` при `lx = 0` — тот же, что у версий до TK-668 (`lx` и `lw` печатаются только при `lx ≠ 0`).
+impl std::fmt::Debug for LevelCfg {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut d = f.debug_struct("LevelCfg");
+        d.field("tf_min", &self.tf_min)
+            .field("k", &self.k)
+            .field("d_pm", &self.d_pm)
+            .field("n", &self.n)
+            .field("tau_pm", &self.tau_pm)
+            .field("l_days", &self.l_days)
+            .field("pk", &self.pk);
+        if self.lx != 0 {
+            d.field("lx", &self.lx).field("lw", &self.lw);
+        }
+        d.finish()
+    }
 }
 
 #[derive(Clone, PartialEq, Eq, Hash)]
@@ -366,6 +390,8 @@ impl Params {
                     tau_pm: pm(0.2),
                     l_days: 7,
                     pk: false,
+                    lx: 0,
+                    lw: 0,
                 },
                 natr_p: 30,
                 natr_min_pm: pm(0.4),
@@ -480,6 +506,8 @@ impl Params {
             "tau" => self.sig.lv.tau_pm = pm(f),
             "l_days" => self.sig.lv.l_days = u,
             "pk" => self.sig.lv.pk = b,
+            "lx" => self.sig.lv.lx = u.min(255) as u8,
+            "lw" => self.sig.lv.lw = u,
             "track" => self.sig.track_pm = pm(f),
             "e" => self.sig.e_pm = pm(f),
             "color" => self.sig.color = b,
@@ -563,6 +591,15 @@ impl Params {
         }
         if self.sig.ap > 2 {
             bail!("ap ∈ {{0, 1, 2}}");
+        }
+        if self.sig.lv.lx > 3 {
+            bail!("lx ∈ {{0, 1, 2, 3}}");
+        }
+        if self.sig.lv.lw > 6 {
+            bail!("lw ∈ 0…6 (дни от начала сетки до первого понедельника)");
+        }
+        if self.sig.lv.lx != 0 && self.sig.lv.tf_min != 60 {
+            bail!("lx ≠ 0 требует tf = 60 (уровни источника — по часовым барам)");
         }
         if self.exit.tp_gamma_m <= 0 || self.exit.tp_kappa_m <= -1000 {
             bail!("tpg > 0, tpk > −1");

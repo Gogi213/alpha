@@ -991,6 +991,7 @@ fn fresh_world() -> (Sym, Level, i64) {
         segs: vec![(1000, px(101.0))],
         first_bar: 10,
         mem: Vec::new(),
+        src: 0,
     };
     (sym(c), lv, px(101.0))
 }

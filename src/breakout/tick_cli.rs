@@ -160,7 +160,7 @@ fn write_sigs(
 
 /// `P42_SIGSX=<сутки от>:<сутки до>` (§13.17): по каждому сигналу задания — `<side>-sigsx.csv`: монета, уровень, время сигнала, расстояние,
 /// цена уровня на сигнале, рождение/конец уровня (минуты), бар первого пивота, NATR минуты `t−1` (×1e8), члены версии уровня на сигнале (`бар:цена|…`).
-fn write_sigsx(
+pub(super) fn write_sigsx(
     dir: &Path,
     syms: &[Sym],
     side: Side,
@@ -182,7 +182,11 @@ fn write_sigsx(
             .or_insert_with(|| build_levels_tracked(sym, &p.sig.lv, side, true));
         let lv = &levels[sg.level as usize];
         let si = lv.segs.iter().rposition(|(m, _)| *m <= sg.t).unwrap_or(0);
-        let mem: Vec<String> = lv.mem[si]
+        // TK-668: у уровней источника (`lx ≠ 0`) журнала членов нет — столбец пуст
+        let mem: Vec<String> = lv
+            .mem
+            .get(si)
+            .map_or(&[][..], Vec::as_slice)
             .iter()
             .map(|(b, px)| format!("{b}:{px}"))
             .collect();
@@ -319,7 +323,7 @@ fn write_exc(
 
 /// `P42_LEVELS=1` (§13.17): все уровни всех монет задания — `<side>-levels.csv`: монета, номер, рождение, конец (минуты; `u32::MAX` — до
 /// конца данных), бар первого пивота, версии цены (`минута:цена|…`) и члены каждой версии (`бар:цена,…` через `|`, по версиям).
-fn write_levels(dir: &Path, syms: &[Sym], side: Side, p: &Params) -> Result<()> {
+pub(super) fn write_levels(dir: &Path, syms: &[Sym], side: Side, p: &Params) -> Result<()> {
     let mut t = String::from(
         "sym,level,born,end,first_bar,segs,members
 ",
@@ -374,7 +378,7 @@ fn write_detail(dir: &Path, syms: &[Sym], side: Side, p: &Params, r: &TickResult
         let mut rec = serde_json::json!({
             "i": i, "sym": sym.name, "side": side.name(), "level": x.level,
             "born": lv.born, "end": lv.end, "first_bar": lv.first_bar,
-            "level_px_e8": lv.segs[si].1, "members": lv.mem[si],
+            "level_px_e8": lv.segs[si].1, "members": lv.mem.get(si).map_or(&[][..], Vec::as_slice),
             "sig_ms": x.sig_ms, "sig_min": x.sig_min, "dist_e8": x.dist,
             "entry_ms": x.entry_ms, "entry_px_e8": x.entry_px, "exit_ms": x.exit_ms,
             "kind": x.kind.name(), "takes": x.takes, "natr_e8": x.natr_e8,
