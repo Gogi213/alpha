@@ -706,14 +706,17 @@ function renderProgress() {
 
 // ── эквити (TK-601): сделки баз U1 и «трети» целей TK-598; данные — equity.json (tk601_equity.py), вшиты при сборке
 const E = JSON.parse(document.getElementById('equity-data').textContent);
-const EQ_COL = {base: '#71717a', T1: '#2a78d6', T2: '#eb6834', T4: '#1baf7a', T5: '#6250d6', T6: '#008300', short: '#2a78d6', long: '#eb6834'};
+const EQ_COL = {base: '#71717a', T1: '#2a78d6', T2: '#eb6834', T4: '#1baf7a', T5: '#6250d6', T6: '#008300', short: '#2a78d6', long: '#eb6834',
+  S_mk775: '#1baf7a', S_nc360: '#0e7490', S_rf0: '#6250d6', S_an1: '#c0265b', L_n24: '#a3369c', L_mk2: '#b8860b', L_sharp: '#008300', L_dense: '#0e7490'};
+// TK-662: вид «Кривая» — график «775» (tk662_equity.py): сделки всех линий стороны на 775 контрактах, sel.base — база стороны; прежние графики TK-598 (ja / fit) остаются только для вида «Форма»
+const EQ_CHARTS = ['775'], EQ7_BASE = {short: 'S_b775', long: 'L_b775'};
 const EQ_NAME = {T1: 'T1 · прибыль, $', T2: 'T2 · прибыль, % от номинала', T4: 'T4 · без жёсткого стопа', T5: 'T5 · MFE − MAE', T6: 'T6 · ранжирование', short: 'Шорт', long: 'Лонг'};
 const EQ_BASE = {short: 'Шорт: все сделки базы', long: 'Лонг: все сделки базы', both: 'Шорт + лонг: все сделки'};
 const EQ_SIDES = [['short', 'Шорт'], ['long', 'Лонг'], ['both', 'Шорт + лонг']];
 const EQ_DESC = {
-  short: 'Накопленная прибыль шорта. Серая толстая линия — все сделки базы (пул U1). Цветные — только сделки, которые замороженная модель отнесла в лучшую треть по своей цели. Цветная линия вровень с серой — модель ничего не добавила; выше — добавила; ниже — выбрала хуже, чем в среднем.',
-  long: 'Накопленная прибыль лонга. Серая толстая линия — все сделки базы (пул U1); цветная — сделки лучшей трети по цели T6.',
-  both: 'Базы шорта и лонга на одних осях и их сумма: видно, откуда рост и что забирает другая сторона. Здесь только базы — без выбора моделью.'
+  short: 'Накопленная прибыль шорта за 136 суток (01.07–13.11) на всех 775 контрактах, $ при 500 $ на сделку, после комиссий, по времени закрытия сделки. Серая толстая — вход по рынку (S_base); цветные — варианты шорта. S_base и S_mk1 заморожены для проверки вперёд; остальные найдены на этих данных — отбор на прошлом, не доказательство. R:R — средний выигрыш ÷ средний проигрыш.',
+  long: 'Накопленная прибыль лонга за 136 суток (01.07–13.11) на всех 775 контрактах, $ при 500 $ на сделку, после комиссий, по времени закрытия сделки. Серая толстая — вход по рынку (L_base); цветные — варианты лонга. L_base, L_n24 и L_mk2 заморожены для проверки вперёд; SHARP и DENSE найдены на этих данных — отбор на прошлом, не доказательство. R:R — средний выигрыш ÷ средний проигрыш.',
+  both: 'Базы шорта и лонга (S_base и L_base, 775 контрактов) на одних осях и их сумма: видно, откуда рост и что забирает другая сторона.'
 };
 const pad2 = n => String(n).padStart(2, '0');
 const fdt = ms => { const d = new Date(ms); return `${pad2(d.getUTCDate())}.${pad2(d.getUTCMonth() + 1)} ${pad2(d.getUTCHours())}:${pad2(d.getUTCMinutes())}`; };
@@ -724,7 +727,7 @@ function eqData(chartId, side) {
   const C = E.charts[chartId];
   if (side !== 'both') return C.sides[side];
   const a = C.sides.short, b = C.sides.long, rows = [];
-  [[a, 'short'], [b, 'long']].forEach(([S, k]) => S.t.forEach((t, i) => rows.push({t, en: S.en[i], net: S.net[i], sym: S.sym[i], day: S.day[i], w: S.w[i], k})));
+  [[a, 'short'], [b, 'long']].forEach(([S, k]) => (S.sel.base || S.t.map((_, i) => i)).forEach(i => rows.push({t: S.t[i], en: S.en[i], net: S.net[i], sym: S.sym[i], day: S.day[i], w: S.w[i], k})));
   rows.sort((x, y) => x.t - y.t || x.en - y.en || (x.sym < y.sym ? -1 : x.sym > y.sym ? 1 : 0));
   const out = {t: rows.map(r => r.t), en: rows.map(r => r.en), net: rows.map(r => r.net), sym: rows.map(r => r.sym), day: rows.map(r => r.day), w: rows.map(r => r.w), sel: {short: [], long: []}};
   rows.forEach((r, i) => out.sel[r.k].push(i));
@@ -745,14 +748,14 @@ function eqCompound(S, mask, dep) {
   }
   return {pnl, mult};
 }
-function eqLines(S, side, cmp = false, dep = EQ_DEP0) {
+function eqLines(S, side, cmp = false, dep = EQ_DEP0, chartId = null) {
   const n = S.t.length, out = [];
   const mk = (k, mask) => {
     const cp = cmp ? eqCompound(S, mask, dep) : null, net = cp ? cp.pnl : S.net;
     let c = 0; const y = new Array(n); for (let i = 0; i < n; i++) { if (!mask || mask[i]) c += net[i]; y[i] = c; }
-    return {k, mask, y, net, mult: cp && cp.mult, name: k === 'base' ? EQ_BASE[side] : EQ_NAME[k]};
+    return {k, mask, y, net, mult: cp && cp.mult, name: k === 'base' ? (chartId === '775' && side !== 'both' ? bsName(EQ7_BASE[side]) : EQ_BASE[side]) : EQ_NAME[k] || bsName(k)};
   };
-  out.push(mk('base', null));
+  if (!S.sel.base) out.push(mk('base', null));
   Object.keys(S.sel).forEach(k => { const m = new Array(n).fill(false); S.sel[k].forEach(i => { m[i] = true; }); out.push(mk(k, m)); });
   return out;
 }
@@ -792,7 +795,7 @@ function eqTable(chartId, side, S, lines) {
   return h('div', {style: 'overflow-x:auto'}, tb);
 }
 function eqChart(chartId, side, width) {
-  const C = E.charts[chartId], S = eqData(chartId, side), dep = ST.dep, cmp = ST.cmp, linesFx = eqLines(S, side, false, dep), linesCp = eqLines(S, side, true, dep), lines = cmp ? linesCp : linesFx, n = S.t.length;
+  const C = E.charts[chartId], S = eqData(chartId, side), dep = ST.dep, cmp = ST.cmp, linesFx = eqLines(S, side, false, dep, chartId), linesCp = eqLines(S, side, true, dep, chartId), lines = cmp ? linesCp : linesFx, n = S.t.length;
   const w = width, hh = w < 520 ? 300 : 360, x0 = C.start_ms, x1 = C.end_ms + 3600e3, DAYMS = 86400e3;
   const [ylo, yhi] = rng(lines.flatMap(l => l.y).concat([0]), .08);
   const stepD = w < 560 ? 14 : 7, xt = []; for (let t = x0; t <= x1; t += stepD * DAYMS) xt.push(t);
@@ -821,7 +824,7 @@ function eqChart(chartId, side, width) {
     vl.setAttribute('x1', xx); vl.setAttribute('x2', xx); vl.setAttribute('visibility', 'visible');
     dots.forEach((d, k) => { d.setAttribute('cx', xx); d.setAttribute('cy', Y(lines[k].y[i])); d.setAttribute('visibility', 'visible'); });
     tip.innerHTML = `<div class="t">${S.sym[i]}</div>` + trow('Вход', fdt(S.en[i]) + ' UTC') + trow('Закрытие', fdt(S.t[i]) + ' UTC') + trow('Прибыль сделки', '<b>' + money(S.net[i]) + ' $</b>') +
-      (cmp ? trow('Объём · база, компаундинг', money(NOTIONAL_VIEW * linesCp[0].mult[i], 0) + ' $') + trow('Прибыль при этом объёме', '<b>' + money(linesCp[0].net[i]) + ' $</b>') : '') +
+      (cmp ? (lc => trow(lc ? 'Объём · линия сделки, компаундинг' : 'Объём · база, компаундинг', money(NOTIONAL_VIEW * linesCp[lc].mult[i], 0) + ' $') + trow('Прибыль при этом объёме', '<b>' + money(linesCp[lc].net[i]) + ' $</b>'))(Math.max(0, linesCp.findIndex(l => !l.mask || l.mask[i]))) : '') +
       '<div class="muted" style="margin:6px 0 2px">Накоплено на этот момент</div>' +
       lines.map(l => `<div class="r"><span><span style="display:inline-block;width:12px;border-top:${l.k === 'base' ? 4 : 3}px solid ${EQ_COL[l.k]};vertical-align:middle;margin-right:6px"></span>${l.name}${l.mask && l.mask[i] ? ' ✓' : ''}</span><span>${money(l.y[i])}</span></div>`).join('') +
       '<div class="muted" style="margin-top:4px">✓ — эта сделка входит в линию</div>';
@@ -830,11 +833,13 @@ function eqChart(chartId, side, width) {
   r.addEventListener('mouseenter', show); r.addEventListener('mousemove', show);
   r.addEventListener('mouseleave', () => { vl.setAttribute('visibility', 'hidden'); dots.forEach(d => d.setAttribute('visibility', 'hidden')); tip.style.display = 'none'; });
   const card = h('div', {class: 'card eq-card', 'data-eqchart': chartId, 'data-eqmode': cmp ? 'cmp' : 'fix'});
-  card.append(h('div', {class: 'card-h'}, [h('b', {}, C.title), h('span', {}, `${fday(x0)} — ${fday(C.end_ms)} · сделок в базе ${ints(n)} · ${cmp ? 'компаундинг, депозит ' + ints(Math.round(dep)) + ' $' : 'фикс 500 $ на сделку'}`)]));
+  card.append(h('div', {class: 'card-h'}, [h('b', {}, C.title), h('span', {}, `${fday(x0)} — ${fday(C.end_ms)} · сделок в базе ${ints(lines[0].mask ? lines[0].mask.filter(Boolean).length : n)} · ${cmp ? 'компаундинг, депозит ' + ints(Math.round(dep)) + ' $' : 'фикс 500 $ на сделку'}`)]));
   const b = h('div', {class: 'card-b'});
   b.append(legend(lines.map(l => [swLine(EQ_COL[l.k], l.k === 'base' ? 4 : 2.25), l.name])), p.svg, eqTable(chartId, side, S, lines),
     h('p', {class: 'eq-note cmp-h'}, `Фикс 500 $ и компаундинг, депозит ${ints(Math.round(dep))} $ — итог и макс. просадка каждой линии (обе кривые, независимо от переключателя):`), cmpTable(chartId, side, S, linesFx, linesCp, dep));
-  b.append(h('p', {class: 'eq-note'}, chartId === 'ja'
+  b.append(h('p', {class: 'eq-note'}, chartId === '775'
+    ? 'Все линии — 775 контрактов (честная вселенная TK-621), сделки с входом 01.07–13.11 по времени закрытия, прибыль после комиссий без фандинга, те же сделки, что в виде «Базы». Источники: S_base и L_base — TK-621, S_mk1 и L_mk2 — TK-626 / TK-641, L_n24 — TK-638, NC360_q20 — TK-639, «без выхода rt» — TK-643, A_n_1 — TK-657, SHARP и DENSE — TK-654. «Сутки» — по дню входа.'
+    : chartId === 'ja'
     ? 'Окна чтения: замороженные модели, выбор — по сохранённым оценкам при чтении, граница «трети» — замороженная. Июль и август — одна непрерывная серия. «Сутки» — по дню сигнала, как в проверке TK-598.'
     : 'Окно подбора: выбор по внефолдовым оценкам (модель каждой сделки не видела). Модели подбирались на этих сутках — это отбор, не доказательство.'));
   card.append(b);
@@ -856,7 +861,7 @@ function renderEquity() {
   const width = Math.max(300, Math.floor(view.clientWidth - (view.clientWidth < 520 ? 22 : 42)));
   if (bases) { view.append(basesView(side, width)); return; }
   if (where) { const wb = h('div', {id: 'where-box'}); view.append(wb); renderWhere(wb); return; }
-  ['ja', 'fit'].forEach(id => view.append(shape ? shapeCard(id, side, width) : eqChart(id, side, width)));
+  (shape ? ['ja', 'fit'] : EQ_CHARTS).forEach(id => view.append(shape ? shapeCard(id, side, width) : eqChart(id, side, width)));
   if (!shape) view.append(h('p', {class: 'eq-note', id: 'eq-cmp-note'}, 'Компаундинг — только вид кривой: тесты, вердикты и все числа протоколов считаются при фиксированных 500 $ на сделку. Объём сделки = 500 $ × E / депозит, где E — депозит плюс реализованная прибыль сделок линии, закрытых до входа этой сделки (пересекающиеся сделки берут эквити на своём входе); прибыль сделки = прибыль при 500 $ × тот же коэффициент. Каждая линия — отдельный счёт с тем же депозитом («шорт + лонг: все сделки» — один счёт на обе стороны). Макс. просадка в % — от пика эквити (депозит + накопленная прибыль). Депозит влияет и на % просадки при фиксе.'));
 }
 function initEquity() {
@@ -943,14 +948,17 @@ function shapeCard(wid, side, width) {
 // TK-645: лучшие варианты на 775 монетах — L_n24 (TK-638, заморожен) и S_nc360 (TK-639, найдено на этих данных) рядом с базами той же вселенной L_b775 / S_b775 (U2, TK-621); дописывает tk645_best.py
 const B = JSON.parse(document.getElementById('bases-data').textContent);
 // TK-645: показываются ряды 775 контрактов; прежние базы 566 монет (L_base / S_base / S_mk1) остаются в bases.json для сверки, на странице не рисуются
-const BS_COL = {L_base: '#eb6834', S_base: '#2a78d6', S_mk1: '#1baf7a', S_b775: '#2a78d6', S_mk775: '#1baf7a', L_b775: '#eb6834', L_n24: '#a3369c', L_mk2: '#b8860b', S_nc360: '#0e7490', SL: '#52525b'};
+const BS_COL = {L_base: '#eb6834', S_base: '#2a78d6', S_mk1: '#1baf7a', S_b775: '#2a78d6', S_mk775: '#1baf7a', L_b775: '#eb6834', L_n24: '#a3369c', L_mk2: '#b8860b', S_nc360: '#0e7490', S_rf0: '#6250d6', S_an1: '#c0265b', L_sharp: '#008300', L_dense: '#0e7490', SL: '#52525b'};
 const BS_DASH = {};
-const BS_NAME = {L_base: 'Лонг · вход по рынку (L_base, 566 монет)', S_base: 'Шорт · вход по рынку (S_base, 566 монет)', S_mk1: 'Шорт · вход лимиткой (S_mk1, 566 монет)', S_b775: 'Шорт · вход по рынку (S_base)', S_mk775: 'Шорт · вход лимиткой (S_mk1)', L_b775: 'Лонг · вход по рынку (L_base)', L_n24: 'Лонг · сделок за 24 ч ≥ 220 000 (L_n24)', L_mk2: 'Лонг · вход лимиткой на цене уровня (L_mk2)', S_nc360: 'Шорт · сделок за 6 ч ≥ 26 000 (NC360_q20, найдено на этих данных)', SL: 'Шорт + лонг (S_base + L_base)'};
-const BS_LINES = {short: ['S_b775', 'S_mk775', 'S_nc360'], long: ['L_b775', 'L_n24', 'L_mk2'], both: ['L_b775', 'S_b775', 'SL']};
+const BS_NAME = {L_base: 'Лонг · вход по рынку (L_base, 566 монет)', S_base: 'Шорт · вход по рынку (S_base, 566 монет)', S_mk1: 'Шорт · вход лимиткой (S_mk1, 566 монет)', S_b775: 'Шорт · вход по рынку (S_base, заморожен — проверка вперёд)', S_mk775: 'Шорт · вход лимиткой (S_mk1, заморожен — проверка вперёд)', L_b775: 'Лонг · вход по рынку (L_base, заморожен — проверка вперёд)', L_n24: 'Лонг · сделок за 24 ч ≥ 220 000 (L_n24, заморожен — проверка вперёд)', L_mk2: 'Лонг · вход лимиткой на цене уровня (L_mk2, заморожен — проверка вперёд)', S_nc360: 'Шорт · сделок за 6 ч ≥ 26 000 (NC360_q20, найдено на этих данных)',
+  S_rf0: 'Шорт · без выхода rt (B_off_tt20_tb0.1, TK-643, найдено на этих данных)', S_an1: 'Шорт · больше сделок: n_bounce = 1 (A_n_1, TK-657, найдено на этих данных)', L_sharp: 'Лонг · резкий подход без проторговки (SHARP, TK-654, найдено на этих данных)', L_dense: 'Лонг · без пустых минут за 6 ч (DENSE, TK-654, найдено на этих данных)', SL: 'Шорт + лонг (S_base + L_base)'};
+// TK-662: R:R линии (средний выигрыш ÷ |средний проигрыш|, bases.json → rr, tk662_equity.py) — рядом с названием
+const bsName = k => BS_NAME[k] + (B.rr && B.rr[k] && B.rr[k].rr != null ? ' · R:R ' + num(B.rr[k].rr, 2) : '');
+const BS_LINES = {short: ['S_b775', 'S_mk775', 'S_nc360', 'S_rf0', 'S_an1'], long: ['L_b775', 'L_n24', 'L_mk2', 'L_sharp', 'L_dense'], both: ['L_b775', 'S_b775', 'SL']};
 const BS_MSHORT = ['июл', 'авг', 'сен', 'окт', 'ноя'];
 const BS_DESC = {
-  short: 'Накопленная прибыль шорта за 136 суток (01.07–13.11) на всех 775 контрактах (честная вселенная), $ при ставке 500 $ на сделку, после комиссий. Синяя — вход по рынку (S_base), зелёная — вход лимиткой на лучшей цене (S_mk1), бирюзовая — лучший вариант шорта (число сделок монеты за 6 ч ≥ 26 000, найдено на этих данных). Ряд суточный, сделка считается днём входа.',
-  long: 'Накопленная прибыль лонга за 136 суток (01.07–13.11) на всех 775 контрактах, $ при ставке 500 $ на сделку, после комиссий. Оранжевая — лонг-база (L_base), лиловая — лонг при числе сделок монеты за 24 ч ≥ 220 000 (L_n24), золотая — вход лимиткой на цене уровня (L_mk2); L_n24 и L_mk2 заморожены для проверки вперёд.',
+  short: 'Накопленная прибыль шорта за 136 суток (01.07–13.11) на всех 775 контрактах (честная вселенная), $ при ставке 500 $ на сделку, после комиссий. Синяя — вход по рынку (S_base), зелёная — вход лимиткой на лучшей цене (S_mk1): обе заморожены для проверки вперёд. Найдены на этих данных (отбор на прошлом, не доказательство): бирюзовая — число сделок монеты за 6 ч ≥ 26 000 (NC360_q20), фиолетовая — без выхода rt (TK-643), малиновая — n_bounce = 1, больше сделок худшего качества (A_n_1, TK-657). R:R — средний выигрыш ÷ средний проигрыш. Ряд суточный, сделка считается днём входа.',
+  long: 'Накопленная прибыль лонга за 136 суток (01.07–13.11) на всех 775 контрактах, $ при ставке 500 $ на сделку, после комиссий. Оранжевая — лонг-база (L_base), лиловая — лонг при числе сделок монеты за 24 ч ≥ 220 000 (L_n24), золотая — вход лимиткой на цене уровня (L_mk2): все три заморожены для проверки вперёд. Найдены на этих данных (отбор на прошлом, не доказательство): зелёная — резкий подход к уровню без проторговки (SHARP, TK-654), бирюзовая — без пустых минут за 6 ч (DENSE, TK-654). R:R — средний выигрыш ÷ средний проигрыш.',
   both: 'Обе базы на 775 контрактах на одних осях и их сумма: видно, откуда рост и что забирает лонг. Ряд суточный, сделка считается днём входа; ставка 500 $ на сделку, после комиссий.'
 };
 const WH_DESC = 'Где мы сейчас по деньгам: единственный кандидат, таблицы $ и шарпа по базам и по наборам монет (честная вселенная TK-621), что нашли сломанным и что дальше. Ставка 500 $ на сделку, после комиссий, 01.07–13.11.';
@@ -991,13 +999,13 @@ function bsChart(keys, w, id) {
     const i = dayAt(ev), xx = X(i + 1);
     vl.setAttribute('x1', xx); vl.setAttribute('x2', xx); vl.setAttribute('visibility', 'visible');
     dots.forEach((d, j) => { d.setAttribute('cx', xx); d.setAttribute('cy', Y(cum[j][i + 1])); d.setAttribute('visibility', 'visible'); });
-    tip.innerHTML = `<div class="t">${bsDate(i)}</div>` + keys.map((k, j) => `<div class="r"><span><span style="display:inline-block;width:12px;border-top:3px ${BS_DASH[k] ? 'dashed' : 'solid'} ${BS_COL[k]};vertical-align:middle;margin-right:6px"></span>${BS_NAME[k]}</span></div>` +
+    tip.innerHTML = `<div class="t">${bsDate(i)}</div>` + keys.map((k, j) => `<div class="r"><span><span style="display:inline-block;width:12px;border-top:3px ${BS_DASH[k] ? 'dashed' : 'solid'} ${BS_COL[k]};vertical-align:middle;margin-right:6px"></span>${bsName(k)}</span></div>` +
       trow('Прибыль суток · сделок', `<b>${money(Q[j].S[i])} $</b> · ${ints(Q[j].N[i])}`) + trow('Накоплено', `<b>${money(cum[j][i + 1])} $</b>`)).join('');
     tip.style.display = 'block'; moveTip(ev);
   };
   r.addEventListener('mouseenter', show); r.addEventListener('mousemove', show);
   r.addEventListener('mouseleave', () => { vl.setAttribute('visibility', 'hidden'); dots.forEach(d => d.setAttribute('visibility', 'hidden')); tip.style.display = 'none'; });
-  return h('div', {}, [legend(keys.map(k => [swLine(BS_COL[k], 2.4, BS_DASH[k] || null), BS_NAME[k]])), p.svg]);
+  return h('div', {}, [legend(keys.map(k => [swLine(BS_COL[k], 2.4, BS_DASH[k] || null), bsName(k)])), p.svg]);
 }
 function bsTable(k) {
   const cols = [['sum', 'Сумма, $'], ['trades', 'Сделок'], ['mean', 'В среднем на сделку, $'], ['sharpe', 'Шарп (год)'], ['maxdd', 'Макс. просадка, $'], ['pos', 'Дней в плюсе из дней со сделками']];
@@ -1009,7 +1017,7 @@ function bsTable(k) {
     body.append(h('tr', {'data-bsrow': m, class: m === 'all' ? 'base' : ''}, [h('td', {}, nm), ...cols.map(([c, lab]) => h('td', {class: 'num', 'data-f': c, 'data-lab': lab}, f[c]))]));
   });
   tb.append(body);
-  return h('div', {style: 'overflow-x:auto;margin-top:22px'}, [h('div', {class: 'cap'}, [h('span', {class: 'sw', style: `display:inline-block;width:18px;border-top:3px ${BS_DASH[k] ? 'dashed' : 'solid'} ${BS_COL[k]};vertical-align:middle;margin-right:8px`}), BS_NAME[k]]), tb]);
+  return h('div', {style: 'overflow-x:auto;margin-top:22px'}, [h('div', {class: 'cap'}, [h('span', {class: 'sw', style: `display:inline-block;width:18px;border-top:3px ${BS_DASH[k] ? 'dashed' : 'solid'} ${BS_COL[k]};vertical-align:middle;margin-right:8px`}), bsName(k)]), tb]);
 }
 function basesView(side, width) {
   const keys = BS_LINES[side], card = h('div', {class: 'card eq-card', 'data-bases': side});
@@ -1017,7 +1025,7 @@ function basesView(side, width) {
   const b = h('div', {class: 'card-b'});
   b.append(bsChart(keys, width, 'bs'));
   keys.forEach(k => b.append(bsTable(k)));
-  b.append(h('p', {class: 'eq-note'}, 'Шарп = среднесуточная прибыль ÷ разброс суточной прибыли (дни без сделок — ноль) × √365. Просадка — наибольшее падение накопленной прибыли от пика внутри периода, $. Ряд — сделки по дню входа; фандинг не учтён. Источники (775 контрактов): L_base и S_base — принятые выходы TK-621, S_mk1 и L_mk2 — TK-626 / TK-641, L_n24 — TK-638, NC360_q20 — TK-639; итоги совпадают с отчётами (' + keys.filter(k => B.cells[k]).map(k => BS_NAME[k] + ' ' + money(bsTotal(k).sum) + ' $').join(', ') + ').'));
+  b.append(h('p', {class: 'eq-note'}, 'Шарп = среднесуточная прибыль ÷ разброс суточной прибыли (дни без сделок — ноль) × √365. Просадка — наибольшее падение накопленной прибыли от пика внутри периода, $. Ряд — сделки по дню входа; фандинг не учтён. Источники (775 контрактов): L_base и S_base — принятые выходы TK-621, S_mk1 и L_mk2 — TK-626 / TK-641, L_n24 — TK-638, NC360_q20 — TK-639, «без выхода rt» — TK-643, A_n_1 — TK-657, SHARP и DENSE — TK-654; итоги совпадают с отчётами (' + keys.filter(k => B.cells[k]).map(k => BS_NAME[k] + ' ' + money(bsTotal(k).sum) + ' $').join(', ') + ').'));
   card.append(b);
   return card;
 }
@@ -1076,12 +1084,12 @@ function renderWhere(box) {
   const b = h('div', {class: 'card-b'});
   b.append(h('p', {class: 'wh-lead'}, W.lead));
   b.append(h('div', {class: 'wh-tt'}, W.table_title), h('p', {class: 'wh-tn'}, W.table_note));
-  const cols = [['sum', 'Итог, $'], ['trades', 'Сделок'], ['mean', 'На сделку, $'], ['sharpe', 'Шарп (год)'], ['maxdd', 'Макс. просадка, $']];
+  const cols = [['sum', 'Итог, $'], ['trades', 'Сделок'], ['mean', 'На сделку, $'], ['sharpe', 'Шарп (год)'], ['maxdd', 'Макс. просадка, $'], ['rr', 'R:R']];
   const tb = h('table', {class: 'eqt', 'data-wtable': '1'});
   tb.append(h('thead', {}, h('tr', {}, [h('th', {}, 'Вариант'), ...cols.map(([, t]) => h('th', {class: 'num'}, t)), ...B.month_names.map(m => h('th', {class: 'num'}, 'Сумма, $ · ' + m))])));
   const body = h('tbody');
   W.rows.forEach(r => {
-    const t = bsTotal(r.id), f = {sum: money(t.sum), trades: ints(t.trades), mean: money(t.mean, 3), sharpe: num(t.sharpe, 2, true), maxdd: num(t.maxdd, 2)};
+    const t = bsTotal(r.id), q = B.rr && B.rr[r.id], f = {sum: money(t.sum), trades: ints(t.trades), mean: money(t.mean, 3), sharpe: num(t.sharpe, 2, true), maxdd: num(t.maxdd, 2), rr: q && q.rr != null ? num(q.rr, 2) : '—'};
     body.append(h('tr', {'data-wline': r.id}, [h('td', {}, [h('span', {class: 'sw', style: `border-color:${BS_COL[r.id]};border-top-width:3px;border-top-style:${BS_DASH[r.id] ? 'dashed' : 'solid'}`}), r.name]),
       ...cols.map(([c, lab]) => h('td', {class: 'num', 'data-f': c, 'data-lab': lab}, f[c])),
       ...B.month_names.map((m, i) => h('td', {class: 'num', 'data-f': 'm' + i, 'data-lab': 'Сумма, $ · ' + m}, money(bsMonth(r.id, i).sum)))]));

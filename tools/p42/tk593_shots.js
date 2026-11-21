@@ -6,6 +6,7 @@ const {chromium} = require(process.env.PW || 'playwright-core');
 const fs = require('fs');
 const [url, out, widthArg] = process.argv.slice(2);
 const W = +(widthArg || 1280);
+const CURVE = ['775'];   // TK-662: вид «Кривая» — график 775 контрактов; ja / fit — только «Форма»
 fs.mkdirSync(out, {recursive: true});
 const base = url.split('#')[0];
 
@@ -66,10 +67,10 @@ const base = url.split('#')[0];
     const info = {hash: (await state()).hash, selected: await page.getAttribute(`#eq-tabs button[data-side="${side}"]`, 'aria-selected'), overflowX: await overflow(), desc: await page.innerText('#eq-desc')};
     await top(`equity-${side}-top`);
     await page.locator('#equity').screenshot({path: `${out}/equity-${side}.png`});
-    for (const ch of ['ja', 'fit']) await page.locator(`.eq-card[data-eqchart="${ch}"]`).screenshot({path: `${out}/equity-${side}-${ch}.png`});
+    for (const ch of CURVE) await page.locator(`.eq-card[data-eqchart="${ch}"]`).screenshot({path: `${out}/equity-${side}-${ch}.png`});
     // наведение: три точки по ширине графика, текст подсказки
     info.hover = {};
-    for (const ch of ['ja', 'fit']) {
+    for (const ch of CURVE) {
       const loc = page.locator(`rect[data-chart="eq.${ch}.hover"]`);
       await loc.scrollIntoViewIfNeeded();
       const b = await loc.boundingBox();
@@ -134,14 +135,14 @@ const base = url.split('#')[0];
     const cp = await grab();
     await top(`equity-${side}-cmp-top`);
     await page.locator('#equity').screenshot({path: `${out}/equity-${side}-cmp.png`});
-    const hv = {ja: await hov('ja'), fit: await hov('fit')};
+    const hv = {}; for (const ch of CURVE) hv[ch] = await hov(ch);
     await page.screenshot({path: `${out}/equity-${side}-cmp-hover.png`});
     cdom[side] = {fix: fx, cmp: cp, hover: hv, overflowX: await overflow()};
   }
   await page.click('#eq-tabs button[data-side="short"]');
   await setDep(10000);
   cdom.short.cmp10k = await grab();
-  await page.locator('.eq-card[data-eqchart="ja"]').screenshot({path: `${out}/equity-short-cmp-10k-ja.png`});
+  await page.locator(`.eq-card[data-eqchart="${CURVE[0]}"]`).screenshot({path: `${out}/equity-short-cmp-10k-${CURVE[0]}.png`});
   await setDep(0);
   cdom.short.invalid = await grab();
   await setDep(5000);
