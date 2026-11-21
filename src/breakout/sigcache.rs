@@ -80,6 +80,7 @@ pub fn cfg_key_text(cfg: &SigCfg) -> String {
         fr_k,
         fr_share,
         fr_b_pm,
+        fg_m,
     } = cfg;
     let LevelCfg {
         tf_min,
