@@ -1,0 +1,310 @@
+{
+ "lines": {
+  "S_base": {
+   "n": 319,
+   "sum": 223.14459300000001,
+   "mean": 0.6995128307210032,
+   "rr": 2.6303736366716706,
+   "n_win": 123,
+   "n_loss": 196,
+   "mean_win": 4.602260154471543,
+   "mean_loss": -1.7496602346938774,
+   "stops": {
+    "n": 7,
+    "share": 0.0219435736677116,
+    "mean_loss": -16.292278285714286,
+    "max_loss": -25.308327,
+    "mean_loss_pct": -6.516911314285714,
+    "max_loss_pct": -10.1233308
+   },
+   "sharpe_out": 4.099280224549914,
+   "sharpe_in": 4.116936765617454,
+   "closes_after_1311": 0,
+   "nd": 136
+  },
+  "A_n_1": {
+   "n": 2907,
+   "sum": 1017.6929760000002,
+   "mean": 0.35008358307533544,
+   "rr": 2.0565720294482825,
+   "n_win": 1111,
+   "n_loss": 1796,
+   "mean_win": 4.281379525652565,
+   "mean_loss": -2.081803829064588,
+   "stops": {
+    "n": 90,
+    "share": 0.030959752321981424,
+    "mean_loss": -15.038366366666667,
+    "max_loss": -25.994631000000002,
+    "mean_loss_pct": -6.015346546666667,
+    "max_loss_pct": -10.3978524
+   },
+   "sharpe_out": 6.0939183789815115,
+   "sharpe_in": 6.038943278741917,
+   "closes_after_1311": 0,
+   "nd": 136
+  },
+  "S_mk1": {
+   "n": 272,
+   "sum": 199.771587,
+   "mean": 0.7344543639705883,
+   "rr": 2.8410253471767706,
+   "n_win": 105,
+   "n_loss": 167,
+   "mean_win": 4.322338361904762,
+   "mean_loss": -1.5214008443113771,
+   "stops": {
+    "n": 8,
+    "share": 0.029411764705882353,
+    "mean_loss": -14.295760999999999,
+    "max_loss": -25.210987000000003,
+    "mean_loss_pct": -5.718304399999999,
+    "max_loss_pct": -10.084394800000002
+   },
+   "sharpe_out": 4.192376612966057,
+   "sharpe_in": 4.184418979280085,
+   "closes_after_1311": 0,
+   "nd": 136
+  },
+  "L_base": {
+   "n": 428,
+   "sum": 193.166744,
+   "mean": 0.45132416822429905,
+   "rr": 1.2426901901051928,
+   "n_win": 214,
+   "n_loss": 214,
+   "mean_win": 4.621992476635514,
+   "mean_loss": -3.7193441401869163,
+   "stops": {
+    "n": 21,
+    "share": 0.04906542056074766,
+    "mean_loss": -25.398348238095238,
+    "max_loss": -26.846882,
+    "mean_loss_pct": -10.159339295238096,
+    "max_loss_pct": -10.7387528
+   },
+   "sharpe_out": 1.884606475892587,
+   "sharpe_in": 1.9594363669131578,
+   "closes_after_1311": 0,
+   "nd": 136
+  },
+  "L_n24": {
+   "n": 181,
+   "sum": 294.309834,
+   "mean": 1.626021182320442,
+   "rr": 1.6831361924632038,
+   "n_win": 102,
+   "n_loss": 79,
+   "mean_win": 5.344886843137255,
+   "mean_loss": -3.175552202531646,
+   "stops": {
+    "n": 5,
+    "share": 0.027624309392265192,
+    "mean_loss": -25.4281074,
+    "max_loss": -25.574929,
+    "mean_loss_pct": -10.171242959999999,
+    "max_loss_pct": -10.2299716
+   },
+   "sharpe_out": 4.9620868977388675,
+   "sharpe_in": 5.111766666023104,
+   "closes_after_1311": 0,
+   "nd": 136
+  },
+  "L_mk2": {
+   "n": 327,
+   "sum": 180.82829899999996,
+   "mean": 0.5529917400611619,
+   "rr": 1.8525543114017222,
+   "n_win": 140,
+   "n_loss": 187,
+   "mean_win": 4.629703421428571,
+   "mean_loss": -2.499091871657754,
+   "stops": {
+    "n": 0,
+    "share": 0.0,
+    "mean_loss": NaN,
+    "max_loss": NaN,
+    "mean_loss_pct": NaN,
+    "max_loss_pct": NaN
+   },
+   "sharpe_out": 3.405434048487525,
+   "sharpe_in": 3.405434048487525,
+   "closes_after_1311": 0,
+   "nd": 136
+  }
+ },
+ "pairs": {
+  "L_base+S_base": {
+   "sum": 416.311337,
+   "n": 747,
+   "gap_longest": 14,
+   "gap_mean": 3.0454545454545454,
+   "maxdd": 77.64456300000006,
+   "episodes": 20,
+   "highs": 44,
+   "under_share": 0.6691176470588235,
+   "trade_gap_longest": 81,
+   "sharpe_out": 3.6205880064381133
+  },
+  "L_n24+A_n_1": {
+   "sum": 1312.00281,
+   "n": 3088,
+   "gap_longest": 24,
+   "gap_mean": 1.8285714285714285,
+   "maxdd": 153.43899999999996,
+   "episodes": 17,
+   "highs": 70,
+   "under_share": 0.4852941176470588,
+   "trade_gap_longest": 471,
+   "sharpe_out": 7.924407526518238
+  }
+ },
+ "underwater_day": {
+  "S_base": {
+   "episodes": 14,
+   "highs": 31,
+   "gap_longest": 21,
+   "gap_seg": [
+    64,
+    84
+   ],
+   "gap_mean": 4.354838709677419,
+   "tail": 1,
+   "maxdd": 43.529847999999994,
+   "under_longest": 20,
+   "under_share": 0.7352941176470589
+  },
+  "A_n_1": {
+   "episodes": 17,
+   "highs": 52,
+   "gap_longest": 32,
+   "gap_seg": [
+    78,
+    109
+   ],
+   "gap_mean": 2.4615384615384617,
+   "tail": 8,
+   "maxdd": 189.22199100000012,
+   "under_longest": 31,
+   "under_share": 0.6176470588235294
+  },
+  "S_mk1": {
+   "episodes": 13,
+   "highs": 30,
+   "gap_longest": 21,
+   "gap_seg": [
+    64,
+    84
+   ],
+   "gap_mean": 4.5,
+   "tail": 1,
+   "maxdd": 36.98504300000001,
+   "under_longest": 20,
+   "under_share": 0.7352941176470589
+  },
+  "L_base": {
+   "episodes": 14,
+   "highs": 31,
+   "gap_longest": 44,
+   "gap_seg": [
+    90,
+    133
+   ],
+   "gap_mean": 4.32258064516129,
+   "tail": 2,
+   "maxdd": 107.96200999999989,
+   "under_longest": 43,
+   "under_share": 0.75
+  },
+  "L_n24": {
+   "episodes": 19,
+   "highs": 39,
+   "gap_longest": 23,
+   "gap_seg": [
+    113,
+    135
+   ],
+   "gap_mean": 2.8974358974358974,
+   "tail": 23,
+   "maxdd": 33.699072,
+   "under_longest": 18,
+   "under_share": 0.5808823529411765
+  },
+  "L_mk2": {
+   "episodes": 19,
+   "highs": 26,
+   "gap_longest": 20,
+   "gap_seg": [
+    14,
+    33
+   ],
+   "gap_mean": 5.153846153846154,
+   "tail": 2,
+   "maxdd": 27.141902,
+   "under_longest": 19,
+   "under_share": 0.7941176470588235
+  }
+ },
+ "underwater_trade": {
+  "S_base": {
+   "episodes": 30,
+   "highs": 55,
+   "gap_longest": 41,
+   "gap_mean": 5.709090909090909,
+   "tail": 5,
+   "maxdd": 55.80950000000002,
+   "under_longest": 40,
+   "under_share": 0.8275862068965517
+  },
+  "A_n_1": {
+   "episodes": 139,
+   "highs": 256,
+   "gap_longest": 578,
+   "gap_mean": 10.69921875,
+   "tail": 168,
+   "maxdd": 212.9457630000005,
+   "under_longest": 577,
+   "under_share": 0.911936704506364
+  },
+  "S_mk1": {
+   "episodes": 22,
+   "highs": 41,
+   "gap_longest": 38,
+   "gap_mean": 6.512195121951219,
+   "tail": 5,
+   "maxdd": 49.22710500000001,
+   "under_longest": 37,
+   "under_share": 0.8492647058823529
+  },
+  "L_base": {
+   "episodes": 24,
+   "highs": 49,
+   "gap_longest": 143,
+   "gap_mean": 8.63265306122449,
+   "tail": 5,
+   "maxdd": 107.96201000000009,
+   "under_longest": 142,
+   "under_share": 0.8855140186915887
+  },
+  "L_n24": {
+   "episodes": 30,
+   "highs": 61,
+   "gap_longest": 26,
+   "gap_mean": 2.540983606557377,
+   "tail": 26,
+   "maxdd": 33.699072,
+   "under_longest": 26,
+   "under_share": 0.6629834254143646
+  },
+  "L_mk2": {
+   "episodes": 30,
+   "highs": 46,
+   "gap_longest": 53,
+   "gap_mean": 7.021739130434782,
+   "tail": 4,
+   "maxdd": 37.472908000000004,
+   "under_longest": 52,
+   "under_share": 0.8593272171253823
+  }
+ }
+}
