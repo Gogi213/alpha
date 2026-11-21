@@ -49,6 +49,7 @@ TABLES56 = "/data/p42-tk656/res/tables56.json"
 REF_FTAB = "/data/p42-tk638/ftab38-h775/%s-L.csv"
 REF_DIR = "/data/p42-tk638/ladd-h775/%s-L/N24_q60"
 M_E, M_B, M_L = 79, 121, 7                                   # §13.68 п. 6: E 61 + 18; B 61 + 24 + 18 + 18; линии E8 + E4 (6), E30 — DROP
+M_L_FULL = 9                                                   # §13.68.4 (поправка к §13.68.3): семейство линий m_L = 1 (E8) + 6 (E4) + 2 (E30 L / S, DROP → p = 1); E8 записан в e8-68.json с m_L = 7 до поправки
 HYP = {"14 (X24H + X7H)": ["X24H", "X7H"], "37 (X24L)": ["X24L"], "15 (XPH + XPL)": ["XPH", "XPL"], "44 (XVH + XVL)": ["XVH", "XVL"], "5 (RM10)": ["RM10"],
        "56 h = 1 мин": ["Bsk_1", "Bwi_1", "Bag_1"], "56 h = 5 мин": ["Bsk_5", "Bwi_5", "Bag_5"], "56 h = 15 мин": ["Bsk_15", "Bwi_15", "Bag_15"]}
 REF_CELLS = ("RM10", "X24H", "X24L", "X7H", "X7L", "XPH", "XPL", "XVH", "XVL")

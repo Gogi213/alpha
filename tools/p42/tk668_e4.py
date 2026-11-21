@@ -4,7 +4,7 @@
   counts  — счёт источников без P&L (`P42_SIGSX_ONLY`: только сигналы и дампы уровней): родилось / живых на сигнале / сигналов / ключей кандидатов; независимый пересчёт уровней
             из кэша минуток на Python (D, W, P; цена, `born`, `end`, `first_bar`) против дампа движка (G-lvl-E4) → res/counts68-e4.json
   cells   — полный прогон 3 источника × 2 стороны × 3 окна (только после PASS критика на §13.68.3 и G-byte; сигналы прогона = сигналам счёта побайтно, G-sig)
-  lines   — P&L линии E4: по источникам D / W / P × стороны — ряд суток, (l1)–(l5) (Холм семейства линий m_L = 7: E8 + 6 клеток E4), месяцы, R:R
+  lines   — P&L линии E4: по источникам D / W / P × стороны — ряд суток, (l1)–(l5) (Холм семейства линий m_L = 9: E8 + 6 клеток E4 + E30 L / S с p = 1, §13.68.4), месяцы, R:R
 Доллары — ставка 500 $, годовой Sharpe по суточному ряду; без бп, без медиан. Файлы сделок / суточные прогона `cells` открывает только `lines`; счёт и ворота их не читают."""
 from __future__ import annotations
 
@@ -297,14 +297,16 @@ def cmd_lines(a):
         for s in SIDES:
             dirs = {w.name: (os.path.join(ROOT, "e4", "cells", w.name, vid(s, lx)), s) for w in st.TRADE_WINDOWS}
             ser, kinds, pnl = p8.load_cell(u, s, dirs)
-            ln = post.line_tests(ser.day, ser.val, list(ser.sym_name))
+            ln = post.line_tests(ser.day, ser.val, list(ser.sym_name), m_line=post.M_L_FULL)
             rows[(lx, s)] = dict(stats=p8.cell_stats(ser, kinds, pnl), line=ln)
     e8 = json.load(open(os.path.join(ROOT, "res", "e8-68.json"), encoding="utf-8"))["rules"]["main"]["line"]
     keys = list(rows)
-    ps = [float(e8["p"])] + [rows[k]["line"]["p"] for k in keys]
+    ps = [float(e8["p"])] + [rows[k]["line"]["p"] for k in keys] + [1.0, 1.0]                      # E8, 6 клеток E4, E30 L / S (DROP — не допущены, p = 1; §13.68.4)
     rej = st.holm_reject(ps, post.ALPHA)
+    if len(ps) != post.M_L_FULL:
+        raise GuardError("семейство линий %d ≠ %d" % (len(ps), post.M_L_FULL))
     bar = post.noise_bar(len(keys))
-    out = dict(m_L=post.M_L, holm_ps=dict(zip(["E8"] + ["%s/%s" % (SRC[k[0]], k[1]) for k in keys], ps)), noise_bar_z=bar[0], noise_bar_p95=bar[1], cells={})
+    out = dict(m_L=post.M_L_FULL, holm_ps=dict(zip(["E8"] + ["%s/%s" % (SRC[k[0]], k[1]) for k in keys] + ["E30 L", "E30 S"], ps)), noise_bar_z=bar[0], noise_bar_p95=bar[1], cells={})
     for i, k in enumerate(keys):
         r = rows[k]
         ln = r["line"]
@@ -322,7 +324,7 @@ def cmd_lines(a):
         say("        среднее суточное %+.3f $ ± %.3f (z %+.2f), p %.4f; l1 %s l2 %s (мес. %d, +%d, нужно %s) l3 %s (без 2 суток %+.1f, без 2 монет %+.1f) l4 %s l5 %s (планка %.2f) → %s" % (
             ln["mean_day"], ln["se_day"], ln["z"], ln["p"], ln["l1"], ln["l2"], len(ln["informative_months"]), ln["positive_informative"], ln["need"], ln["l3"],
             ln["no_top2_days"], ln["no_top2_coins"], ln["l4"], ln["l5"], bar[0], ln["outcome"]))
-    say("Холм линий m_L = %d (E8 p %.4f + 6 клеток E4): %s" % (post.M_L, e8["p"], {n: round(p_, 4) for n, p_ in out["holm_ps"].items()}))
+    say("Холм линий m_L = %d (первый шаг %.5f; E8 p %.4f + 6 клеток E4 + E30 L / S с p = 1): %s" % (post.M_L_FULL, post.ALPHA / post.M_L_FULL, e8["p"], {n: round(p_, 4) for n, p_ in out["holm_ps"].items()}))
     r4.write_json(qq("res", "e4-lines.json"), _jsonable(out))
 
 
