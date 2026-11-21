@@ -88,7 +88,9 @@ def run_cids(side, group):
         if sa is None:
             raise GuardError("нет res/stageA68.json — сначала `select a`")
         hosts = set(sa["hosts"][side])
-        return [x["cid"] for x in c if not x["trial"] and x["group"] in hosts and x["admit_floor"] and x["dup_of"] is None]
+        nadm = {x["group"] for x in c if x["trial"] and x["fam"] == "B" and not x["admit_floor"]}      # §13.68 п. 5: основная k = 2,0 не допущена → k = 1,5 описательно
+        return [x["cid"] for x in c if not x["trial"] and x["admit_floor"] and x["dup_of"] is None
+                and (x["group"] in hosts or (x["group"] in nadm and x["cid"].endswith("_k15")))]
     if group == "ref":
         return ["REF"] + ["N24_" + cid for cid in REF_CELLS] if side == "L" else []
     raise GuardError("группа %s" % group)
@@ -308,7 +310,19 @@ def outcome(rows, cids):
         return "качество сделок выше, Σ не выше (подмножество; не добавляет $)"
     if all(x["d"] < 0 for x in adm):
         return "не работает (все допущенные клетки Δ < 0, точка)"
-    return "не ясно: |Δ| < MDE %.2f $/сделку" % min(x["mde_mean"] for x in adm)
+    mde = [(c, x["mde_mean"]) for c, x in zip(cids, rs) if x and x["admitted"]]
+    return "не ясно: |Δ| < MDE %s $/сделку" % (", ".join("%s %.2f" % m for m in mde) if len(mde) > 1 else "%.2f" % mde[0][1])
+
+
+def b_label(side, cid, nb):
+    """Клетка B, основная k = 2,0 не допущена (§13.68 п. 5): ответ «не проверяемо: мало событий» + соседняя k = 1,5 описательно (без Холма)."""
+    cc = {x["cid"]: x for x in counts_of(side)["cells"]}
+    h, k = cc[cid], cc[cid + "_k15"]
+    txt = "не проверяемо: мало событий (k = 2,0: исключено %d сделок базы < 30, по месяцам %s)" % (h["E"], h["excl_by_month"])
+    if nb is None or not nb["admitted"]:
+        return txt + "; k = 1,5 описательно: исключено %d, по месяцам %s%s" % (k["E"], k["excl_by_month"], "" if k["admit_floor"] else " — не допущена (< 30)")
+    return txt + "; k = 1,5 описательно: исключено %d, по месяцам %s, Δ %+.3f ± %.3f $/сделку (z %+.2f), ΔΣ %+.1f ± %.1f (без Холма)" % (
+        k["E"], k["excl_by_month"], nb["d"], nb["se"], nb["z"], nb["dsum"], nb["se_sum"])
 
 
 def trial_cids(fam=None):
@@ -340,7 +354,7 @@ def cmd_select(a):
     bars = {f: noise_bar(n) for f, n in n_run.items()}
     say("Холм: E m = %d (первый шаг %.5f), B m = %d (первый шаг %.5f); клеток на P&L: E %d, B %d; шумовая планка max|z|: E %.2f (p95 %.2f), B %.2f (p95 %.2f)" % (
         M_E, ALPHA / M_E, M_B, ALPHA / M_B, n_run["E"], n_run["B"], bars["E"][0], bars["E"][1], bars["B"][0], bars["B"][1]))
-    cells_out = {}
+    cells_out, lab_b = {}, {s: {} for s in SIDES}
     for s in SIDES:
         say("== %s: база n %d, Σ %+.1f $, %+.3f $/сделку, Sharpe %.2f" % (s, bs[s]["n"], bs[s]["sum"], bs[s]["mean"], bs[s]["sharpe"]))
         cells_out[s] = {}
@@ -350,6 +364,9 @@ def cmd_select(a):
             if row is None:
                 if sp["trial"]:
                     say("   %-10s пробная: не допущена / не запущена (p = 1) — %s" % (cid, cl.cell_label(sp)))
+                    if sp["family"] == "B":
+                        lab_b[s][cid] = b_label(s, cid, ev["rows"][s].get(cid + "_k15"))
+                        say("   %-10s %s" % ("", lab_b[s][cid]))
                 continue
             cs = p8.cell_stats(*full[s][cid])
             bar = bars[sp["family"]][0]
@@ -367,7 +384,7 @@ def cmd_select(a):
             say("ИСХОД %s, гипотеза %s: %s" % (s, k, o))
     hosts = {s: [cid for cid in trial_cids() if (ev["rows"][s].get(cid) or {}).get("admitted") and all(ev["rows"][s][cid].get(g) for g in ("g1", "g2", "g3", "g4"))] for s in SIDES}
     out = dict(stage="final" if final else "a", m=dict(E=M_E, B=M_B), n_run=n_run, noise=bars, base={s: bs[s] for s in SIDES}, families={"%s/%s" % k: v for k, v in fam.items()},
-               cells=cells_out, outcomes=res_h, hosts=hosts)
+               cells=cells_out, outcomes=res_h, hosts=hosts, labels_b=lab_b)
     if final:
         out["passed"] = [(s, cid) for s in SIDES for cid in trial_cids() if (ev["rows"][s].get(cid) or {}).get("pass")]
     r4.write_json(os.path.join(ROOT, "res", "select68%s.json" % ("" if final else "-a")), r33.jsonable(out))
