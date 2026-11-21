@@ -511,3 +511,199 @@ def parse_metric_arg(s):
     for k in ("side", "cell", "uni", "win", "trades", "usd", "mean_usd", "sharpe", "verdict", "same_data", "src_ptr", "src_commit", "extra"):
         r.setdefault(k, None)
     return r
+
+
+# ── явная опись (TK-661): числа записей, которые общий разбор не берёт — файл с нестандартными ключами (в т. ч. удалённый,
+# из истории git), строки текста записи «из текста» и пометки «нет чисел» с причиной. Опись — JSON в git, повтор не дублирует.
+
+ROW_KEYS = ("side", "cell", "uni", "win", "trades", "usd", "mean_usd", "sharpe", "verdict", "same_data", "extra")
+GAP_REASONS = ("предрегистрация", "заморозка", "не запускалось", "числа не вписаны", "чисел сделок нет")
+
+
+def _line_span(ptr):
+    """«строка 12» / «12» / «12-14» → (12, 14); иначе None."""
+    m = re.fullmatch(r"(?:строка\s*)?(\d+)(?:\s*[-–]\s*(\d+))?", (ptr or "").strip())
+    return (int(m.group(1)), int(m.group(2) or m.group(1))) if m else None
+
+
+def _nums_in(text):
+    """Числа текста: как написаны, с группами разрядов (11 224 843), с «млн» / «тыс.», «ноль» = 0; запятая — десятичная."""
+    t = re.sub(r"(?<=\d),(?=\d)", ".", re.sub(r"[   ]", " ", text))
+    out = {0.0} if re.search(r"\bнол[ья]\b", t) else set()
+    for m in re.finditer(r"\d+(?:\.\d+)?", t):
+        out.add(float(m.group(0)))
+    for m in re.finditer(r"(?<![\w.-])\d{1,3}(?: \d{3})+(?:\.\d+)?(?![\d.])", t):
+        out.add(float(m.group(0).replace(" ", "")))
+    for m in re.finditer(r"(\d+(?:\.\d+)?)\s*(млн|тыс)", t):
+        out.add(round(float(m.group(1)) * (1e6 if m.group(2) == "млн" else 1e3), 6))
+    return out
+
+
+def check_text_line(raw, ptr, row, where=""):
+    """Строка «из текста»: место есть в файле (не дальше конца) и каждое число строки (trades / usd / sharpe / extra) стоит на этой строке."""
+    sp = _line_span(ptr)
+    if not sp:
+        return
+    lines = raw.splitlines()
+    if sp[0] < 1 or sp[1] > len(lines) or sp[0] > sp[1]:
+        raise ValueError("%s: строка %s — в файле %d строк" % (where, ptr, len(lines)))
+    have = _nums_in(" ".join(lines[sp[0] - 1:sp[1]]))
+    vals = [row.get(k) for k in ("trades", "usd", "sharpe")] + list((row.get("extra") or {}).values())
+    miss = [v for v in vals if isinstance(v, (int, float)) and not isinstance(v, bool) and not any(abs(abs(v) - h) < 1e-9 for h in have)]
+    if miss:
+        raise ValueError("%s: на строке %s нет чисел %s" % (where, ptr, ", ".join("%g" % v for v in miss)))
+
+
+def read_at(repo, path, commit=None):
+    """Текст файла: из дерева, а с коммитом — ровно та версия (удалённый файл — из истории)."""
+    if commit:
+        r = subprocess.run(["git", "show", "%s:%s" % (commit, path)], cwd=str(repo.root), capture_output=True)
+        if r.returncode:
+            raise ValueError("нет %s в коммите %s" % (path, commit))
+        return r.stdout.decode("utf-8")
+    if path not in repo.files:
+        raise ValueError("файла нет в git: %s (удалённый — с commit)" % path)
+    return (repo.root / path).read_text(encoding="utf-8")
+
+
+def _walk_ptr(obj, parts, got=()):
+    """Путь JSON «a/b/*/c» → [(ключи под *, путь, узел)]."""
+    if not parts:
+        yield got, (), obj
+        return
+    head, rest = parts[0], parts[1:]
+    if head == "*":
+        items = obj.items() if isinstance(obj, dict) else enumerate(obj) if isinstance(obj, list) else []
+        for k, v in items:
+            for g, pth, o in _walk_ptr(v, rest, got + (str(k),)):
+                yield g, (str(k),) + pth, o
+        return
+    if isinstance(obj, list):
+        obj, head = obj[int(head)], str(int(head))
+    elif isinstance(obj, dict) and head in obj:
+        obj = obj[head]
+    else:
+        raise ValueError("нет ключа «%s»" % head)
+    for g, pth, o in _walk_ptr(obj, rest, got):
+        yield g, (head,) + pth, o
+
+
+def _subst(v, keys, rec):
+    """«{0}» / «{*}» — ключи под * ; «{колонка}» — поле записи."""
+    if not isinstance(v, str):
+        return v
+    v = v.replace("{*}", "/".join(keys))
+    for i, k in enumerate(keys):
+        v = v.replace("{%d}" % i, k)
+    return re.sub(r"\{([\w.-]+)\}", lambda m: str(rec.get(m.group(1), m.group(0))) if isinstance(rec, dict) else m.group(0), v)
+
+
+def _num_of(rec, key):
+    o = rec
+    for k in key.split("/"):
+        if isinstance(o, dict):
+            o = o.get(k)
+        elif isinstance(o, list) and k.lstrip("-").isdigit() and -len(o) <= int(k) < len(o):
+            o = o[int(k)]
+        else:
+            o = None
+    if isinstance(o, str):
+        try:
+            o = float(o.replace("−", "-").replace(",", "."))
+        except ValueError:
+            return None
+    return num(o)
+
+
+def spec_rows(root, spec, entries):
+    """Опись → (строки metric, строки metric_gap). entries: [{id, project}] — проект решает, где $ — ставка 500 $."""
+    repo = Repo(root)
+    proj = {e["id"]: e.get("project") for e in entries}
+    out, gaps = [], []
+    for it in spec["items"]:
+        eid = int(it["entry"])
+        if eid not in proj:
+            raise ValueError("нет записи L-%d" % eid)
+        where = "L-%d %s" % (eid, it.get("src") or "")
+        if it.get("gap"):
+            if it["gap"] not in GAP_REASONS:
+                raise ValueError("%s: причина «%s» — только %s" % (where, it["gap"], " / ".join(GAP_REASONS)))
+            if it.get("src"):
+                read_at(repo, it["src"], it.get("commit"))
+            gaps.append({"entry": eid, "reason": it["gap"], "note": it.get("note"), "src": it.get("src"),
+                         "src_ptr": "строка %d" % it["line"] if it.get("line") else it.get("ptr")})
+            if not it.get("rows") and not it.get("pick"):
+                continue
+        src, commit, text = it["src"], it.get("commit"), 1 if it.get("text") else 0
+        raw = read_at(repo, src, commit)
+        commit = commit or repo.commit(src)
+        if not text and not src.endswith(DATA_EXT):
+            raise ValueError("%s: не файл результатов — нужно text: 1" % where)
+        if not text and not src.startswith("docs/"):
+            raise ValueError("%s: файл результатов — только из docs/" % where)
+        base = {k: it.get(k) for k in ("side", "uni", "win", "verdict", "same_data")}
+        cand = []
+        for r in it.get("rows") or []:
+            ln = r.get("line") or it.get("line")
+            cand.append((dict(base, **r), "строка %s" % ln if ln else it.get("ptr")))
+        if it.get("pick"):
+            obj = recs = None
+            if src.endswith(".json"):
+                obj = json.loads(raw)
+            else:
+                recs = list(csv.DictReader(io.StringIO(raw), delimiter="\t" if src.endswith(".tsv") else ","))
+            for pk in it["pick"]:
+                if recs is None:
+                    found = list(_walk_ptr(obj, [x for x in pk["ptr"].split("/") if x]))
+                else:
+                    found = [((), ("строка %d" % (i + 2),), rec) for i, rec in enumerate(recs)
+                             if all(str(rec.get(c)) == str(v) for c, v in (pk.get("where") or {}).items())]
+                if not found:
+                    raise ValueError("%s: по %s ничего не найдено" % (where, pk.get("ptr") or pk.get("where")))
+                for keys, pth, rec in found:
+                    r = {k: _subst(pk.get(k, base.get(k)), keys, rec) for k in ("side", "cell", "uni", "win", "verdict", "same_data")}
+                    if r["cell"] is None:
+                        r["cell"] = keys[-1] if keys else ((pk.get("ptr") or "").rstrip("/").split("/")[-1] or None)
+                    if r["side"] and r["side"] not in ("long", "short", "both"):
+                        r["side"] = side_of(r["side"])
+                    for f, key in (pk.get("map") or {}).items():
+                        r[f] = _num_of(rec, key)
+                    ex = pk.get("extra") or {}
+                    ex = {k: k for k in ex} if isinstance(ex, list) else ex
+                    r["extra"] = {name: _num_of(rec, key) for name, key in ex.items() if _num_of(rec, key) is not None} or None
+                    if not r["extra"] and not any(r.get(k) is not None for k in ("trades", "usd", "mean_usd", "sharpe")):
+                        continue  # узел без чисел (например, гипотеза без счёта) — не строка
+                    if pk.get("note"):
+                        r["extra"] = dict(r["extra"], note=pk["note"]) if r["extra"] else {"note": pk["note"]}
+                    cand.append((r, "/".join(pth) if recs is None else pth[0]))
+        for r, ptr in cand:
+            if text:
+                check_text_line(raw, ptr, r, "%s (%s)" % (where, r.get("cell")))
+            replaces = r.pop("replaces", None)  # прежнее место той же строки в БД (неверное) — строка заменяется, не дублируется
+            bad = set(r) - set(ROW_KEYS) - {"line", "mean"}
+            if bad:
+                raise ValueError("%s: лишние поля %s" % (where, ", ".join(sorted(bad))))
+            if "mean" in r:
+                r["mean_usd"] = r.pop("mean")
+            r.pop("line", None)
+            if r.get("trades") is not None:
+                r["trades"] = int(r["trades"])
+            if proj[eid] != "П-42" and it.get("stake") != 500 and any(r.get(k) is not None for k in ("usd", "mean_usd", "sharpe")):
+                raise ValueError("%s: $ / Шарп — только у П-42 или со ставкой stake: 500; иначе в extra" % where)
+            if r.get("trades") and r.get("usd") is not None and r.get("mean_usd") is None:
+                r["mean_usd"] = r["usd"] / r["trades"]
+            if r.get("verdict") and r["verdict"] not in TEXT_VERDICTS:
+                raise ValueError("%s: вердикт «%s»" % (where, r["verdict"]))
+            if r.get("side") not in (None, "long", "short", "both"):
+                raise ValueError("%s: сторона «%s»" % (where, r.get("side")))
+            if not any(r.get(k) is not None for k in ("trades", "usd", "mean_usd", "sharpe")) and not r.get("extra"):
+                raise ValueError("%s: строка без чисел (%s)" % (where, r.get("cell")))
+            row = {k: r.get(k) for k in ROW_KEYS}
+            if it.get("stake") == 500 and proj[eid] != "П-42":
+                row["extra"] = dict(row["extra"] or {}, stake="позиция 500 $ (--order-usd 500)")
+            row.update(entry=eid, from_text=text, src=src, src_commit=commit, src_ptr=ptr)
+            row["h"] = row_hash(eid, row)
+            if replaces:
+                row["replaces"] = replaces
+            out.append(row)
+    return out, gaps

@@ -1,4 +1,5 @@
 """TK-646: проверки tools/chron.py (запуск: python tools/tests/test_chron.py). БД — во временной папке; репозиторий только читается."""
+import gc
 import io
 import json
 import multiprocessing as mp
@@ -385,7 +386,7 @@ class TestMetrics(Base):
         c.close()
         st = chron.Store(chron.connect(db))
         try:
-            self.assertEqual(st.c.execute("PRAGMA user_version").fetchone()[0], 4)
+            self.assertEqual(st.c.execute("PRAGMA user_version").fetchone()[0], chron.SCHEMA_VERSION)
             for t in ("metric", "psec_num", "psec_cur", "metric_noupdate", "metric_nodelete", "psec_num_noupdate", "psec_num_nodelete"):
                 self.assertIsNotNone(st.c.execute("SELECT 1 FROM sqlite_master WHERE name=?", (t,)).fetchone(), t)
             st.new_protocol("P-90-test", "Тест")
@@ -408,6 +409,92 @@ class TestMetrics(Base):
                 self.st.add_metrics([mrow(e, cell="новая"), bad])
         self.assertEqual(self.st.c.execute("SELECT count(*) FROM metric").fetchone()[0], 2)  # битая партия не пишет ничего
         self.assertEqual(self.st.check_db(), [])
+
+    def test_migrate_v4_to_v5(self):
+        db = os.path.join(self.tmp.name, "v4.sqlite")
+        c = sqlite3.connect(db, isolation_level=None)
+        for stmt in chron.split_sql(chron.SCHEMA) + [x for v in (3, 4) for x in chron.split_sql(chron.MIGRATE[v])]:
+            c.execute(stmt)
+        c.execute(chron.FTS_SQL)
+        c.execute("PRAGMA user_version=4")
+        c.close()
+        st = chron.Store(chron.connect(db, ro=True))  # чтение тоже переводит схему (один раз)
+        try:
+            self.assertEqual(st.c.execute("PRAGMA user_version").fetchone()[0], chron.SCHEMA_VERSION)
+            for t in ("metric_gap", "metric_gap_noupdate", "metric_gap_nodelete", "metric_fix", "metric_fix_noupdate", "metric_fix_nodelete", "metric_cur"):
+                self.assertIsNotNone(st.c.execute("SELECT 1 FROM sqlite_master WHERE name=?", (t,)).fetchone(), t)
+        finally:
+            st.c.close()
+        st = chron.Store(chron.connect(db))
+        try:
+            self.assertEqual(st.check_db(), [])
+        finally:
+            st.c.close()
+
+    def test_gap_append_only_and_coverage(self):
+        a = int(self.st.add_entry(entry("предрег", kind="experiment"), [])[2:])
+        b = int(self.st.add_entry(entry("с числами", kind="result"), [])[2:])
+        self.st.add_entry(entry("пусто", kind="verdict"), [])
+        self.st.add_metrics([mrow(b)])
+        g = {"entry": a, "reason": "предрегистрация", "note": "итога нет", "src": "docs/x.md", "src_ptr": "строка 3"}
+        self.assertEqual(self.st.add_gaps([g]), {"new": 1, "same": 0})
+        self.assertEqual(self.st.add_gaps([g]), {"new": 0, "same": 1})  # повтор (запись + причина) не пишется
+        for bad in (dict(g, reason="лень"), dict(g, entry=999)):
+            with self.assertRaises(chron.ChronError):
+                self.st.add_gaps([dict(g, reason="не запускалось"), bad])
+        self.assertEqual(self.st.c.execute("SELECT count(*) FROM metric_gap").fetchone()[0], 1)  # битая партия не пишет ничего
+        for sql in ("UPDATE metric_gap SET note=''", "DELETE FROM metric_gap"):
+            with self.assertRaises(sqlite3.DatabaseError):
+                self.st.c.execute(sql)
+        cov = self.st.metrics_coverage()[0]
+        self.assertEqual((cov["outcome"], cov["outcome_with"], cov["outcome_gap"]), (3, 1, 1))
+        self.assertEqual([r["id"] for r in self.st.query({"nums": "пометка"})["rows"]], [a])
+        self.assertEqual([r["id"] for r in self.st.query({"nums": "без объяснения"})["rows"]], [3])
+        self.assertEqual(self.st.query({"nums": "пометка"})["rows"][0]["gap"], "предрегистрация")
+        self.assertEqual(self.st.get("L-%d" % a)["gaps"][0]["note"], "итога нет")
+        self.assertEqual(self.st.check_db(), [])
+        rc, out = self.cli("show", "L-%d" % a)
+        self.assertIn("нет чисел: предрегистрация — итога нет", out)
+        self.assertNotIn("снята", out)
+        # числа добавлены позже: пометка остаётся в БД, но «снята», из покрытия и фильтра «пометка» уходит
+        self.st.add_metrics([mrow(a)])
+        self.st.c.commit()
+        self.assertEqual(self.st.get("L-%d" % a)["gaps"][0]["lifted"], 1)
+        self.assertEqual(self.st.query({"nums": "пометка"})["rows"], [])
+        self.assertEqual(self.st.metrics_coverage()[0]["outcome_gap"], 0)
+        rc, out = self.cli("show", "L-%d" % a)
+        self.assertIn("снята: числа добавлены (было «нет чисел»): предрегистрация — итога нет", out)
+        page = chron.Site(self.db, None).entry(a)
+        self.assertIn("снята: числа добавлены · <s>нет чисел: предрегистрация", page)
+        self.assertNotIn("<b>Нет чисел", page)
+        gc.collect()  # связь Site (ro) держит файл на Windows
+
+    def test_metric_fix_replaces_row(self):
+        a = int(self.st.add_entry(entry("с ошибкой места", kind="result"), [])[2:])
+        old = dict(mrow(a), from_text=1, src="docs/x.md", src_ptr="строка 65")
+        new = dict(old, src_ptr="строка 29")
+        self.st.add_metrics([old, new])
+        h = chron.sha(json.dumps([a] + [new.get(k) for k in chron.METRIC_COLS], ensure_ascii=False, default=str))
+        fx = {"entry": a, "src": "docs/x.md", "cell": "c", "replaces": "строка 65", "h": h}
+        self.assertEqual(self.st.add_metric_fixes([fx]), {"new": 1, "same": 0})
+        self.assertEqual(self.st.add_metric_fixes([fx]), {"new": 0, "same": 1})  # повтор не пишется
+        with self.assertRaises(chron.ChronError):
+            self.st.add_metric_fixes([dict(fx, replaces="строка 99")])  # прежней строки нет
+        for sql in ("UPDATE metric_fix SET reason=''", "DELETE FROM metric_fix"):
+            with self.assertRaises(sqlite3.DatabaseError):
+                self.st.c.execute(sql)
+        self.assertEqual(self.st.c.execute("SELECT count(*) FROM metric WHERE entry=?", (a,)).fetchone()[0], 2)  # прежняя осталась
+        g = self.st.get("L-%d" % a)
+        self.assertEqual((g["metrics_total"], [m["src_ptr"] for m in g["metrics"]]), (1, ["строка 29"]))
+        self.assertEqual([(x["old_ptr"], x["new_ptr"]) for x in g["metric_fixes"]], [("строка 65", "строка 29")])
+        self.assertEqual(self.st.metrics_query({"entry": a})["total"], 1)
+        self.assertEqual(self.st.stats()["metrics"], 1)
+        self.assertEqual(self.st.check_db(), [])
+        rc, out = self.cli("show", "L-%d" % a)
+        self.assertIn("(строка 65) → #", out)
+        page = chron.Site(self.db, None).entry(a)
+        self.assertIn("заменено строк: 1", page)
+        gc.collect()
 
     def test_add_entry_with_metrics(self):
         n = self.st.add_entry(entry("вердикт"), [], None, [mrow(None, trades=7)])
@@ -574,6 +661,93 @@ class TestMetricFiles(unittest.TestCase):
         for bad in ("trades=1", "side=long; foo=1; src=a", "side=x; src=a", "trades; src=a"):
             with self.assertRaises((ValueError, KeyError)):
                 self.cm.parse_metric_arg(bad)
+
+
+
+class TestMetricSpec(unittest.TestCase):
+    """TK-661: явная опись — выборка из JSON / CSV (в т. ч. удалённого файла по коммиту), строки «из текста», пометки «нет чисел»."""
+
+    def git(self, *args):
+        return subprocess.run(["git", "-c", "user.email=t@t", "-c", "user.name=t"] + list(args), cwd=str(self.root), capture_output=True,
+                              encoding="utf-8", check=True).stdout.strip()
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        import chron_metrics
+        self.cm = chron_metrics
+        (self.root / "docs").mkdir()
+        (self.root / "docs/r.json").write_text(json.dumps({"L": {"by": {"a": {"n": 4, "total": 2.0, "pos": 0.5}, "b": {"n": 2, "total": -1.0}, "c": {"x": 1}}}}),
+                                               encoding="utf-8")
+        (self.root / "docs/r.csv").write_bytes("side,metric,cell,n,sum\nL,gf,k1,10,5.0\nS,gf,k2,8,-4.0\nL,touch,k1,10,0.9\n".encode("utf-8"))
+        (self.root / "docs/j.md").write_bytes("строка 1\nE08 · лонг 89 кругов, +6,65 bps; 4 сделки 2,0 $\n".encode("utf-8"))
+        (self.root / "docs/old.json").write_text(json.dumps({"S": {"n": 7, "sum": 3.5}}), encoding="utf-8")
+        self.git("init", "-q")
+        self.git("add", "-A")
+        self.git("commit", "-qm", "1")
+        self.old = self.git("rev-parse", "--short", "HEAD")
+        self.git("rm", "-q", "docs/old.json")
+        self.git("commit", "-qm", "2")
+        self.ents = [{"id": 1, "project": "П-42"}, {"id": 2, "project": None}]
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def rows(self, items):
+        return self.cm.spec_rows(self.root, {"items": items}, self.ents)
+
+    def test_pick_text_gap_history(self):
+        rows, gaps = self.rows([
+            {"entry": 1, "src": "docs/r.json", "pick": [{"ptr": "L/by/*", "side": "L", "cell": "bk: {0}", "map": {"trades": "n", "usd": "total"}, "extra": ["pos"]}]},
+            {"entry": 1, "src": "docs/r.csv", "pick": [{"where": {"metric": "gf"}, "side": "{side}", "cell": "{cell}", "map": {"trades": "n", "usd": "sum"}}]},
+            {"entry": 1, "src": "docs/old.json", "commit": self.old, "pick": [{"ptr": "S", "side": "short", "map": {"trades": "n", "usd": "sum"}}]},
+            {"entry": 2, "src": "docs/j.md", "line": 2, "text": 1, "rows": [{"cell": "a45-bid", "side": "long", "trades": 89, "extra": {"bps_point": 6.65}}]},
+            {"entry": 2, "gap": "предрегистрация", "note": "итога нет", "src": "docs/j.md", "line": 1}])
+        got = sorted((r["entry"], r["side"], r["cell"], r["trades"], r["usd"], r["mean_usd"], r["from_text"], r["src_ptr"]) for r in rows)
+        self.assertEqual(got, [(1, "long", "bk: a", 4, 2.0, 0.5, 0, "L/by/a"), (1, "long", "bk: b", 2, -1.0, -0.5, 0, "L/by/b"),
+                               (1, "long", "k1", 10, 5.0, 0.5, 0, "строка 2"), (1, "short", "S", 7, 3.5, 0.5, 0, "S"),
+                               (1, "short", "k2", 8, -4.0, -0.5, 0, "строка 3"), (2, "long", "a45-bid", 89, None, None, 1, "строка 2")])
+        self.assertEqual(next(r for r in rows if r["cell"] == "S")["src_commit"], self.old)  # удалённый файл — версия коммита
+        self.assertEqual(next(r for r in rows if r["cell"] == "bk: a")["extra"], {"pos": 0.5})  # узел «c» без чисел пропущен
+        self.assertEqual(gaps, [{"entry": 2, "reason": "предрегистрация", "note": "итога нет", "src": "docs/j.md", "src_ptr": "строка 1"}])
+        self.assertEqual(len({r["h"] for r in rows}), len(rows))
+
+    def test_refusals(self):
+        bad = [
+            {"entry": 2, "src": "docs/j.md", "line": 2, "text": 1, "rows": [{"cell": "x", "trades": 3, "usd": 1.0}]},  # $ не П-42 без stake: 500
+            {"entry": 2, "src": "docs/j.md", "line": 2, "text": 1, "rows": [{"cell": "пусто"}]},  # строка без чисел
+            {"entry": 1, "src": "docs/j.md", "line": 2, "rows": [{"cell": "x", "trades": 3}]},  # md без text: 1
+            {"entry": 1, "src": "docs/old.json", "pick": [{"ptr": "S", "map": {"trades": "n"}}]},  # удалённый — только с коммитом
+            {"entry": 1, "src": "docs/r.json", "pick": [{"ptr": "L/нет/*", "map": {"trades": "n"}}]},  # нет ключа
+            {"entry": 2, "gap": "лень"},
+            {"entry": 9, "gap": "предрегистрация"}]
+        for it in bad:
+            with self.assertRaises((ValueError, KeyError), msg=json.dumps(it, ensure_ascii=False)):
+                self.rows([it])
+        rows, _ = self.rows([{"entry": 2, "src": "docs/j.md", "line": 2, "text": 1, "stake": 500, "rows": [{"cell": "x", "trades": 4, "usd": 2.0}]}])
+        self.assertEqual((rows[0]["usd"], rows[0]["mean_usd"]), (2.0, 0.5))
+        self.assertIn("stake", rows[0]["extra"])
+
+    def test_line_guard(self):
+        ok = {"entry": 2, "src": "docs/j.md", "line": 2, "text": 1, "rows": [{"cell": "a", "trades": 89, "extra": {"bps_point": 6.65}, "replaces": "строка 9"}]}
+        rows, _ = self.rows([ok])
+        self.assertEqual((rows[0]["src_ptr"], rows[0]["replaces"]), ("строка 2", "строка 9"))
+        self.assertEqual(self.rows([dict(ok, line="1-2")])[0][0]["src_ptr"], "строка 1-2")
+        for bad in (dict(ok, line=3), dict(ok, line="2-5"), dict(ok, rows=[{"cell": "a", "trades": 90}])):  # за концом файла; числа нет на строке
+            with self.assertRaises(ValueError, msg=json.dumps(bad, ensure_ascii=False)):
+                self.rows([bad])
+        for line, row in (("умерших: **11 224 843** (≈ 56 тыс.)", {"extra": {"n": 11224843, "k": 56000}}), ("45.8 млн кругов, −7,6 bps", {"trades": 45800000, "extra": {"b": -7.6}}),
+                          ("CAP/AXL — ноль", {"extra": {"t": 0}}), ("BTC 09-21 237 МБ", {"extra": {"mb": 237}})):
+            self.cm.check_text_line(line, "строка 1", row)
+        with self.assertRaises(ValueError):
+            self.cm.check_text_line("BTC 09-21 237 МБ", "строка 1", {"extra": {"mb": 21237}})
+
+    def test_git_at(self):
+        g = chron.Git(self.root)
+        self.assertFalse(g.file_ok("docs/old.json"))
+        self.assertTrue(g.at(self.old, "docs/old.json"))
+        self.assertFalse(g.at(self.old, "docs/none.json"))
+        self.assertFalse(g.at(None, "docs/old.json"))
 
 
 if __name__ == "__main__":

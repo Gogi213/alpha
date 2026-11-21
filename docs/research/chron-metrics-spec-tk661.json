@@ -1,0 +1,3937 @@
+{
+ "task": "TK-661",
+ "items": [
+  {
+   "entry": 50,
+   "src": "docs/archive/chronicle-2026-11-20/JOURNAL.md",
+   "line": 98,
+   "text": 1,
+   "rows": [
+    {
+     "cell": "круглые числа: подтверждено из проверенных",
+     "extra": {
+      "confirmed": 0,
+      "tested": 8
+     }
+    },
+    {
+     "cell": "время суток: подтверждено из найденных",
+     "extra": {
+      "confirmed": 0,
+      "found": 48
+     }
+    },
+    {
+     "cell": "лонг: доля базы на 360 мин",
+     "side": "long",
+     "extra": {
+      "base_pct": 74
+     }
+    }
+   ]
+  },
+  {
+   "entry": 53,
+   "src": "docs/archive/chronicle-2026-11-20/JOURNAL.md",
+   "line": 108,
+   "text": 1,
+   "rows": [
+    {
+     "cell": "ранняя фаза (воспламенение NATR): lift; месяцев с тем же знаком",
+     "extra": {
+      "lift_min": 4,
+      "lift_max": 17,
+      "months_pos": 10,
+      "months": 10
+     }
+    }
+   ]
+  },
+  {
+   "entry": 75,
+   "src": "docs/findings/p42-pairs-core-2026-11-18.md",
+   "line": null,
+   "text": 1,
+   "rows": [
+    {
+     "cell": "CB3 верхняя треть, модель A",
+     "side": "long",
+     "line": 103,
+     "extra": {
+      "episodes": 268,
+      "breaks": 25,
+      "share_pct": 9.3,
+      "control_pct": 6.2,
+      "e1_pp": 3.1,
+      "e1_lo": -0.1,
+      "e1_hi": 6.5
+     }
+    },
+    {
+     "cell": "CB3 верхняя треть, модель B",
+     "side": "long",
+     "line": 104,
+     "extra": {
+      "episodes": 270,
+      "breaks": 25,
+      "share_pct": 9.3,
+      "control_pct": 6.0,
+      "e1_pp": 3.2,
+      "e1_lo": -0.2,
+      "e1_hi": 6.5
+     }
+    },
+    {
+     "cell": "CB3 верхняя треть, модель A",
+     "side": "short",
+     "line": 105,
+     "extra": {
+      "episodes": 341,
+      "breaks": 27,
+      "share_pct": 7.9,
+      "control_pct": 9.0,
+      "e1_pp": -1.1,
+      "e1_lo": -4.1,
+      "e1_hi": 1.9
+     }
+    },
+    {
+     "cell": "CB3 верхняя треть, модель B",
+     "side": "short",
+     "line": 106,
+     "extra": {
+      "episodes": 366,
+      "breaks": 24,
+      "share_pct": 6.6,
+      "control_pct": 8.9,
+      "e1_pp": -2.3,
+      "e1_lo": -4.9,
+      "e1_hi": 0.7
+     }
+    }
+   ],
+   "win": "14–16.11 (отложенные сутки)"
+  },
+  {
+   "entry": 135,
+   "src": "docs/findings/p42-pairs-core-2026-11-18.md",
+   "line": null,
+   "text": 1,
+   "rows": [
+    {
+     "cell": "CB3 верхняя треть, модель A",
+     "side": "long",
+     "line": 103,
+     "extra": {
+      "episodes": 268,
+      "breaks": 25,
+      "share_pct": 9.3,
+      "control_pct": 6.2,
+      "e1_pp": 3.1,
+      "e1_lo": -0.1,
+      "e1_hi": 6.5
+     }
+    },
+    {
+     "cell": "CB3 верхняя треть, модель B",
+     "side": "long",
+     "line": 104,
+     "extra": {
+      "episodes": 270,
+      "breaks": 25,
+      "share_pct": 9.3,
+      "control_pct": 6.0,
+      "e1_pp": 3.2,
+      "e1_lo": -0.2,
+      "e1_hi": 6.5
+     }
+    },
+    {
+     "cell": "CB3 верхняя треть, модель A",
+     "side": "short",
+     "line": 105,
+     "extra": {
+      "episodes": 341,
+      "breaks": 27,
+      "share_pct": 7.9,
+      "control_pct": 9.0,
+      "e1_pp": -1.1,
+      "e1_lo": -4.1,
+      "e1_hi": 1.9
+     }
+    },
+    {
+     "cell": "CB3 верхняя треть, модель B",
+     "side": "short",
+     "line": 106,
+     "extra": {
+      "episodes": 366,
+      "breaks": 24,
+      "share_pct": 6.6,
+      "control_pct": 8.9,
+      "e1_pp": -2.3,
+      "e1_lo": -4.9,
+      "e1_hi": 0.7
+     }
+    }
+   ],
+   "win": "14–16.11 (отложенные сутки)"
+  },
+  {
+   "entry": 75,
+   "src": "docs/archive/chronicle-2026-11-20/JOURNAL.md",
+   "line": 151,
+   "text": 1,
+   "rows": [
+    {
+     "cell": "пары: читаемых клеток / прошли BH q = 0,10",
+     "same_data": 1,
+     "extra": {
+      "cells": 1981,
+      "bh_pass": 0
+     }
+    },
+    {
+     "cell": "CB3 − логистика, AUC (не больше)",
+     "extra": {
+      "d_auc_max": 0.013
+     }
+    }
+   ]
+  },
+  {
+   "entry": 135,
+   "src": "docs/archive/chronicle-2026-11-20/EXPERIMENTS.md",
+   "line": 54,
+   "text": 1,
+   "rows": [
+    {
+     "cell": "пары: клеток / прошли BH q = 0,10",
+     "same_data": 1,
+     "extra": {
+      "cells": 1981,
+      "bh_pass": 0
+     }
+    },
+    {
+     "cell": "CB3 − логистика, AUC (не больше)",
+     "extra": {
+      "d_auc_max": 0.013
+     }
+    }
+   ]
+  },
+  {
+   "entry": 77,
+   "src": "docs/findings/p42-flow-deriv-2026-11-18/cmp/delta.csv",
+   "pick": [
+    {
+     "where": {},
+     "side": "{side}",
+     "cell": "{dir} {set}−S0 {model}",
+     "win": "09–11 (поиск)",
+     "extra": {
+      "d_auc": "dAUC",
+      "lo975": "lo975",
+      "hi975": "hi975",
+      "d_e1_top": "dE1_top"
+     }
+    }
+   ]
+  },
+  {
+   "entry": 77,
+   "src": "docs/archive/chronicle-2026-11-20/JOURNAL.md",
+   "line": 155,
+   "text": 1,
+   "rows": [
+    {
+     "cell": "август (отложенный), ΔAUC S3 − S0, CB3",
+     "side": "long",
+     "win": "август",
+     "extra": {
+      "d_auc": 0.0013,
+      "lo": -0.0055,
+      "hi": 0.0083,
+      "auc_base": 0.633
+     }
+    },
+    {
+     "cell": "август (отложенный), ΔAUC S3 − S0, CB3",
+     "side": "short",
+     "win": "август",
+     "extra": {
+      "d_auc": -0.0079,
+      "lo": -0.0147,
+      "hi": -0.001,
+      "auc_base": 0.688
+     }
+    }
+   ]
+  },
+  {
+   "entry": 83,
+   "src": "docs/archive/chronicle-2026-11-20/JOURNAL.md",
+   "line": 167,
+   "text": 1,
+   "rows": [
+    {
+     "cell": "Ext_s0.5 (расширение s → 0.5)",
+     "side": "long",
+     "win": "A",
+     "trades": 312,
+     "usd": 43.56,
+     "mean": 0.14,
+     "same_data": 1,
+     "extra": {
+      "d_a_usd_day": -2.54,
+      "lo": -6.19,
+      "hi": 0.57,
+      "se": 1.73
+     }
+    },
+    {
+     "cell": "сборка C",
+     "side": "long",
+     "win": "A",
+     "trades": 312,
+     "usd": 119.79,
+     "mean": 0.384,
+     "verdict": "не ясно",
+     "same_data": 1,
+     "extra": {
+      "usd_per_day": 3.99,
+      "lo": -4.68,
+      "hi": 12.6
+     }
+    },
+    {
+     "cell": "сборка C",
+     "side": "long",
+     "win": "B",
+     "trades": 286,
+     "usd": 66.45,
+     "mean": 0.232,
+     "verdict": "не ясно",
+     "extra": {
+      "usd_per_day": 2.22,
+      "lo": -3.23,
+      "hi": 7.56
+     }
+    },
+    {
+     "cell": "сборка C",
+     "side": "short",
+     "win": "A",
+     "trades": 223,
+     "usd": 111.79,
+     "mean": 0.501,
+     "verdict": "не ясно",
+     "same_data": 1,
+     "extra": {
+      "usd_per_day": 3.73,
+      "lo": 0.05,
+      "hi": 7.37,
+      "holm_lo": -3.75
+     }
+    },
+    {
+     "cell": "сборка C",
+     "side": "short",
+     "win": "B",
+     "trades": 203,
+     "usd": 101.07,
+     "mean": 0.498,
+     "verdict": "не ясно",
+     "extra": {
+      "usd_per_day": 3.37,
+      "lo": 0.74,
+      "hi": 5.88,
+      "holm_lo": -1.92
+     }
+    },
+    {
+     "cell": "простая база",
+     "side": "long",
+     "win": "A",
+     "trades": 141,
+     "usd": 22.03,
+     "mean": 0.156
+    },
+    {
+     "cell": "простая база",
+     "side": "long",
+     "win": "B",
+     "trades": 150,
+     "usd": -16.32,
+     "mean": -0.109
+    },
+    {
+     "cell": "простая база",
+     "side": "short",
+     "win": "A",
+     "trades": 99,
+     "usd": 75.86,
+     "mean": 0.766
+    },
+    {
+     "cell": "простая база",
+     "side": "short",
+     "win": "B",
+     "trades": 94,
+     "usd": 69.63,
+     "mean": 0.741
+    },
+    {
+     "cell": "Δ(C − простая база), $/сут.",
+     "side": "long",
+     "win": "A",
+     "extra": {
+      "d_usd_day": 3.26,
+      "lo": -1.28,
+      "hi": 7.83,
+      "se": 2.33
+     }
+    },
+    {
+     "cell": "Δ(C − простая база), $/сут.",
+     "side": "long",
+     "win": "B",
+     "extra": {
+      "d_usd_day": 2.76,
+      "lo": -1.44,
+      "hi": 7.06,
+      "se": 2.18
+     }
+    },
+    {
+     "cell": "Δ(C − простая база), $/сут.",
+     "side": "long",
+     "win": "60 сут.",
+     "extra": {
+      "d_usd_day": 3.01,
+      "lo": -0.07,
+      "hi": 6.09
+     }
+    },
+    {
+     "cell": "Δ(C − простая база), $/сут.",
+     "side": "short",
+     "win": "A",
+     "extra": {
+      "d_usd_day": 1.2,
+      "lo": -1.34,
+      "hi": 3.48,
+      "se": 1.22
+     }
+    },
+    {
+     "cell": "Δ(C − простая база), $/сут.",
+     "side": "short",
+     "win": "B",
+     "extra": {
+      "d_usd_day": 1.05,
+      "lo": -1.17,
+      "hi": 3.16,
+      "se": 1.11
+     }
+    },
+    {
+     "cell": "Δ(C − простая база), $/сут.",
+     "side": "short",
+     "win": "60 сут.",
+     "extra": {
+      "d_usd_day": 1.12,
+      "lo": -0.58,
+      "hi": 2.71
+     }
+    },
+    {
+     "cell": "Δ(C − база стадии P)",
+     "side": "long",
+     "win": "A",
+     "extra": {
+      "d": 0.85
+     }
+    },
+    {
+     "cell": "Δ(C − база стадии P)",
+     "side": "long",
+     "win": "B",
+     "extra": {
+      "d": 1.1,
+      "lo": -3.06,
+      "hi": 5.71
+     }
+    },
+    {
+     "cell": "Δ(C − база стадии P)",
+     "side": "short",
+     "win": "A",
+     "extra": {
+      "d": 0.25
+     }
+    },
+    {
+     "cell": "Δ(C − база стадии P)",
+     "side": "short",
+     "win": "B",
+     "extra": {
+      "d": 1.73,
+      "lo": 0.05,
+      "hi": 3.72,
+      "se": 0.94
+     }
+    },
+    {
+     "cell": "F: maxmv1_lo_10 (плато нарушено)",
+     "side": "long",
+     "win": "A",
+     "same_data": 1,
+     "extra": {
+      "d_a": 0.54,
+      "neighbor_d": -2.17
+     }
+    },
+    {
+     "cell": "F: depth_mean_bp_hi_20 (худшая)",
+     "side": "long",
+     "win": "A",
+     "same_data": 1,
+     "extra": {
+      "d_a": -4.12
+     }
+    },
+    {
+     "cell": "F: tpm15_lo_10 (плато нарушено)",
+     "side": "short",
+     "win": "A",
+     "same_data": 1,
+     "extra": {
+      "d_a": 0.72,
+      "neighbor_d": -0.03
+     }
+    },
+    {
+     "cell": "F: tpm60_lo_20 (сглаженный tpm60_lo_25 −0,13)",
+     "side": "short",
+     "win": "A",
+     "same_data": 1,
+     "extra": {
+      "d_a": 0.31,
+      "smoothed_d": -0.13
+     }
+    }
+   ]
+  },
+  {
+   "entry": 101,
+   "src": "docs/research/freeze/tk604-results/step1-ii.json",
+   "pick": [
+    {
+     "ptr": "L/total",
+     "side": "long",
+     "cell": "база (несфильтрованная)",
+     "map": {
+      "trades": "n",
+      "usd": "sum",
+      "mean_usd": "mean"
+     },
+     "extra": {
+      "sigma": "sigma"
+     }
+    },
+    {
+     "ptr": "L/by_bk20/*",
+     "side": "long",
+     "cell": "bk20: {0}",
+     "map": {
+      "trades": "n",
+      "usd": "total",
+      "mean_usd": "mean"
+     },
+     "extra": {
+      "pos": "pos"
+     }
+    },
+    {
+     "ptr": "L/by_mtr/*",
+     "side": "long",
+     "cell": "m_tr: {0}",
+     "map": {
+      "trades": "n",
+      "usd": "total",
+      "mean_usd": "mean"
+     },
+     "extra": {
+      "pos": "pos"
+     }
+    }
+   ],
+   "verdict": "описательно",
+   "win": "01.07–13.11 (136 сут.)"
+  },
+  {
+   "entry": 102,
+   "src": "docs/research/freeze/tk604-results/select.json",
+   "pick": [
+    {
+     "ptr": "L",
+     "side": "long",
+     "cell": "база L_base",
+     "map": {
+      "trades": "n_base",
+      "usd": "sum_base"
+     }
+    },
+    {
+     "ptr": "L/select/rows/*",
+     "side": "long",
+     "cell": "{cid}",
+     "same_data": 1,
+     "map": {
+      "trades": "n_c"
+     },
+     "extra": {
+      "d_usd_trade": "d",
+      "n_base": "n_r",
+      "n_excluded": "n_ex"
+     },
+     "note": "d — Δ $ на сделку (оставшиеся − база), выбор п. 6"
+    }
+   ],
+   "win": "01.07–13.11 (136 сут.)"
+  },
+  {
+   "entry": 102,
+   "src": "docs/research/freeze/tk604-results/step1-i.json",
+   "pick": [
+    {
+     "ptr": "L/auc_bk",
+     "side": "long",
+     "cell": "AUC bk против y",
+     "extra": {
+      "auc": "auc",
+      "lo": "lo_d",
+      "hi": "hi_d",
+      "n_episodes": "n"
+     }
+    }
+   ],
+   "win": "01.07–13.11 (136 сут.)"
+  },
+  {
+   "entry": 140,
+   "src": "docs/research/freeze/tk604-results/select.json",
+   "pick": [
+    {
+     "ptr": "L",
+     "side": "long",
+     "cell": "база L_base",
+     "map": {
+      "trades": "n_base",
+      "usd": "sum_base"
+     }
+    },
+    {
+     "ptr": "L/select/rows/*",
+     "side": "long",
+     "cell": "{cid}",
+     "same_data": 1,
+     "map": {
+      "trades": "n_c"
+     },
+     "extra": {
+      "d_usd_trade": "d",
+      "n_base": "n_r",
+      "n_excluded": "n_ex"
+     },
+     "note": "d — Δ $ на сделку (оставшиеся − база), выбор п. 6"
+    }
+   ],
+   "win": "01.07–13.11 (136 сут.)"
+  },
+  {
+   "entry": 140,
+   "src": "docs/research/freeze/tk604-results/step1-i.json",
+   "pick": [
+    {
+     "ptr": "L/auc_bk",
+     "side": "long",
+     "cell": "AUC bk против y",
+     "extra": {
+      "auc": "auc",
+      "lo": "lo_d",
+      "hi": "hi_d",
+      "n_episodes": "n"
+     }
+    }
+   ],
+   "win": "01.07–13.11 (136 сут.)"
+  },
+  {
+   "entry": 101,
+   "src": "docs/research/freeze/tk604-results/step1-ii.json",
+   "pick": [
+    {
+     "ptr": "S/total",
+     "side": "short",
+     "cell": "база (несфильтрованная)",
+     "map": {
+      "trades": "n",
+      "usd": "sum",
+      "mean_usd": "mean"
+     },
+     "extra": {
+      "sigma": "sigma"
+     }
+    },
+    {
+     "ptr": "S/by_bk20/*",
+     "side": "short",
+     "cell": "bk20: {0}",
+     "map": {
+      "trades": "n",
+      "usd": "total",
+      "mean_usd": "mean"
+     },
+     "extra": {
+      "pos": "pos"
+     }
+    },
+    {
+     "ptr": "S/by_mtr/*",
+     "side": "short",
+     "cell": "m_tr: {0}",
+     "map": {
+      "trades": "n",
+      "usd": "total",
+      "mean_usd": "mean"
+     },
+     "extra": {
+      "pos": "pos"
+     }
+    }
+   ],
+   "verdict": "описательно",
+   "win": "01.07–13.11 (136 сут.)"
+  },
+  {
+   "entry": 102,
+   "src": "docs/research/freeze/tk604-results/select.json",
+   "pick": [
+    {
+     "ptr": "S",
+     "side": "short",
+     "cell": "база S_base",
+     "map": {
+      "trades": "n_base",
+      "usd": "sum_base"
+     }
+    },
+    {
+     "ptr": "S/select/rows/*",
+     "side": "short",
+     "cell": "{cid}",
+     "same_data": 1,
+     "map": {
+      "trades": "n_c"
+     },
+     "extra": {
+      "d_usd_trade": "d",
+      "n_base": "n_r",
+      "n_excluded": "n_ex"
+     },
+     "note": "d — Δ $ на сделку (оставшиеся − база), выбор п. 6"
+    }
+   ],
+   "win": "01.07–13.11 (136 сут.)"
+  },
+  {
+   "entry": 102,
+   "src": "docs/research/freeze/tk604-results/step1-i.json",
+   "pick": [
+    {
+     "ptr": "S/auc_bk",
+     "side": "short",
+     "cell": "AUC bk против y",
+     "extra": {
+      "auc": "auc",
+      "lo": "lo_d",
+      "hi": "hi_d",
+      "n_episodes": "n"
+     }
+    }
+   ],
+   "win": "01.07–13.11 (136 сут.)"
+  },
+  {
+   "entry": 140,
+   "src": "docs/research/freeze/tk604-results/select.json",
+   "pick": [
+    {
+     "ptr": "S",
+     "side": "short",
+     "cell": "база S_base",
+     "map": {
+      "trades": "n_base",
+      "usd": "sum_base"
+     }
+    },
+    {
+     "ptr": "S/select/rows/*",
+     "side": "short",
+     "cell": "{cid}",
+     "same_data": 1,
+     "map": {
+      "trades": "n_c"
+     },
+     "extra": {
+      "d_usd_trade": "d",
+      "n_base": "n_r",
+      "n_excluded": "n_ex"
+     },
+     "note": "d — Δ $ на сделку (оставшиеся − база), выбор п. 6"
+    }
+   ],
+   "win": "01.07–13.11 (136 сут.)"
+  },
+  {
+   "entry": 140,
+   "src": "docs/research/freeze/tk604-results/step1-i.json",
+   "pick": [
+    {
+     "ptr": "S/auc_bk",
+     "side": "short",
+     "cell": "AUC bk против y",
+     "extra": {
+      "auc": "auc",
+      "lo": "lo_d",
+      "hi": "hi_d",
+      "n_episodes": "n"
+     }
+    }
+   ],
+   "win": "01.07–13.11 (136 сут.)"
+  },
+  {
+   "entry": 111,
+   "src": "docs/findings/p42-killzones-2026-11-19/results.csv",
+   "pick": [
+    {
+     "where": {
+      "metric": "gf"
+     },
+     "side": "{side}",
+     "cell": "{scheme} · {bucket}",
+     "map": {
+      "trades": "n_in",
+      "usd": "sum_in",
+      "mean_usd": "mean_in"
+     },
+     "extra": {
+      "d_usd_trade": "D",
+      "lo": "lo",
+      "hi": "hi",
+      "p": "p",
+      "p_holm": "p_holm",
+      "n_out": "n_out",
+      "mean_out": "mean_out"
+     }
+    }
+   ],
+   "verdict": "описательно",
+   "win": "01.07–13.11"
+  },
+  {
+   "entry": 127,
+   "gap": "не запускалось",
+   "note": "черновик протокола П-01 ждёт владельца — счёта нет",
+   "src": "docs/archive/chronicle-2026-11-20/EXPERIMENTS.md",
+   "line": 46
+  },
+  {
+   "entry": 128,
+   "src": "docs/archive/findings/p02-r2-read-2026-09-26.json",
+   "pick": [
+    {
+     "ptr": "*/*",
+     "cell": "{0}",
+     "win": "{1}",
+     "extra": {
+      "effect": "est",
+      "ci_lo": "ci95/0",
+      "ci_hi": "ci95/1",
+      "p_holm": "p_holm",
+      "n_days": "n_days"
+     }
+    }
+   ],
+   "same_data": 1
+  },
+  {
+   "entry": 141,
+   "src": "docs/archive/findings/p10-2026-10-02.json",
+   "pick": [
+    {
+     "ptr": "cells/*",
+     "cell": "{0}",
+     "win": "август",
+     "map": {
+      "trades": "n/aug"
+     },
+     "extra": {
+      "usd_raw": "usd/aug",
+      "p": "p/aug",
+      "usd_wo_best_day": "usd_wo_best_day/aug"
+     }
+    },
+    {
+     "ptr": "bases/*",
+     "cell": "база {0}",
+     "win": "август",
+     "map": {
+      "trades": "n/aug"
+     },
+     "extra": {
+      "usd_raw": "usd/aug"
+     }
+    }
+   ],
+   "same_data": 1
+  },
+  {
+   "entry": 141,
+   "src": "docs/archive/findings/p10-2026-10-02.json",
+   "pick": [
+    {
+     "ptr": "cells/*",
+     "cell": "{0}",
+     "win": "сентябрь",
+     "map": {
+      "trades": "n/sep"
+     },
+     "extra": {
+      "usd_raw": "usd/sep",
+      "p": "p/sep",
+      "usd_wo_best_day": "usd_wo_best_day/sep"
+     }
+    },
+    {
+     "ptr": "bases/*",
+     "cell": "база {0}",
+     "win": "сентябрь",
+     "map": {
+      "trades": "n/sep"
+     },
+     "extra": {
+      "usd_raw": "usd/sep"
+     }
+    }
+   ],
+   "same_data": 1
+  },
+  {
+   "entry": 142,
+   "src": "docs/archive/findings/p12-sharpe-free-2026-10-10-v171c-D.csv",
+   "pick": [
+    {
+     "where": {},
+     "cell": "{pack} {cell}",
+     "win": "янв–сен",
+     "extra": {
+      "sr_year": "sr_year",
+      "d_sr": "d_sr",
+      "ci_lo": "ci_lo",
+      "ci_hi": "ci_hi",
+      "p_wy": "p_wy",
+      "d_usd_raw": "d_usd",
+      "passed": "passed",
+      "refuted": "refuted"
+     }
+    }
+   ]
+  },
+  {
+   "entry": 142,
+   "src": "docs/archive/findings/p12-sharpe-free-2026-10-12-r2b.csv",
+   "pick": [
+    {
+     "where": {},
+     "cell": "{pack} {cell}",
+     "win": "янв–сен",
+     "extra": {
+      "sr_year": "sr_year",
+      "d_sr": "d_sr",
+      "ci_lo": "ci_lo",
+      "ci_hi": "ci_hi",
+      "p_wy": "p_wy",
+      "d_usd_raw": "d_usd",
+      "passed": "passed",
+      "refuted": "refuted"
+     }
+    }
+   ]
+  },
+  {
+   "entry": 142,
+   "src": "docs/archive/findings/p12-sharpe-free-2026-10-08.csv",
+   "pick": [
+    {
+     "where": {
+      "pack": "ext"
+     },
+     "cell": "{pack} {cell}",
+     "win": "янв–сен",
+     "extra": {
+      "sr_year": "sr_year",
+      "d_sr": "d_sr",
+      "ci_lo": "ci_lo",
+      "ci_hi": "ci_hi",
+      "p_wy": "p_wy",
+      "d_usd_raw": "d_usd",
+      "passed": "passed",
+      "refuted": "refuted"
+     }
+    }
+   ]
+  },
+  {
+   "entry": 143,
+   "src": "docs/archive/findings/tk289-final-b-2026-10-21.json",
+   "pick": [
+    {
+     "ptr": "B1_B",
+     "cell": "B1 (финал Б)",
+     "map": {
+      "trades": "trades"
+     },
+     "extra": {
+      "sr_day_raw": "SR",
+      "days": "days"
+     }
+    },
+    {
+     "ptr": "families/*",
+     "cell": "семья {family}",
+     "extra": {
+      "p": "p",
+      "p_holm_m17": "p_holm_m17",
+      "pass_m17": "pass_m17",
+      "tested": "tested"
+     }
+    }
+   ],
+   "win": "янв–сен"
+  },
+  {
+   "entry": 144,
+   "src": "docs/archive/chronicle-2026-11-20/EXPERIMENTS.md",
+   "line": 64,
+   "text": 1,
+   "rows": [
+    {
+     "cell": "TK-419: ячеек различают «сигнал для поиска пампа»",
+     "extra": {
+      "cells_pass": 0,
+      "cells": 36
+     }
+    },
+    {
+     "cell": "TK-419: B в A, марк-аут 60 мин",
+     "extra": {
+      "markout_bps": -40.4
+     }
+    },
+    {
+     "cell": "вар. 2 spot ob200",
+     "extra": {
+      "cells_pass": 0,
+      "cells": 48
+     }
+    },
+    {
+     "cell": "вар. 6 (θ 6/7 %), A: T≈P",
+     "extra": {
+      "cells": 12,
+      "t_eq_p": 9,
+      "confirmed": 0
+     }
+    },
+    {
+     "cell": "события: A Bybit linear / B Gate",
+     "extra": {
+      "events_a": 5517,
+      "instr_a": 40,
+      "events_b": 3041,
+      "instr_b": 21
+     }
+    }
+   ],
+   "win": "сентябрь 2026"
+  },
+  {
+   "entry": 145,
+   "src": "docs/archive/chronicle-2026-11-20/EXPERIMENTS.md",
+   "line": 65,
+   "text": 1,
+   "rows": [
+    {
+     "cell": "испытаний; A сент. и авг. «различает»",
+     "extra": {
+      "tests": 104,
+      "pass_a": 0
+     }
+    },
+    {
+     "cell": "B Gate авг.: «различает» из",
+     "extra": {
+      "pass": 0,
+      "tests": 4
+     }
+    }
+   ]
+  },
+  {
+   "entry": 146,
+   "src": "docs/archive/chronicle-2026-11-20/EXPERIMENTS.md",
+   "line": 79,
+   "text": 1,
+   "rows": [
+    {
+     "cell": "48 форм (32 вырождены)",
+     "trades": 45800000,
+     "extra": {
+      "bps_point": -7.6,
+      "forms": 48,
+      "degenerate": 32
+     }
+    }
+   ],
+   "win": "ZEC 13.09"
+  },
+  {
+   "entry": 147,
+   "gap": "не запускалось",
+   "note": "смоук 4423 касания прошёл, боевого прогона нет (числа a/b владелец не назвал)",
+   "src": "docs/archive/chronicle-2026-11-20/EXPERIMENTS.md",
+   "line": 80
+  },
+  {
+   "entry": 148,
+   "src": "docs/archive/chronicle-2026-11-20/EXPERIMENTS.md",
+   "line": 81,
+   "text": 1,
+   "rows": [
+    {
+     "cell": "any · pct1-1to1-3600",
+     "trades": 79,
+     "extra": {
+      "bps_point": 0.37,
+      "bps_lower": -0.7
+     }
+    },
+    {
+     "cell": "frontrun · pct0.5-1to1-7200",
+     "trades": 79,
+     "extra": {
+      "bps_point": 0.26,
+      "bps_lower": -0.45
+     }
+    }
+   ],
+   "win": "16–18.09"
+  },
+  {
+   "entry": 149,
+   "src": "docs/archive/chronicle-2026-11-20/EXPERIMENTS.md",
+   "line": 82,
+   "text": 1,
+   "rows": [
+    {
+     "cell": "pct1-half1to1-3600",
+     "trades": 79,
+     "extra": {
+      "bps_point": 0.07,
+      "bps_lower": -0.8
+     }
+    },
+    {
+     "cell": "eat50x80",
+     "extra": {
+      "rounds_min": 225,
+      "rounds_max": 238,
+      "bps_point": -8
+     }
+    }
+   ],
+   "win": "16–18.09"
+  },
+  {
+   "entry": 150,
+   "gap": "не запускалось",
+   "note": "пересечение «сила ≥ 100 % ∩ возраст ≥ 15 мин» = 3 касания/сутки — пусто",
+   "src": "docs/archive/chronicle-2026-11-20/EXPERIMENTS.md",
+   "line": 83
+  },
+  {
+   "entry": 152,
+   "gap": "числа не вписаны",
+   "note": "в строке реестра только «все ≤ 0» — n и $ не вписаны",
+   "src": "docs/archive/chronicle-2026-11-20/EXPERIMENTS.md",
+   "line": 85
+  },
+  {
+   "entry": 153,
+   "src": "docs/archive/chronicle-2026-11-20/EXPERIMENTS.md",
+   "line": 86,
+   "text": 1,
+   "rows": [
+    {
+     "cell": "a45-bid",
+     "side": "long",
+     "trades": 89,
+     "extra": {
+      "bps_point": 6.65,
+      "bps_lower": -1.16
+     }
+    },
+    {
+     "cell": "a45-ask",
+     "side": "short",
+     "trades": 158,
+     "extra": {
+      "bps_point": -3.22,
+      "bps_lower": -0.8
+     }
+    },
+    {
+     "cell": "s100-bid",
+     "side": "long",
+     "trades": 52,
+     "extra": {
+      "bps_point": 0.97,
+      "bps_lower": -0.39
+     }
+    },
+    {
+     "cell": "s100-ask",
+     "side": "short",
+     "trades": 3,
+     "extra": {
+      "bps_point": -0.23
+     }
+    },
+    {
+     "cell": "лонг, всего",
+     "side": "long",
+     "win": "16–18.09",
+     "extra": {
+      "pnl_usd_1000": 171,
+      "win_pct": 46,
+      "dd_usd": -39
+     }
+    },
+    {
+     "cell": "шорт, всего",
+     "side": "short",
+     "win": "16–18.09",
+     "extra": {
+      "pnl_usd_1000": -239
+     }
+    },
+    {
+     "cell": "лонг с 19.09 (флэт)",
+     "side": "long",
+     "win": "с 19.09",
+     "trades": 116,
+     "extra": {
+      "pnl_usd": 162,
+      "pnl_usd_19th": 16,
+      "lower": -0.75
+     }
+    },
+    {
+     "cell": "шорт с 19.09 (флэт)",
+     "side": "short",
+     "win": "с 19.09",
+     "trades": 134,
+     "extra": {
+      "pnl_usd": -234,
+      "pnl_usd_19th": -17
+     }
+    }
+   ]
+  },
+  {
+   "entry": 154,
+   "src": "docs/archive/chronicle-2026-11-20/EXPERIMENTS.md",
+   "line": 87,
+   "text": 1,
+   "rows": [
+    {
+     "cell": "a15-s10-bid",
+     "side": "long",
+     "trades": 75,
+     "extra": {
+      "bps_point": 2.1,
+      "bps_lower": -0.76
+     }
+    },
+    {
+     "cell": "a30-bid",
+     "side": "long",
+     "trades": 118,
+     "extra": {
+      "bps_point": 2.3,
+      "bps_lower": -0.87
+     }
+    },
+    {
+     "cell": "a60-bid",
+     "side": "long",
+     "trades": 41,
+     "extra": {
+      "bps_point": 8.3,
+      "bps_lower": -1.7
+     }
+    }
+   ],
+   "win": "16–18.09"
+  },
+  {
+   "entry": 155,
+   "src": "docs/archive/chronicle-2026-11-20/EXPERIMENTS.md",
+   "line": 88,
+   "text": 1,
+   "rows": [
+    {
+     "cell": "a45-bid-e75",
+     "side": "long",
+     "extra": {
+      "bps_point": 6.9,
+      "bps_lower": -1.05
+     }
+    },
+    {
+     "cell": "a45-bid-e60",
+     "side": "long",
+     "extra": {
+      "bps_point": 4.7,
+      "bps_lower": -1.8
+     }
+    },
+    {
+     "cell": "6 клеток: n по порядку строки реестра",
+     "extra": {
+      "n_list": "33 / 60 / 64 / 119 / 35 / 42"
+     }
+    }
+   ],
+   "win": "16–18.09"
+  },
+  {
+   "entry": 156,
+   "src": "docs/archive/chronicle-2026-11-20/EXPERIMENTS.md",
+   "line": 89,
+   "text": 1,
+   "rows": [
+    {
+     "cell": "p4h-neg",
+     "side": "long",
+     "extra": {
+      "bps_point": 16.4,
+      "bps_lower": -1.7
+     }
+    },
+    {
+     "cell": "b4h-neg",
+     "side": "long",
+     "extra": {
+      "bps_point": 17.4,
+      "bps_lower": -1.8
+     }
+    },
+    {
+     "cell": "p4h-q50",
+     "side": "long",
+     "extra": {
+      "bps_point": -3.5
+     }
+    },
+    {
+     "cell": "p4h-q75",
+     "side": "long",
+     "extra": {
+      "bps_point": -6.0
+     }
+    },
+    {
+     "cell": "b4h-q50",
+     "side": "long",
+     "extra": {
+      "bps_point": -2.6
+     }
+    },
+    {
+     "cell": "ask-p4h-q25",
+     "side": "short",
+     "extra": {
+      "bps_point": 1.9,
+      "bps_lower": -2.6
+     }
+    },
+    {
+     "cell": "ask-r1h",
+     "side": "short",
+     "extra": {
+      "bps_point": -2.1
+     }
+    },
+    {
+     "cell": "лонг после просадки пула 4 ч",
+     "side": "long",
+     "win": "16–18.09",
+     "extra": {
+      "pnl_usd_1000": 148,
+      "win_pct": 66,
+      "dd_usd": -10
+     }
+    },
+    {
+     "cell": "лонг после просадки BTC 4 ч",
+     "side": "long",
+     "win": "16–18.09",
+     "extra": {
+      "pnl_usd_1000": 187
+     }
+    },
+    {
+     "cell": "H1 на 4 сутках (19-е флэт)",
+     "side": "long",
+     "win": "16–19.09",
+     "trades": 60,
+     "extra": {
+      "pnl_usd_1000": 172,
+      "win_pct": 58,
+      "dd_usd": -16,
+      "pnl_usd_19th": 14
+     }
+    },
+    {
+     "cell": "9 наборов: n по порядку строки реестра",
+     "extra": {
+      "n_list": "32 / 46 / 25 / 15 / 31 / 17 / 69 / 36 / 6"
+     }
+    }
+   ]
+  },
+  {
+   "entry": 157,
+   "src": "docs/archive/chronicle-2026-11-20/EXPERIMENTS.md",
+   "line": 90,
+   "text": 1,
+   "rows": [
+    {
+     "cell": "pct2-tk1-7200",
+     "side": "long",
+     "trades": 95,
+     "extra": {
+      "bps_point": 3.84,
+      "bps_lower": -0.67
+     }
+    },
+    {
+     "cell": "контроль 1to1 той же формы",
+     "side": "long",
+     "trades": 92,
+     "extra": {
+      "pnl_usd_1000": 155
+     }
+    }
+   ],
+   "win": "16–19.09"
+  },
+  {
+   "entry": 158,
+   "src": "docs/archive/chronicle-2026-11-20/EXPERIMENTS.md",
+   "line": 91,
+   "text": 1,
+   "rows": [
+    {
+     "cell": "pct2-1to1-14400 (4 ч)",
+     "side": "long",
+     "trades": 73,
+     "extra": {
+      "bps_point": 7.66,
+      "bps_lower": -0.78,
+      "pnl_usd_1000": 296
+     }
+    },
+    {
+     "cell": "pct2-1to1-14400 с просадкой BTC",
+     "side": "long",
+     "trades": 38,
+     "extra": {
+      "bps_point": 11.8,
+      "bps_lower": -0.67
+     }
+    },
+    {
+     "cell": "удержание 60 с",
+     "side": "long",
+     "extra": {
+      "pnl_usd_1000": -198
+     }
+    },
+    {
+     "cell": "удержание 10 мин",
+     "side": "long",
+     "extra": {
+      "pnl_usd_1000": -131
+     }
+    },
+    {
+     "cell": "удержание 30 мин",
+     "side": "long",
+     "extra": {
+      "pnl_usd_1000": 7
+     }
+    },
+    {
+     "cell": "удержание 1 ч",
+     "side": "long",
+     "extra": {
+      "pnl_usd_1000": 187
+     }
+    },
+    {
+     "cell": "удержание 2 ч",
+     "side": "long",
+     "extra": {
+      "pnl_usd_1000": 155
+     }
+    }
+   ],
+   "win": "16–19.09"
+  },
+  {
+   "entry": 159,
+   "src": "docs/archive/chronicle-2026-11-20/EXPERIMENTS.md",
+   "line": 92,
+   "text": 1,
+   "rows": [
+    {
+     "cell": "a90",
+     "side": "long",
+     "trades": 44,
+     "extra": {
+      "bps_point": 9.9,
+      "bps_lower": -1.4
+     }
+    },
+    {
+     "cell": "a120",
+     "side": "long",
+     "trades": 25,
+     "extra": {
+      "bps_point": 5.6,
+      "bps_lower": -1.7
+     }
+    },
+    {
+     "cell": "fr (только от фронтрана)",
+     "side": "long",
+     "trades": 116,
+     "extra": {
+      "bps_point": 5.4,
+      "bps_lower": -0.84
+     }
+    },
+    {
+     "cell": "u25",
+     "side": "long",
+     "trades": 61,
+     "extra": {
+      "bps_point": 9.0,
+      "bps_lower": -1.2,
+      "pnl_usd_1000": 131
+     }
+    },
+    {
+     "cell": "u50",
+     "side": "long",
+     "trades": 20,
+     "extra": {
+      "bps_point": 6.1,
+      "bps_lower": -3.2
+     }
+    },
+    {
+     "cell": "a90, P&L",
+     "side": "long",
+     "trades": 37,
+     "extra": {
+      "pnl_usd_1000": 105,
+      "pnl_usd_19th": -15
+     }
+    }
+   ],
+   "win": "16–19.09"
+  },
+  {
+   "entry": 160,
+   "src": "docs/archive/chronicle-2026-11-20/EXPERIMENTS.md",
+   "line": 93,
+   "text": 1,
+   "rows": [
+    {
+     "cell": "все 144 формы (88 форм с < 2 кругами)",
+     "side": "long",
+     "trades": 201,
+     "extra": {
+      "forms": 144,
+      "forms_lt2": 88
+     }
+    },
+    {
+     "cell": "ladder3x2..10-pct2-1to1-7200-ttl1800-gone50 (лучшая)",
+     "side": "long",
+     "trades": 2,
+     "extra": {
+      "bps_point": 4.71,
+      "bps_lower": -0.1,
+      "dsr": 0.009
+     }
+    }
+   ],
+   "win": "16–19.09"
+  },
+  {
+   "entry": 161,
+   "gap": "предрегистрация",
+   "note": "E16 — заморозка формы для первых OOS-суток с 23.09; в реестре «ждём сутки», итога нет",
+   "src": "docs/archive/chronicle-2026-11-20/EXPERIMENTS.md",
+   "line": 94
+  },
+  {
+   "entry": 162,
+   "src": "docs/archive/chronicle-2026-11-20/EXPERIMENTS.md",
+   "line": 95,
+   "text": 1,
+   "rows": [
+    {
+     "cell": "96 форм (скальп-отскок)",
+     "extra": {
+      "forms": 96,
+      "bps_min": -9,
+      "bps_max": -5,
+      "excess_min": -3,
+      "excess_max": -1,
+      "stick_pct_min": 55,
+      "stick_pct_max": 96
+     }
+    },
+    {
+     "cell": "a45-bid stack2-600: без прилипания → с ним",
+     "side": "long",
+     "extra": {
+      "bps_without": -5.3,
+      "bps_with": -7.1
+     }
+    }
+   ],
+   "win": "6 суток"
+  },
+  {
+   "entry": 167,
+   "src": "docs/archive/chronicle-2026-11-20/EXPERIMENTS.md",
+   "line": 100,
+   "text": 1,
+   "rows": [
+    {
+     "cell": "кандидат t-bid-btc1h-q1",
+     "side": "long",
+     "trades": 40,
+     "extra": {
+      "deposit_pct": -1.71
+     }
+    },
+    {
+     "cell": "база t-bid-age-45",
+     "side": "long",
+     "trades": 63,
+     "extra": {
+      "deposit_pct": -3.53
+     }
+    },
+    {
+     "cell": "сверх рынка (М19)",
+     "side": "long",
+     "extra": {
+      "bps_per_trade": 128
+     }
+    },
+    {
+     "cell": "позиция в худшую минуту",
+     "side": "long",
+     "extra": {
+      "median_pct": -27.7,
+      "worst_pct": -59.7
+     }
+    }
+   ],
+   "win": "e-crash 10–11.10.2025"
+  },
+  {
+   "entry": 168,
+   "gap": "числа не вписаны",
+   "note": "E23: «пересчёт идёт — числа не вписаны»; прежние +$515 / +$272 недействительны (В-93)",
+   "src": "docs/archive/chronicle-2026-11-20/EXPERIMENTS.md",
+   "line": 101
+  },
+  {
+   "entry": 169,
+   "src": "docs/archive/chronicle-2026-11-20/EXPERIMENTS.md",
+   "line": 102,
+   "text": 1,
+   "rows": [
+    {
+     "cell": "кандидат BTC 1 ч",
+     "side": "long",
+     "trades": 826,
+     "usd": -124,
+     "extra": {
+      "trades_account": 809,
+      "account_usd": -113,
+      "account_pct": -4.5,
+      "dd_pct": -6.4
+     }
+    },
+    {
+     "cell": "BTC 4 ч, трейл 1/1",
+     "side": "long",
+     "usd": 102,
+     "extra": {
+      "account_usd": 98,
+      "account_pct": 3.9
+     }
+    },
+    {
+     "cell": "BTC 4 ч, тейк 1,75 % (счёт)",
+     "side": "long",
+     "extra": {
+      "account_usd": 66,
+      "account_pct": 2.6
+     }
+    },
+    {
+     "cell": "без фильтра",
+     "side": "long",
+     "usd": 137,
+     "extra": {
+      "account_usd": 163,
+      "account_pct": 6.5,
+      "dd_pct": -15
+     }
+    }
+   ],
+   "win": "август 01–31.08",
+   "stake": 500
+  },
+  {
+   "entry": 170,
+   "src": "docs/archive/chronicle-2026-11-20/EXPERIMENTS.md",
+   "line": 103,
+   "text": 1,
+   "rows": [
+    {
+     "cell": "база · стоп 2 %, 4 ч, трейл 1/1",
+     "side": "long",
+     "usd": 137,
+     "trades": 2578
+    },
+    {
+     "cell": "база · стоп 2 %, 4 ч, трейл 2/0,5",
+     "side": "long",
+     "usd": -16
+    },
+    {
+     "cell": "база · стоп 2 %, 4 ч, тейк 1,75 %",
+     "side": "long",
+     "usd": -58
+    },
+    {
+     "cell": "BTC 1 ч · стоп 2 %, 4 ч, трейл 1/1",
+     "side": "long",
+     "usd": -124,
+     "trades": 826
+    },
+    {
+     "cell": "BTC 1 ч · стоп 2 %, 4 ч, трейл 2/0,5",
+     "side": "long",
+     "usd": -170
+    },
+    {
+     "cell": "BTC 1 ч · стоп 2 %, 4 ч, тейк 1,75 %",
+     "side": "long",
+     "usd": -177
+    },
+    {
+     "cell": "BTC 4 ч · стоп 2 %, 4 ч, трейл 1/1",
+     "side": "long",
+     "usd": 102,
+     "trades": 523
+    },
+    {
+     "cell": "BTC 4 ч · стоп 2 %, 4 ч, трейл 2/0,5",
+     "side": "long",
+     "usd": 59
+    },
+    {
+     "cell": "BTC 4 ч · стоп 2 %, 4 ч, тейк 1,75 %",
+     "side": "long",
+     "usd": 70
+    }
+   ],
+   "win": "август 01–31.08",
+   "stake": 500
+  },
+  {
+   "entry": 171,
+   "src": "docs/archive/chronicle-2026-11-20/EXPERIMENTS.md",
+   "line": 104,
+   "text": 1,
+   "rows": [
+    {
+     "cell": "просадка BTC 1 ч, трейл 1/1",
+     "side": "long",
+     "win": "сентябрь 01–23.09",
+     "trades": 270,
+     "usd": 198
+    },
+    {
+     "cell": "просадка BTC 2 ч, трейл 1/1",
+     "side": "long",
+     "win": "сентябрь 01–23.09",
+     "trades": 213,
+     "usd": 87
+    },
+    {
+     "cell": "просадка BTC 3 ч, трейл 1/1",
+     "side": "long",
+     "win": "сентябрь 01–23.09",
+     "trades": 178,
+     "usd": 60
+    },
+    {
+     "cell": "просадка BTC 4 ч, трейл 1/1",
+     "side": "long",
+     "win": "сентябрь 01–23.09",
+     "trades": 168,
+     "usd": 85
+    },
+    {
+     "cell": "просадка BTC 1 ч, трейл 1/1",
+     "side": "long",
+     "win": "август 01–31.08",
+     "trades": 826,
+     "usd": -124,
+     "extra": {
+      "account_usd": -113
+     }
+    },
+    {
+     "cell": "просадка BTC 2 ч, трейл 1/1",
+     "side": "long",
+     "win": "август 01–31.08",
+     "trades": 707,
+     "usd": 17,
+     "extra": {
+      "account_usd": 11
+     }
+    },
+    {
+     "cell": "просадка BTC 3 ч, трейл 1/1",
+     "side": "long",
+     "win": "август 01–31.08",
+     "trades": 555,
+     "usd": 132,
+     "extra": {
+      "account_usd": 130
+     }
+    },
+    {
+     "cell": "просадка BTC 4 ч, трейл 1/1",
+     "side": "long",
+     "win": "август 01–31.08",
+     "trades": 523,
+     "usd": 102,
+     "extra": {
+      "account_usd": 98
+     }
+    }
+   ],
+   "stake": 500
+  },
+  {
+   "entry": 172,
+   "src": "docs/archive/chronicle-2026-11-20/EXPERIMENTS.md",
+   "line": 105,
+   "text": 1,
+   "rows": [
+    {
+     "cell": "BTC 4 ч, трейл 1/1, без потолка, без правила серии",
+     "side": "long",
+     "win": "август 01–31.08",
+     "trades": 503,
+     "usd": 106
+    },
+    {
+     "cell": "BTC 4 ч, трейл 1/1, потолок 5",
+     "side": "long",
+     "win": "август 01–31.08",
+     "trades": 238,
+     "usd": -2
+    },
+    {
+     "cell": "BTC 4 ч, трейл 1/1, потолок 3",
+     "side": "long",
+     "win": "август 01–31.08",
+     "trades": 162,
+     "usd": 27
+    },
+    {
+     "cell": "BTC 4 ч, трейл 1/1, без потолка",
+     "side": "long",
+     "win": "сентябрь 01–23.09",
+     "trades": 152,
+     "usd": 103
+    },
+    {
+     "cell": "BTC 4 ч, трейл 1/1, потолок 5",
+     "side": "long",
+     "win": "сентябрь 01–23.09",
+     "trades": 122,
+     "usd": 118
+    },
+    {
+     "cell": "BTC 4 ч, трейл 1/1, потолок 3",
+     "side": "long",
+     "win": "сентябрь 01–23.09",
+     "trades": 97,
+     "usd": 105
+    },
+    {
+     "cell": "BTC 4 ч, трейл 1/1, без потолка, с правилом серии 5 (блок BCH)",
+     "side": "long",
+     "win": "август 01–31.08",
+     "usd": 113
+    }
+   ],
+   "stake": 500,
+   "same_data": 1
+  },
+  {
+   "entry": 173,
+   "src": "docs/archive/chronicle-2026-11-20/EXPERIMENTS.md",
+   "line": 106,
+   "text": 1,
+   "rows": [
+    {
+     "cell": "база пересчёта",
+     "side": "long",
+     "win": "август",
+     "trades": 503,
+     "usd": 147,
+     "extra": {
+      "backtest_usd": 106,
+      "reasons_match_pct": 97
+     }
+    },
+    {
+     "cell": "база пересчёта",
+     "side": "long",
+     "win": "сентябрь",
+     "trades": 152,
+     "usd": 137,
+     "extra": {
+      "backtest_usd": 103,
+      "reasons_match_pct": 96
+     }
+    },
+    {
+     "cell": "стоп 2,5 %",
+     "side": "long",
+     "win": "август",
+     "extra": {
+      "d_usd": -20
+     }
+    },
+    {
+     "cell": "стоп 2,5 %",
+     "side": "long",
+     "win": "сентябрь",
+     "extra": {
+      "d_usd": 3
+     }
+    },
+    {
+     "cell": "стоп 3 %",
+     "side": "long",
+     "win": "август",
+     "extra": {
+      "d_usd": -17
+     }
+    },
+    {
+     "cell": "стоп 3 %",
+     "side": "long",
+     "win": "сентябрь",
+     "extra": {
+      "d_usd": 5
+     }
+    },
+    {
+     "cell": "стоп под волатильность",
+     "side": "long",
+     "win": "август",
+     "extra": {
+      "d_usd_min": -26,
+      "d_usd_max": -13
+     }
+    },
+    {
+     "cell": "стоп под волатильность",
+     "side": "long",
+     "win": "сентябрь",
+     "extra": {
+      "d_usd_min": -21,
+      "d_usd_max": -12
+     }
+    },
+    {
+     "cell": "выход по BTC −0,5 %",
+     "side": "long",
+     "win": "август",
+     "extra": {
+      "d_usd": -19
+     }
+    },
+    {
+     "cell": "выход по BTC −0,5 %",
+     "side": "long",
+     "win": "сентябрь",
+     "extra": {
+      "d_usd": -31
+     }
+    },
+    {
+     "cell": "выход по BTC −0,75 %",
+     "side": "long",
+     "win": "август",
+     "extra": {
+      "d_usd": -2
+     }
+    },
+    {
+     "cell": "выход по BTC −0,75 %",
+     "side": "long",
+     "win": "сентябрь",
+     "extra": {
+      "d_usd": -6
+     }
+    },
+    {
+     "cell": "выход по BTC −1…−1,5 %",
+     "side": "long",
+     "win": "август",
+     "extra": {
+      "d_usd_min": -12,
+      "d_usd_max": 2
+     }
+    },
+    {
+     "cell": "выход по BTC −1…−1,5 %",
+     "side": "long",
+     "win": "сентябрь",
+     "extra": {
+      "d_usd_min": -11,
+      "d_usd_max": -7
+     }
+    }
+   ],
+   "stake": 500,
+   "same_data": 1
+  },
+  {
+   "entry": 174,
+   "src": "docs/archive/chronicle-2026-11-20/EXPERIMENTS.md",
+   "line": 107,
+   "text": 1,
+   "rows": [
+    {
+     "cell": "трейл по RV60 ×1 / 1,5 / 2",
+     "side": "long",
+     "win": "август",
+     "extra": {
+      "d_usd_min": 21,
+      "d_usd_max": 63
+     }
+    },
+    {
+     "cell": "трейл по RV60 ×1 / 1,5 / 2",
+     "side": "long",
+     "win": "сентябрь",
+     "extra": {
+      "d_usd_min": -83,
+      "d_usd_max": -36
+     }
+    },
+    {
+     "cell": "люстра 1,5–2,5σ4ч",
+     "side": "long",
+     "win": "август",
+     "extra": {
+      "d_usd_min": 2,
+      "d_usd_max": 22
+     }
+    },
+    {
+     "cell": "люстра 1,5–2,5σ4ч",
+     "side": "long",
+     "win": "сентябрь",
+     "extra": {
+      "d_usd_min": -101,
+      "d_usd_max": -84
+     }
+    },
+    {
+     "cell": "разгон RV30 ≥ 2×",
+     "side": "long",
+     "win": "август",
+     "extra": {
+      "d_usd": -13
+     }
+    },
+    {
+     "cell": "разгон RV30 ≥ 2×",
+     "side": "long",
+     "win": "сентябрь",
+     "extra": {
+      "d_usd": -8
+     }
+    },
+    {
+     "cell": "разгон RV30 ≥ 3×",
+     "side": "long",
+     "win": "август",
+     "extra": {
+      "d_usd": 17
+     }
+    },
+    {
+     "cell": "разгон RV30 ≥ 3×",
+     "side": "long",
+     "win": "сентябрь",
+     "extra": {
+      "d_usd": 1
+     }
+    },
+    {
+     "cell": "стоп по логарифму времени к 1 %",
+     "side": "long",
+     "win": "август",
+     "extra": {
+      "d_usd": -25
+     }
+    },
+    {
+     "cell": "стоп по логарифму времени к 1 %",
+     "side": "long",
+     "win": "сентябрь",
+     "extra": {
+      "d_usd": 3
+     }
+    },
+    {
+     "cell": "стоп по логарифму времени к 0,5 %",
+     "side": "long",
+     "win": "август",
+     "extra": {
+      "d_usd": -45
+     }
+    },
+    {
+     "cell": "стоп по логарифму времени к 0,5 %",
+     "side": "long",
+     "win": "сентябрь",
+     "extra": {
+      "d_usd": -12
+     }
+    },
+    {
+     "cell": "разгон RV30 ≥ 3×: худший день (против базы)",
+     "side": "long",
+     "win": "август",
+     "extra": {
+      "worst_day_usd": -47,
+      "base_worst_day_usd": -55
+     }
+    },
+    {
+     "cell": "разгон RV30 ≥ 3×: худший день (против базы)",
+     "side": "long",
+     "win": "сентябрь",
+     "extra": {
+      "worst_day_usd": -27,
+      "base_worst_day_usd": -27
+     }
+    },
+    {
+     "cell": "стоп по логарифму времени к 1 %: худший день",
+     "side": "long",
+     "win": "август",
+     "extra": {
+      "worst_day_usd": -46
+     }
+    },
+    {
+     "cell": "стоп по логарифму времени к 1 %: худший день",
+     "side": "long",
+     "win": "сентябрь",
+     "extra": {
+      "worst_day_usd": -19
+     }
+    }
+   ],
+   "stake": 500,
+   "same_data": 1
+  },
+  {
+   "entry": 175,
+   "src": "docs/archive/chronicle-2026-11-20/EXPERIMENTS.md",
+   "line": 108,
+   "text": 1,
+   "rows": [
+    {
+     "cell": "откат min(1 %, 1·RV60)",
+     "side": "long",
+     "win": "август",
+     "extra": {
+      "d_usd": 20
+     }
+    },
+    {
+     "cell": "откат min(1 %, 1·RV60)",
+     "side": "long",
+     "win": "сентябрь",
+     "extra": {
+      "d_usd": -13
+     }
+    },
+    {
+     "cell": "откат min(1 %, 1,5·RV60)",
+     "side": "long",
+     "win": "август",
+     "extra": {
+      "d_usd": -3
+     }
+    },
+    {
+     "cell": "откат min(1 %, 1,5·RV60)",
+     "side": "long",
+     "win": "сентябрь",
+     "extra": {
+      "d_usd": -5
+     }
+    },
+    {
+     "cell": "откат min(1 %, 2·RV60)",
+     "side": "long",
+     "win": "август",
+     "extra": {
+      "d_usd": 4
+     }
+    },
+    {
+     "cell": "откат min(1 %, 2·RV60)",
+     "side": "long",
+     "win": "сентябрь",
+     "extra": {
+      "d_usd": 0
+     }
+    },
+    {
+     "cell": "включение / откат по σ4ч",
+     "side": "long",
+     "win": "август",
+     "extra": {
+      "d_usd_min": -31,
+      "d_usd_max": -14
+     }
+    },
+    {
+     "cell": "включение / откат по σ4ч",
+     "side": "long",
+     "win": "сентябрь",
+     "extra": {
+      "d_usd_min": -13,
+      "d_usd_max": 1
+     }
+    },
+    {
+     "cell": "люстра 2,5σ4ч для спокойных",
+     "side": "long",
+     "win": "август",
+     "extra": {
+      "d_usd": 13
+     }
+    },
+    {
+     "cell": "люстра 2,5σ4ч для спокойных",
+     "side": "long",
+     "win": "сентябрь",
+     "extra": {
+      "d_usd": 6
+     }
+    },
+    {
+     "cell": "разгон: только выход в минусе",
+     "side": "long",
+     "win": "август",
+     "extra": {
+      "d_usd": 20
+     }
+    },
+    {
+     "cell": "разгон: только выход в минусе",
+     "side": "long",
+     "win": "сентябрь",
+     "extra": {
+      "d_usd": -1
+     }
+    },
+    {
+     "cell": "разгон: только поджатие в плюсе",
+     "side": "long",
+     "win": "август",
+     "extra": {
+      "d_usd": -3
+     }
+    },
+    {
+     "cell": "разгон: только поджатие в плюсе",
+     "side": "long",
+     "win": "сентябрь",
+     "extra": {
+      "d_usd": 2
+     }
+    },
+    {
+     "cell": "разгон ×2,5",
+     "side": "long",
+     "win": "август",
+     "extra": {
+      "d_usd": 16
+     }
+    },
+    {
+     "cell": "разгон ×2,5",
+     "side": "long",
+     "win": "сентябрь",
+     "extra": {
+      "d_usd": 1
+     }
+    },
+    {
+     "cell": "разгон ×3",
+     "side": "long",
+     "win": "август",
+     "extra": {
+      "d_usd": 17
+     }
+    },
+    {
+     "cell": "разгон ×3",
+     "side": "long",
+     "win": "сентябрь",
+     "extra": {
+      "d_usd": 1
+     }
+    },
+    {
+     "cell": "разгон ×4",
+     "side": "long",
+     "win": "август",
+     "extra": {
+      "d_usd": 4
+     }
+    },
+    {
+     "cell": "разгон ×4",
+     "side": "long",
+     "win": "сентябрь",
+     "extra": {
+      "d_usd": 0
+     }
+    },
+    {
+     "cell": "разгон, окно 15 мин",
+     "side": "long",
+     "win": "август",
+     "extra": {
+      "d_usd": 11
+     }
+    },
+    {
+     "cell": "разгон, окно 15 мин",
+     "side": "long",
+     "win": "сентябрь",
+     "extra": {
+      "d_usd": -15
+     }
+    },
+    {
+     "cell": "разгон, окно 60 мин",
+     "side": "long",
+     "win": "август",
+     "extra": {
+      "d_usd": 5
+     }
+    },
+    {
+     "cell": "разгон, окно 60 мин",
+     "side": "long",
+     "win": "сентябрь",
+     "extra": {
+      "d_usd": 0
+     }
+    }
+   ],
+   "stake": 500,
+   "same_data": 1
+  },
+  {
+   "entry": 176,
+   "src": "docs/archive/chronicle-2026-11-20/EXPERIMENTS.md",
+   "line": 109,
+   "text": 1,
+   "rows": [
+    {
+     "cell": "база",
+     "side": "long",
+     "win": "август→сентябрь",
+     "usd": 137
+    },
+    {
+     "cell": "база",
+     "side": "long",
+     "win": "сентябрь→август",
+     "usd": 147
+    },
+    {
+     "cell": "один общий вариант",
+     "side": "long",
+     "win": "август→сентябрь",
+     "usd": 36,
+     "extra": {
+      "d_usd": -101
+     }
+    },
+    {
+     "cell": "один общий вариант",
+     "side": "long",
+     "win": "сентябрь→август",
+     "usd": 130,
+     "extra": {
+      "d_usd": -17
+     }
+    },
+    {
+     "cell": "по семействам K = 2",
+     "side": "long",
+     "win": "август→сентябрь",
+     "usd": 120,
+     "extra": {
+      "d_usd": -17
+     }
+    },
+    {
+     "cell": "по семействам K = 2",
+     "side": "long",
+     "win": "сентябрь→август",
+     "usd": 147,
+     "extra": {
+      "d_usd": 1
+     }
+    },
+    {
+     "cell": "по семействам K = 3",
+     "side": "long",
+     "win": "август→сентябрь",
+     "usd": 112,
+     "extra": {
+      "d_usd": -25
+     }
+    },
+    {
+     "cell": "по семействам K = 3",
+     "side": "long",
+     "win": "сентябрь→август",
+     "usd": 155,
+     "extra": {
+      "d_usd": 8
+     }
+    }
+   ],
+   "stake": 500
+  },
+  {
+   "entry": 177,
+   "src": "docs/archive/chronicle-2026-11-20/EXPERIMENTS.md",
+   "line": 110,
+   "text": 1,
+   "rows": [
+    {
+     "cell": "устойчивость уровня монеты август→сентябрь, ρ: RV по закрытиям (эталон)",
+     "extra": {
+      "rho": 0.63
+     }
+    },
+    {
+     "cell": "устойчивость уровня монеты август→сентябрь, ρ: по размаху",
+     "extra": {
+      "rho_min": 0.62,
+      "rho_max": 0.63
+     }
+    },
+    {
+     "cell": "устойчивость уровня монеты август→сентябрь, ρ: без скачков",
+     "extra": {
+      "rho_min": 0.63,
+      "rho_max": 0.66
+     }
+    },
+    {
+     "cell": "устойчивость уровня монеты август→сентябрь, ρ: EWMA",
+     "extra": {
+      "rho": 0.78
+     }
+    },
+    {
+     "cell": "устойчивость уровня монеты август→сентябрь, ρ: HAR",
+     "extra": {
+      "rho": 0.75
+     }
+    },
+    {
+     "cell": "устойчивость уровня монеты август→сентябрь, ρ: собственная",
+     "extra": {
+      "rho": 0.71
+     }
+    },
+    {
+     "cell": "устойчивость уровня монеты август→сентябрь, ρ: среднее рангов всех",
+     "extra": {
+      "rho": 0.81
+     }
+    },
+    {
+     "cell": "прогноз хода 4 ч, ρ (все оценки)",
+     "extra": {
+      "rho_min": 0.73,
+      "rho_max": 0.8
+     }
+    },
+    {
+     "cell": "связь с $, ρ (все оценки)",
+     "extra": {
+      "rho_min": -0.06,
+      "rho_max": 0.1
+     }
+    },
+    {
+     "cell": "сделок главного варианта (август / сентябрь)",
+     "extra": {
+      "trades_aug": 503,
+      "trades_sep": 150,
+      "coins_aug": 75,
+      "coins_sep": 49
+     }
+    }
+   ]
+  },
+  {
+   "entry": 178,
+   "src": "docs/archive/chronicle-2026-11-20/EXPERIMENTS.md",
+   "line": 111,
+   "text": 1,
+   "rows": [
+    {
+     "cell": "база",
+     "side": "long",
+     "win": "август→сентябрь",
+     "usd": 137
+    },
+    {
+     "cell": "база",
+     "side": "long",
+     "win": "сентябрь→август",
+     "usd": 147
+    },
+    {
+     "cell": "по семействам K = 2 (сводная волатильность)",
+     "side": "long",
+     "win": "август→сентябрь",
+     "usd": 101,
+     "extra": {
+      "d_usd": -35
+     }
+    },
+    {
+     "cell": "по семействам K = 2 (сводная волатильность)",
+     "side": "long",
+     "win": "сентябрь→август",
+     "usd": 105,
+     "extra": {
+      "d_usd": -42
+     }
+    },
+    {
+     "cell": "по семействам K = 3 (сводная волатильность)",
+     "side": "long",
+     "win": "август→сентябрь",
+     "usd": 36,
+     "extra": {
+      "d_usd": -100
+     }
+    },
+    {
+     "cell": "по семействам K = 3 (сводная волатильность)",
+     "side": "long",
+     "win": "сентябрь→август",
+     "usd": 166,
+     "extra": {
+      "d_usd": 19
+     }
+    }
+   ],
+   "stake": 500
+  },
+  {
+   "entry": 179,
+   "src": "docs/archive/chronicle-2026-11-20/EXPERIMENTS.md",
+   "line": 112,
+   "text": 1,
+   "rows": [
+    {
+     "cell": "ρ со стопом: скорость подхода 10 с",
+     "extra": {
+      "rho_aug": 0.13,
+      "rho_sep": 0.1
+     }
+    },
+    {
+     "cell": "ρ со стопом: σ 600 с",
+     "extra": {
+      "rho_aug": 0.18,
+      "rho_sep": 0.1
+     }
+    },
+    {
+     "cell": "ρ со стопом: удержание стены",
+     "extra": {
+      "rho_aug_min": 0.11,
+      "rho_aug_max": 0.14,
+      "rho_sep_min": -0.17,
+      "rho_sep_max": -0.09
+     }
+    },
+    {
+     "cell": "ρ со стопом: поглощение",
+     "extra": {
+      "rho_aug_min": 0.11,
+      "rho_aug_max": 0.12,
+      "rho_sep_min": -0.11,
+      "rho_sep_max": -0.03
+     }
+    },
+    {
+     "cell": "верхняя треть скорости подхода",
+     "side": "long",
+     "win": "август",
+     "usd": -36
+    },
+    {
+     "cell": "верхняя треть скорости подхода",
+     "side": "long",
+     "win": "сентябрь",
+     "usd": 49
+    },
+    {
+     "cell": "сделок с касанием (август / сентябрь)",
+     "extra": {
+      "touch_aug": 440,
+      "trades_aug": 503,
+      "touch_sep": 129,
+      "trades_sep": 152
+     }
+    }
+   ],
+   "stake": 500
+  },
+  {
+   "entry": 180,
+   "gap": "предрегистрация",
+   "note": "E35 — заморозка проверки на свежих сутках; первое чтение не раньше 100 сделок, итога в реестре нет",
+   "src": "docs/archive/chronicle-2026-11-20/EXPERIMENTS.md",
+   "line": 113
+  },
+  {
+   "entry": 181,
+   "src": "docs/archive/chronicle-2026-11-20/EXPERIMENTS.md",
+   "line": 119,
+   "text": 1,
+   "rows": [
+    {
+     "cell": "доля отскока: без порога → сила ×соседи ≥ 300 % → ≥ 1000 %",
+     "extra": {
+      "rebound_pct_0": 34,
+      "rebound_pct_300": 58,
+      "rebound_pct_1000": 64
+     }
+    }
+   ]
+  },
+  {
+   "entry": 182,
+   "src": "docs/archive/chronicle-2026-11-20/EXPERIMENTS.md",
+   "line": 120,
+   "text": 1,
+   "rows": [
+    {
+     "cell": "markout после касания, $100k–1M",
+     "extra": {
+      "bps_per_h": -27
+     }
+    },
+    {
+     "cell": "markout после касания, ≥ $1M",
+     "extra": {
+      "bps_per_h": 42,
+      "n": 34
+     }
+    }
+   ]
+  },
+  {
+   "entry": 183,
+   "src": "docs/archive/findings/excursion-sigma-2026-09-18.md",
+   "line": null,
+   "text": 1,
+   "rows": [
+    {
+     "cell": "σ_H по касаниям с силой ≥ 300 %, bps, H = 60 с",
+     "line": 18,
+     "extra": {
+      "p25": 14.8,
+      "p50": 27.7,
+      "p75": 51.7
+     }
+    },
+    {
+     "cell": "σ_H по касаниям с силой ≥ 300 %, bps, H = 10 мин",
+     "line": 19,
+     "extra": {
+      "p25": 52.6,
+      "p50": 92.1,
+      "p75": 157.6
+     }
+    },
+    {
+     "cell": "σ_H по касаниям с силой ≥ 300 %, bps, H = 1 ч",
+     "line": 20,
+     "extra": {
+      "p25": 128,
+      "p50": 224,
+      "p75": 369
+     }
+    },
+    {
+     "cell": "σ_H по касаниям с силой ≥ 300 %, bps, H = 2 ч",
+     "line": 21,
+     "extra": {
+      "p25": 182,
+      "p50": 311,
+      "p75": 499
+     }
+    },
+    {
+     "cell": "ход против отскока / σ_H (доля ≤ kσ, %), H = 60 с, отскок",
+     "line": 34,
+     "extra": {
+      "n": 21814,
+      "p50": 0.39,
+      "p75": 0.95,
+      "p90": 1.73,
+      "p95": 2.35,
+      "le_0_25": 41,
+      "le_0_5": 57,
+      "le_1": 76,
+      "le_1_5": 87,
+      "le_2": 93,
+      "le_3": 97
+     }
+    },
+    {
+     "cell": "ход против отскока / σ_H (доля ≤ kσ, %), H = 60 с, пробой",
+     "line": 35,
+     "extra": {
+      "n": 16136,
+      "p50": 0.67,
+      "p75": 1.33,
+      "p90": 2.22,
+      "p95": 3.02,
+      "le_0_25": 23,
+      "le_0_5": 40,
+      "le_1": 65,
+      "le_1_5": 79,
+      "le_2": 88,
+      "le_3": 95
+     }
+    },
+    {
+     "cell": "ход против отскока / σ_H (доля ≤ kσ, %), H = 10 мин, отскок",
+     "line": 36,
+     "extra": {
+      "n": 21645,
+      "p50": 0.54,
+      "p75": 1.04,
+      "p90": 1.67,
+      "p95": 2.18,
+      "le_0_25": 29,
+      "le_0_5": 47,
+      "le_1": 74,
+      "le_1_5": 87,
+      "le_2": 94,
+      "le_3": 98
+     }
+    },
+    {
+     "cell": "ход против отскока / σ_H (доля ≤ kσ, %), H = 10 мин, пробой",
+     "line": 37,
+     "extra": {
+      "n": 16041,
+      "p50": 0.64,
+      "p75": 1.17,
+      "p90": 1.86,
+      "p95": 2.4,
+      "le_0_25": 22,
+      "le_0_5": 41,
+      "le_1": 69,
+      "le_1_5": 84,
+      "le_2": 92,
+      "le_3": 97
+     }
+    },
+    {
+     "cell": "ход против отскока / σ_H (доля ≤ kσ, %), H = 1 ч, отскок",
+     "line": 38,
+     "extra": {
+      "n": 21055,
+      "p50": 0.56,
+      "p75": 1.05,
+      "p90": 1.71,
+      "p95": 2.21,
+      "le_0_25": 26,
+      "le_0_5": 46,
+      "le_1": 73,
+      "le_1_5": 87,
+      "le_2": 93,
+      "le_3": 98
+     }
+    },
+    {
+     "cell": "ход против отскока / σ_H (доля ≤ kσ, %), H = 1 ч, пробой",
+     "line": 39,
+     "extra": {
+      "n": 15621,
+      "p50": 0.62,
+      "p75": 1.11,
+      "p90": 1.8,
+      "p95": 2.37,
+      "le_0_25": 22,
+      "le_0_5": 42,
+      "le_1": 71,
+      "le_1_5": 86,
+      "le_2": 92,
+      "le_3": 97
+     }
+    },
+    {
+     "cell": "ход против отскока / σ_H (доля ≤ kσ, %), H = 2 ч, отскок",
+     "line": 40,
+     "extra": {
+      "n": 20441,
+      "p50": 0.55,
+      "p75": 1.02,
+      "p90": 1.61,
+      "p95": 2.09,
+      "le_0_25": 25,
+      "le_0_5": 47,
+      "le_1": 74,
+      "le_1_5": 88,
+      "le_2": 94,
+      "le_3": 98
+     }
+    },
+    {
+     "cell": "ход против отскока / σ_H (доля ≤ kσ, %), H = 2 ч, пробой",
+     "line": 41,
+     "extra": {
+      "n": 15151,
+      "p50": 0.6,
+      "p75": 1.08,
+      "p90": 1.7,
+      "p95": 2.23,
+      "le_0_25": 22,
+      "le_0_5": 43,
+      "le_1": 72,
+      "le_1_5": 87,
+      "le_2": 93,
+      "le_3": 98
+     }
+    },
+    {
+     "cell": "ход за отскок / σ_H (доля ≥ kσ, %), H = 60 с, отскок",
+     "line": 49,
+     "extra": {
+      "n": 21814,
+      "p50": 0.6,
+      "p75": 1.16,
+      "p90": 1.96,
+      "p95": 2.65,
+      "ge_0_25": 74,
+      "ge_0_5": 56,
+      "ge_1": 30,
+      "ge_1_5": 16,
+      "ge_2": 10,
+      "ge_3": 4
+     }
+    },
+    {
+     "cell": "ход за отскок / σ_H (доля ≥ kσ, %), H = 60 с, пробой",
+     "line": 50,
+     "extra": {
+      "n": 16136,
+      "p50": 0.37,
+      "p75": 0.89,
+      "p90": 1.62,
+      "p95": 2.16,
+      "ge_0_25": 57,
+      "ge_0_5": 42,
+      "ge_1": 22,
+      "ge_1_5": 11,
+      "ge_2": 6,
+      "ge_3": 2
+     }
+    },
+    {
+     "cell": "ход за отскок / σ_H (доля ≥ kσ, %), H = 10 мин, отскок",
+     "line": 51,
+     "extra": {
+      "n": 21645,
+      "p50": 0.62,
+      "p75": 1.13,
+      "p90": 1.78,
+      "p95": 2.35,
+      "ge_0_25": 77,
+      "ge_0_5": 58,
+      "ge_1": 30,
+      "ge_1_5": 15,
+      "ge_2": 7,
+      "ge_3": 3
+     }
+    },
+    {
+     "cell": "ход за отскок / σ_H (доля ≥ kσ, %), H = 10 мин, пробой",
+     "line": 52,
+     "extra": {
+      "n": 16041,
+      "p50": 0.54,
+      "p75": 1.05,
+      "p90": 1.66,
+      "p95": 2.17,
+      "ge_0_25": 71,
+      "ge_0_5": 53,
+      "ge_1": 27,
+      "ge_1_5": 13,
+      "ge_2": 6,
+      "ge_3": 2
+     }
+    },
+    {
+     "cell": "ход за отскок / σ_H (доля ≥ kσ, %), H = 1 ч, отскок",
+     "line": 53,
+     "extra": {
+      "n": 21055,
+      "p50": 0.63,
+      "p75": 1.11,
+      "p90": 1.73,
+      "p95": 2.23,
+      "ge_0_25": 79,
+      "ge_0_5": 59,
+      "ge_1": 29,
+      "ge_1_5": 14,
+      "ge_2": 7,
+      "ge_3": 2
+     }
+    },
+    {
+     "cell": "ход за отскок / σ_H (доля ≥ kσ, %), H = 1 ч, пробой",
+     "line": 54,
+     "extra": {
+      "n": 15621,
+      "p50": 0.59,
+      "p75": 1.09,
+      "p90": 1.76,
+      "p95": 2.34,
+      "ge_0_25": 75,
+      "ge_0_5": 56,
+      "ge_1": 28,
+      "ge_1_5": 14,
+      "ge_2": 7,
+      "ge_3": 3
+     }
+    },
+    {
+     "cell": "ход за отскок / σ_H (доля ≥ kσ, %), H = 2 ч, отскок",
+     "line": 55,
+     "extra": {
+      "n": 20441,
+      "p50": 0.62,
+      "p75": 1.08,
+      "p90": 1.65,
+      "p95": 2.21,
+      "ge_0_25": 79,
+      "ge_0_5": 59,
+      "ge_1": 29,
+      "ge_1_5": 12,
+      "ge_2": 7,
+      "ge_3": 2
+     }
+    },
+    {
+     "cell": "ход за отскок / σ_H (доля ≥ kσ, %), H = 2 ч, пробой",
+     "line": 56,
+     "extra": {
+      "n": 15151,
+      "p50": 0.59,
+      "p75": 1.07,
+      "p90": 1.73,
+      "p95": 2.39,
+      "ge_0_25": 76,
+      "ge_0_5": 57,
+      "ge_1": 27,
+      "ge_1_5": 13,
+      "ge_2": 7,
+      "ge_3": 3
+     }
+    },
+    {
+     "cell": "касаний на входе (сила ×соседи ≥ 300 %, ≥ $1k), 94 монеты",
+     "line": "10-11",
+     "replaces": "строка 11",
+     "extra": {
+      "touches": 38150,
+      "coins": 94
+     }
+    }
+   ],
+   "win": "09-16–09-17"
+  },
+  {
+   "entry": 184,
+   "src": "docs/archive/chronicle-2026-11-20/EXPERIMENTS.md",
+   "line": 122,
+   "text": 1,
+   "rows": [
+    {
+     "cell": "markout при силе ×поток ≥ 100 %",
+     "extra": {
+      "bps_per_h": 10.6
+     }
+    },
+    {
+     "cell": "возраст работает с, мин",
+     "extra": {
+      "age_min": 45
+     }
+    }
+   ]
+  },
+  {
+   "entry": 185,
+   "src": "docs/archive/chronicle-2026-11-20/EXPERIMENTS.md",
+   "line": 123,
+   "text": 1,
+   "rows": [
+    {
+     "cell": "сила ≥ 100 % ∩ возраст ≥ 15 мин: касаний в сутки на пул",
+     "extra": {
+      "touches_per_day": 3
+     }
+    }
+   ]
+  },
+  {
+   "entry": 186,
+   "src": "docs/archive/findings/density-lifetime-2026-09-19.md",
+   "line": null,
+   "text": 1,
+   "rows": [
+    {
+     "cell": "умерших сильных плотностей (полы В-66), 100 монет",
+     "line": "5-10",
+     "replaces": "строка 10",
+     "extra": {
+      "levels": 11224843,
+      "coins": 100
+     }
+    },
+    {
+     "cell": "жизнь плотности < 10 с",
+     "line": 14,
+     "extra": {
+      "levels": 7614747,
+      "share_pct": 67.8
+     }
+    },
+    {
+     "cell": "жизнь плотности 10–60 с",
+     "line": 15,
+     "extra": {
+      "levels": 2388835,
+      "share_pct": 21.3
+     }
+    },
+    {
+     "cell": "жизнь плотности 1–10 мин",
+     "line": 16,
+     "extra": {
+      "levels": 1139708,
+      "share_pct": 10.2
+     }
+    },
+    {
+     "cell": "жизнь плотности 10–60 мин",
+     "line": 17,
+     "extra": {
+      "levels": 78875,
+      "share_pct": 0.7
+     }
+    },
+    {
+     "cell": "жизнь плотности ≥ 1 ч",
+     "line": 18,
+     "extra": {
+      "levels": 2678,
+      "share_pct": 0.02
+     }
+    },
+    {
+     "cell": "квантили жизни, с (p90 / p99 — мин)",
+     "line": 20,
+     "extra": {
+      "p10": 0.1,
+      "p25": 0.5,
+      "p50": 3.0,
+      "p75": 16.7,
+      "p90_min": 1.1,
+      "p99_min": 8.1
+     }
+    }
+   ],
+   "win": "09-16–09-17"
+  },
+  {
+   "entry": 186,
+   "src": "docs/archive/findings/density-bots-2026-09-19.md",
+   "line": null,
+   "text": 1,
+   "rows": [
+    {
+     "cell": "чужие боты: выход при съедании плотности, % (их дефолты)",
+     "line": 29,
+     "replaces": "строка 65",
+     "extra": {
+      "trigger1_pct": 50,
+      "close1_pct": 50,
+      "trigger2_pct": 80
+     }
+    },
+    {
+     "cell": "DensityBounceGuard: задержка до Binance (их пример, VPN), мс",
+     "line": 46,
+     "replaces": "строка 82",
+     "extra": {
+      "latency_ms": 178
+     }
+    }
+   ]
+  },
+  {
+   "entry": 187,
+   "src": "docs/archive/chronicle-2026-11-20/EXPERIMENTS.md",
+   "line": 125,
+   "text": 1,
+   "rows": [
+    {
+     "cell": "монет < 100 касаний за двое суток",
+     "extra": {
+      "coins": 23
+     }
+    },
+    {
+     "cell": "CAP / AXL: касаний",
+     "extra": {
+      "touches": 0
+     }
+    }
+   ]
+  },
+  {
+   "entry": 188,
+   "src": "docs/archive/chronicle-2026-11-20/EXPERIMENTS.md",
+   "line": 126,
+   "text": 1,
+   "rows": [
+    {
+     "cell": "задержка живыми ордерами, DOGE, 100 циклов, мс",
+     "extra": {
+      "place_ms": 4.2,
+      "cancel_ms": 4.0,
+      "taker_ms": 5.7,
+      "cycles": 100
+     }
+    }
+   ]
+  },
+  {
+   "entry": 189,
+   "src": "docs/archive/chronicle-2026-11-20/EXPERIMENTS.md",
+   "line": 127,
+   "text": 1,
+   "rows": [
+    {
+     "cell": "круги a45",
+     "side": "long",
+     "extra": {
+      "bps_min": 12,
+      "bps_max": 17
+     }
+    },
+    {
+     "cell": "круги a45",
+     "side": "short",
+     "extra": {
+      "bps_min": -19,
+      "bps_max": -16
+     }
+    }
+   ]
+  },
+  {
+   "entry": 190,
+   "src": "docs/archive/chronicle-2026-11-20/EXPERIMENTS.md",
+   "line": 128,
+   "text": 1,
+   "rows": [
+    {
+     "cell": "усадка к касанию, a45, %",
+     "extra": {
+      "q25": 60,
+      "q50": 75,
+      "q75": 87
+     }
+    },
+    {
+     "cell": "усадка к касанию, s100, %",
+     "extra": {
+      "q25": 6,
+      "q50": 20,
+      "q75": 39
+     }
+    }
+   ]
+  },
+  {
+   "entry": 191,
+   "src": "docs/archive/chronicle-2026-11-20/EXPERIMENTS.md",
+   "line": 129,
+   "text": 1,
+   "rows": [
+    {
+     "cell": "пул за сутки, %",
+     "extra": {
+      "d16": 1.9,
+      "d17": 3.2,
+      "d18": 6.9
+     }
+    },
+    {
+     "cell": "BTC за сутки, %",
+     "extra": {
+      "d16": 0.8,
+      "d17": 0.2,
+      "d18": 5.9
+     }
+    },
+    {
+     "cell": "квартили pool_ret_4h, bps",
+     "extra": {
+      "q25": -1.1,
+      "q50": 46,
+      "q75": 95
+     }
+    }
+   ],
+   "win": "16–18.09"
+  },
+  {
+   "entry": 192,
+   "src": "docs/archive/chronicle-2026-11-20/EXPERIMENTS.md",
+   "line": 130,
+   "text": 1,
+   "rows": [
+    {
+     "cell": "клеток bid + ask = any",
+     "extra": {
+      "cells_bid_ask": 2784,
+      "cells_any": 3360
+     }
+    }
+   ]
+  },
+  {
+   "entry": 193,
+   "src": "docs/archive/chronicle-2026-11-20/EXPERIMENTS.md",
+   "line": 132,
+   "text": 1,
+   "rows": [
+    {
+     "cell": "116 сделок лонгов: очередь впереди / выметено / в стену (медиана, $)",
+     "side": "long",
+     "trades": 116,
+     "extra": {
+      "queue_ahead_usd": 4860,
+      "swept_usd": 1875,
+      "into_wall_usd": 0,
+      "swept_lt_queue_pct": 91
+     }
+    }
+   ]
+  },
+  {
+   "entry": 194,
+   "src": "docs/archive/chronicle-2026-11-20/EXPERIMENTS.md",
+   "line": 133,
+   "text": 1,
+   "rows": [
+    {
+     "cell": "касаний по наборам",
+     "extra": {
+      "a45_bid": 386,
+      "a45_bid_coins": 27,
+      "a45_ask": 430,
+      "a15_bid": 2029,
+      "h1": 202
+     }
+    },
+    {
+     "cell": "116 кругов pct2-1to1-3600: тейкер / без объёма / с объёмом",
+     "side": "long",
+     "trades": 116,
+     "extra": {
+      "taker": 89,
+      "no_volume": 18,
+      "with_volume": 9
+     }
+    },
+    {
+     "cell": "спред в t0 1 тик, % касаний",
+     "extra": {
+      "pct": 63
+     }
+    },
+    {
+     "cell": "1@fr в t0: хоть что-то, %",
+     "extra": {
+      "pct": 5
+     }
+    },
+    {
+     "cell": "лестница 3@20..70 через спред, %",
+     "extra": {
+      "pct_min": 87,
+      "pct_max": 100
+     }
+    },
+    {
+     "cell": "ноги до рынка, жизнь 300 с: хоть что-то / целиком, %",
+     "extra": {
+      "any_min": 37,
+      "any_max": 51,
+      "full": 11
+     }
+    },
+    {
+     "cell": "ноги до рынка, жизнь 1800 с: хоть что-то / целиком, %",
+     "extra": {
+      "any_min": 48,
+      "any_max": 61,
+      "full_min": 15,
+      "full_max": 21
+     }
+    }
+   ],
+   "win": "16–19.09"
+  },
+  {
+   "entry": 195,
+   "src": "docs/archive/chronicle-2026-11-20/EXPERIMENTS.md",
+   "line": 134,
+   "text": 1,
+   "rows": [
+    {
+     "cell": "подход D = 10, ≥ 45 мин",
+     "extra": {
+      "per_day": 266,
+      "to_touch_pct": 20.8,
+      "wait_med_s": 140
+     }
+    },
+    {
+     "cell": "подход D = 20, ≥ 45 мин",
+     "extra": {
+      "per_day": 276,
+      "to_touch_pct": 25.7,
+      "wait_med_s": 196
+     }
+    },
+    {
+     "cell": "подход D = 30, ≥ 45 мин",
+     "extra": {
+      "per_day": 214,
+      "to_touch_pct": 21.3,
+      "wait_med_s": 362
+     }
+    }
+   ],
+   "win": "16–19.09"
+  },
+  {
+   "entry": 196,
+   "src": "docs/archive/chronicle-2026-11-20/EXPERIMENTS.md",
+   "line": 135,
+   "text": 1,
+   "rows": [
+    {
+     "cell": "D = 20, t0, нога 0,05–0,1 %: хоть что-то / целиком, %",
+     "extra": {
+      "any": 6,
+      "full": 2
+     }
+    },
+    {
+     "cell": "D = 20, t0, нога 0,1–0,15 %: хоть что-то / целиком, %",
+     "extra": {
+      "any": 21,
+      "full": 7,
+      "net_1h_bps": 22.1,
+      "n": 215
+     }
+    },
+    {
+     "cell": "D = 20, t0, нога 0,15–0,2 %: хоть что-то / целиком, %",
+     "extra": {
+      "any": 24,
+      "full": 1,
+      "net_1h_bps": 26.1
+     }
+    },
+    {
+     "cell": "D = 10, нога 0,05–0,1 %: хоть что-то, %; через спред, %",
+     "extra": {
+      "any": 29,
+      "through_spread": 50
+     }
+    }
+   ],
+   "win": "16–19.09"
+  },
+  {
+   "entry": 197,
+   "src": "docs/archive/chronicle-2026-11-20/EXPERIMENTS.md",
+   "line": 136,
+   "text": 1,
+   "rows": [
+    {
+     "cell": "касаний; без продаж в стену, %",
+     "extra": {
+      "touches": 3047,
+      "no_sells_pct": 77
+     }
+    },
+    {
+     "cell": "нога исполнилась бы",
+     "extra": {
+      "filled": 104,
+      "of": 684,
+      "pct": 15.2
+     }
+    },
+    {
+     "cell": "markout 1 ч по доле съеденного B(300): 0",
+     "extra": {
+      "bps": 23.9
+     }
+    },
+    {
+     "cell": "markout 1 ч по доле съеденного B(300): 0–10 %",
+     "extra": {
+      "bps": 9.8
+     }
+    },
+    {
+     "cell": "markout 1 ч по доле съеденного B(300): 10–20 %",
+     "extra": {
+      "bps": 3.7
+     }
+    },
+    {
+     "cell": "markout 1 ч по доле съеденного B(300): 20–50 %",
+     "extra": {
+      "bps": 0.4
+     }
+    },
+    {
+     "cell": "markout 1 ч по доле съеденного B(300): 50+ %",
+     "extra": {
+      "bps": -5.3
+     }
+    }
+   ],
+   "win": "16–19.09"
+  },
+  {
+   "entry": 198,
+   "src": "docs/archive/chronicle-2026-11-20/EXPERIMENTS.md",
+   "line": 138,
+   "text": 1,
+   "rows": [
+    {
+     "cell": "форма ladder3x2..20w2-pct2-1to1-7200-ttl1800, a45-bid",
+     "side": "long",
+     "trades": 128,
+     "extra": {
+      "usd_full_lot": 377.45,
+      "usd_filled_share": 298.17,
+      "losers": 54,
+      "winners": 74
+     }
+    },
+    {
+     "cell": "фильтр pool_4h ≥ 68.77",
+     "side": "long",
+     "trades": 21,
+     "extra": {
+      "losers": 13,
+      "cost_usd": -32.55
+     }
+    },
+    {
+     "cell": "выход по снятию стены",
+     "side": "long",
+     "trades": 128,
+     "extra": {
+      "usd_delta": -188
+     }
+    },
+    {
+     "cell": "стоп 1 %",
+     "side": "long",
+     "trades": 128,
+     "extra": {
+      "usd_delta": -74
+     }
+    },
+    {
+     "cell": "соседняя форма …-3600-ttlwall-gone50",
+     "side": "long",
+     "extra": {
+      "usd_full_lot": -15.77
+     }
+    }
+   ],
+   "win": "16–20.09"
+  },
+  {
+   "entry": 199,
+   "src": "docs/archive/chronicle-2026-11-20/EXPERIMENTS.md",
+   "line": 139,
+   "text": 1,
+   "rows": [
+    {
+     "cell": "стен моложе 45 мин: было → стало",
+     "extra": {
+      "before": 9,
+      "after": 0
+     }
+    },
+    {
+     "cell": "атомы-лидеры (разность в IQR)",
+     "extra": {
+      "mid_at_deadline_bps": -0.99,
+      "favour_hold": -0.78,
+      "adverse_hold": 0.61,
+      "pool_4h": 0.35,
+      "arm_dist_bps": -0.5
+     }
+    }
+   ],
+   "win": "16–20.09"
+  },
+  {
+   "entry": 200,
+   "src": "docs/archive/chronicle-2026-11-20/EXPERIMENTS.md",
+   "line": 140,
+   "text": 1,
+   "rows": [
+    {
+     "cell": "a45-bid (живая ветка)",
+     "side": "long",
+     "extra": {
+      "net_bps": 29.5,
+      "control_bps": 11.3,
+      "excess_bps": 18.2,
+      "excess_med_bps": 8.6,
+      "days_pos": 4,
+      "days": 5
+     }
+    },
+    {
+     "cell": "a45-bid-b4h-neg (H1)",
+     "side": "long",
+     "trades": 66,
+     "extra": {
+      "net_bps": 42.3,
+      "control_bps": 2.9,
+      "excess_bps": 39.5,
+      "excess_med_bps": 27.1
+     }
+    },
+    {
+     "cell": "a15-bid",
+     "side": "long",
+     "extra": {
+      "net_bps": 22.3,
+      "control_bps": 13.8,
+      "excess_bps": 8.5
+     }
+    },
+    {
+     "cell": "a45-ask (шорты)",
+     "side": "short",
+     "extra": {
+      "net_bps": -17.5,
+      "control_bps": -22.0,
+      "excess_bps": 4.5
+     }
+    }
+   ],
+   "win": "16–20.09"
+  },
+  {
+   "entry": 201,
+   "src": "docs/archive/chronicle-2026-11-20/EXPERIMENTS.md",
+   "line": 141,
+   "text": 1,
+   "rows": [
+    {
+     "cell": "судьи Jev: класс ошибки",
+     "extra": {
+      "right": 9,
+      "of": 9
+     }
+    },
+    {
+     "cell": "судьи Jev: «гипотеза названа»",
+     "extra": {
+      "right": 8,
+      "of": 8
+     }
+    },
+    {
+     "cell": "судьи Jev: «числа со ссылками»",
+     "extra": {
+      "right": 7,
+      "of": 8,
+      "p_true_min": 0.48,
+      "p_true_max": 0.85
+     }
+    }
+   ]
+  },
+  {
+   "entry": 202,
+   "src": "docs/archive/chronicle-2026-11-20/EXPERIMENTS.md",
+   "line": 142,
+   "text": 1,
+   "rows": [
+    {
+     "cell": "архив ob200 Bybit за 09-21, МБ",
+     "extra": {
+      "btc_mb": 237,
+      "hype_mb": 64,
+      "wif_mb": 16,
+      "atom_mb": 10
+     }
+    },
+    {
+     "cell": "ATOM 09-15: сообщений",
+     "extra": {
+      "messages": 298000
+     }
+    }
+   ]
+  },
+  {
+   "entry": 203,
+   "src": "docs/archive/chronicle-2026-11-20/EXPERIMENTS.md",
+   "line": 156,
+   "text": 1,
+   "rows": [
+    {
+     "cell": "B1 BingX crypto a0",
+     "extra": {
+      "bps_per_day_pair": 17.11
+     }
+    },
+    {
+     "cell": "B1 BingX crypto a1",
+     "extra": {
+      "bps_per_day_pair": 10.08,
+      "plus1min_lower_t90": -1.8
+     }
+    },
+    {
+     "cell": "C1: клеток с нижней > 0",
+     "extra": {
+      "cells_pass": 1,
+      "cells": 345
+     }
+    },
+    {
+     "cell": "всего клеток A1/A2/B1/C1/D2",
+     "extra": {
+      "cells": 145,
+      "candidates": 2
+     }
+    }
+   ],
+   "win": "15.10–04.11"
+  },
+  {
+   "entry": 204,
+   "src": "docs/archive/chronicle-2026-11-20/EXPERIMENTS.md",
+   "line": 157,
+   "text": 1,
+   "rows": [
+    {
+     "cell": "C2 схождения V1",
+     "trades": 588,
+     "extra": {
+      "net_bps": -4.9,
+      "y_d": -0.0323,
+      "lo": -0.0502,
+      "hi": -0.0144,
+      "formation_bps": 12.36
+     }
+    }
+   ],
+   "win": "15.10–04.11"
+  },
+  {
+   "entry": 205,
+   "src": "docs/archive/chronicle-2026-11-20/EXPERIMENTS.md",
+   "line": 158,
+   "text": 1,
+   "rows": [
+    {
+     "cell": "C2 схождения V2",
+     "trades": 613,
+     "extra": {
+      "net_bps": -5.01,
+      "y_d": -0.0338,
+      "lo": -0.0562,
+      "hi": -0.0114,
+      "formation_bps": 10.62
+     }
+    }
+   ],
+   "win": "15.10–04.11"
+  },
+  {
+   "entry": 206,
+   "src": "docs/archive/chronicle-2026-11-20/EXPERIMENTS.md",
+   "line": 159,
+   "text": 1,
+   "rows": [
+    {
+     "cell": "C2 с Gate, V1",
+     "trades": 816,
+     "extra": {
+      "net_bps": -4.42
+     }
+    },
+    {
+     "cell": "C2 с Gate, V2",
+     "trades": 853,
+     "extra": {
+      "net_bps": -3.45
+     }
+    },
+    {
+     "cell": "пары с ногой Gate, V2",
+     "extra": {
+      "net_bps": -0.01
+     }
+    }
+   ],
+   "win": "15.10–04.11"
+  },
+  {
+   "entry": 207,
+   "gap": "предрегистрация",
+   "note": "§13.24 записана ДО счёта (счёта нет; ждёт PASS критика и «go»); итог — отдельными записями TK-599",
+   "src": "docs/archive/chronicle-2026-11-20/EXPERIMENTS.md",
+   "line": 160
+  },
+  {
+   "entry": 208,
+   "gap": "предрегистрация",
+   "note": "§13.24.5 записана ДО счёта (счёта нет); описательная таблица — после основного прогона",
+   "src": "docs/archive/chronicle-2026-11-20/EXPERIMENTS.md",
+   "line": 161
+  },
+  {
+   "entry": 209,
+   "src": "docs/findings/p42-catboost-retitr-2026-11-19/read-aug.json",
+   "pick": [
+    {
+     "ptr": "sides/L",
+     "side": "long",
+     "cell": "A: C* без фильтра",
+     "map": {
+      "trades": "n_a",
+      "usd": "sum_a",
+      "mean_usd": "mean_a"
+     },
+     "extra": {
+      "per_day": "per_day_a"
+     }
+    },
+    {
+     "ptr": "sides/L",
+     "side": "long",
+     "cell": "B: C* с фильтром CatBoost",
+     "map": {
+      "trades": "n_b",
+      "usd": "sum_b",
+      "mean_usd": "mean_b"
+     },
+     "extra": {
+      "delta": "delta",
+      "lower5": "lower5",
+      "upper95": "upper95",
+      "dsum": "dsum",
+      "per_day": "per_day"
+     }
+    }
+   ],
+   "win": "август"
+  },
+  {
+   "entry": 209,
+   "src": "docs/findings/p42-catboost-retitr-2026-11-19/read-aug.json",
+   "pick": [
+    {
+     "ptr": "sides/S",
+     "side": "short",
+     "cell": "A: C* без фильтра",
+     "map": {
+      "trades": "n_a",
+      "usd": "sum_a",
+      "mean_usd": "mean_a"
+     },
+     "extra": {
+      "per_day": "per_day_a"
+     }
+    },
+    {
+     "ptr": "sides/S",
+     "side": "short",
+     "cell": "B: C* с фильтром CatBoost",
+     "map": {
+      "trades": "n_b",
+      "usd": "sum_b",
+      "mean_usd": "mean_b"
+     },
+     "extra": {
+      "delta": "delta",
+      "lower5": "lower5",
+      "upper95": "upper95",
+      "dsum": "dsum",
+      "per_day": "per_day"
+     }
+    }
+   ],
+   "win": "август"
+  },
+  {
+   "entry": 223,
+   "src": "docs/findings/p42-toxic-flow-2026-11-18/stage1.csv",
+   "pick": [
+    {
+     "where": {},
+     "side": "{side}",
+     "cell": "{target} · рука X",
+     "map": {
+      "trades": "n_sel_X",
+      "usd": "sum_sel_X",
+      "mean_usd": "S0_X"
+     },
+     "extra": {
+      "D": "D",
+      "p_D": "p_D",
+      "SE_D": "SE_D",
+      "blocks_pos": "blocks_pos"
+     }
+    },
+    {
+     "where": {},
+     "side": "{side}",
+     "cell": "{target} · рука f12",
+     "map": {
+      "trades": "n_sel_f12",
+      "usd": "sum_sel_f12",
+      "mean_usd": "S0_f12"
+     }
+    }
+   ],
+   "win": "окно F U0 (60 сут.)"
+  }
+ ]
+}
