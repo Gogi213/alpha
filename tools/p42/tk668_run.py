@@ -227,8 +227,8 @@ def ftab_path(wname, side):
     return os.path.join(ROOT, "ftab", "%s-%s.csv" % (wname, side))
 
 
-def opposite_counts(u):
-    """E30: по сделкам базы стороны — сколько сделок имеют ≥ 1 встречный сигнал (строка дампа сигналов другой стороны той же монеты, `sig_ms ∈ (entry_ms, exit_ms]`) и сколько всего таких сигналов; по месяцам."""
+def opposite_counts(u, margin_ms=0):
+    """E30: по сделкам базы стороны — сколько сделок имеют ≥ 1 встречный сигнал (строка дампа сигналов другой стороны той же монеты, `sig_ms ∈ (entry_ms − margin, exit_ms + margin]`, margin = 0 — запись §13.68) и сколько всего таких сигналов; по месяцам."""
     out = {}
     other = {"S": "L", "L": "S"}
     for side in SIDES:
@@ -240,7 +240,7 @@ def opposite_counts(u):
         tr = base_trades(u, side)
         n_tr, n_sig, by_month = 0, 0, [0] * len(st.MONTH_LEN)
         for x in tr:
-            hit = [m for m in sig.get((x["w"], x["sym"]), []) if x["entry_ms"] < m <= x["exit_ms"]]
+            hit = [m for m in sig.get((x["w"], x["sym"]), []) if x["entry_ms"] - margin_ms < m <= x["exit_ms"] + margin_ms]
             if hit:
                 n_tr += 1
                 n_sig += len(hit)
@@ -377,6 +377,17 @@ def cmd_counts(a):
     say("counts готово — §13.68.2 до чтения P&L")
 
 
+def cmd_e30wide(a):
+    """Проверка стыка двух дампов для E30 (замечание критика к §13.68.2, не ворота): счёт встречных с окном (вход − 24 ч, выход + 24 ч) рядом со счётом по записи; без P&L."""
+    u = uni()
+    day = 86_400_000
+    out = dict(exact=opposite_counts(u), wide24=opposite_counts(u, day))
+    write_json(qq("res", "counts68-e30wide.json"), out)
+    for side in SIDES:
+        e, w = out["exact"][side], out["wide24"][side]
+        say("E30 %s: сделок базы %d; встречный сигнал в [вход, выход]: сделок %d, сигналов %d; в (вход − 24 ч, выход + 24 ч]: сделок %d, сигналов %d, по месяцам %s" % (side, e["n_base"], e["n30"], e["n_signals"], w["n30"], w["n_signals"], w["by_month"]))
+
+
 # ---- levels ----------------------------------------------------------------------------------------------------------------------
 
 def cmd_levels(a):
@@ -400,7 +411,7 @@ def cmd_levels(a):
         sys.exit(1)
 
 
-COMMANDS = {"levels": cmd_levels, "feat": cmd_feat, "counts": cmd_counts}
+COMMANDS = {"levels": cmd_levels, "feat": cmd_feat, "counts": cmd_counts, "e30wide": cmd_e30wide}
 
 
 def main():
