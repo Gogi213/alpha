@@ -16,8 +16,15 @@ TK-641 / §13.38: третий файл цепочки `tk641-frozen.json` — �
   C2 — в файле полный список `alpha` / `alpha_k` всех клеток; охрана: |Σ α − 0,05| ≤ 1e-12, α_k = α × доли точек у всех клеток;
   C3 — `replay-mk2` прогоняет `L_mk2` в выборке (wa / wb / wc, h775) замороженным бинарём и сверяет `long-{trades,daily,coinday,entryrej}.csv`, `long-maker.json` побайтно с выходами G-626c.
 
+TK-670 / §13.70: четвёртый файл цепочки `tk670-frozen.json` — кандидат вперёд `D_S` (E4 / D шорт TK-668: ключи `S_base` + `lx=1 tf=60`). Клетка читается ОТДЕЛЬНЫМ бинарём `ds_binary` (`--ds-bin`; ключ `lx` есть только в нём), в `cells` заморозки не входит:
+  C1 — файл обязателен всегда (нет — остановка), его α (`S_mk1` 0,005, `D_S` 0,005) перекрывают α tk641; каждое звено проверяет sha256 предыдущих; бинарь `D_S` сверяется с md5 / sha256 файла ДО маркера чтения; `--no-candidate3` — единственный обход (α применяются, `D_S` не читается);
+  C2 — доля пар (монета, сутки зачёта) без klines предыдущих суток > 1 % на вселенной точки — `D_S` на ней не читается, остальные клетки считаются; `missing_days` движка печатается, в решение не входит;
+  C3 — `replay-ds` (G-670c) сверяет `short-{trades,daily,coinday,entryrej}.csv` побайтно с выходами TK-668 (`--ref-dir /data/p42-tk668/e4/cells`, `<окно>/S_lx1/`; `short-sigsx.csv` — дамп TK-668, пакетный путь его не пишет: сверен в G-670a `tk670_replay.py`);
+  совместное чтение `S_base` + `D_S` (вселенная all) — ОПИСАТЕЛЬНО (`joint_describe`): без вердикта и α; L1 по `D_S` — описательно, L2–L5 — `decide` как у всех.
+
   python3 tk616_forward.py plan  [--freeze …]                       # точки, окна, вселенные, состояние охран — без чтения данных и без запуска движка
   TK616F_GO=1 python3 tk616_forward.py point L2 --bin <alpha-mk> --feat-bin <alpha-feat> [--freeze-sha256 … --freeze-commit … --candidate-sha256 … --candidate-commit …]   # ОДНО чтение точки: движок по окнам и вселенным, таблицы, охраны, вердикт
+  python3 tk616_forward.py replay-ds --bin <alpha-mk> --ds-bin <alpha-lx> --replay-root /data/p42-tk670/replay-c --windows-root /data/p42-tk621 --ref-dir /data/p42-tk668/e4/cells --tick-store /data/p42-tk599/tick-store --sig-cache …   # C3 TK-670
   python3 tk616_forward.py replay-mk2 --bin <alpha-mk> --replay-root /data/p42-tk641/replay --windows-root /data/p42-tk621 --tick-store /data/p42-tk599/tick-store --ref-dir /data/p42-tk626/gmk/out   # C3 TK-641
   python3 tk616_forward.py replay-n24 --bin <alpha-mk> --feat-bin <alpha-feat> --replay-root … --windows-root /data/p42-tk621 --symbols-file …/symbols-all.txt --ref <gate-638a.json> --tick-store …   # C3, суток ≥ 14.11 не читает
 
@@ -78,6 +85,13 @@ CAND2_NAME, CAND2_VERSION, CAND2_CELL = "tk641-frozen.json", "tk641-frozen-1", "
 REQUIRE_CANDIDATE2 = True                              # нет `tk641-frozen.json` рядом с `--freeze` — остановка (α tk638 перекрыты); False — только тесты прежнего поведения
 FILES_641 = ("long-trades.csv", "long-daily.csv", "long-coinday.csv", "long-entryrej.csv", "long-maker.json")
 REQUIRE_CANDIDATE = True                               # кандидат — часть заморозки вперёд: нет `tk638-frozen.json` рядом с `--freeze` — остановка (второго источника α нет); False — только тесты прежнего поведения tk626
+CAND3_NAME, CAND3_VERSION, CAND3_CELL = "tk670-frozen.json", "tk670-frozen-1", "D_S"    # TK-670: третий кандидат (звено цепочки после tk641), читается ОТДЕЛЬНЫМ бинарём (ключ `lx`)
+REQUIRE_CANDIDATE3 = True                              # нет `tk670-frozen.json` рядом с `--freeze` — остановка (α tk641 перекрыты); False — только тесты прежнего поведения
+DS_ALPHA_FLOOR_S_BASE = 0.02                           # В-167: пол α(S_base); кандидат берёт α только из долей S_mk1 / L_base (≥ 0,005 остаётся у каждой)
+DS_ALPHA_DONORS = ("S_mk1", "L_base")
+DS_MISSING_MAX_SHARE = 0.01                            # C2 `D_S`: доля пар (монета, сутки зачёта) без klines предыдущих суток, выше которой `D_S` на точке не читается
+FILES_670 = ("short-trades.csv", "short-daily.csv", "short-coinday.csv", "short-entryrej.csv")      # `short-sigsx.csv` пакетный путь точки не пишет (дамп сигналов TK-668 — только `tk670_replay.py`, G-670a: 5 файлов)
+DS_REF_SUB = "S_lx1"                                   # G-670c: каталог клетки в выходах TK-668 (`<окно>/S_lx1/short-*.csv`)
 GuardError = rf.GuardError
 
 
@@ -634,6 +648,253 @@ def replay_mk2(a, runner=None, repo=REPO):
     return 0 if res["ok"] else 3
 
 
+# ---- кандидат вперёд `D_S` (TK-670, §13.70; условия критика C1–C3) ------------------------------------------------------------------------
+
+def candidate3_path(freeze_path):
+    return os.path.join(os.path.dirname(os.path.abspath(freeze_path)), CAND3_NAME)
+
+
+def ds_keys(base_keys):
+    if not base_keys.endswith(" t24=12") or "lx=" in base_keys:
+        raise GuardError("ключи S_base %r: не кончаются на `t24=12` или уже есть `lx`" % base_keys)
+    return base_keys[: -len(" t24=12")] + " lx=1 tf=60 t24=12"
+
+
+def load_candidate3(path, fz, freeze_path, cand, cand_path, c2, c2_path):
+    """C1–C2: файл `tk670-frozen.json` против заморозки (`fz`; сверяются поля без α), кандидатов tk638 / tk641 до любых данных.
+    Версия; sha256 tk626, tk638, tk641 в файле = sha256 файлов; бинарь клеток / вселенная / доли / точки / окна = заморозке; `ds_binary` с md5 / sha256 / путём;
+    клетка `D_S` = `S_base` + `lx=1 tf=60` (vid по ключам); α: набор = α tk641 ∪ {D_S}, |Σ − 0,05| ≤ 1e-12, α(D_S) снята РОВНО с одной из долей `S_mk1` / `L_base` (≥ 0,005 остаётся),
+    `S_base` ≥ 0,020 (В-167) и не меняется, остальные α = tk641; α_k = α × доли у всех клеток."""
+    if cand is None or c2 is None:
+        raise GuardError("кандидат %s без %s и %s: цепочка tk626 → tk638 → tk641 → tk670 разорвана" % (CAND3_NAME, CAND_NAME, CAND2_NAME))
+    if not os.path.exists(path):
+        raise GuardError("нет файла кандидата %s" % path)
+    c = json.load(open(path, encoding="utf-8"))
+    if c.get("version") != CAND3_VERSION:
+        raise GuardError("версия кандидата 3 %r ≠ %r" % (c.get("version"), CAND3_VERSION))
+    for key, ver, p, what in (("base_freeze", VERSION, freeze_path, "заморозки"), ("prev_candidate", CAND_VERSION, cand_path, CAND_NAME), ("prev_candidate2", CAND2_VERSION, c2_path, CAND2_NAME)):
+        x = c.get(key, {})
+        if x.get("version") != ver or x.get("sha256") != sha256_text(p):
+            raise GuardError("кандидат 3 записан против другого файла (%s): sha256 %s… ≠ файла %s %s…" % (what, str(x.get("sha256"))[:12], p, sha256_text(p)[:12]))
+    for k in ("binary", "universe", "point_shares", "points", "windows"):
+        if c.get(k) != fz.get(k):
+            raise GuardError("кандидат 3: поле %r расходится с заморозкой %s" % (k, os.path.basename(freeze_path)))
+    db = c.get("ds_binary", {})
+    if len(db.get("md5", "")) != 32 or len(db.get("sha256", "")) != 64 or not db.get("path"):
+        raise GuardError("в кандидате 3 нет md5 / sha256 / пути `ds_binary`")
+    if set(c.get("cells", {})) != {CAND3_CELL}:
+        raise GuardError("кандидат 3: клетки %s ≠ [%s]" % (sorted(c.get("cells", {})), CAND3_CELL))
+    cell, base = c["cells"][CAND3_CELL], fz["cells"].get("S_base")
+    if base is None:
+        raise GuardError("в заморозке нет клетки S_base")
+    keys = ds_keys(base["keys"])
+    if cell.get("side") != "S" or cell.get("base_keys") != base["keys"] or cell.get("base_vid") != base["vid"] or cell.get("keys") != keys or cell.get("family") is not False:
+        raise GuardError("кандидат 3: клетка %s ≠ S_base + `lx=1 tf=60`" % CAND3_CELL)
+    if rf.Req("S", keys, False).vid != cell.get("vid"):
+        raise GuardError("кандидат 3: vid %s ≠ вычисленному %s" % (cell.get("vid"), rf.Req("S", keys, False).vid))
+    a, a2 = c.get("alpha", {}), c2["alpha"]
+    if set(a) != set(a2) | {CAND3_CELL}:
+        raise GuardError("α кандидата 3 заданы для %s ≠ клеткам %s + %s" % (sorted(a), CAND2_NAME, CAND3_CELL))
+    if not _near(sum(a.values()), ALPHA_TOTAL):
+        raise GuardError("сумма α кандидата 3 %.6f ≠ %.2f" % (sum(a.values()), ALPHA_TOTAL))
+    if a[CAND3_CELL] <= 0:
+        raise GuardError("α(%s) %.6f ≤ 0" % (CAND3_CELL, a[CAND3_CELL]))
+    donors = [k for k in a2 if not _near(a[k], a2[k])]
+    if len(donors) != 1 or donors[0] not in DS_ALPHA_DONORS or not _near(a[donors[0]] + a[CAND3_CELL], a2[donors[0]]) or a[donors[0]] < 0.005 - 1e-12:
+        raise GuardError("α: %s берёт α ровно с одной из долей %s (остаётся ≥ 0,005, сумма сохраняется); изменились %s" % (CAND3_CELL, "/".join(DS_ALPHA_DONORS), donors))
+    if not _near(a["S_base"], a2["S_base"]) or a["S_base"] < DS_ALPHA_FLOOR_S_BASE - 1e-12:
+        raise GuardError("α(S_base) %.6f: пол %.3f (В-167) и без изменений против tk641 (%.6f)" % (a["S_base"], DS_ALPHA_FLOOR_S_BASE, a2["S_base"]))
+    ak = c.get("alpha_k", {})
+    if set(ak) != set(a) or any(set(ak[k]) != set(fz["point_shares"]) or any(not _near(ak[k][p], a[k] * sh) for p, sh in fz["point_shares"].items()) for k in ak):
+        raise GuardError("α по точкам кандидата 3 ≠ α × доли точек")
+    return c
+
+
+def apply_candidate3(fz, c3):
+    """Заморозка с α tk670 (C1). Клетка `D_S` в `cells` НЕ входит: пакет точки идёт замороженным бинарём без ключа `lx`, `D_S` — отдельный прогон `run_ds` бинарём `ds_binary`."""
+    out = dict(fz)
+    out["alpha"] = dict(c3["alpha"])
+    return out
+
+
+def check_ds_binary(path, c3):
+    if not path or not os.path.exists(path):
+        raise GuardError("--ds-bin: нет файла %r (нужен бинарь `D_S` кандидата 3)" % path)
+    sha, md5 = rr.file_hashes(path)
+    b = c3["ds_binary"]
+    if md5 != b["md5"] or sha != b["sha256"]:
+        raise GuardError("ds-бинарь %s: md5 %s / sha256 %s… ≠ замороженным %s / %s…" % (path, md5, sha[:12], b["md5"], b["sha256"][:12]))
+    return md5, sha
+
+
+def resolve_candidate3(a, fz, cand, c2, repo):
+    """(кандидат 3, {поля маркера}). Нет файла — `GuardError` всегда (α tk641 перекрыты; молчаливого возврата нет), кроме тестов прежнего поведения (`REQUIRE_CANDIDATE3 = False`).
+    `--no-candidate3` — единственный обход: α tk670 применяются, `D_S` не читается."""
+    explicit = getattr(a, "candidate3", "")
+    path = explicit or candidate3_path(a.freeze)
+    if not os.path.exists(path):
+        if explicit or REQUIRE_CANDIDATE3:
+            raise GuardError("нет файла кандидата %s: кандидат %s в силе, α S_mk1 / L_base без него не применяются — читать нельзя (без чтения — `--no-candidate3`, файл всё равно нужен)" % (path, CAND3_CELL))
+        return None, {}
+    cand_path = getattr(a, "candidate", "") or candidate_path(a.freeze)
+    c2_path = getattr(a, "candidate2", "") or candidate2_path(a.freeze)
+    c3 = load_candidate3(path, fz, a.freeze, cand, cand_path, c2, c2_path)
+    commit, sha = check_freeze_committed(path, repo, getattr(a, "candidate3_commit", ""), getattr(a, "candidate3_sha256", ""))
+    info = {"candidate3": CAND3_CELL, "candidate3_commit": commit, "candidate3_sha256": sha, "candidate3_read": not getattr(a, "no_candidate3", False)}
+    if not info["candidate3_read"]:
+        info["candidate3_note"] = "кандидат 3 не читан (--no-candidate3): α по кандидату 3 применены (S_mk1 %s, L_base %s)" % (c3["alpha"]["S_mk1"], c3["alpha"]["L_base"])
+    return c3, info
+
+
+def ds_missing_pairs(pdir, wins, coins, lohi_of):
+    """C2 `D_S`: пары (монета, сутки зачёта окна на точке) с файлом aggtrades суток, у которых нет файла klines ПРЕДЫДУЩИХ суток (уровень `D` рождается из вчерашних баров монеты;
+    первые сутки листинга тоже считаются пропуском — консервативно) → (пропущено, всего). Только имена файлов."""
+    miss = tot = 0
+    for w in wins:
+        lo, hi = lohi_of(w)
+        for sym in coins:
+            have = {}
+            for sub in ("aggtrades", "klines"):
+                have[sub] = set()
+                p = os.path.join(pdir, w.name, sub, sym)
+                if os.path.isdir(p):
+                    for name in os.listdir(p):
+                        m = _DATE.search(name)
+                        if m:
+                            have[sub].add(d(m.group(1)))
+            day = lo
+            while day <= hi:
+                if day in have["aggtrades"]:
+                    tot += 1
+                    if day - datetime.timedelta(days=1) not in have["klines"]:
+                        miss += 1
+                day += datetime.timedelta(days=1)
+    return miss, tot
+
+
+def ds_meta(paths, w, vid):
+    """Счётчики движка `D_S` в окне (`meta.json`, сторона шорт): сделок, сигналов, дней без файла; None — прогона окна нет."""
+    p = os.path.join(paths.out(w.name), vid, "meta.json")
+    if not os.path.exists(p):
+        return None
+    s = json.load(open(p, encoding="utf-8")).get(rf.ENGINE_SIDE["S"])
+    return {"trades": int(s["trades"]), "signals_total": int(s["signals_total"]), "missing_days": int(s["missing_days"])} if s else None
+
+
+def run_ds(paths, runner, symbols_text, bin_path, threads, wins, c3, coins, lohi_of):
+    """`D_S` на одной вселенной (C2): доля пар (монета, сутки зачёта) без klines предыдущих суток ≤ 1 % → движок `ds_binary` с замороженными ключами → таблицы шорта окон.
+    Любая `GuardError` здесь — клетка НЕ читается (причина в `info`), остальные клетки не страдают. → ({окно: таблица сделок} | None, info)."""
+    req = rf.Req("S", c3["cells"][CAND3_CELL]["keys"], False)
+    info = {"status": "skip", "reason": "", "missing_share": None, "missing_pairs": None, "pairs": None, "windows": {}}
+    eng = rr.Engine(paths, runner, symbols_text, bin_path, threads, None, windows=tuple(wins), prefix="d")
+    try:
+        miss, tot = ds_missing_pairs(paths.root, wins, coins, lohi_of)
+        info.update(missing_pairs=miss, pairs=tot, missing_share=(miss / tot if tot else 0.0))
+        if info["missing_share"] > DS_MISSING_MAX_SHARE:
+            raise TableSkip("доля пар (монета, сутки зачёта) без klines предыдущих суток %d / %d = %.2f %% > %.0f %%: уровень `D` без вчерашних баров, клетка не читается" % (
+                miss, tot, 100 * info["missing_share"], 100 * DS_MISSING_MAX_SHARE))
+        eng.launch([req])
+        tabs = {w.name: rf.read_trades_csv(os.path.join(paths.out(w.name), req.vid, rf.ENGINE_SIDE["S"] + "-trades.csv")) for w in wins}
+    except GuardError as e:
+        info["reason"] = str(e)
+        return None, info
+    for w in wins:
+        info["windows"][w.name] = ds_meta(paths, w, req.vid)
+    info["status"] = "read"
+    return tabs, info
+
+
+def replay_ds(a, runner=None, repo=REPO):
+    """C3: `D_S` в выборке (wa / wb / wc, h775) ТЕМ ЖЕ путём (`rr.Engine`, замороженные ключи, `ds_binary`); `FILES_670` побайтно как выходы TK-668 (`--ref-dir/<окно>/S_lx1/`).
+    Сутки ≥ 14.11 не читает (деревья окон проверяются). Итог — `--out` (`gate-670c.json`); различие — код 3."""
+    fz = load_freeze(a.freeze)
+    fcommit, fsha = check_freeze_committed(a.freeze, repo, a.freeze_commit, a.freeze_sha256)
+    cpath = getattr(a, "candidate", "") or candidate_path(a.freeze)
+    cand = load_candidate(cpath, fz, a.freeze)
+    check_freeze_committed(cpath, repo, getattr(a, "candidate_commit", ""), getattr(a, "candidate_sha256", ""))
+    c2, _ = resolve_candidate2(a, fz, cand, repo)
+    c3, c3info = resolve_candidate3(a, fz, cand, c2, repo)
+    if c3 is None or not c3info["candidate3_read"]:
+        raise GuardError("replay-ds: нужен кандидат %s без --no-candidate3" % CAND3_NAME)
+    md5, _sha = check_ds_binary(a.ds_bin, c3)
+    cell = c3["cells"][CAND3_CELL]
+    req = rf.Req("S", cell["keys"], False)
+    if not a.ref_dir or not os.path.isdir(a.ref_dir):
+        raise GuardError("--ref-dir: нет выходов TK-668 (%r)" % a.ref_dir)
+    wins = rf.WINDOWS
+    os.makedirs(a.replay_root, exist_ok=True)
+    for w in wins:
+        link, src = os.path.join(a.replay_root, w.name), os.path.join(a.windows_root, w.name)
+        if not os.path.lexists(link):
+            os.symlink(src, link)
+        elif os.path.realpath(link) != os.path.realpath(src):
+            raise GuardError("%s указывает не на %s" % (link, src))
+    ntree = check_tree_days(a.replay_root, wins, d(LISTING_AFTER))
+    text = rr.read_symbols(a.symbols_file)[0]
+    paths = UPaths(a.replay_root, uni="replay", tick_store=a.tick_store, sig_cache=a.sig_cache)
+    rr.Engine(paths, runner or rr.SubprocessRunner(), text, a.ds_bin, a.threads, None, windows=tuple(wins), prefix="d").launch([req])
+    res = {"ds_bin_md5": md5, "keys": cell["keys"], "vid": req.vid, "cell": CAND3_CELL, "candidate3_commit": c3info["candidate3_commit"], "candidate3_sha256": c3info["candidate3_sha256"],
+           "freeze_commit": fcommit, "freeze_sha256": fsha, "tree_files": ntree, "ref_dir": a.ref_dir, "windows": {}}
+    for w in wins:
+        files = {}
+        for f in FILES_670:
+            x, y = os.path.join(paths.out(w.name), req.vid, f), os.path.join(a.ref_dir, w.name, DS_REF_SUB, f)
+            sx, sy = (sha256_stream(x) if os.path.exists(x) else None), (sha256_stream(y) if os.path.exists(y) else None)
+            files[f] = {"sha256": sx, "ref_sha256": sy, "equal": sx is not None and sx == sy}
+        res["windows"][w.name] = {"files": files, "equal": all(v["equal"] for v in files.values())}
+    res["ok"] = all(v["equal"] for v in res["windows"].values())
+    out = a.out or os.path.join(a.replay_root, "gate-670c.json")
+    json.dump(res, open(out, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
+    print("G-670c: %s (%s); %s" % ("ПРОЙДЕНЫ" if res["ok"] else "НЕ ПРОЙДЕНЫ", ", ".join("%s %s" % (n, "=" if v["equal"] else "≠") for n, v in res["windows"].items()), out))
+    return 0 if res["ok"] else 3
+
+
+def joint_describe(rows_a, rows_b, to, margin=250.0):
+    """Совместное чтение `S_base` (a) + `D_S` (b): ОПИСАТЕЛЬНО, без вердикта и без α (раздел «вместе с S_base» отчёта TK-668). Простая сумма суточных рядов зачётных строк; позиции не пересчитываются,
+    лимит позиций и слоты не моделируются. n, Σ, $/сделку, шарп, макс. просадка $ (% маржи), суток до нового максимума, корреляция суточных P&L, пересечение сделок (та же монета; интервалы
+    [вход, выход) пересекаются или входы в пределах ± 5 мин), по месяцам, депозит TK-664 (D1 = маржа × макс. позиций, D2 — мин. депозит с реализованным P&L; нет `tk664_funding_capital` — без депозита)."""
+    ndays = (to - F0).days + 1
+    Sa, _, _, _ = daily(rows_a, ndays)
+    Sb, _, _, _ = daily(rows_b, ndays)
+    S = Sa + Sb
+    n = len(rows_a) + len(rows_b)
+    cum = np.concatenate([[0.0], np.cumsum(S)])
+    out = {"days": ndays, "n_a": len(rows_a), "n_b": len(rows_b), "n": n, "sum": float(S.sum()), "mean": float(S.sum() / n) if n else float("nan"), "sharpe": sharpe_of(S),
+           "maxdd": float((np.maximum.accumulate(cum) - cum).max()), "sum_a": float(Sa.sum()), "sum_b": float(Sb.sum()), "sharpe_a": sharpe_of(Sa), "sharpe_b": sharpe_of(Sb)}
+    out["maxdd_pct_margin"] = out["maxdd"] / margin * 100
+    out["corr_daily"] = float(np.corrcoef(Sa, Sb)[0, 1]) if float(np.std(Sa)) > 0 and float(np.std(Sb)) > 0 else float("nan")
+    try:
+        import lib as _lib
+        out["kpi"] = _lib.drawdown_kpi(S)
+    except ImportError:
+        out["kpi"] = None
+    near = 5 * 60_000
+
+    def paired(x, y):
+        by = {}
+        for r in y:
+            by.setdefault(r[0], []).append(r)
+        return [any((r[1] < q[2] and q[1] < r[2]) or abs(r[1] - q[1]) <= near for q in by.get(r[0], ())) for r in x]
+    out["overlap"] = {"a_with_pair": int(sum(paired(rows_a, rows_b))), "b_with_pair": int(sum(paired(rows_b, rows_a))), "coins_a": len({r[0] for r in rows_a}), "coins_b": len({r[0] for r in rows_b}),
+                      "coins_both": len({r[0] for r in rows_a} & {r[0] for r in rows_b})}
+    mon = {}
+    for tag, rows in (("a", rows_a), ("b", rows_b)):
+        for r in rows:
+            x = mon.setdefault(date_of(r[1]).strftime("%Y-%m"), {"n_a": 0, "sum_a": 0.0, "n_b": 0, "sum_b": 0.0})
+            x["n_" + tag] += 1
+            x["sum_" + tag] += r[3] - r[4]
+    out["months"] = {m: mon[m] for m in sorted(mon)}
+    try:
+        import tk664_funding_capital as _t64
+        allr = list(rows_a) + list(rows_b)
+        t_in, t_out = np.array([r[1] for r in allr], dtype=np.int64), np.array([r[2] for r in allr], dtype=np.int64)
+        sw = _t64.sweep(t_in, t_out, np.array([r[3] - r[4] for r in allr], dtype=float), t0_ms(F0), t0_ms(to) + DAY_MS)
+        out["deposit"] = {"max_pos": sw["max"], "d1": sw["max"] * margin, "d2": sw["d2"]}
+    except Exception as e:  # noqa: BLE001  — депозит TK-664 — справка к описательному чтению: его сбой не должен ронять прочтение точки после маркера
+        out["deposit"] = {"note": "без депозита: %s: %s" % (type(e).__name__, e)}
+    return out
+
+
 def cell_point_stats(fz, cell, point, rows, entries_to, rates=None, nboot=NBOOT, uni=None):
     """Статистика клетки на точке. `uni` — вселенная: α_k только у решающей вселенной (`uni` не задан — решающая); у остальных — «описательно»."""
     ndays = (entries_to - F0).days + 1
@@ -969,10 +1230,16 @@ def run_point(a, runner=None, today=None, repo=REPO):
     c2, c2info = resolve_candidate2(a, fz, cand, repo)
     if c2 is not None:
         fz = apply_candidate2(fz, c2, c2info["candidate2_read"])         # TK-641 C1: α из tk641 (S_base 0,020 + L_mk2 0,005); `L_mk2` — обычная клетка пакета
+    c3, c3info = resolve_candidate3(a, fz, cand, c2, repo)
+    if c3 is not None:
+        fz = apply_candidate3(fz, c3)                                    # TK-670 C1: α из tk670 (S_base 0,020 + D_S 0,005, доля S_mk1 / L_base); `D_S` — отдельный прогон `run_ds`
+    run_ds_cell = c3 is not None and c3info["candidate3_read"]
     pt = get_point(fz, a.point)
     today = today or datetime.datetime.now(datetime.timezone.utc).date()
     check_point_date(pt, today)
     md5, sha = check_binary(a.bin, fz)
+    if run_ds_cell:
+        check_ds_binary(getattr(a, "ds_bin", ""), c3)                    # C1: бинарь `D_S` = замороженному ДО claim_read (иначе точка не «сгорит»)
     wins_all = {w.name: w for w in windows_of(fz)}
     wins_used = [wins_all[n] for n in pt["windows"]]
     D, to = d(pt["d"]), d(pt["entries_to"])
@@ -998,9 +1265,9 @@ def run_point(a, runner=None, today=None, repo=REPO):
             raise GuardError("данные между точками изменились (%d): %s" % (len(bad), bad[:3]))
     claim_read(a.root, pt["id"], {"point": pt["id"], "bin_md5": md5, "bin_sha256": sha, "freeze_commit": commit, "freeze_sha256": fsha, "tree_files": ntree,
                                  "universe_sha256": uni["sha256"], "universe_n": {n: len(v) for n, v in uni["lists"].items()}, "contracts_sha256": uni["contracts_sha256"],
-                                 **cinfo, **c2info, "utc": datetime.datetime.now(datetime.timezone.utc).isoformat()})
+                                 **cinfo, **c2info, **c3info, "utc": datetime.datetime.now(datetime.timezone.utc).isoformat()})
     reqs = reqs_of(fz)
-    tabs, byw, n24 = {}, {}, {}
+    tabs, byw, n24, ds_info = {}, {}, {}, {}
     rn = runner or rr.SubprocessRunner()
     for u in fz["universe"]["read"]:
         paths = UPaths(pdir, uni=u, tick_store=a.tick_store, sig_cache=a.sig_cache)
@@ -1014,6 +1281,11 @@ def run_point(a, runner=None, today=None, repo=REPO):
             if t24 is not None:
                 tabs[key_of(CAND_CELL, u)] = t24
                 byw[key_of(CAND_CELL, u)] = {w.name: rows_of(t24[w.name], w) for w in wins_used}
+        if run_ds_cell:                                                  # C2 `D_S`: доля пар без klines предыдущих суток > 1 % или любая охрана — клетка не читается, остальные считаются
+            tds, ds_info[u] = run_ds(paths, rn, uni["text"][u], a.ds_bin, a.threads, wins_used, c3, uni["lists"][u], lambda w: (max(w.lod, F0), min(w.hid, to)))
+            if tds is not None:
+                tabs[key_of(CAND3_CELL, u)] = tds
+                byw[key_of(CAND3_CELL, u)] = {w.name: rows_of(tds[w.name], w) for w in wins_used}
     for k in byw:
         for w in wins_used:
             end_of_data_check(byw[k][w.name], w, D)
@@ -1036,12 +1308,18 @@ def run_point(a, runner=None, today=None, repo=REPO):
         months = sorted({(F0 + datetime.timedelta(days=i)).strftime("%Y-%m") for i in range((to - F0).days + 1)})
         rates = rf.load_funding_rates(a.funding, uni["lists"]["all"], months=tuple(months)) or None
     stats = {k: cell_point_stats(fz, k.split("|")[0], pt, rows[k], to, rates, a.nboot, uni=k.split("|")[1]) for k in rows}
+    joint = None
+    sk, dk = key_of("S_base", fz["universe"]["decision"]), key_of(CAND3_CELL, fz["universe"]["decision"])
+    if sk in rows and dk in rows:                                        # совместное чтение с S_base — ОПИСАТЕЛЬНО, без вердикта и без α (раздел «вместе с S_base» отчёта TK-668)
+        joint = joint_describe(rows[sk], rows[dk], to)
     res = {"point": pt, "freeze_commit": commit, "freeze_sha256": fsha, "bin_md5": md5, "stats": stats, "seams": {k: len(x) for k, x in seam.items()},
-           "prefix": {"forced_prev": forced, "diffs": {c: len(x) for c, x in pref.items()}}, "n24": n24, "candidate": cinfo, "candidate2": c2info, "tree_files": ntree, "manifest_files": len(man),
+           "prefix": {"forced_prev": forced, "diffs": {c: len(x) for c, x in pref.items()}}, "n24": n24, "candidate": cinfo, "candidate2": c2info, "candidate3": c3info, "ds": ds_info, "joint": joint, "tree_files": ntree, "manifest_files": len(man),
            "universe": {"n": {n: len(v) for n, v in uni["lists"].items()}, "sha256": uni["sha256"]}}
     json.dump(res, open(os.path.join(a.root, "point-%s.json" % pt["id"]), "w", encoding="utf-8"), ensure_ascii=False, indent=1, default=float)
     if run_cand:
         json.dump(n24, open(os.path.join(a.root, "READ-%s.n24.json" % pt["id"]), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
+    if run_ds_cell:
+        json.dump(ds_info, open(os.path.join(a.root, "READ-%s.ds.json" % pt["id"]), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
     open(os.path.join(a.root, "READ-%s.done" % pt["id"]), "w").close()
     print(render(res))
     return 0
@@ -1066,6 +1344,20 @@ def render(res):
         L.append("%s (кандидат TK-638): %s" % (CAND_CELL, res["candidate"]["candidate_note"]))
     if (res.get("candidate2") or {}).get("candidate2_read") is False:
         L.append("%s (кандидат TK-641): %s" % (CAND2_CELL, res["candidate2"]["candidate2_note"]))
+    if (res.get("candidate3") or {}).get("candidate3_read") is False:
+        L.append("%s (кандидат TK-670): %s" % (CAND3_CELL, res["candidate3"]["candidate3_note"]))
+    for u, x in (res.get("ds") or {}).items():
+        L.append("%s (кандидат TK-670), вселенная %s: %s; пар (монета, сутки) без klines предыдущих суток %s из %s%s%s" % (
+            CAND3_CELL, u, "прочитана" if x["status"] == "read" else "НЕ ЧИТАЛАСЬ", x["missing_pairs"] if x["missing_pairs"] is not None else "—", x["pairs"] if x["pairs"] is not None else "—",
+            "" if x["missing_share"] is None else " (%.3f %%)" % (100 * x["missing_share"]), "" if x["status"] == "read" else " — " + x["reason"]))
+        if x["status"] == "read":
+            L.append("%s, вселенная %s, счётчики движка по окнам (печатаются, в решение не входят): %s" % (CAND3_CELL, u, x["windows"]))
+    j = res.get("joint")
+    if j:
+        L += ["", "Совместно `S_base` + `%s` (вселенная all, ОПИСАТЕЛЬНО — без вердикта и α; простая сумма суточных рядов, лимит позиций и слоты не моделируются):" % CAND3_CELL,
+              "сделок %d (S_base %d + %s %d); Σ %s $ (S_base %s, %s %s); $/сделку %s; шарп %s (S_base %s, %s %s); просадка %s $ (%s %% маржи); корреляция суточных %s; сделок с парой в другой линии: S_base %d, %s %d" % (
+                  j["n"], j["n_a"], CAND3_CELL, j["n_b"], f2(j["sum"]), f2(j["sum_a"]), CAND3_CELL, f2(j["sum_b"]), f2(j["mean"], 3), f2(j["sharpe"], 2), f2(j["sharpe_a"], 2), CAND3_CELL, f2(j["sharpe_b"], 2),
+                  f2(j["maxdd"], 1), f2(j["maxdd_pct_margin"], 1), f2(j["corr_daily"], 3), j["overlap"]["a_with_pair"], CAND3_CELL, j["overlap"]["b_with_pair"])]
     for u, x in (res.get("n24") or {}).items():
         L.append("%s (кандидат TK-638), вселенная %s: %s; доля кандидатов L_base с m24 = 1 среди зачётных %s; no_key %s%s" % (
             CAND_CELL, u, "прочитана" if x["status"] == "read" else "НЕ ЧИТАЛАСЬ", "—" if x["m24_share"] is None else "%.3f %%" % (100 * x["m24_share"]), x["no_key"] if x["no_key"] is not None else "—",
@@ -1087,6 +1379,13 @@ def cmd_plan(a):
             c2 = load_candidate2(cp2, fz, a.freeze, cand, cp)
             fz = apply_candidate2(fz, c2, True)
             print("кандидат %s (%s): α %s; клетка %s vid %s" % (CAND2_NAME, c2["version"], fz["alpha"], CAND2_CELL, c2["cells"][CAND2_CELL]["vid"]))
+            cp3 = getattr(a, "candidate3", "") or candidate3_path(a.freeze)
+            if os.path.exists(cp3):
+                c3 = load_candidate3(cp3, fz, a.freeze, cand, cp, c2, cp2)
+                fz = apply_candidate3(fz, c3)
+                print("кандидат %s (%s): α %s; клетка %s vid %s, бинарь %s" % (CAND3_NAME, c3["version"], fz["alpha"], CAND3_CELL, c3["cells"][CAND3_CELL]["vid"], c3["ds_binary"]["md5"]))
+            else:
+                print("кандидата %s рядом с заморозкой нет — чтение точки остановится (кандидат в силе: α S_base 0,020, S_mk1 / L_base без него не применяются)" % CAND3_NAME)
         else:
             print("кандидата %s рядом с заморозкой нет — чтение точки остановится (кандидат в силе: α S_base 0,020)" % CAND2_NAME)
     else:
@@ -1102,7 +1401,7 @@ def cmd_plan(a):
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("cmd", choices=["plan", "point", "replay-n24", "replay-mk2"])
+    ap.add_argument("cmd", choices=["plan", "point", "replay-n24", "replay-mk2", "replay-ds"])
     ap.add_argument("point", nargs="?", default="")
     ap.add_argument("--freeze", default=FREEZE)
     ap.add_argument("--freeze-commit", default="")
@@ -1124,13 +1423,18 @@ def main(argv=None):
     ap.add_argument("--no-candidate2", action="store_true", help="L_mk2 не читать (файл всё равно нужен: α S_base 0,020 уже потрачены); в маркере «кандидат 2 не читан»")
     ap.add_argument("--candidate2-commit", default="")
     ap.add_argument("--candidate2-sha256", default="")
-    ap.add_argument("--ref-dir", default="/data/p42-tk626/gmk/out", help="replay-mk2: выходы G-626c `<окно>/<vid>/long-*`")
+    ap.add_argument("--candidate3", default="", help="файл третьего кандидата (по умолчанию `%s` рядом с --freeze)" % CAND3_NAME)
+    ap.add_argument("--no-candidate3", action="store_true", help="D_S не читать (файл всё равно нужен: α S_mk1 / L_base уже потрачены); в маркере «кандидат 3 не читан»")
+    ap.add_argument("--candidate3-commit", default="")
+    ap.add_argument("--candidate3-sha256", default="")
+    ap.add_argument("--ds-bin", default="", help="бинарь `D_S` (md5 / sha256 — в `ds_binary` файла кандидата 3; ключ `lx` есть только в нём)")
+    ap.add_argument("--ref-dir", default="/data/p42-tk626/gmk/out", help="replay-mk2: выходы G-626c `<окно>/<vid>/long-*`; replay-ds: выходы TK-668 `<окно>/S_lx1/short-*` (`/data/p42-tk668/e4/cells`)")
     ap.add_argument("--feat-bin", default="", help="`alpha-feat` кандидата (md5 / sha256 — в файле кандидата)")
     ap.add_argument("--replay-root", default="/data/p42-tk638/replay")
     ap.add_argument("--windows-root", default="/data/p42-tk621")
     ap.add_argument("--symbols-file", default="/data/p42-tk621/universe/symbols-all.txt")
     ap.add_argument("--ref", default="", help="G-638a (`gate-638a.json`): эталонные sha256 выходов")
-    ap.add_argument("--out", default="", help="replay-n24: итог (по умолчанию <replay-root>/gate-638c.json)")
+    ap.add_argument("--out", default="", help="replay-n24: итог (по умолчанию <replay-root>/gate-638c.json; replay-ds — gate-670c.json)")
     a = ap.parse_args(argv)
     try:
         if a.cmd == "plan":
@@ -1139,6 +1443,8 @@ def main(argv=None):
             return replay_n24(a)
         if a.cmd == "replay-mk2":
             return replay_mk2(a)
+        if a.cmd == "replay-ds":
+            return replay_ds(a)
         if not a.point:
             raise GuardError("point: укажите L1…L5")
         return run_point(a)

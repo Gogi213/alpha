@@ -1,0 +1,758 @@
+{
+ "version": "tk670-frozen-1",
+ "protocol": "П-42 §13.70 (TK-670): кандидат вперёд `D_S` — E4 / D шорт (TK-668, §13.68; вчерашний минимум суток как источник уровня, шорт); деление α §13.28.1 п. 3 с полом α(S_base) 0,020 (В-167)",
+ "decision": "решение координатора `thr_ty6ae9r46y` 21.11.2026 (В-165: координатор + критик): заморозить E4 / D шорт кандидатом вперёд ДО чтения любых суток ≥ 14.11; α берётся из доли α(S_mk1) (предложение исполнителя; решает критик `thr_m27kv64m9h`)",
+ "read_before_commit": "суток ≥ 14.11 по `D_S` не считалось и не читалось: деревья окон wa / wb / wc кончаются 13.11 (по именам файлов, 775 монет), каталогов с `D_S` вне `/data/p42-tk668` нет, маркеров `READ-*` вперёд нет; сделки `D_S` на сутках ≥ 14.11 не существуют (`proof`)",
+ "proof": {
+  "tool": "tools/p42/tk670_freeze.py proof (srv, только имена / размеры / времена файлов; содержимое не открывалось)",
+  "done_utc": "2026-11-21T03:05:05Z",
+  "proof_json": {
+   "srv": "/data/p42-tk670/proof.json",
+   "sha256": "39abbbb06ca8537603d8f172a80a0d5e24d8a162a72732ac31290dca75b55087"
+  },
+  "last_allowed_day": "2026-11-13",
+  "guard": "`tk604_stats.check_dates` (зачёт ≤ 13.11, данные ≤ T0 + 73 ≤ 13.11) и `check_abs_ms` (метка ≥ 14.11 00:00 UTC — остановка) в каждом прогоне TK-668 (`tk668_e4.tick`)",
+  "trees": {
+   "wa": {
+    "t0": "2026-06-17",
+    "data_to": "2026-08-29",
+    "aggtrades": {
+     "coins": 775,
+     "files": 49362,
+     "first_day": "2026-06-17",
+     "last_day": "2026-08-29"
+    },
+    "klines": {
+     "coins": 775,
+     "files": 49591,
+     "first_day": "2026-06-17",
+     "last_day": "2026-08-29"
+    }
+   },
+   "wb": {
+    "t0": "2026-07-25",
+    "data_to": "2026-10-06",
+    "aggtrades": {
+     "coins": 775,
+     "files": 52211,
+     "first_day": "2026-07-25",
+     "last_day": "2026-10-06"
+    },
+    "klines": {
+     "coins": 775,
+     "files": 52737,
+     "first_day": "2026-07-25",
+     "last_day": "2026-10-06"
+    }
+   },
+   "wc": {
+    "t0": "2026-09-01",
+    "data_to": "2026-11-13",
+    "aggtrades": {
+     "coins": 775,
+     "files": 54591,
+     "first_day": "2026-09-01",
+     "last_day": "2026-11-13"
+    },
+    "klines": {
+     "coins": 775,
+     "files": 55474,
+     "first_day": "2026-09-01",
+     "last_day": "2026-11-13"
+    }
+   }
+  },
+  "trees_root": "/data/p42-tk621",
+  "read_markers": {
+   "dirs": [
+    "/data/p42-tk616/fwd",
+    "/data/p42-tk626"
+   ],
+   "found": []
+  },
+  "ds_result_dirs": {
+   "e4/cells/wa/S_lx1": {
+    "files": 11,
+    "bytes": 332603,
+    "first_mtime_utc": "2026-11-21T02:35:40Z",
+    "last_mtime_utc": "2026-11-21T02:35:47Z"
+   },
+   "e4/cells/wb/S_lx1": {
+    "files": 11,
+    "bytes": 324921,
+    "first_mtime_utc": "2026-11-21T02:36:52Z",
+    "last_mtime_utc": "2026-11-21T02:36:59Z"
+   },
+   "e4/cells/wc/S_lx1": {
+    "files": 11,
+    "bytes": 330064,
+    "first_mtime_utc": "2026-11-21T02:38:05Z",
+    "last_mtime_utc": "2026-11-21T02:38:12Z"
+   },
+   "e4/counts/wa/S_lx1": {
+    "files": 13,
+    "bytes": 4519649,
+    "first_mtime_utc": "2026-11-21T02:25:10Z",
+    "last_mtime_utc": "2026-11-21T02:25:34Z"
+   },
+   "e4/counts/wb/S_lx1": {
+    "files": 13,
+    "bytes": 4818273,
+    "first_mtime_utc": "2026-11-21T02:27:31Z",
+    "last_mtime_utc": "2026-11-21T02:27:54Z"
+   },
+   "e4/counts/wc/S_lx1": {
+    "files": 13,
+    "bytes": 5080200,
+    "first_mtime_utc": "2026-11-21T02:30:02Z",
+    "last_mtime_utc": "2026-11-21T02:30:24Z"
+   }
+  },
+  "tk668_results": {
+   "root": "/data/p42-tk668",
+   "files": 2013,
+   "by_top_dir": {
+    ".": {
+     "files": 2,
+     "bytes": 0,
+     "first_mtime_utc": "2026-11-21T01:48:23Z",
+     "last_mtime_utc": "2026-11-21T02:34:20Z"
+    },
+    "bin": {
+     "files": 2,
+     "bytes": 33099792,
+     "first_mtime_utc": "2026-11-21T02:15:08Z",
+     "last_mtime_utc": "2026-11-21T02:15:08Z"
+    },
+    "causal": {
+     "files": 167,
+     "bytes": 411454767,
+     "first_mtime_utc": "2026-11-21T01:40:32Z",
+     "last_mtime_utc": "2026-11-21T01:40:40Z"
+    },
+    "cells-a": {
+     "files": 828,
+     "bytes": 4294214,
+     "first_mtime_utc": "2026-11-21T01:57:05Z",
+     "last_mtime_utc": "2026-11-21T01:58:51Z"
+    },
+    "cells-b": {
+     "files": 66,
+     "bytes": 324762,
+     "first_mtime_utc": "2026-11-21T02:07:26Z",
+     "last_mtime_utc": "2026-11-21T02:17:34Z"
+    },
+    "cells-ref": {
+     "files": 282,
+     "bytes": 1106195,
+     "first_mtime_utc": "2026-11-21T02:07:39Z",
+     "last_mtime_utc": "2026-11-21T02:08:31Z"
+    },
+    "e4": {
+     "files": 525,
+     "bytes": 66095988,
+     "first_mtime_utc": "2026-11-21T02:22:01Z",
+     "last_mtime_utc": "2026-11-21T02:38:14Z"
+    },
+    "feat": {
+     "files": 7,
+     "bytes": 510752,
+     "first_mtime_utc": "2026-11-21T01:31:39Z",
+     "last_mtime_utc": "2026-11-21T01:31:48Z"
+    },
+    "ftab": {
+     "files": 6,
+     "bytes": 457833,
+     "first_mtime_utc": "2026-11-21T01:35:08Z",
+     "last_mtime_utc": "2026-11-21T01:35:08Z"
+    },
+    "ftab-ref": {
+     "files": 3,
+     "bytes": 73512,
+     "first_mtime_utc": "2026-11-21T02:07:39Z",
+     "last_mtime_utc": "2026-11-21T02:08:15Z"
+    },
+    "gates": {
+     "files": 2,
+     "bytes": 32714,
+     "first_mtime_utc": "2026-11-21T01:40:41Z",
+     "last_mtime_utc": "2026-11-21T02:17:37Z"
+    },
+    "levels": {
+     "files": 75,
+     "bytes": 33841977,
+     "first_mtime_utc": "2026-11-21T01:28:04Z",
+     "last_mtime_utc": "2026-11-21T01:28:36Z"
+    },
+    "log": {
+     "files": 28,
+     "bytes": 41298,
+     "first_mtime_utc": "2026-11-21T01:28:16Z",
+     "last_mtime_utc": "2026-11-21T02:38:12Z"
+    },
+    "res": {
+     "files": 20,
+     "bytes": 570133,
+     "first_mtime_utc": "2026-11-21T01:35:08Z",
+     "last_mtime_utc": "2026-11-21T02:48:53Z"
+    }
+   }
+  },
+  "lx_cell_dirs_on_srv": {
+   "scanned": "/data",
+   "max_depth": 5,
+   "pruned": [
+    "tick-store",
+    "collect",
+    "chron",
+    "pages"
+   ],
+   "all_inside_tk668": true,
+   "count": 36
+  }
+ },
+ "base_freeze": {
+  "file": "docs/research/freeze/tk626-frozen.json",
+  "version": "tk626-frozen-1",
+  "sha256": "b9bd9258b076483c7e545b73eeb9491feae218391446338f21ffbc5dd9e88b5d",
+  "untouched": true
+ },
+ "prev_candidate": {
+  "file": "docs/research/freeze/tk638-frozen.json",
+  "version": "tk638-frozen-1",
+  "sha256": "74ffaf0aaec872572e6bb8e461399f8a89b66dff568c573a3d66d70f786e9a8e",
+  "untouched": true
+ },
+ "prev_candidate2": {
+  "file": "docs/research/freeze/tk641-frozen.json",
+  "version": "tk641-frozen-1",
+  "sha256": "ce6ad66d9ef2eb20ca8621e78114e96893ad11bc6285bef31239bacf847b1e31",
+  "untouched": true,
+  "note": "α этого файла перекрывают α tk641, tk638 и tk626 (цепочка tk626 → tk638 → tk641 → tk670)"
+ },
+ "binary": {
+  "md5": "396989e9d0ad34d19f9b512a659c8e8e",
+  "sha256": "470046d924392f0eab60ee730c43eb943c17913463857458e93b702127ac7fe0",
+  "path": "/data/p42-tk616/alpha-mk.396989e9"
+ },
+ "binary_note": "замороженный бинарь клеток tk626 / tk638 / tk641 (`alpha-mk.396989e9`) не меняется; `D_S` читается ОТДЕЛЬНЫМ бинарём `ds_binary` (ключ `lx` есть только в нём)",
+ "ds_binary": {
+  "md5": "2815279d188fb3a62b6bde4409c5990a",
+  "sha256": "7e25c094d8436bc5fd2c8df44345507aa9180a13acd19e3d822a120153f887f1",
+  "path": "/data/p42-tk670/bin/alpha-lx.2815279d",
+  "source_commit": "1691d6bbf",
+  "built_from": "0f2932998 (дерево ветки bb/tk-670-freeze-ds-v1-thr_cpx6vxum8y; `git diff 1691d6bbf HEAD -- src Cargo.toml Cargo.lock vendor` пуст); `BIN_NAME=alpha bash tools/p42/build-srv.sh /data/p42-tk670/bin/alpha-lx build` (бин `alpha`, release), srv 21.11 03:22–03:26 UTC",
+  "note": "прежний бинарь TK-668 `alpha-lx.0bf46f43` (sha256 30c8c9d1…cbdc7dd, дерево до 1691d6bbf) даёт те же 15 файлов побайтно (пробный повтор, replay-old2); различие 1691d6bbf — только текст ключа sigcache при lx = 0"
+ },
+ "universe": {
+  "read": [
+   "all",
+   "crypto",
+   "tradfi"
+  ],
+  "decision": "all",
+  "base": {
+   "all": {
+    "sha256": "29a60d33be10c4e4cb0b86c28922edcbad5564013df00fbf93f3fb4aa3eb3c32",
+    "n": 775
+   },
+   "crypto": {
+    "sha256": "ac662b4076e44e834cdcbee1602e590c7a045cf9c2cb2fece24191715ff48750",
+    "n": 539
+   },
+   "tradfi": {
+    "sha256": "0932553b5225e40d0773e1a8219d9b8aa94d831dcd96ee7ace92c4a11bd1af59",
+    "n": 236
+   }
+  },
+  "contracts_sha256": "4b51e9aad05b4652c50bc6030ba11aaa1fa362ecf5e3b877b1bac735e514d328",
+  "contracts_files": {
+   "git": "docs/findings/p42-honest-universe-2026-11-19/contracts.csv",
+   "srv": "/data/p42-tk621/universe/contracts.csv"
+  },
+  "listing_after": "2026-11-13",
+  "t24": "12"
+ },
+ "point_shares": {
+  "L2": 0.04,
+  "L3": 0.1,
+  "L4": 0.2,
+  "L5": 0.66
+ },
+ "points": [
+  {
+   "id": "L1",
+   "d": "2026-11-30",
+   "entries_to": "2026-11-26",
+   "windows": [
+    "w1"
+   ],
+   "decision": false
+  },
+  {
+   "id": "L2",
+   "d": "2026-12-31",
+   "entries_to": "2026-12-27",
+   "windows": [
+    "w1",
+    "w2"
+   ],
+   "decision": true
+  },
+  {
+   "id": "L3",
+   "d": "2027-01-31",
+   "entries_to": "2027-01-27",
+   "windows": [
+    "w1",
+    "w2"
+   ],
+   "decision": true
+  },
+  {
+   "id": "L4",
+   "d": "2027-02-28",
+   "entries_to": "2027-02-24",
+   "windows": [
+    "w1",
+    "w2",
+    "w3"
+   ],
+   "decision": true
+  },
+  {
+   "id": "L5",
+   "d": "2027-03-31",
+   "entries_to": "2027-03-27",
+   "windows": [
+    "w1",
+    "w2",
+    "w3",
+    "w4"
+   ],
+   "decision": true
+  }
+ ],
+ "windows": [
+  {
+   "name": "w1",
+   "t0": "2026-10-16",
+   "lo": "2026-11-17",
+   "hi": "2026-12-24"
+  },
+  {
+   "name": "w2",
+   "t0": "2026-11-23",
+   "lo": "2026-12-25",
+   "hi": "2027-01-31"
+  },
+  {
+   "name": "w3",
+   "t0": "2026-12-31",
+   "lo": "2027-02-01",
+   "hi": "2027-03-10"
+  },
+  {
+   "name": "w4",
+   "t0": "2027-02-07",
+   "lo": "2027-03-11",
+   "hi": "2027-04-17"
+  },
+  {
+   "name": "w5",
+   "t0": "2027-03-17",
+   "lo": "2027-04-18",
+   "hi": "2027-05-25"
+  }
+ ],
+ "cells": {
+  "D_S": {
+   "side": "S",
+   "base_cell": "S_base",
+   "base_keys": "lat=4 latx=4 pk=1 pb=1 fh=4 fk=120 fm=50 fb=0.5 ew=5 ex=0 tt=20 tb=0.1 rf=0.2 rs=2 bm=1 e=0.15 e2=0.05 t24=12",
+   "base_vid": "c8c06a7d70b92",
+   "keys": "lat=4 latx=4 pk=1 pb=1 fh=4 fk=120 fm=50 fb=0.5 ew=5 ex=0 tt=20 tb=0.1 rf=0.2 rs=2 bm=1 e=0.15 e2=0.05 lx=1 tf=60 t24=12",
+   "vid": "cb68bc4018178",
+   "added_keys": "lx=1 tf=60 (lx — источник уровней: 1 = `D`, вчерашние максимум / минимум суток UTC по закрытым часовым барам; tf = 60 обязателен при lx ≠ 0)",
+   "lw": "ключ `lw` (дни до первого понедельника) задаёт только `lx = 2`; при `lx = 1` не влияет (`src/breakout/levels.rs`: шаг 24 бара, начало 0). TK-668 печатал `lw = (7 − weekday(T0)) mod 7` (wa 5, wb 2, wc 6); замороженные ключи его не содержат (lw = 0), побайтное совпадение G-670a доказывает, что на выходы `lw` не влияет",
+   "tk668_lines": {
+    "wa": "lat=4 latx=4 pk=1 pb=1 fh=4 fk=120 fm=50 fb=0.5 ew=5 ex=0 tt=20 tb=0.1 rf=0.2 rs=2 bm=1 e=0.15 e2=0.05 t24=12 lx=1 tf=60 lw=5",
+    "wb": "lat=4 latx=4 pk=1 pb=1 fh=4 fk=120 fm=50 fb=0.5 ew=5 ex=0 tt=20 tb=0.1 rf=0.2 rs=2 bm=1 e=0.15 e2=0.05 t24=12 lx=1 tf=60 lw=2",
+    "wc": "lat=4 latx=4 pk=1 pb=1 fh=4 fk=120 fm=50 fb=0.5 ew=5 ex=0 tt=20 tb=0.1 rf=0.2 rs=2 bm=1 e=0.15 e2=0.05 t24=12 lx=1 tf=60 lw=6"
+   },
+   "family": false,
+   "candidate": true,
+   "level_rule": "E4 / D (TK-668 §13.68): уровень шорта — минимум суток UTC, закончившихся до сигнала (по закрытым часовым барам монеты); вход / выходы / стопы / лестница — как у `S_base` (ключи базы без изменений)"
+  }
+ },
+ "alpha": {
+  "S_base": 0.02,
+  "S_mk1": 0.005,
+  "L_base": 0.01,
+  "L_n24": 0.005,
+  "L_mk2": 0.005,
+  "D_S": 0.005
+ },
+ "alpha_k": {
+  "S_base": {
+   "L2": 0.0008,
+   "L3": 0.002,
+   "L4": 0.004,
+   "L5": 0.0132
+  },
+  "S_mk1": {
+   "L2": 0.0002,
+   "L3": 0.0005,
+   "L4": 0.001,
+   "L5": 0.0033
+  },
+  "L_base": {
+   "L2": 0.0004,
+   "L3": 0.001,
+   "L4": 0.002,
+   "L5": 0.0066
+  },
+  "L_n24": {
+   "L2": 0.0002,
+   "L3": 0.0005,
+   "L4": 0.001,
+   "L5": 0.0033
+  },
+  "L_mk2": {
+   "L2": 0.0002,
+   "L3": 0.0005,
+   "L4": 0.001,
+   "L5": 0.0033
+  },
+  "D_S": {
+   "L2": 0.0002,
+   "L3": 0.0005,
+   "L4": 0.001,
+   "L5": 0.0033
+  }
+ },
+ "alpha_split_rule": "§13.28.1 п. 3 + В-167: пол α(S_base) = 0,020 не трогается; кандидат берёт α только из долей `S_mk1` или `L_base` (≥ 0,005 остаётся у каждой): 0,010 (`S_mk1`) → 0,005 (`S_mk1`) + 0,005 (`D_S`); `S_base` 0,020, `L_base` 0,010, `L_n24` 0,005, `L_mk2` 0,005 без изменений; сумма 0,05",
+ "alpha_choice": {
+  "source": "S_mk1",
+  "reason": "`S_mk1` — мейкер-вход ТЕХ ЖЕ сигналов `S_base`: из 272 сигналов `S_mk1` 268 (98,5 %) есть у `S_base`, корреляция суточных P&L 0,937, пересечение монета-сутки 0,854 — его чтение вперёд почти повторяет `S_base` (α 0,020 на ту же линию), независимая информация мала; `L_base` — единственная базовая лонговая линия (корреляция с шортами −0,02…−0,08), `L_n24` / `L_mk2` — её варианты (общие сигналы 178 / 163 из 428, корреляция 0,62 / 0,45): снятие α с `L_base` ослабило бы единственный независимый лонг. Предложение исполнителя; решает критик",
+  "measured": {
+   "window": "01.07–13.11, 136 суток, h775, 500 $",
+   "S_mk1_vs_S_base": {
+    "corr_daily": 0.937,
+    "common_signals": 268,
+    "share_of_S_mk1": 0.985,
+    "share_of_S_base": 0.84,
+    "jaccard_coinday": 0.854
+   },
+   "D_S_vs_S_base": {
+    "corr_daily": 0.046,
+    "common_signals": 0,
+    "jaccard_coinday": 0.084
+   },
+   "D_S_vs_S_mk1": {
+    "corr_daily": 0.033,
+    "common_signals": 0
+   },
+   "L_base_vs": {
+    "D_S": -0.084,
+    "S_base": -0.023,
+    "S_mk1": -0.021,
+    "L_n24": {
+     "corr_daily": 0.615,
+     "common_signals": 178
+    },
+    "L_mk2": {
+     "corr_daily": 0.452,
+     "common_signals": 163
+    }
+   },
+   "cells": {
+    "S_base": {
+     "trades": 319,
+     "sum_usd": 223.14,
+     "mean_usd": 0.7,
+     "sharpe": 4.12
+    },
+    "S_mk1": {
+     "trades": 272,
+     "sum_usd": 199.77,
+     "mean_usd": 0.734,
+     "sharpe": 4.18
+    },
+    "D_S": {
+     "trades": 1237,
+     "sum_usd": 725.53,
+     "mean_usd": 0.587,
+     "sharpe": 4.4
+    },
+    "L_base": {
+     "trades": 428,
+     "sum_usd": 193.17,
+     "mean_usd": 0.451,
+     "sharpe": 1.96
+    }
+   },
+   "alpha_json": {
+    "srv": "/data/p42-tk670/alpha.json",
+    "sha256": "12243ec779913255f9a03c87fe504eb5f8ab4c6b8ac289e92287b170b9b2df71",
+    "tool": "tools/p42/tk670_freeze.py alpha"
+   }
+  },
+  "effect": "α(S_mk1) 0,010 → 0,005: α_k(S_mk1) на L2…L5 = 0,0002 / 0,0005 / 0,0010 / 0,0033 (вдвое строже прежнего); `S_mk1` в решении остаётся подтверждаемой, но по мейкеру подтверждение почти совпадает с `S_base`"
+ },
+ "cost_model": {
+  "stake_usd": 500,
+  "leverage": 2,
+  "margin_usd": 250,
+  "fees": "тариф владельца Bybit (В-47, В-71, В-88; `src/lob/costs.rs`): фьючерс мейкер 1,4 / тейкер 3,5 bps, возврат 10 % → ноги 1,26 / 3,15 bps",
+  "slippage_bps": 1,
+  "latency_ms": {
+   "entry": 4,
+   "exit": 4
+  },
+  "latency_note": "ключи `lat=4 latx=4` (В-168)",
+  "pnl": "gross − fees на сделку, $ на ставку 500 $, без фандинга; фандинг — пессимистичная граница B (`tk616_forward.funding_bound_of`), как у клеток цепочки",
+  "params_source": "`meta.json` → `params` (печатается движком; TK-668 `e4/cells/<окно>/S_lx1/meta.json`)"
+ },
+ "reading_rule": {
+  "one_reading": "одно прочтение на точку: `D_S` — клетка пакета точки (тот же прогон, те же окна, вселенные `all` / `crypto` / `tradfi`, решающая — `all`), маркер `READ-<точка>.started` создаётся атомарно ДО движка; повтор — только решением координатора",
+  "L1_2026-11-30": "описательно (решения нет, α_k = 0): n, Σ, $ / сделку, шарп, R:R, просадка, месяцы, пересечение с `S_base`; вердикта нет",
+  "L2_L5": "`tk616_forward.decide` (§13.28 п. 7 дословно): подтверждено — p ≤ α_k, ΣS > 0, среднее > 0 без 2 лучших суток и без 2 лучших монет, (ΣS − B)/N > 0, n ≥ 60; опровергнуто — только на L5; иначе «не ясно»; α_k = 0,005 × доля точки (0,04 / 0,10 / 0,20 / 0,66) = 0,0002 / 0,0005 / 0,0010 / 0,0033; единица статистики — сутки, блочный бутстреп (блок 4, ≥ 100 000 повторов), p без поправок кроме α_k (одна клетка, один α)",
+  "dates": "30.11 (входы ≤ 26.11), 31.12, 31.01.2027, 28.02, 31.03.2027 — как у цепочки",
+  "C1": "α берётся ТОЛЬКО из этого файла (сумма 0,05, охрана), он перекрывает α tk641 / tk638 / tk626; файлы цепочки проверяются по sha256 (выше); файла нет — остановка, молчаливого возврата к α tk641 нет; единственный обход `--no-candidate3`: α применены, `D_S` не читается (в маркер)",
+  "C2": "пропуск суток: для `D_S` уровень рождается из закрытых часовых баров вчерашних суток монеты; доля пар (монета, сутки зачёта окна точки) с файлом aggtrades суток и БЕЗ файла klines предыдущих суток > 1 % на вселенной точки — `D_S` на этой точке не читается («кандидат не читан», остальные клетки считаются); печатаются доля и счётчик движка `missing_days` (печатается, в решение не входит)",
+  "C3": "`replay-ds` (G-670a): `D_S` замороженными ключами и бинарём в выборке (wa / wb / wc, h775, сутки ≤ 13.11) побайтно = выходам TK-668 (`short-{trades,daily,coinday,entryrej,sigsx}.csv`)",
+  "joint_with_s_base": {
+   "kind": "описательно, без вердикта и без α; в решение не входит",
+   "what": "простая сумма суточных рядов `S_base` + `D_S` на готовых сделках (позиции не пересчитываются, лимит позиций и слоты не моделируются), как раздел «D / шорт вместе с `S_base`» отчёта TK-668 (`tools/p42/tk668_combo.py`): n, Σ $, $ / сделку, шарп, макс. просадка $ (% маржи 250 $), суток до нового максимума (дольше всего / p90, KPI В-120), депозит TK-664 (D1 = 250 $ × макс. одновременных позиций, D2 = мин. депозит с реализованным P&L; интервал [вход, выход)), пересечение сделок (та же монета, пересечение интервалов или вход ± 5 мин), корреляция суточных P&L, `D_S` против `S_base` по месяцам",
+   "when": "на каждой точке после решения по `D_S`; на L1 — вместе с описательным чтением",
+   "sample_reference": {
+    "window": "01.07–13.11, 136 суток, h775, 500 $ (найдено на этих данных)",
+    "S_base": {
+     "trades": 319,
+     "sum_usd": 223.1,
+     "sharpe": 4.12,
+     "maxdd_usd": 43.5,
+     "maxdd_pct_margin": 17.4,
+     "longest_days": 20,
+     "d1": 750.0,
+     "d2": 689.0
+    },
+    "D_S": {
+     "trades": 1237,
+     "sum_usd": 725.5,
+     "sharpe": 4.4,
+     "maxdd_usd": 137.6,
+     "maxdd_pct_margin": 55.1,
+     "longest_days": 54,
+     "d1": 750.0,
+     "d2": 644.0
+    },
+    "S_base_plus_D_S": {
+     "trades": 1556,
+     "sum_usd": 948.7,
+     "mean_usd": 0.61,
+     "sharpe": 5.39,
+     "maxdd_usd": 110.2,
+     "maxdd_pct_margin": 44.1,
+     "longest_days": 48,
+     "d1": 1500.0,
+     "d2": 1095.0
+    },
+    "overlap": {
+     "ds_with_pair_in_s_base": 69,
+     "ds_total": 1237,
+     "s_base_with_pair_in_ds": 70,
+     "s_base_total": 319,
+     "daily_corr": 0.046,
+     "coins_ds": 325,
+     "coins_s_base": 165,
+     "coins_both": 150
+    },
+    "months": {
+     "S_base": {
+      "июль": {
+       "trades": 77,
+       "sum_usd": 69.8
+      },
+      "август": {
+       "trades": 81,
+       "sum_usd": 53.2
+      },
+      "сентябрь": {
+       "trades": 67,
+       "sum_usd": 2.8
+      },
+      "октябрь": {
+       "trades": 65,
+       "sum_usd": 70.9
+      },
+      "01–13.11": {
+       "trades": 29,
+       "sum_usd": 26.4
+      }
+     },
+     "D_S": {
+      "июль": {
+       "trades": 310,
+       "sum_usd": 406.9
+      },
+      "август": {
+       "trades": 270,
+       "sum_usd": 65.7
+      },
+      "сентябрь": {
+       "trades": 223,
+       "sum_usd": -39.8
+      },
+      "октябрь": {
+       "trades": 263,
+       "sum_usd": 145.0
+      },
+      "01–13.11": {
+       "trades": 171,
+       "sum_usd": 147.7
+      }
+     },
+     "S_base_plus_D_S": {
+      "июль": {
+       "trades": 387,
+       "sum_usd": 476.7
+      },
+      "август": {
+       "trades": 351,
+       "sum_usd": 118.9
+      },
+      "сентябрь": {
+       "trades": 290,
+       "sum_usd": -37.0
+      },
+      "октябрь": {
+       "trades": 328,
+       "sum_usd": 215.9
+      },
+      "01–13.11": {
+       "trades": 200,
+       "sum_usd": 174.1
+      }
+     }
+    },
+    "ref": "docs/findings/p42-bank-round1-2026-11-21.md, раздел «D / шорт вместе с S_base»; /data/p42-tk668/res/ds-sbase.json"
+   }
+  }
+ },
+ "decision_rule": "`tk616_forward.decide` (§13.28 п. 7 дословно), одно прочтение на точку, решающая вселенная `all`; L1 описательно",
+ "selection": {
+  "mark": "найдено на этих данных",
+  "grid": "TK-668 §13.68: линия E4 — 3 источника уровня (D / W / P) × 2 стороны = 6 клеток, семейство Холма линий m_L = 9 (E8 + 6 клеток E4 + E30 L / S с p = 1); `D_S` — лучшая клетка по заранее записанному правилу «добавляет $»",
+  "cell_h775": {
+   "trades": 1237,
+   "sum_usd": 725.5,
+   "mean_usd": 0.587,
+   "usd_per_day": 5.33,
+   "sharpe": 4.4,
+   "lo90": 0.242,
+   "hi90": 0.94,
+   "rr": 1.99,
+   "stops": 56,
+   "mean_stop_loss_usd": -14.52,
+   "mean_stop_loss_pct_margin": -5.8,
+   "maxdd_usd": 137.6,
+   "maxdd_pct_margin": 55.1,
+   "longest_days_to_new_max": 54,
+   "p90_days": 40.5,
+   "months": {
+    "июль": {
+     "trades": 310,
+     "sum_usd": 406.9
+    },
+    "август": {
+     "trades": 270,
+     "sum_usd": 65.7
+    },
+    "сентябрь": {
+     "trades": 223,
+     "sum_usd": -39.8
+    },
+    "октябрь": {
+     "trades": 263,
+     "sum_usd": 145.0
+    },
+    "01–13.11": {
+     "trades": 171,
+     "sum_usd": 147.7
+    }
+   },
+   "sharpe_months": [
+    11.39,
+    1.9,
+    -1.21,
+    3.32,
+    10.03
+   ],
+   "no_top2_days_sum_usd": 551.0,
+   "no_top2_coins_sum_usd": 535.0
+  },
+  "p": 0.0029,
+  "holm_first_step_m_L": 0.00556,
+  "holm_m_L": 9,
+  "holm_context": "по всему пакету проверок раунда (61 + 24 + 8 + 18 + 18 + 9) m = 138, первый шаг 0,00036 — `D_S` с p 0,0029 там НЕ проходит; решение «кандидат только вперёд» это не двигает",
+  "noise": {
+   "n_cells": 6,
+   "noise_bar_z": 1.655,
+   "noise_bar_p95": 2.631,
+   "line_z": 2.774,
+   "note": "планка шума по 6 клеткам E4 (TK-668 `post.noise_bar`); SE — для 136 независимых суток, без поправки на автокорреляцию и хвосты"
+  },
+  "caveats": "июль даёт +407 $ из +725,5 $ (56 %), сентябрь −40 $ (шарп месяца −1,21); просадка 137,6 $ = 55,1 % маржи 250 $; 54 суток до нового максимума; выборка отобрана на тех же данных — «вместе с `S_base`» описывает те же 136 суток, не оценка вперёд",
+  "e4_lines": {
+   "srv": "/data/p42-tk668/res/e4-lines.json",
+   "report": "docs/findings/p42-bank-round1-2026-11-21.md",
+   "chronicle": "L-268 (вердикт E4 / D шорт), L-274 (вместе с S_base)"
+  }
+ },
+ "gates": {
+  "G-670a": {
+   "verdict": "ПРОЙДЕНЫ",
+   "description": "`D_S` (замороженные ключи, без lw) бинарём `ds_binary` в выборке wa / wb / wc (h775, сутки ≤ 13.11): short-{trades,daily,coinday,entryrej,sigsx}.csv побайтно = выходам TK-668 (`/data/p42-tk668/e4/cells/<окно>/S_lx1/`)",
+   "result": "/data/p42-tk670/replay/gate-670a.json",
+   "result_sha256": "931406668b719e1350ee2608278768624506757ea9e275b29684d7490f57745f",
+   "tool": "tools/p42/tk670_replay.py",
+   "windows": {
+    "wa": {
+     "equal": true,
+     "files": {
+      "short-trades.csv": "79527405d1c93cc956ff40334a047c7c4505714a58bb4cb18c190ec2416bab69",
+      "short-daily.csv": "35dea7d61fde2d9851506835da5160cce2d2b9ec3ed1475efe9a249dd62e1020",
+      "short-coinday.csv": "fec276e0d43ab2b154a9206612f7efd0ebac481752c64a5741a1c6ca37c42b69",
+      "short-entryrej.csv": "cb4db7ccec6e7a38b9eb16a12933c37caf4247abb0e5b78cbe7b0541d1f02e94",
+      "short-sigsx.csv": "3cb53b205282beaf3d24d76cc6e099b1b292ce2e2e622d9418eb29c10013aa24"
+     }
+    },
+    "wb": {
+     "equal": true,
+     "files": {
+      "short-trades.csv": "0e9e605bc7796371eb370653e0ce7ce837ac451ee7c402cdceeef72aab70b7eb",
+      "short-daily.csv": "ab08b7fc9bf5a0390b8dbe79eb3bd7dcc6e7b1e9316f700f49194d821dc94be8",
+      "short-coinday.csv": "207f26fec48d5075ccb8c60bbdafa1e5ff415b2d24958e7e3244257c20c3b166",
+      "short-entryrej.csv": "29aac2cad2b62c961db072759ee801f6544741453ab818a7a8552fb260ea0f4e",
+      "short-sigsx.csv": "58531d8476ea4941d904fa3f9d290fbc668118bc1d1387e78d09b5193686c8f1"
+     }
+    },
+    "wc": {
+     "equal": true,
+     "files": {
+      "short-trades.csv": "7ada4d44f3ef7a5b07892d4a9eb1e81e806771b03ba9b28e83a0322e01328e2e",
+      "short-daily.csv": "4512a6beb1e73ad5ad81a6ea3087ad5ec71d22b94f5d85c5b1f7c6f025716434",
+      "short-coinday.csv": "7f74c9fda2d9d030e4850e34fbba4b8bb709f4b5304217f98758fc30379af002",
+      "short-entryrej.csv": "8573a6b6b98703dcd477ed721566058a9c602cf2c2269661fe2c7b52e34f9e87",
+      "short-sigsx.csv": "d9cea8d9a7c0afa7757fbaf5f750addf648ff7c1bbf088fdc8298140a67d5c22"
+     }
+    }
+   },
+   "run": "21.11 03:27–03:28 UTC, юнит tk670-replay, ≈ 25 с на окно"
+  }
+ },
+ "tool_note": "`tk616_forward.py` на коммите заморозки `D_S` не знает (0 упоминаний `tk670`): расширение (звено цепочки tk670: C1 α из файла и sha256 звеньев; второй бинарь `ds_binary` для клетки `D_S`; C2 доля пропусков klines; `replay-ds` C3; совместное описательное чтение с `S_base`) и его тесты — отдельным коммитом ДО чтения L1 (30.11) и ДО L2 (α применяются с L2); правил этого файла не меняет; пока расширения нет, читать точку нельзя",
+ "ref": "docs/research/P-42-level-breakout.md §13.70; docs/findings/p42-bank-round1-2026-11-21.md; kb/task/TK-668.md; kb/task/TK-670.md"
+}
