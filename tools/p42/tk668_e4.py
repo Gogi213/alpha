@@ -256,6 +256,39 @@ def cmd_counts(a):
         sys.exit(1)
 
 
+def cmd_causal(a):
+    """G-causal-E4 (добавлен после P&L, в §13.68.3 не записан; провал отменил бы результат): уровни из кэша, обрезанного на минуте t (и дальше — пусто), совпадают с полными по цене, `born`, `first_bar` для всех
+    уровней с `born` ≤ t и по `end` для тех, чей `end` ≤ t; 200 монет × 3 окна × `lx` 1–3 × стороны, t — случайная минута (зерно 668)."""
+    u = r5.Uni("h775")
+    rng = np.random.default_rng(668)
+    coins = u.coins()
+    bad, n_lv = [], 0
+    for w in st.TRADE_WINDOWS:
+        for sym in rng.choice(coins, 200, replace=False):
+            p = os.path.join(u.wdir(w.name), "cache", sym + ".b42")
+            if not os.path.exists(p):
+                continue
+            arr = ft.load_b42_full(p)
+            n = len(arr["o"])
+            t = int(rng.integers(3 * 1440, n - 1440))
+            cut = {k: np.concatenate([v[:t], np.zeros(n - t, dtype=np.int64)]) for k, v in arr.items()}
+            for lx in SRC:
+                for s_ in (1, -1):
+                    full = src_levels(arr, s_, lx, lw_of(w))
+                    part = src_levels(cut, s_, lx, lw_of(w))
+                    for lv in full:
+                        if lv[0] <= t:
+                            n_lv += 1
+                            m = [x for x in part if x[0] == lv[0]]
+                            ok = len(m) == 1 and m[0][2:] == lv[2:] and (lv[1] > t or m[0][1] == lv[1])
+                            if not ok:
+                                bad.append("%s %s lx=%d s=%d born %d t %d" % (w.name, sym, lx, s_, lv[0], t))
+    write_json(qq("res", "causal-e4.json"), dict(levels_checked=n_lv, bad=bad[:50], n_bad=len(bad)))
+    say("G-causal-E4: уровней проверено %d, расхождений %d" % (n_lv, len(bad)), "; ".join(bad[:5]))
+    if bad:
+        sys.exit(1)
+
+
 # ---- P&L (после PASS критика на §13.68.3) ------------------------------------------------------------------------------------------
 
 def need_pass():
@@ -344,7 +377,7 @@ def _jsonable(x):
     return x
 
 
-COMMANDS = {"gbyte": cmd_gbyte, "counts": cmd_counts, "cells": cmd_cells, "lines": cmd_lines}
+COMMANDS = {"gbyte": cmd_gbyte, "counts": cmd_counts, "causal": cmd_causal, "cells": cmd_cells, "lines": cmd_lines}
 
 
 def main():
