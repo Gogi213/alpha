@@ -80,6 +80,7 @@ pub fn cfg_key_text(cfg: &SigCfg) -> String {
         fr_k,
         fr_share,
         fr_b_pm,
+        fg_m,
     } = cfg;
     let LevelCfg {
         tf_min,
@@ -90,9 +91,15 @@ pub fn cfg_key_text(cfg: &SigCfg) -> String {
         l_days,
         pk,
     } = lv;
+    // TK-669: `fg` — в тексте только при ≠ 0 (текст прежних конфигураций не меняется)
+    let fg = if *fg_m != 0 {
+        format!(",fg_m={fg_m}")
+    } else {
+        String::new()
+    };
     format!(
         "lv[tf_min={tf_min},k={k},d_pm={d_pm},n={n},tau_pm={tau_pm},l_days={l_days},pk={pk}],natr_p={natr_p},natr_min_pm={natr_min_pm},t1h_u={t1h_u},t24_u={t24_u},\
-         track_pm={track_pm},e_pm={e_pm},color={color},f_pm={f_pm},r_min={r_min},ban={ban},ap={ap},pb={pb},fr_h_min={fr_h_min},fr_k={fr_k},fr_share={fr_share},fr_b_pm={fr_b_pm}"
+         track_pm={track_pm},e_pm={e_pm},color={color},f_pm={f_pm},r_min={r_min},ban={ban},ap={ap},pb={pb},fr_h_min={fr_h_min},fr_k={fr_k},fr_share={fr_share},fr_b_pm={fr_b_pm}{fg}"
     )
 }
 
@@ -153,6 +160,7 @@ fn decode(buf: &[u8]) -> Option<(Vec<TSig>, TickCtr)> {
         signals: [u64_at(20), u64_at(28)],
         missing_days: u64_at(36),
         ap_wrong: u64_at(44),
+        fg: [0; 4],
     };
     let (raw_len, comp_len) = (u32_at(52) as usize, u32_at(56) as usize);
     if buf.len() != HEAD_LEN + comp_len || raw_len != n * TSIG_LEN {
@@ -249,7 +257,8 @@ impl SigCache {
 
     /// Ключ задания; `None` — задание не кэшируется (`ap != 0`).
     pub fn key(&self, cfg: &SigCfg, side: Side) -> Option<String> {
-        if cfg.ap != 0 {
+        // `ap` и `fg` (TK-669: счётчики приостановок в записи не хранятся) в кэш сигналов не идут
+        if cfg.ap != 0 || cfg.fg_m != 0 {
             return None;
         }
         let mut h = Sha256::new();
