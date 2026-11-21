@@ -32,6 +32,8 @@ pub mod tick_cli;
 pub mod trade;
 
 #[cfg(test)]
+mod lx_tests;
+#[cfg(test)]
 mod sigcache_tests;
 #[cfg(test)]
 mod store_tests;
