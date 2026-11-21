@@ -1,0 +1,22 @@
+{
+ "BTCUSDT": {
+  "api": 408,
+  "store": 410,
+  "common": 408,
+  "rate_mismatch": 0,
+  "only_api": 0,
+  "only_store": 0,
+  "mark_rel_max": 0.0,
+  "mark_n": 222
+ },
+ "ETHUSDT": {
+  "api": 408,
+  "store": 410,
+  "common": 408,
+  "rate_mismatch": 0,
+  "only_api": 0,
+  "only_store": 0,
+  "mark_rel_max": 0.0,
+  "mark_n": 222
+ }
+}

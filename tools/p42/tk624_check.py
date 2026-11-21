@@ -84,11 +84,21 @@ TOT = {k: stats(S, N) for k, (S, N) in SER.items()}
 ACC_TOT = {"L_base": (7.06, 621), "S_base": (259.14, 431), "S_mk1": (248.05, 372),
            # TK-645: 775 монет — базы U2 (p42-honest-universe-2026-11-19.md), L_n24 (p42-turnover-grid-2026-11-20.md), NC360_q20 (p42-tradecount-size-2026-11-20.md)
            "L_b775": (193.17, 428), "S_b775": (223.14, 319), "L_n24": (294.31, 181), "S_nc360": (258.91, 252),
-           "S_mk775": (199.77, 272), "L_mk2": (180.83, 327)}   # p42-forward-refreeze-2026-11-20.md, p42-lmk2-forward-2026-11-20.md
+           "S_mk775": (199.77, 272), "L_mk2": (180.83, 327),   # p42-forward-refreeze-2026-11-20.md, p42-lmk2-forward-2026-11-20.md
+           # TK-662: p42-stops-exits-775-2026-11-20.md (B_off_tt20_tb0.1), p42-short-levers-775-2026-11-20.md (A_n_1), p42-level-quality-775-2026-11-20.md (SHARP, ZV6_le_q20 = DENSE)
+           "S_rf0": (549.84, 303), "S_an1": (1017.69, 2907), "L_sharp": (162.09, 86), "L_dense": (238.15, 402)}
 ACC_M = {"L_base": [(-128.59, 130), (124.86, 131), (6.80, 152), (-95.47, 143), (99.46, 65)],
          "S_base": [(71.11, 96), (77.46, 108), (-22.88, 92), (110.61, 95), (22.85, 40)],
          "S_mk1": [(65.26, 81), (66.87, 93), (-4.30, 78), (85.79, 83), (34.43, 37)]}
-ACC_M0 = {"L_n24": [88, 74, 50, 76, 6], "S_nc360": [75, 62, 25, 64, 33]}
+ACC_M0 = {"L_n24": [88, 74, 50, 76, 6], "S_nc360": [75, 62, 25, 64, 33],
+          "S_rf0": [192, 148, 22, 160, 28], "L_sharp": [12, 80, 11, 43, 16], "L_dense": [-13, 92, 87, 6, 67]}   # TK-662: те же отчёты, целые $
+# TK-662: у A_n_1 в отчёте помесячно напечатана разница с S_base (ΔΣ, целые $)
+for m, s_ in enumerate([389, 204, 4, 253, -56]):
+    eq(f"S_an1: {B['month_names'][m]} ΔΣ к S_base == принятой (целые)", round(MON["S_an1"][m]["sum"] - MON["S_b775"][m]["sum"]), s_)
+# TK-662: R:R в отчётах (до 0,01) — у линий, где он напечатан; рядом с названием на странице — из bases.json → rr
+ACC_RR = {"S_b775": 2.63, "L_b775": 1.24, "S_rf0": 0.34, "S_an1": 2.06, "L_sharp": 1.53, "L_dense": 1.31}
+for k, v in ACC_RR.items():
+    eq(f"{k}: R:R == отчёту", round(B["rr"][k]["rr"], 2), v)
 ACC_M1 = {"L_mk2": [12.4, 31.4, 77.0, 30.2, 29.9]}   # p42-lmk2-forward-2026-11-20.md, до 0,1 $   # TK-645: помесячно в отчётах — целые $
 eq("окно: 136 суток", (B["days"], sum(ML), len(B["month_names"])), (136, 136, 5))
 for k in ACC_TOT:
@@ -113,9 +123,12 @@ for k in ACC_TOT:
             eq(f"bases.json {k} строка {i} {f}", float(r[f]), float(st[f]), 1e-6)
         eq(f"bases.json {k} строка {i} дней в плюсе", (r["days_pos"], r["days_with_trades"]), (st["pos"], st["tdays"]))
 
-LINES = {"short": ["S_b775", "S_mk775", "S_nc360"], "long": ["L_b775", "L_n24", "L_mk2"], "both": ["L_b775", "S_b775", "SL"]}   # TK-645: страница рисует ряды 775 контрактов
-NAMES = {"L_base": "Лонг · вход по рынку (L_base, 566 монет)", "S_base": "Шорт · вход по рынку (S_base, 566 монет)", "S_mk1": "Шорт · вход лимиткой (S_mk1, 566 монет)", "S_b775": "Шорт · вход по рынку (S_base)", "S_mk775": "Шорт · вход лимиткой (S_mk1)", "L_b775": "Лонг · вход по рынку (L_base)", "L_n24": "Лонг · сделок за 24 ч ≥ 220 000 (L_n24)", "L_mk2": "Лонг · вход лимиткой на цене уровня (L_mk2)", "S_nc360": "Шорт · сделок за 6 ч ≥ 26 000 (NC360_q20, найдено на этих данных)", "SL": "Шорт + лонг (S_base + L_base)"}
-COL = {"L_base": "#eb6834", "S_base": "#2a78d6", "S_mk1": "#1baf7a", "S_b775": "#2a78d6", "S_mk775": "#1baf7a", "L_b775": "#eb6834", "L_n24": "#a3369c", "L_mk2": "#b8860b", "S_nc360": "#0e7490", "SL": "#52525b"}
+LINES = {"short": ["S_b775", "S_mk775", "S_nc360", "S_rf0", "S_an1"], "long": ["L_b775", "L_n24", "L_mk2", "L_sharp", "L_dense"], "both": ["L_b775", "S_b775", "SL"]}   # TK-662: + TK-643 / TK-657 / TK-654
+NAMES = {"L_base": "Лонг · вход по рынку (L_base, 566 монет)", "S_base": "Шорт · вход по рынку (S_base, 566 монет)", "S_mk1": "Шорт · вход лимиткой (S_mk1, 566 монет)", "S_b775": "Шорт · вход по рынку (S_base, заморожен — проверка вперёд)", "S_mk775": "Шорт · вход лимиткой (S_mk1, заморожен — проверка вперёд)", "L_b775": "Лонг · вход по рынку (L_base, заморожен — проверка вперёд)", "L_n24": "Лонг · сделок за 24 ч ≥ 220 000 (L_n24, заморожен — проверка вперёд)", "L_mk2": "Лонг · вход лимиткой на цене уровня (L_mk2, заморожен — проверка вперёд)", "S_nc360": "Шорт · сделок за 6 ч ≥ 26 000 (NC360_q20, найдено на этих данных)",
+         "S_rf0": "Шорт · без выхода rt (B_off_tt20_tb0.1, TK-643, найдено на этих данных)", "S_an1": "Шорт · больше сделок: n_bounce = 1 (A_n_1, TK-657, найдено на этих данных)", "L_sharp": "Лонг · резкий подход без проторговки (SHARP, TK-654, найдено на этих данных)", "L_dense": "Лонг · без пустых минут за 6 ч (DENSE, TK-654, найдено на этих данных)", "SL": "Шорт + лонг (S_base + L_base)"}
+COL = {"L_base": "#eb6834", "S_base": "#2a78d6", "S_mk1": "#1baf7a", "S_b775": "#2a78d6", "S_mk775": "#1baf7a", "L_b775": "#eb6834", "L_n24": "#a3369c", "L_mk2": "#b8860b", "S_nc360": "#0e7490",
+       "S_rf0": "#6250d6", "S_an1": "#c0265b", "L_sharp": "#008300", "L_dense": "#0e7490", "SL": "#52525b"}
+RRN = lambda k: NAMES[k] + (f" · R:R {num(B['rr'][k]['rr'], 2)}" if k in B.get("rr", {}) and B["rr"][k]["rr"] is not None else "")   # noqa: E731 — имя на странице: с R:R
 
 # ── 3. DOM: таблица «Где мы»
 W = P["where"]
@@ -123,7 +136,8 @@ eq("DOM где: строки", [x["id"] for x in Wd["lines"]], [x["id"] for x in
 for w, d in zip(W["rows"], Wd["lines"]):
     k, t, ms = w["id"], TOT[w["id"]], MON[w["id"]]
     eq(f"DOM где {k}: имя", d["name"], w["name"])
-    exp = {"sum": money(t["sum"]), "trades": ints(t["trades"]), "mean": money(t["mean"], 3), "sharpe": num(t["sharpe"], 2, True), "maxdd": num(t["maxdd"], 2)}
+    exp = {"sum": money(t["sum"]), "trades": ints(t["trades"]), "mean": money(t["mean"], 3), "sharpe": num(t["sharpe"], 2, True), "maxdd": num(t["maxdd"], 2),
+           "rr": num(B["rr"][k]["rr"], 2) if B["rr"].get(k, {}).get("rr") is not None else "—"}
     exp.update({f"m{i}": money(ms[i]["sum"]) for i in range(5)})
     eq(f"DOM где {k}: ячейки", d["cells"], exp)
 eq("DOM где: заголовок", Wd["title"], W["title"])
@@ -136,7 +150,7 @@ for b in Wd["boxes"]:
     eq(f"DOM где {b['k']}: пункты", b["items"], [i if isinstance(i, str) else i["t"] + " " + i["s"] for i in X["items"]])
 eq("DOM где: три блока", sorted(b["k"] for b in Wd["boxes"]), ["broken", "candidate", "next"])
 eq("DOM где: ссылка на «Базы»", Wd["link"], "#equity/short/bases")
-eq("DOM где: легенда", Wd["legend"], [w["name"] for w in W["rows"]])
+eq("DOM где: легенда", Wd["legend"], [RRN(w["id"]) for w in W["rows"]])   # TK-662: легенда графика — имя вида «Базы» с R:R
 eq("DOM где: кривые", [(p["chart"], p["stroke"]) for p in Wd["paths"]], [(f"wh.{w['id']}", COL[w["id"]]) for w in W["rows"]])
 for p in Wd["paths"]:
     eq(f"DOM где {p['chart']}: конец кривой == итог", p["final"], TOT[p["chart"].split(".")[1]]["sum"], 1e-6)
@@ -149,7 +163,7 @@ def tip_expect(keys, i):
     out = [f"{s[8:10]}.{s[5:7]}"]
     for k in keys:
         S, N = SER[k]
-        out += [NAMES[k], "Прибыль суток · сделок", f"{money(S[i])} $ · {ints(int(N[i]))}", "Накоплено", f"{money(float(np.cumsum(S)[i]))} $"]
+        out += [RRN(k), "Прибыль суток · сделок", f"{money(S[i])} $ · {ints(int(N[i]))}", "Накоплено", f"{money(float(np.cumsum(S)[i]))} $"]
     return " | ".join(out)
 
 
@@ -182,7 +196,7 @@ for side, keys in LINES.items():
     eq(f"базы {side}: кривые", [(p["chart"], p["stroke"]) for p in d["dom"]["paths"]], [(f"bs.{k}", COL[k]) for k in keys])
     for p in d["dom"]["paths"]:
         eq(f"базы {side} {p['chart']}: конец кривой == итог", p["final"], TOT[p["chart"].split(".")[1]]["sum"], 1e-6)
-    eq(f"базы {side}: легенда", d["dom"]["legend"], [NAMES[k] for k in keys])
+    eq(f"базы {side}: легенда", d["dom"]["legend"], [RRN(k) for k in keys])
     tip_check(f"базы {side}", keys, d["hover"])
     eq(f"базы {side}: состояние", (d["state"]["hash"], d["state"]["view"], d["state"]["side"], d["state"]["selected"]), (f"#equity/{side}/bases", "bases", side, ["equity"]))
     eq(f"базы {side}: подпись «по дню входа»", "по дню входа" in d["sub"], True)
@@ -435,7 +449,7 @@ if len(Rd) > 2:
 FD = R["features"]
 eq("«Признаки»: пояснение TK-604 на странице", all(n in FD["text"] for n in emb("features-data")["sets"][4]["numbers"]), True)
 eq("«Признаки»: нет горизонтальной прокрутки", FD["overflow"] <= 0, True)
-eq("вид «Кривая» цел", (R["bases"]["backCurve"]["view"], R["bases"]["backCurve"]["cards"], R["bases"]["backCurve"]["cmpHidden"], "по времени закрытия" in R["bases"]["backCurve"]["sub"]), ("curve", ["ja", "fit"], False, True))
+eq("вид «Кривая» цел", (R["bases"]["backCurve"]["view"], R["bases"]["backCurve"]["cards"], R["bases"]["backCurve"]["cmpHidden"], "по времени закрытия" in R["bases"]["backCurve"]["sub"]), ("curve", ["775"], False, True))   # TK-662: «Кривая» — график 775 контрактов
 eq("вид «Форма» цел", (R["bases"]["backShape"]["view"], R["bases"]["backShape"]["cards"]), ("shape", ["ja", "fit"]))
 eq("возврат в «Базы»", R["bases"]["toBases"]["view"], "bases")
 H = R["hash"]

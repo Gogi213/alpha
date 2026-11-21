@@ -31,7 +31,9 @@ universe_path = sys.argv[11] if len(sys.argv) > 11 else f"{out_dir}/data/univers
 ACCEPTED_BASES = {"L_base": (7.06, 621), "S_base": (259.14, 431), "S_mk1": (248.05, 372),
                   # TK-645 (tk645_best.py): 775 монет — базы U2 TK-621, L_n24 TK-638, NC360_q20 TK-639
                   "L_b775": (193.17, 428), "S_b775": (223.14, 319), "L_n24": (294.31, 181), "S_nc360": (258.91, 252),
-                  "S_mk775": (199.77, 272), "L_mk2": (180.83, 327)}
+                  "S_mk775": (199.77, 272), "L_mk2": (180.83, 327),
+                  # TK-662 (tk662_equity.py): шорт без выхода rt TK-643, A_n_1 TK-657, SHARP / DENSE TK-654 — найдено на этих данных
+                  "S_rf0": (549.84, 303), "S_an1": (1017.69, 2907), "L_sharp": (162.09, 86), "L_dense": (238.15, 402)}
 BAR = 0.02
 DIRS = ("A->B", "B->A")
 SET = "f12"
@@ -114,6 +116,14 @@ def main():
     blob = json.dumps(data, ensure_ascii=False, allow_nan=False, separators=(",", ":")).replace("</", "<\\/")
     equity = json.load(open(equity_path, encoding="utf-8"))
     assert not equity["recon"]["bad"], "equity.json: есть расхождения со сверкой"
+    # TK-662: график «775» вида «Кривая» — те же сделки, что ряды bases.json (сделок и Σ линии == принятого)
+    c775 = equity["charts"]["775"]
+    for side, base in (("short", "S_b775"), ("long", "L_b775")):
+        S = c775["sides"][side]
+        assert sorted(i for ix in S["sel"].values() for i in ix) == list(range(len(S["t"]))), f"equity.json 775 {side}: сделка вне линий или в двух"
+        for k, ix in S["sel"].items():
+            tot, n = ACCEPTED_BASES[base if k == "base" else k]
+            assert len(ix) == n and abs(sum(S["net"][i] for i in ix) - tot) < 0.006, f"equity.json 775 {side} {k}: {len(ix)} сд. ≠ {n} или Σ ≠ {tot}"
     eblob = json.dumps(equity, ensure_ascii=False, allow_nan=False, separators=(",", ":")).replace("</", "<\\/")
     shape = json.load(open(shape_path, encoding="utf-8"))
     assert all(r["ok"] for r in shape["recon"]), "shape.json: сделки не совпали с equity.json"

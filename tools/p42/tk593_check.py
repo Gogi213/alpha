@@ -296,6 +296,11 @@ eq("equity сверок не меньше 95", E["recon"]["n"] >= 95, True)
 RI = {it["what"]: it for it in E["recon"]["items"]}
 EQ_NAME = {"T1": "T1 · прибыль, $", "T2": "T2 · прибыль, % от номинала", "T4": "T4 · без жёсткого стопа", "T5": "T5 · MFE − MAE", "T6": "T6 · ранжирование", "short": "Шорт", "long": "Лонг"}
 EQ_BASE = {"short": "Шорт: все сделки базы", "long": "Лонг: все сделки базы", "both": "Шорт + лонг: все сделки"}
+# TK-662: вид «Кривая» — график «775» (сделки всех линий стороны на 775 контрактах, sel.base — база стороны); ja / fit — только для «Формы»
+CURVE = ("775",)
+_RR = json.load(open(os.path.join(os.path.dirname(os.path.abspath(html_path)), "data", "bases.json"), encoding="utf-8"))["rr"]
+EQ_BASE775 = {"short": "Шорт · вход по рынку (S_base, заморожен — проверка вперёд) · R:R " + num(_RR["S_b775"]["rr"], 2),
+              "long": "Лонг · вход по рынку (L_base, заморожен — проверка вперёд) · R:R " + num(_RR["L_b775"]["rr"], 2), "both": EQ_BASE["both"]}
 
 
 def eq_stats(net, day, mask):
@@ -328,7 +333,7 @@ def eq_series(chart, side):
     rows = []
     for k in ("short", "long"):
         S = C["sides"][k]
-        rows += [(S["t"][i], S["en"][i], S["sym"][i], S["net"][i], S["day"][i], k) for i in range(len(S["t"]))]
+        rows += [(S["t"][i], S["en"][i], S["sym"][i], S["net"][i], S["day"][i], k) for i in S["sel"].get("base", range(len(S["t"])))]
     rows.sort(key=lambda r: (r[0], r[1], r[2]))
     return {"t": [r[0] for r in rows], "en": [r[1] for r in rows], "sym": [r[2] for r in rows], "net": [r[3] for r in rows], "day": [r[4] for r in rows],
             "sel": {k: [i for i, r in enumerate(rows) if r[5] == k] for k in ("short", "long")}}
@@ -336,7 +341,7 @@ def eq_series(chart, side):
 
 def eq_lines(S, side):
     n = len(S["t"])
-    out = [("base", None)]
+    out = [] if "base" in S["sel"] else [("base", None)]
     for k, ix in S["sel"].items():
         m = [False] * n
         for i in ix:
@@ -350,8 +355,8 @@ if os.path.exists(edom_path):
     ed = json.load(open(edom_path, encoding="utf-8"))
     for side in ("short", "long", "both"):
         d = ed[side]
-        eq(f"DOM эквити {side} графиков", ",".join(d["charts"]), "ja,fit")
-        for chart in ("ja", "fit"):
+        eq(f"DOM эквити {side} графиков", ",".join(d["charts"]), ",".join(CURVE))
+        for chart in CURVE:
             S = eq_series(chart, side)
             lines = eq_lines(S, side)
             tbl = d["tables"].get(f"{chart}|{side}")
@@ -369,9 +374,9 @@ if os.path.exists(edom_path):
             eq(f"DOM эквити {chart}|{side} линий на графике", nb, len(lines))
             eq(f"DOM эквити {chart}|{side} база толще", [p["w"] for p in d["paths"] if p["chart"] == f"eq.{chart}.base"][0], "3.6")
     # «шорт + лонг» = сумма баз сторон
-    for chart in ("ja", "fit"):
-        a = eq_stats(eq_series(chart, "short")["net"], eq_series(chart, "short")["day"], None)["sum"]
-        b = eq_stats(eq_series(chart, "long")["net"], eq_series(chart, "long")["day"], None)["sum"]
+    for chart in ("ja", "fit") + CURVE:
+        a = eq_stats(eq_series(chart, "short")["net"], eq_series(chart, "short")["day"], eq_lines(eq_series(chart, "short"), "short")[0][1])["sum"]
+        b = eq_stats(eq_series(chart, "long")["net"], eq_series(chart, "long")["day"], eq_lines(eq_series(chart, "long"), "long")[0][1])["sum"]
         eq(f"эквити {chart}: сумма баз шорт + лонг", eq_stats(eq_series(chart, "both")["net"], eq_series(chart, "both")["day"], None)["sum"], a + b, 1e-9)
     # сверка с проверенными числами TK-598 (read/pool.json и fit/fit-*.json через сверку сборщика): сумма выбранных = среднее × число
     for key, chart, side, T in (("ja short", "ja", "short", ["T1", "T2", "T4", "T5"]), ("ja long", "ja", "long", ["T6"])):
@@ -381,7 +386,6 @@ if os.path.exists(edom_path):
             st = eq_stats(S["net"], S["day"], m)
             eq(f"проверено {key} {k}: сделок", st["n"], n_want)
             eq(f"проверено {key} {k}: сумма = среднее × сделок", st["sum"], mean_want * n_want, 1e-9)
-            eq(f"DOM проверено {key} {k}: сумма", ed[side]["tables"][f"{chart}|{side}"][k]["sum"], num(mean_want * n_want, 2, True))
     for k, m in eq_lines(eq_series("fit", "short"), "short")[1:]:
         st = eq_stats(eq_series("fit", "short")["net"], eq_series("fit", "short")["day"], m)
         eq(f"проверено fit short {k}: сумма = среднее × сделок", st["sum"], RI[f"fit short {k} среднее выбранных"]["want"] * RI[f"fit short {k} выбрано"]["want"], 1e-9)
@@ -390,18 +394,19 @@ if os.path.exists(edom_path):
     if os.path.exists(rp):
         rep = json.load(open(rp, encoding="utf-8"))
         for side in ("short", "long", "both"):
-            for chart in ("ja", "fit"):
+            for chart in CURVE:
                 S = eq_series(chart, side)
+                bm = eq_lines(S, side)[0][1]
                 cum, c = [], 0.0
-                for v in S["net"]:
-                    c += v
+                for i, v in enumerate(S["net"]):
+                    c += v if bm is None or bm[i] else 0.0
                     cum.append(c)
                 fd = lambda ms: dt.datetime.fromtimestamp(ms / 1000, dt.timezone.utc).strftime("%d.%m %H:%M")
                 for h_ in rep["equity"][side]["hover"][chart][:3]:
                     parts = [p.strip() for p in h_["text"].split("|")]
                     sym, close_s, net_s = parts[0], parts[parts.index("Закрытие") + 1].replace(" UTC", ""), parts[parts.index("Прибыль сделки") + 1].replace(" $", "")
-                    base_name = EQ_BASE[side]
-                    base_s = parts[parts.index(base_name) + 1]
+                    base_name = EQ_BASE775[side] if chart == "775" else EQ_BASE[side]
+                    base_s = parts[[x.removesuffix(" ✓") for x in parts].index(base_name) + 1]   # TK-662: у базы «775» есть маска — сделка базы помечена ✓
                     hits = [i for i in range(len(S["t"])) if S["sym"][i] == sym and fd(S["t"][i]) == close_s and num(S["net"][i], 2, True) == net_s]
                     eq(f"наведение {chart}|{side} {sym} {close_s}: сделка найдена", len(hits) >= 1, True)
                     eq(f"наведение {chart}|{side} {sym} {close_s}: накоплено базы", any(num(cum[i], 2, True) == base_s for i in hits), True)
@@ -452,11 +457,11 @@ if os.path.exists(cdp):
     ed0 = json.load(open(edom_path, encoding="utf-8"))
 
     def check_mode(tag, side, dom, dep, cmp_on):
-        for chart in ("ja", "fit"):
+        for chart in CURVE:
             S = eq_series(chart, side)
             lines = eq_lines(S, side)
             want_mode = "cmp" if cmp_on else "fix"
-            eq(f"{tag} {side} карточки в нужном режиме", ",".join(dom["modes"]), f"ja:{want_mode},fit:{want_mode}")
+            eq(f"{tag} {side} карточки в нужном режиме", ",".join(dom["modes"]), ",".join(f"{c}:{want_mode}" for c in CURVE))
             ct = dom["cmpt"].get(f"{chart}|{side}")
             eq(f"{tag} {chart}|{side} таблица «обе кривые» есть", ct is not None, True)
             eq(f"{tag} {chart}|{side} депозит в таблице", ct["dep"], str(dep))
@@ -483,7 +488,7 @@ if os.path.exists(cdp):
     for side in ("short", "long", "both"):
         d = cd[side]
         # главное: режим «фикс» — это прежняя кривая. Финалы линий на графике == последовательная сумма из equity.json, без допуска; таблицы == dom_equity.json
-        for chart in ("ja", "fit"):
+        for chart in CURVE:
             S = eq_series(chart, side)
             for k, m in eq_lines(S, side):
                 c = 0.0
@@ -501,15 +506,19 @@ if os.path.exists(cdp):
         eq(f"{side}: нет горизонтальной прокрутки при компаундинге", d["overflowX"] <= 0, True)
         # наведение в режиме компаундинга: объём и прибыль при этом объёме — линия базы
         fd = lambda ms: dt.datetime.fromtimestamp(ms / 1000, dt.timezone.utc).strftime("%d.%m %H:%M")
-        for chart in ("ja", "fit"):
+        for chart in CURVE:
             S = eq_series(chart, side)
-            pc, vl = comp_ref(S, None, 5000.0)
+            ls = eq_lines(S, side)
+            refs = [comp_ref(S, m, 5000.0) for _, m in ls]
             for text in d["hover"][chart]:
                 parts = [p.strip() for p in text.split("|")]
                 sym, close_s, net_s = parts[0], parts[parts.index("Закрытие") + 1].replace(" UTC", ""), parts[parts.index("Прибыль сделки") + 1].replace(" $", "")
-                vol_s, pc_s = parts[parts.index("Объём · база, компаундинг") + 1].replace(" $", ""), parts[parts.index("Прибыль при этом объёме") + 1].replace(" $", "")
+                lab = "Объём · база, компаундинг" if "Объём · база, компаундинг" in parts else "Объём · линия сделки, компаундинг"
+                vol_s, pc_s = parts[parts.index(lab) + 1].replace(" $", ""), parts[parts.index("Прибыль при этом объёме") + 1].replace(" $", "")
                 hits = [i for i in range(len(S["t"])) if S["sym"][i] == sym and fd(S["t"][i]) == close_s and num(S["net"][i], 2, True) == net_s]
-                eq(f"наведение компаундинг {chart}|{side} {sym} {close_s}: объём и прибыль базы", any(num(vl[i], 0, True) == vol_s and num(pc[i], 2, True) == pc_s for i in hits), True)
+                li = lambda i: next(j for j, (_, m) in enumerate(ls) if m is None or m[i])   # noqa: E731 — линия сделки (первая, где она есть), как на странице
+                eq(f"наведение компаундинг {chart}|{side} {sym} {close_s}: объём и прибыль линии сделки",
+                   any((lab == "Объём · база, компаундинг") == (li(i) == 0) and num(refs[li(i)][1][i], 0, True) == vol_s and num(refs[li(i)][0][i], 2, True) == pc_s for i in hits), True)
     # депозит 10 000: другие кривые; 0 — отклонён, состояние прежнее; возврат к 5 000 и к фиксу — то же, что было
     check_mode("компаундинг 10000", "short", cd["short"]["cmp10k"], 10000, True)
     eq("депозит 10000: шапка карточки", all("депозит 10 000 $" in x.replace(" ", " ") for x in cd["short"]["cmp10k"]["heads"]), True)

@@ -229,6 +229,8 @@ pub struct Params {
     pub filt: FilterCfg,
     /// §13.28 (`mk`): вход лимиткой — 0 выкл. (путь тейкера), 1 — mk1, 2 — mk2 (ретест у уровня); требует `ew > 0`. Только `breakout tick`.
     pub mk: u8,
+    /// TK-660 (`ek`): вход по подтверждению E(k) — k, бп (0 — выкл., вход на сигнале); требует `ew > 0`, несовместим с `mk`. Только `breakout tick`.
+    pub ek: i64,
 }
 
 /// Ручной `Debug`: отпечаток параметров в `meta.json` при `mk = 0` — тот же, что у версий до §13.28 (поле `mk` печатается только при `mk ≠ 0`).
@@ -241,6 +243,9 @@ impl std::fmt::Debug for Params {
             .field("filt", &self.filt);
         if self.mk != 0 {
             d.field("mk", &self.mk);
+        }
+        if self.ek != 0 {
+            d.field("ek", &self.ek);
         }
         d.finish()
     }
@@ -389,6 +394,7 @@ impl Params {
             },
             filt: FilterCfg::default(),
             mk: 0,
+            ek: 0,
         }
     }
 
@@ -487,6 +493,7 @@ impl Params {
             "reentry" => self.port.reentry = u.min(255) as u8,
             "busy" => self.port.busy = b,
             "mk" => self.mk = u.min(255) as u8,
+            "ek" => self.ek = f.round() as i64,
             _ => bail!("неизвестный ключ {key}"),
         }
         Ok(())
@@ -537,6 +544,15 @@ impl Params {
         }
         if self.mk > 0 && !self.exit.tape_entry() {
             bail!("mk требует ew > 0 (вход по ленте)");
+        }
+        if self.ek < 0 {
+            bail!("ek ≥ 0");
+        }
+        if self.ek > 0 && !self.exit.tape_entry() {
+            bail!("ek требует ew > 0 (вход по ленте)");
+        }
+        if self.ek > 0 && self.mk > 0 {
+            bail!("ek несовместим с mk");
         }
         if self.port.reentry > 2 {
             bail!("reentry ∈ {{0, 1, 2}}");
