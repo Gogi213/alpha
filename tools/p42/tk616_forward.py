@@ -19,7 +19,7 @@ TK-641 / §13.38: третий файл цепочки `tk641-frozen.json` — �
 TK-670 / §13.70: четвёртый файл цепочки `tk670-frozen.json` — кандидат вперёд `D_S` (E4 / D шорт TK-668: ключи `S_base` + `lx=1 tf=60`). Клетка читается ОТДЕЛЬНЫМ бинарём `ds_binary` (`--ds-bin`; ключ `lx` есть только в нём), в `cells` заморозки не входит:
   C1 — файл обязателен всегда (нет — остановка), его α (`S_mk1` 0,005, `D_S` 0,005) перекрывают α tk641; каждое звено проверяет sha256 предыдущих; бинарь `D_S` сверяется с md5 / sha256 файла ДО маркера чтения; `--no-candidate3` — единственный обход (α применяются, `D_S` не читается);
   C2 — доля пар (монета, сутки зачёта) без klines предыдущих суток > 1 % на вселенной точки — `D_S` на ней не читается, остальные клетки считаются; `missing_days` движка печатается, в решение не входит;
-  C3 — `replay-ds` (G-670c) сверяет `short-{trades,daily,coinday,entryrej,sigsx}.csv` побайтно с выходами TK-668 (`--ref-dir /data/p42-tk668/e4/cells`, `<окно>/S_lx1/`);
+  C3 — `replay-ds` (G-670c) сверяет `short-{trades,daily,coinday,entryrej}.csv` побайтно с выходами TK-668 (`--ref-dir /data/p42-tk668/e4/cells`, `<окно>/S_lx1/`; `short-sigsx.csv` — дамп TK-668, пакетный путь его не пишет: сверен в G-670a `tk670_replay.py`);
   совместное чтение `S_base` + `D_S` (вселенная all) — ОПИСАТЕЛЬНО (`joint_describe`): без вердикта и α; L1 по `D_S` — описательно, L2–L5 — `decide` как у всех.
 
   python3 tk616_forward.py plan  [--freeze …]                       # точки, окна, вселенные, состояние охран — без чтения данных и без запуска движка
@@ -90,7 +90,7 @@ REQUIRE_CANDIDATE3 = True                              # нет `tk670-frozen.js
 DS_ALPHA_FLOOR_S_BASE = 0.02                           # В-167: пол α(S_base); кандидат берёт α только из долей S_mk1 / L_base (≥ 0,005 остаётся у каждой)
 DS_ALPHA_DONORS = ("S_mk1", "L_base")
 DS_MISSING_MAX_SHARE = 0.01                            # C2 `D_S`: доля пар (монета, сутки зачёта) без klines предыдущих суток, выше которой `D_S` на точке не читается
-FILES_670 = ("short-trades.csv", "short-daily.csv", "short-coinday.csv", "short-entryrej.csv", "short-sigsx.csv")
+FILES_670 = ("short-trades.csv", "short-daily.csv", "short-coinday.csv", "short-entryrej.csv")      # `short-sigsx.csv` пакетный путь точки не пишет (дамп сигналов TK-668 — только `tk670_replay.py`, G-670a: 5 файлов)
 DS_REF_SUB = "S_lx1"                                   # G-670c: каталог клетки в выходах TK-668 (`<окно>/S_lx1/short-*.csv`)
 GuardError = rf.GuardError
 
