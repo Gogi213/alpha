@@ -93,7 +93,7 @@ class Mins:
 
 def place_features(m, t, s, natr):
     """(X24, X7, XP, XV) на минуте `t` для знака `s` и NATR (доля, `natr_e8 / 1e8`); пусто — NaN.
-    Окно 24 ч — минуты `t − 1440 … t − 1` (1 441, как `H = max h[t−1440…t−1]`), нужно ≥ 1 000 с данными."""
+    Окно 24 ч — минуты `t − 1440 … t − 1` (1 440, как `H = max h[t−1440…t−1]`), нужно ≥ 1 000 с данными."""
     nan4 = (NAN, NAN, NAN, NAN)
     a, b = t - DAY_MIN, t - 1
     if a - 1 < 0 or b >= m.n or not (natr > 0):
