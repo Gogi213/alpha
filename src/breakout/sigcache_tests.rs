@@ -37,6 +37,7 @@ fn cfg_key_text_changes_with_every_field() {
         ("fr_k", Box::new(|c| c.fr_k += 1)),
         ("fr_share", Box::new(|c| c.fr_share += 1)),
         ("fr_b_pm", Box::new(|c| c.fr_b_pm += 1)),
+        ("fg_m", Box::new(|c| c.fg_m += 1)),
     ];
     let t0 = cfg_key_text(&base);
     assert_eq!(t0, cfg_key_text(&base.clone()));
@@ -75,6 +76,7 @@ fn entry_codec_round_trip() {
             signals: [5, 6],
             missing_days: 7,
             ap_wrong: 8,
+            fg: [0; 4],
         };
         let (v, c) = roundtrip(&sigs, &ctr).expect("кодек");
         assert_eq!(v.len(), sigs.len());
@@ -165,6 +167,7 @@ fn keys_follow_inputs_and_entries_survive_only_intact() {
         signals: [1, 2],
         missing_days: 0,
         ap_wrong: 0,
+        fg: [0; 4],
     };
     sc2.put(&k2, &sigs, &ctr);
     let (v, c) = sc2.get(&k2).expect("попадание");

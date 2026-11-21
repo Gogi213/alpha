@@ -43,7 +43,7 @@ impl std::fmt::Debug for LevelCfg {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Clone, PartialEq, Eq, Hash)]
 pub struct SigCfg {
     pub lv: LevelCfg,
     pub natr_p: usize,
@@ -70,6 +70,37 @@ pub struct SigCfg {
     pub fr_share: usize,
     /// §13.14, (б): ширина полосы подхода b в тысячных процента.
     pub fr_b_pm: i64,
+    /// TK-669 (`fg`, «закол прощаем после отката»): X ×1000 NATR (0 — выкл.): минутные убийцы уровня `pk`, `pb`, `ban` в `tick::candidates` приостанавливают уровень, а не
+    /// убивают его; приостановка снимается на первой минуте строго после минуты приостановки, чей low за уровнем ≤ `L − L·NATR[t−1]·X`. Только `breakout tick`.
+    pub fg_m: i64,
+}
+
+/// Ручной `Debug`: строка `params` в meta.json при `fg = 0` — та же, что у производного `Debug` до TK-669 (поле печатается только при `fg ≠ 0`).
+impl std::fmt::Debug for SigCfg {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut d = f.debug_struct("SigCfg");
+        d.field("lv", &self.lv)
+            .field("natr_p", &self.natr_p)
+            .field("natr_min_pm", &self.natr_min_pm)
+            .field("t1h_u", &self.t1h_u)
+            .field("t24_u", &self.t24_u)
+            .field("track_pm", &self.track_pm)
+            .field("e_pm", &self.e_pm)
+            .field("color", &self.color)
+            .field("f_pm", &self.f_pm)
+            .field("r_min", &self.r_min)
+            .field("ban", &self.ban)
+            .field("ap", &self.ap)
+            .field("pb", &self.pb)
+            .field("fr_h_min", &self.fr_h_min)
+            .field("fr_k", &self.fr_k)
+            .field("fr_share", &self.fr_share)
+            .field("fr_b_pm", &self.fr_b_pm);
+        if self.fg_m != 0 {
+            d.field("fg_m", &self.fg_m);
+        }
+        d.finish()
+    }
 }
 
 #[derive(Clone, PartialEq)]
@@ -154,6 +185,10 @@ pub struct ExitCfg {
     /// TK-649 (`tu`): выход «уровень не тронут за T минут от входа» (0 — выкл.): пока не было сделки `p ≥ L`, первая сделка не раньше `вход + T`
     /// закрывает остаток рыночным выходом; после касания не действует. Вид выхода `tu`. Только `breakout tick`.
     pub tu_min: i64,
+    /// TK-669 (`tpp`): тейки лестницы в процентах цены входа (`t_low`, `t_high` — проценты, а не NATR); требует `tj = 0`. Только `breakout tick`.
+    pub tpp: bool,
+    /// TK-669 (`trp`): трейл v11 — откат `rr` в процентах цены входа, включается первым исполненным тейком (а не ходом `+a` NATR). Только `breakout tick`.
+    pub trp: bool,
 }
 
 /// Ручной `Debug`: при выключенных ключах §13.31 строка `params` в meta.json — та же, что у производного `Debug` до §13.31.
@@ -202,6 +237,9 @@ impl std::fmt::Debug for ExitCfg {
         }
         if self.tu_min != 0 {
             d.field("tu_min", &self.tu_min);
+        }
+        if self.tpp || self.trp {
+            d.field("tpp", &self.tpp).field("trp", &self.trp);
         }
         d.finish()
     }
@@ -255,6 +293,9 @@ pub struct Params {
     pub mk: u8,
     /// TK-660 (`ek`): вход по подтверждению E(k) — k, бп (0 — выкл., вход на сигнале); требует `ew > 0`, несовместим с `mk`. Только `breakout tick`.
     pub ek: i64,
+    /// TK-669 (`xb`): вход за уровнем — X ×1000 NATR (0 — выкл.): условный приказ на пробой `p ≥ L + L·NATR·X`, срок 60 мин, вся ставка одним входом;
+    /// требует `ew > 0`, `e2 = 0`, несовместим с `mk`, `ek`. Только `breakout tick`.
+    pub xb: i64,
 }
 
 /// Ручной `Debug`: отпечаток параметров в `meta.json` при `mk = 0` — тот же, что у версий до §13.28 (поле `mk` печатается только при `mk ≠ 0`).
@@ -270,6 +311,9 @@ impl std::fmt::Debug for Params {
         }
         if self.ek != 0 {
             d.field("ek", &self.ek);
+        }
+        if self.xb != 0 {
+            d.field("xb", &self.xb);
         }
         d.finish()
     }
@@ -365,6 +409,7 @@ impl Params {
                 fr_k: 120,
                 fr_share: 0,
                 fr_b_pm: pm(0.5),
+                fg_m: 0,
             },
             exit: ExitCfg {
                 natr_p: 30,
@@ -406,6 +451,8 @@ impl Params {
                 cs_hi_m: 0,
                 cs_m_m: 0,
                 tu_min: 0,
+                tpp: false,
+                trp: false,
             },
             port: PortCfg {
                 cool_min: 5,
@@ -421,6 +468,7 @@ impl Params {
             filt: FilterCfg::default(),
             mk: 0,
             ek: 0,
+            xb: 0,
         }
     }
 
@@ -510,6 +558,9 @@ impl Params {
             "ch" => self.exit.cs_hi_m = pm(f),
             "cm" => self.exit.cs_m_m = pm(f),
             "tu" => self.exit.tu_min = f.round() as i64,
+            "tpp" => self.exit.tpp = b,
+            "trp" => self.exit.trp = b,
+            "fg" => self.sig.fg_m = pm(f),
             "fv" => self.filt.v = Some(f),
             "c" => self.port.cool_min = u,
             "m" => self.port.m_stops = u,
@@ -522,6 +573,7 @@ impl Params {
             "busy" => self.port.busy = b,
             "mk" => self.mk = u.min(255) as u8,
             "ek" => self.ek = f.round() as i64,
+            "xb" => self.xb = pm(f),
             _ => bail!("неизвестный ключ {key}"),
         }
         Ok(())
@@ -590,6 +642,21 @@ impl Params {
         }
         if self.ek > 0 && self.mk > 0 {
             bail!("ek несовместим с mk");
+        }
+        if self.xb < 0 || self.sig.fg_m < 0 {
+            bail!("xb ≥ 0, fg ≥ 0");
+        }
+        if self.xb > 0 && !self.exit.tape_entry() {
+            bail!("xb требует ew > 0 (вход по ленте)");
+        }
+        if self.xb > 0 && (self.mk > 0 || self.ek > 0) {
+            bail!("xb несовместим с mk и ek");
+        }
+        if self.xb > 0 && self.exit.e2_pm > 0 {
+            bail!("xb несовместим с e2 (вся ставка одним входом на срабатывании)");
+        }
+        if self.exit.tpp && self.exit.tj_m > 0 {
+            bail!("tpp (тейки в процентах) несовместим с tj (шаг лестницы в NATR)");
         }
         if self.port.reentry > 2 {
             bail!("reentry ∈ {{0, 1, 2}}");

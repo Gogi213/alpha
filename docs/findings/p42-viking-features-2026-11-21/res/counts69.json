@@ -1,0 +1,170 @@
+{
+ "e57": {
+  "S": {
+   "windows": {
+    "wa": {
+     "n": 219,
+     "months": [
+      132,
+      87,
+      0,
+      0,
+      0
+     ]
+    },
+    "wb": {
+     "n": 131,
+     "months": [
+      0,
+      24,
+      97,
+      10,
+      0
+     ]
+    },
+    "wc": {
+     "n": 213,
+     "months": [
+      0,
+      0,
+      0,
+      120,
+      93
+     ]
+    }
+   },
+   "months": [
+    132,
+    111,
+    97,
+    130,
+    93
+   ],
+   "n": 563,
+   "gate_a": true,
+   "base_n": null
+  },
+  "L": {
+   "windows": {
+    "wa": {
+     "n": 351,
+     "months": [
+      182,
+      169,
+      0,
+      0,
+      0
+     ]
+    },
+    "wb": {
+     "n": 292,
+     "months": [
+      0,
+      36,
+      233,
+      23,
+      0
+     ]
+    },
+    "wc": {
+     "n": 264,
+     "months": [
+      0,
+      0,
+      0,
+      177,
+      87
+     ]
+    }
+   },
+   "months": [
+    182,
+    205,
+    233,
+    200,
+    87
+   ],
+   "n": 907,
+   "gate_a": true,
+   "base_n": null
+  }
+ },
+ "e59": {
+  "S": {
+   "windows": {
+    "wa": {
+     "signals": 219,
+     "with_value": 4,
+     "flagged": 0,
+     "base_trades": 143,
+     "dropped_trades": 0
+    },
+    "wb": {
+     "signals": 139,
+     "with_value": 2,
+     "flagged": 0,
+     "base_trades": 88,
+     "dropped_trades": 0
+    },
+    "wc": {
+     "signals": 136,
+     "with_value": 8,
+     "flagged": 0,
+     "base_trades": 88,
+     "dropped_trades": 0
+    }
+   },
+   "signals": 494,
+   "with_value": 14,
+   "flagged": 0,
+   "flagged_months": [
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "base_trades": 319,
+   "dropped_trades": 0,
+   "keep": false
+  },
+  "L": {
+   "windows": {
+    "wa": {
+     "signals": 357,
+     "with_value": 11,
+     "flagged": 0,
+     "base_trades": 171,
+     "dropped_trades": 0
+    },
+    "wb": {
+     "signals": 258,
+     "with_value": 3,
+     "flagged": 0,
+     "base_trades": 123,
+     "dropped_trades": 0
+    },
+    "wc": {
+     "signals": 299,
+     "with_value": 0,
+     "flagged": 0,
+     "base_trades": 134,
+     "dropped_trades": 0
+    }
+   },
+   "signals": 914,
+   "with_value": 14,
+   "flagged": 0,
+   "flagged_months": [
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "base_trades": 428,
+   "dropped_trades": 0,
+   "keep": false
+  }
+ }
+}
