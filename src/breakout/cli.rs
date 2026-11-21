@@ -348,6 +348,9 @@ pub(super) fn reject_tick_only(p: &Params, line: &str) -> Result<()> {
     if p.mk != 0 {
         bail!("mk (§13.28, вход лимиткой) считает только `breakout tick`: {line}");
     }
+    if p.ek != 0 {
+        bail!("ek (TK-660, вход по подтверждению) считает только `breakout tick`: {line}");
+    }
     Ok(())
 }
 
