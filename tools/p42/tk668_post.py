@@ -179,7 +179,7 @@ def cmd_gate(a):
                         res["gbase"]["%s-%s/%s" % (w.name, side, fn)] = bool(same)
                         if not same:
                             bad.append("G-base %s-%s %s" % (w.name, side, fn))
-                    if g == "ref":
+                    if g == "ref" and cids:
                         x, y = os.path.join(grp_dir(g, w.name, side), "REF", name), os.path.join(REF_DIR % w.name, name)
                         same = os.path.exists(x) and os.path.exists(y) and filecmp.cmp(x, y, shallow=False)
                         res["gref"]["%s-%s/%s" % (w.name, side, fn)] = bool(same)
