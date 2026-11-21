@@ -362,6 +362,75 @@ def test_load_tape_two_days_sorted():
         assert found == 0 and len(t) == 0
 
 
+# ---- E4: независимый пересчёт уровней источника (`tk668_e4.src_levels`) ----------------------------------------------------------------
+
+def e4_minutes(days, h=100, l=100, c=100, qv=1):
+    n = days * 1440
+    return {k: np.full(n, v, dtype=np.int64) for k, v in (("o", 100), ("h", h), ("l", l), ("c", c), ("qv", qv))}
+
+
+def test_e4_lw():
+    import tk668_e4 as e4
+
+    class W:
+        def __init__(self, t0):
+            self.t0 = t0
+    assert e4.lw_of(W("2026-06-17")) == 5       # среда → понедельник 22.06
+    assert e4.lw_of(W("2026-06-22")) == 0       # понедельник
+    assert e4.lw_of(W("2026-06-21")) == 1       # воскресенье
+    assert e4.lw_of(W("2026-07-25")) == 2       # суббота → 27.07
+    assert e4.lw_of(W("2026-09-01")) == 6       # вторник → 07.09
+
+
+def test_e4_day_long_short():
+    import tk668_e4 as e4
+    a = e4_minutes(3)
+    a["h"][5 * 60 + 17] = 500                   # сутки 0, час 5: максимум
+    a["l"][7 * 60 + 3] = 50                     # сутки 0, час 7: минимум
+    lv = e4.src_levels(a, 1, 1, 0)
+    assert lv[0] == (24 * 60, 48 * 60, 5, 500) and len(lv) == 2     # родился в 24:00, живёт сутки; последние сутки без «следующих» — уровня нет
+    sv = e4.src_levels(a, -1, 1, 0)
+    assert sv[0] == (24 * 60, 48 * 60, 7, 50)
+    a["c"][30 * 60 + 59] = 40                   # час 30 (сутки 1) закрылся ниже минимума суток 0 → шорт-уровень умер в конце этого часа
+    sv = e4.src_levels(a, -1, 1, 0)
+    assert sv[0] == (24 * 60, 31 * 60, 7, 50)
+    a["c"][27 * 60 + 59] = 600                  # лонг: закрытие часа 27 выше максимума — конец уровня 28:00
+    lv = e4.src_levels(a, 1, 1, 0)
+    assert lv[0] == (24 * 60, 28 * 60, 5, 500)
+
+
+def test_e4_hole_hour_kills_level():
+    import tk668_e4 as e4
+    a = e4_minutes(3)
+    a["o"][10 * 60:11 * 60] = 0                 # час 10 без данных → суток 0 уровня нет
+    lv = e4.src_levels(a, 1, 1, 0)
+    assert [x[0] for x in lv] == [48 * 60]
+
+
+def test_e4_week_offset():
+    import tk668_e4 as e4
+    a = e4_minutes(16)
+    a["h"][2 * 1440 + 100] = 900                # день 2 (до первого понедельника при lw = 3)
+    a["h"][5 * 1440 + 100] = 700                # день 5 — внутри недели 3…9
+    lv = e4.src_levels(a, 1, 2, 3)
+    assert lv[0][0] == 10 * 1440 and lv[0][3] == 700 and lv[0][2] == 5 * 24 + 1     # неделя дни 3…9 → родилась в день 10
+    assert len(lv) == 1                                                             # следующая неделя (10…16) не закрыта
+
+
+def test_e4_profile_poc():
+    import tk668_e4 as e4
+    a = e4_minutes(3, h=1_000_000, l=1_000_000, c=1_000_000, qv=1)
+    a["h"][100:200] = a["l"][100:200] = a["c"][100:200] = 1_010_000
+    a["qv"][100:200] = 100
+    a["qv"][150] = 500                          # пик корзины — минута 150 (час 2)
+    lv = e4.src_levels(a, 1, 3, 0)
+    assert lv[0][3] == 1010 * 1000 + 500 and lv[0][2] == 150 // 60 and lv[0][0] == 24 * 60
+    sv = e4.src_levels(a, -1, 3, 0)
+    assert sv[0][3] == lv[0][3]                 # профиль не зависит от стороны (цена по модулю)
+    a["o"][:300] = 0                            # меньше 1 200 минут с данными → профиля суток 0 нет
+    assert all(x[0] != 24 * 60 for x in e4.src_levels(a, 1, 3, 0))
+
+
 def main():
     tests = [(k, v) for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     fails = 0
