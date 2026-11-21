@@ -24,6 +24,7 @@ import tk616_freeze as old  # noqa: E402
 import tk626_freeze as fz  # noqa: E402
 
 fw.REQUIRE_CANDIDATE = False                          # прежние тесты — заморозка tk626 без кандидата; охрана «нет кандидата — остановка» (TK-638, FIX критика) включается в своих тестах через `strict()`
+fw.REQUIRE_CANDIDATE3 = False                         # TK-670: то же для `tk670-frozen.json` (`strict3()` в `test_tk670.py`)
 fw.REQUIRE_CANDIDATE2 = False                         # TK-641: то же для `tk641-frozen.json` (`strict2()` в своих тестах)
 NB = 4000
 DAY = rf.DAY_MS
