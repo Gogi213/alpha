@@ -29,6 +29,8 @@ pub enum ExitKind {
     NoTouch,
     /// TK-649 (`tu`): уровень не тронут за T минут от входа.
     TimeNoTouch,
+    /// TK-669 (`q = 100`): лестница тейков закрыла позицию целиком (остаток нулевой) — выход на сделке последнего тейка.
+    Takes,
 }
 
 impl ExitKind {
@@ -42,6 +44,7 @@ impl ExitKind {
             ExitKind::Return => "rt",
             ExitKind::NoTouch => "nt",
             ExitKind::TimeNoTouch => "tu",
+            ExitKind::Takes => "takes",
         }
     }
 }

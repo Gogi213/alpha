@@ -1,14 +1,15 @@
 //! Тесты шага B П-42 (§13.2): сигнал по сделкам без заглядывания, вход до пробоя, вход по агрессивной сделке стороны,
 //! тейки только строго через цену, стоп по цене сделки, фандинг и суточная переоценка по сделкам.
 
-use super::data::{Cols, Fund, Sym, MIN_MS, START_DAY};
+use super::data::{Cols, Fund, Sym, MIN_MS, SCALE, START_DAY};
 use super::levels::{build_levels, Level};
 use super::params::Params;
 use super::tests::{flat, level_world, lv_params, mirror, px, run_scan, set, sym, BORN};
 use super::tick::{
-    candidates, entry_decision, exit_natr, first_signal, fresh_ok, minute_range, parse_px,
-    parse_trades, run_tick, settle_tick, signals_for_coin, sim_fill, sim_stream, tp_lots,
-    tp_mult_m, EntryDec, EntryRej, LoadStat, TLeg, TSig, Tick, TickCtr, TickOut, TradeSrc, DAY_MS,
+    candidates, candidates_fg, entry_decision, exit_natr, first_signal, fresh_ok, minute_range,
+    parse_px, parse_trades, run_tick, settle_tick, signals_for_coin, sim_fill, sim_stream, tp_lots,
+    tp_mult_m, xb_decision, EntryDec, EntryRej, LoadStat, TLeg, TSig, Tick, TickCtr, TickOut,
+    TradeSrc, DAY_MS,
 };
 use super::trade::{ExitKind, NOTIONAL_U};
 use super::Side;
@@ -4254,4 +4255,599 @@ fn ek_trade_at_the_level_cancels_before_the_threshold_test() {
     );
     assert!(r.trades.is_empty());
     assert_eq!(r.ek, [0, 0, 1, 0, 0]);
+}
+
+// ───────────────────────────── TK-669: ключи `xb` / `fg` / `tpp` / `trp`, выход `takes` ─────────────────────────────
+
+impl E2World {
+    /// `run_tick_xb` для сигналов `(смещение, индекс сделки сигнала, уровень)` на одном потоке сделок монеты `TEST` (лонг).
+    fn run_xb(
+        &self,
+        ex: &super::params::ExitCfg,
+        ticks: &[(i64, f64, bool)],
+        sigs: &[(i64, u32, u32)],
+        xb: i64,
+    ) -> super::tick::TickResult {
+        let v: Vec<Tick> = ticks
+            .iter()
+            .map(|&(off, price, bm)| Tick {
+                px: px(price),
+                off: (self.base + off) as u32,
+                bm,
+            })
+            .collect();
+        let mut m = HashMap::new();
+        m.insert(("TEST".to_string(), self.t1 / 1440), Arc::new(v));
+        let src = MemSrc(m);
+        let sgs: Vec<TSig> = sigs
+            .iter()
+            .map(|&(off, idx, level)| TSig {
+                ms: self.abs(off),
+                sym: 0,
+                level,
+                dist: 0,
+                t: self.t1 as u32,
+                day: (self.t1 / 1440) as u16,
+                idx,
+                lp: px(100.0),
+                far: px(99.9),
+                ws: false,
+            })
+            .collect();
+        super::tick::run_tick_xb(&self.syms, &sgs, Side::Long, ex, &self.port, &src, 0, 0, xb)
+    }
+
+    /// Порог `xb` (цена, лонг) по формуле `lp + lp·NATR·X/10³` для уровня 100,0 на сигнальной минуте мира.
+    fn xb_thr(&self, ex: &super::params::ExitCfg, xb_m: i64) -> f64 {
+        let natr = exit_natr(&self.syms[0], ex, self.t1);
+        assert!(natr > 0);
+        let lp = px(100.0);
+        let thr = lp
+            + (i128::from(lp) * i128::from(natr) * i128::from(xb_m) / (i128::from(SCALE) * 1000))
+                as i64;
+        thr as f64 / 1e8
+    }
+}
+
+#[test]
+fn xb_enters_beyond_the_level_on_the_first_trade_at_the_threshold_without_the_beyond_check() {
+    let w = e2_world();
+    let ex = ek_ex(&w);
+    let thr = w.xb_thr(&ex, 400);
+    assert!(thr > 100.0 && thr < 100.5, "порог за уровнем: {thr}");
+    let hit = thr + 0.005;
+    let scen = [
+        (0, 99.60, false),
+        (10_000, 99.70, false), // сигнал; опора — сделка покупателя ≤ сигнал + 4 мс
+        (20_000, thr - 0.005, false), // уровень пройден, порога нет
+        (30_000, hit, false), // порог → вход по ленте на 30 004 по цене этой сделки (ex = 0: за уровнем — не отказ)
+        (40_000, 85.0, true),
+    ];
+    let r = w.run_xb(&ex, &scen, &[(10_000, 1, 0)], 400);
+    assert_eq!((r.trades.len(), r.xb), (1, [1, 0, 0]));
+    let t = &r.trades[0];
+    assert_eq!(t.entry_ms, w.abs(30_004));
+    assert_eq!(t.entry_px, px(hit), "slip = 0 в ex_test; цена выше уровня");
+    assert_eq!((t.kind, t.exit_ms), (ExitKind::HardStop, w.abs(40_000)));
+    // xb = 0 — прежний путь байт в байт: вход на сигнале, тот же результат, что `run_tick`
+    let r0 = w.run_xb(&ex, &scen, &[(10_000, 1, 0)], 0);
+    let mut w0 = e2_world();
+    w0.ex = ex.clone();
+    let rb = w0.run(&scen);
+    assert_eq!(r0.trades[0].entry_ms, w.abs(10_004));
+    assert_eq!(format!("{:?}", r0.trades), format!("{:?}", rb.trades));
+    assert_eq!((r0.xb, r0.ek, r0.rej), ([0; 3], rb.ek, rb.rej));
+    assert_eq!(r0.daily, rb.daily);
+}
+
+#[test]
+fn xb_expiry_stale_fill_and_reference_rejection_are_counted_and_listed() {
+    let w = e2_world();
+    let ex = ek_ex(&w);
+    let thr = w.xb_thr(&ex, 400);
+    let sig = [(10_000, 1, 0)];
+    // нет срабатывания за 60 мин: сделка позже `сигнал + lat + 60 мин` не исполняет
+    let late = 10_004 + super::tick::EK_EXPIRY_MS + 1;
+    let r = w.run_xb(
+        &ex,
+        &[
+            (0, 99.6, false),
+            (10_000, 99.70, false),
+            (late, thr + 0.1, false),
+        ],
+        &sig,
+        400,
+    );
+    assert!(r.trades.is_empty());
+    assert_eq!((r.xb, r.rej[5]), ([0, 1, 0], 1));
+    assert_eq!(r.entry_rej[0].3, EntryRej::Unfilled);
+    // сработало на сделке продавца, сделки покупателя за W = 100 мс до `ms + lat` нет — отказ входа (как §13.16)
+    let r = w.run_xb(
+        &ex,
+        &[
+            (0, 99.6, false),
+            (10_000, 99.70, false),
+            (30_000, thr + 0.01, true),
+        ],
+        &sig,
+        400,
+    );
+    assert!(r.trades.is_empty());
+    assert_eq!(r.xb, [0, 0, 1]);
+    assert_eq!(r.entry_rej[0].3, EntryRej::Stale);
+    // отказ опоры (нет сделки покупателя ≤ сигнал + lat за W) — приказа нет, счётчики xb пусты
+    let r = w.run_xb(&ex, &[(0, 99.6, true), (10_000, 99.70, true)], &sig, 400);
+    assert_eq!((r.xb, r.entry_rej[0].3), ([0; 3], EntryRej::Stale));
+    // сделка на уровне приказ не снимает (в отличие от ek): порог выше уровня, исполнение — на первой сделке у порога
+    let r = w.run_xb(
+        &ex,
+        &[
+            (0, 99.6, false),
+            (10_000, 99.70, false),
+            (20_000, 100.0, true),
+            (30_000, thr + 0.01, false),
+        ],
+        &sig,
+        400,
+    );
+    assert_eq!((r.trades.len(), r.xb), (1, [1, 0, 0]));
+}
+
+#[test]
+fn xb_live_order_holds_the_coin_until_expiry_without_pauses_and_the_level_is_not_consumed() {
+    let w = e2_world();
+    let ex = ek_ex(&w);
+    let thr = w.xb_thr(&ex, 400);
+    let mut port = w.port.clone();
+    port.cool_min = 30;
+    let w = E2World { port, ..w };
+    // сигнал 1 (уровень 0): приказ живёт 60 мин и снимается; сигнал 2 (уровень 1) через 10 мин — монета занята приказом;
+    // сигнал 3 (уровень 2) после снятия — принят, без паузы монеты `c` (снятие приказа — не выход позиции)
+    let after = 10_004 + super::tick::EK_EXPIRY_MS + 1_000;
+    let scen = [
+        (0, 99.6, false),
+        (10_000, 99.70, false),
+        (610_000, 99.70, false),
+        (after, 99.50, false),
+        (after + 10_000, 99.70, false),
+        (after + 20_000, thr + 0.01, false),
+        (after + 30_000, 85.0, true),
+    ];
+    let sigs = [(10_000, 1, 0), (610_000, 2, 1), (after, 3, 2)];
+    let r = w.run_xb(&ex, &scen, &sigs, 400);
+    assert_eq!(r.xb, [1, 1, 0]);
+    assert_eq!(r.rej[1], 1, "сигнал 2 — монета занята живым приказом");
+    assert_eq!(r.rej[0], 0, "снятый приказ уровень не расходует");
+    assert_eq!(r.trades.len(), 1);
+    assert_eq!(
+        (r.trades[0].level, r.trades[0].entry_ms),
+        (2, w.abs(after + 20_004))
+    );
+}
+
+#[test]
+fn xb_short_fires_on_a_fall_to_the_threshold_below_the_floor_in_the_mirror_frame() {
+    let w = e2_world();
+    let ex = ek_ex(&w);
+    let thr = w.xb_thr(&ex, 400); // зеркально: порог цены — 100,0 − (thr − 100,0)
+    let below = 100.0 - (thr - 100.0);
+    let day = w.t1 / 1440;
+    let ticks: Vec<Tick> = [
+        (0, 100.40, true),
+        (10_000, 100.30, true), // сигнал шорта: опора — сделка продавца 100,30
+        (20_000, below + 0.005, true), // ниже пола, но выше порога — мало
+        (30_000, below - 0.005, true), // ≤ порога → срабатывание
+    ]
+    .iter()
+    .map(|&(off, price, bm)| Tick {
+        px: px(price),
+        off: (w.base + off) as u32,
+        bm,
+    })
+    .collect();
+    let mut m = HashMap::new();
+    m.insert(("TEST".to_string(), day), Arc::new(ticks));
+    let src = MemSrc(m);
+    let sg = TSig {
+        ms: w.abs(10_000),
+        sym: 0,
+        level: 0,
+        dist: 0,
+        t: w.t1 as u32,
+        day: day as u16,
+        idx: 1,
+        lp: -px(100.0),
+        far: -px(100.1),
+        ws: false,
+    };
+    let natr = exit_natr(&w.syms[0], &ex, w.t1);
+    let (d, end) = xb_decision(&src, &w.syms[0], Side::Short, &sg, &ex, natr, 400);
+    assert_eq!(
+        (d, end),
+        (
+            EntryDec::Fill {
+                ms: w.abs(30_004),
+                p0: -px(below - 0.005)
+            },
+            Some(w.abs(30_004))
+        )
+    );
+}
+
+#[test]
+fn xb_key_parses_validates_and_keeps_the_params_debug_string_at_xb0() {
+    use super::params::parse_variant;
+    let (_, p0) = parse_variant("x ew=5").expect("разбор");
+    assert_eq!(
+        (p0.xb, p0.sig.fg_m, p0.exit.tpp, p0.exit.trp),
+        (0, 0, false, false)
+    );
+    assert_eq!(parse_variant("x ew=5 xb=0.4").expect("разбор").1.xb, 400);
+    assert!(parse_variant("x xb=0.4").is_err(), "xb требует ew");
+    assert!(parse_variant("x ew=5 xb=-1").is_err());
+    assert!(
+        parse_variant("x ew=5 xb=0.4 ek=10").is_err(),
+        "xb несовместим с ek"
+    );
+    assert!(
+        parse_variant("x ew=5 xb=0.4 mk=1").is_err(),
+        "xb несовместим с mk"
+    );
+    assert!(
+        parse_variant("x ew=5 xb=0.4 e2=0.05").is_err(),
+        "xb несовместим с e2"
+    );
+    assert!(parse_variant("x ew=5 xb=0.4 e2=0").is_ok());
+    let d = format!("{p0:?}");
+    assert!(!d.contains("xb: ") && !d.contains("fg_m") && !d.contains("tpp") && !d.contains("trp"));
+    let (_, p1) = parse_variant("x ew=5 xb=0.4").expect("разбор");
+    assert!(format!("{p1:?}").ends_with(", xb: 400 }"));
+    assert!(super::cli::reject_tick_only(&p1, "x").is_err());
+}
+
+/// Мир `fg` (лонг, уровень 100,025): волатильная прелюдия (NATR ≫ 0), минута прокола `A = BORN + 50` свечой `a`, `keep` минут в зоне входа
+/// без отката за порог `fg`, минута отката `R` (low на `back` выше порога — `back < 0` глубже порога) и три минуты в зоне после неё; дальше — дыры.
+fn fg_world(p: &Params, a: (f64, f64, f64, f64), keep: usize, back: f64) -> (Cols, usize, usize) {
+    let thr_at = |c: &Cols, t: usize| -> f64 {
+        let s = sym(c.clone());
+        let nv = i64::from(s.natr_for(p.sig.natr_p).expect("NATR")[t - 1]);
+        let lp = px(100.025);
+        (lp - (i128::from(lp) * i128::from(nv) * i128::from(p.sig.fg_m)
+            / (i128::from(SCALE) * 1000)) as i64) as f64
+            / 1e8
+    };
+    let mut c = level_world();
+    for m in BORN + 1..BORN + 49 {
+        set(&mut c, m, 95.0, 96.0, 94.0, 95.0);
+    }
+    let a_min = BORN + 50;
+    set(&mut c, a_min, a.0, a.1, a.2, a.3);
+    for i in 1..=keep {
+        let m = a_min + i;
+        assert!(
+            thr_at(&c, m) < 99.85,
+            "порог отката ниже low «неоткатных» минут"
+        );
+        set(&mut c, m, 99.95, 99.98, 99.90, 99.95);
+    }
+    let r_min = a_min + keep + 1;
+    let low = thr_at(&c, r_min) + back;
+    assert!(low < 99.95 && low > 50.0);
+    set(&mut c, r_min, 99.95, 99.98, low, 99.95);
+    for i in 1..=3 {
+        set(&mut c, r_min + i, 99.95, 99.98, 99.90, 99.95);
+    }
+    // дальше — дыры в данных (минуты пропускаются): плоский мир 90,0 снял бы приостановку и исказил счётчики
+    for m in r_min + 4..c.o.len() {
+        (c.o[m], c.h[m], c.l[m], c.c[m]) = (0, 0, 0, 0);
+    }
+    (c, a_min, r_min)
+}
+
+fn fg_cands(c: Cols, p: &Params, side: Side) -> (Vec<usize>, [u64; 4]) {
+    let s = sym(c);
+    let lv = build_levels(&s, &p.sig.lv, side);
+    let mut cs = Vec::new();
+    let mut fgc = [0u64; 4];
+    candidates_fg(&s, &lv, &p.sig, side, &mut cs, &mut fgc);
+    (cs.iter().map(|c| c.t as usize).collect(), fgc)
+}
+
+fn fg_params(fg_m: i64) -> Params {
+    let mut p = lv_params();
+    p.sig.ban = false;
+    p.sig.pb = false;
+    p.sig.lv.pk = true;
+    p.sig.fg_m = fg_m;
+    p
+}
+
+const FG_PIERCE: (f64, f64, f64, f64) = (99.85, 100.30, 99.84, 100.10);
+
+#[test]
+fn fg_pierce_suspends_the_level_and_a_pullback_of_x_natr_after_it_resumes_the_signals() {
+    let p = fg_params(500);
+    let (c, a, r) = fg_world(&p, FG_PIERCE, 4, -0.5);
+    // fg = 0: прокол убивает навсегда (pk), как прежде
+    let off = fg_params(0);
+    assert_eq!(fg_cands(c.clone(), &off, Side::Long), (vec![a], [0; 4]));
+    // fg = 0,5: минута отката R и минуты приостановки не дают кандидатов; со следующей за R — снова; счётчики [pk, pb, ban, снято]
+    assert_eq!(
+        fg_cands(c.clone(), &p, Side::Long),
+        (vec![a, r + 1, r + 2, r + 3], [1, 0, 0, 1])
+    );
+    // шорт — зеркально
+    let m = mirror(&c, 200.0);
+    assert_eq!(
+        fg_cands(m, &p, Side::Short),
+        (vec![a, r + 1, r + 2, r + 3], [1, 0, 0, 1])
+    );
+    // откат мельче порога — приостановка держится
+    let (c2, a2, _) = fg_world(&p, FG_PIERCE, 4, 0.6);
+    assert_eq!(
+        fg_cands(c2.clone(), &p, Side::Long),
+        (vec![a2], [1, 0, 0, 0])
+    );
+    assert_eq!(
+        fg_cands(mirror(&c2, 200.0), &p, Side::Short),
+        (vec![a2], [1, 0, 0, 0])
+    );
+}
+
+#[test]
+fn fg_release_needs_a_minute_strictly_after_the_suspension_and_a_deeper_x_needs_a_deeper_pullback()
+{
+    let p = fg_params(500);
+    // глубокий low уже на минуте прокола A — не снимает (нужна минута строго после); снятие — на R
+    let (c, a, r) = fg_world(&p, (99.85, 100.30, 60.0, 100.10), 3, -0.5);
+    let (cands, fgc) = fg_cands(c, &p, Side::Long);
+    assert_eq!(cands, vec![a, r + 1, r + 2, r + 3]);
+    assert_eq!(
+        fgc,
+        [1, 0, 0, 1],
+        "A: приостановка, откат на той же минуте не снимает"
+    );
+    // fg = 2 против 0,5: порог глубже — тот же откат (на 0,5 ниже порога 0,5) не дотягивает до порога 2
+    let (c, a, _) = fg_world(&p, FG_PIERCE, 4, -0.5);
+    let mut deep = p.clone();
+    deep.sig.fg_m = 2000;
+    let (cands, fgc) = fg_cands(c, &deep, Side::Long);
+    assert_eq!(cands, vec![a], "порог 2 NATR глубже отката");
+    assert_eq!(fgc, [1, 0, 0, 0]);
+}
+
+#[test]
+fn fg_counts_the_first_source_in_code_order_ban_then_pk_then_pb() {
+    // только pb: high на 0,005 % выше уровня
+    let mut p = fg_params(500);
+    p.sig.lv.pk = false;
+    p.sig.pb = true;
+    let (c, a, r) = fg_world(&p, (99.85, 100.03, 99.84, 99.95), 4, -0.5);
+    assert_eq!(
+        fg_cands(c, &p, Side::Long),
+        (vec![a, r + 1, r + 2, r + 3], [0, 1, 0, 1])
+    );
+    // только ban: пересечение и возврат глубже f
+    let mut p = fg_params(500);
+    p.sig.lv.pk = false;
+    p.sig.ban = true;
+    let (c, a, r) = fg_world(&p, (100.0, 100.20, 99.80, 99.85), 4, -0.5);
+    assert_eq!(
+        fg_cands(c, &p, Side::Long),
+        (vec![a, r + 1, r + 2, r + 3], [0, 0, 1, 1])
+    );
+    // все три на одной минуте: источник — ban (первый по порядку в коде), приостановка одна
+    let mut p = fg_params(500);
+    p.sig.pb = true;
+    p.sig.ban = true;
+    let (c, a, r) = fg_world(&p, (100.0, 100.30, 99.80, 99.85), 4, -0.5);
+    assert_eq!(
+        fg_cands(c, &p, Side::Long),
+        (vec![a, r + 1, r + 2, r + 3], [0, 0, 1, 1])
+    );
+}
+
+#[test]
+fn fg_a_release_minute_that_pierces_again_suspends_anew_and_counters_reach_tick_ctr() {
+    let p = fg_params(500);
+    let (mut c, a, r) = fg_world(&p, FG_PIERCE, 4, -0.5);
+    // минута отката R сама пробивает уровень выше τ: снятие, и тут же новая приостановка (счётчики 2 / 1), кандидатов после неё нет
+    let lo = c.l[r] as f64 / 1e8;
+    set(&mut c, r, 99.95, 100.30, lo, 100.10);
+    assert_eq!(fg_cands(c.clone(), &p, Side::Long), (vec![a], [2, 0, 0, 1]));
+    // счётчики доходят до `TickCtr` через `signals_for_coin` (сутки без сделок — кандидаты считаются до чтения суток)
+    let s = sym(c);
+    let src = MemSrc(HashMap::new());
+    let jobs = vec![(p.sig.clone(), Side::Long)];
+    let mut outs = vec![Vec::new()];
+    let mut ctrs = vec![TickCtr::default()];
+    signals_for_coin(&s, 0, &jobs, &src, &mut outs, &mut ctrs);
+    assert_eq!(ctrs[0].fg, [2, 0, 0, 1]);
+    let mut sum = TickCtr::default();
+    sum.add(&ctrs[0]);
+    sum.add(&ctrs[0]);
+    assert_eq!(sum.fg, [4, 0, 0, 2]);
+}
+
+#[test]
+fn fg_key_parses_validates_and_stays_out_of_the_signal_cache_key_and_debug_string_when_off() {
+    use super::params::parse_variant;
+    let (_, p0) = parse_variant("x ew=5").expect("разбор");
+    assert_eq!(p0.sig.fg_m, 0);
+    let (_, p) = parse_variant("x fg=0.5").expect("разбор");
+    assert_eq!(p.sig.fg_m, 500);
+    assert!(parse_variant("x fg=-1").is_err());
+    assert!(!format!("{:?}", p0.sig).contains("fg_m"));
+    assert!(format!("{:?}", p.sig).ends_with(", fg_m: 500 }"));
+    // ключ кэша сигналов: при fg = 0 текст не меняется, при fg ≠ 0 содержит значение
+    assert!(!super::sigcache::cfg_key_text(&p0.sig).contains("fg_m"));
+    assert!(super::sigcache::cfg_key_text(&p.sig).contains("fg_m=500"));
+    assert!(super::cli::reject_tick_only(&p, "x").is_err());
+}
+
+fn v11_exit() -> super::params::ExitCfg {
+    let mut ex = ex_test();
+    ex.tpp = true;
+    ex.trp = true;
+    ex.n_tp = 2;
+    ex.t_low_m = 4000; // +4 % цены входа
+    ex.t_high_m = 12000; // +12 %
+    ex.q_pct = 100;
+    ex.s_pm = 4000; // стоп −4 %
+    ex.be_mode = 2;
+    ex.r_m = 2000; // трейл 2 % цены входа
+    ex
+}
+
+#[test]
+fn tpp_puts_the_take_ladder_in_percent_of_the_entry_price_not_in_natr() {
+    let mut ex = v11_exit();
+    ex.q_pct = 50;
+    ex.trp = false;
+    let ticks = vec![
+        (10, 103.99, false),
+        (20, 104.01, false),
+        (30, 112.01, false),
+    ];
+    let out = sim_fill(
+        &mut stream(ticks.clone()),
+        0,
+        px(100.0),
+        Side::Long,
+        NATR,
+        &ex,
+    );
+    assert_eq!(out.takes, 2);
+    assert_eq!(
+        (out.legs[0].ms, out.legs[0].px),
+        (20, px(104.0)),
+        "103,99 не доходит до +4 %"
+    );
+    assert_eq!((out.legs[1].ms, out.legs[1].px), (30, px(112.0)));
+    // tpp выкл.: 4 / 12 тысячных NATR (NATR = 0,5 %) — 102,0 / 106,0
+    ex.tpp = false;
+    let out = sim_fill(&mut stream(ticks), 0, px(100.0), Side::Long, NATR, &ex);
+    assert_eq!((out.legs[0].ms, out.legs[0].px), (10, px(102.0)));
+    // шорт: цены зеркально, тейк на −4 %
+    ex.tpp = true;
+    let sh = vec![(10, 96.01, true), (20, 95.99, true)];
+    let out = sim_fill(&mut stream(sh), 0, -px(100.0), Side::Short, NATR, &ex);
+    assert_eq!((out.takes, out.legs[0].px), (1, px(96.0)));
+}
+
+#[test]
+fn takes_exit_closes_the_position_at_the_last_take_without_exit_latency_and_pays_only_maker_legs() {
+    let base = START_DAY as i64 * DAY_MS;
+    let s = Sym::from_cols("T", flat(START_DAY * 1440 + 4000, 100.0), vec![]);
+    let mut ex = v11_exit();
+    ex.lat_exit_ms = 500; // выходы-тейкеры задержаны, лимитки — нет
+    let ticks: Vec<(i64, f64, bool)> = vec![
+        (10, 103.0, false),
+        (20, 104.01, false),
+        (30, 111.0, false),
+        (40, 112.01, false),
+        (50, 50.0, true), // после закрытия не читается
+    ]
+    .into_iter()
+    .map(|(ms, p, bm)| (base + ms, p, bm))
+    .collect();
+    let out = sim_fill(
+        &mut stream(ticks.clone()),
+        base,
+        px(100.0),
+        Side::Long,
+        NATR,
+        &ex,
+    );
+    assert_eq!(
+        (out.kind, out.exit_ms, out.takes),
+        (ExitKind::Takes, base + 40, 2)
+    );
+    assert_eq!(out.legs.len(), 2, "остатка нет — ноги выхода-тейкера нет");
+    assert!(out.legs.iter().all(|l| l.maker && l.u == NOTIONAL_U / 2));
+    assert_eq!(ExitKind::Takes.name(), "takes");
+    let st = settle_tick(&s, Side::Long, &out);
+    assert!(
+        (st.gross - (250.0 * 0.04 + 250.0 * 0.12)).abs() < 1e-6,
+        "брутто: {}",
+        st.gross
+    );
+    let maker = |n: f64| n * 1.4 * 0.9 / 1e4;
+    let want = fee_taker(500.0) + maker(250.0 * 1.04) + maker(250.0 * 1.12);
+    assert!(
+        (st.fees - want).abs() < 1e-9,
+        "комиссии {} против {want}",
+        st.fees
+    );
+    // q = 50: остаток 50 % не закрыт тейками — выход `takes` не включается (путь баз)
+    ex.q_pct = 50;
+    let out = sim_fill(&mut stream(ticks), base, px(100.0), Side::Long, NATR, &ex);
+    assert_ne!(out.kind, ExitKind::Takes);
+    assert_eq!(out.takes, 2);
+}
+
+#[test]
+fn trp_arms_the_trail_on_the_first_take_with_a_pullback_in_percent_of_the_entry_price() {
+    let ex = v11_exit();
+    let mut ticks = vec![
+        (10, 103.0, false),
+        (20, 98.0, false),   // до первого тейка трейла нет, стоп 96
+        (30, 104.01, false), // 1-й тейк: трейл = 104,01 − 2 % от входа (2,0) = 102,01
+        (40, 102.5, false),
+        (50, 102.0, false), // ≤ 102,01 → трейл
+        (60, 90.0, true),
+    ];
+    let out = sim_fill(
+        &mut stream(ticks.clone()),
+        0,
+        px(100.0),
+        Side::Long,
+        NATR,
+        &ex,
+    );
+    assert_eq!((out.kind, out.exit_ms, out.takes), (ExitKind::Trail, 50, 1));
+    assert_eq!(out.legs.last().map(|l| l.px), Some(px(102.0)));
+    // trp выкл.: трейл не взводится (a = 10⁶ тысячных NATR) — сделка 102,0 выходом не бывает, позиция доходит до стопа
+    let mut off = ex.clone();
+    off.trp = false;
+    off.q_pct = 50;
+    let out = sim_fill(
+        &mut stream(ticks.clone()),
+        0,
+        px(100.0),
+        Side::Long,
+        NATR,
+        &off,
+    );
+    assert_eq!((out.kind, out.exit_ms), (ExitKind::HardStop, 60));
+    // стоп −4 % работает до первого тейка
+    ticks.truncate(2);
+    ticks.push((25, 95.9, true));
+    let out = sim_fill(&mut stream(ticks), 0, px(100.0), Side::Long, NATR, &ex);
+    assert_eq!(
+        (out.kind, out.exit_ms, out.takes),
+        (ExitKind::HardStop, 25, 0)
+    );
+}
+
+#[test]
+fn tpp_trp_keys_parse_validate_and_show_in_debug_only_when_on() {
+    use super::params::parse_variant;
+    let (_, p0) = parse_variant("x ew=5").expect("разбор");
+    let d = format!("{:?}", p0.exit);
+    assert!(!d.contains("tpp") && !d.contains("trp"));
+    let (_, p) =
+        parse_variant("x n_tp=2 t_low=4 t_high=12 tpp=1 q=100 s=4 bm=2 trp=1 rr=2 rf=0 tt=0 e2=0")
+            .expect("разбор");
+    let e = &p.exit;
+    assert_eq!(
+        (e.tpp, e.trp, e.q_pct, e.s_pm, e.r_m, e.t_low_m, e.t_high_m),
+        (true, true, 100, 4000, 2000, 4000, 12000)
+    );
+    assert!(format!("{e:?}").ends_with("tpp: true, trp: true }"));
+    assert!(
+        parse_variant("x tpp=1 tj=1").is_err(),
+        "tpp несовместим с tj"
+    );
+    assert!(super::cli::reject_tick_only(&p, "x").is_err());
 }

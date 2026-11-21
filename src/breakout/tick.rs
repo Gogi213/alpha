@@ -497,6 +497,8 @@ pub struct TickCtr {
     pub missing_days: u64,
     /// §13.13: сигналов, пришедших в зону сверху (при `ap = 1` отвергнуты, при `ap = 2` помечены).
     pub ap_wrong: u64,
+    /// TK-669 (`fg > 0`): приостановки уровней по источнику — `pk`, `pb`, `ban` (первый сработавший по порядку в коде) и снятые приостановки.
+    pub fg: [u64; 4],
 }
 
 impl TickCtr {
@@ -506,6 +508,9 @@ impl TickCtr {
         self.ap_wrong += o.ap_wrong;
         for h in 0..2 {
             self.signals[h] += o.signals[h];
+        }
+        for k in 0..4 {
+            self.fg[k] += o.fg[k];
         }
     }
 }
@@ -559,8 +564,26 @@ pub fn fresh_ok(sym: &Sym, cfg: &SigCfg, lv: &Level, s: i64, lp: i64, t: usize) 
 /// Кандидаты (§13.2 п. 1): состояние уровня (запрет, ложный пробой) — по закрытиям минут ≤ `t−1`; пул — по
 /// закрытым минутам ≤ `t−1`; минутка по диапазону может дать сделку в зоне входа под уровнем. Затем состояние
 /// обновляется минуткой `t` (как в `signals::scan`).
-#[allow(clippy::needless_range_loop)] // t индексирует сразу несколько рядов монеты
 pub fn candidates(sym: &Sym, levels: &[Level], cfg: &SigCfg, side: Side, out: &mut Vec<Cand>) {
+    candidates_fg(sym, levels, cfg, side, out, &mut [0; 4]);
+}
+
+/// `candidates` со счётчиками `fg` (TK-669): `fgc` = `[приостановок от pk, от pb, от ban, снятых]`; при `fg = 0` не меняется.
+///
+/// `fg > 0` («закол прощаем после отката X NATR»): убийцы уровня `ban`, `pk`, `pb` приостанавливают уровень (минута `ts`, действует со следующей),
+/// а не убивают его. Приостановка снимается на первой минуте `t > ts`, чей low (в раме стороны) ≤ `lp − lp·NATR[t−1]·X` (NATR нет — не снимается):
+/// со следующей минуты уровень снова даёт кандидатов, память касания (`pend`) и метка `pk` сброшены. Минута, снявшая приостановку, сама проверяется
+/// убийцами заново (широкая минута с откатом и новым проколом — новая приостановка). Повторное срабатывание убийцы на приостановленном уровне
+/// ни время приостановки, ни счётчик не меняет.
+#[allow(clippy::needless_range_loop)] // t индексирует сразу несколько рядов монеты
+pub fn candidates_fg(
+    sym: &Sym,
+    levels: &[Level],
+    cfg: &SigCfg,
+    side: Side,
+    out: &mut Vec<Cand>,
+    fgc: &mut [u64; 4],
+) {
     let s = side.s();
     let Some(natr) = sym.natr_for(cfg.natr_p) else {
         return;
@@ -575,6 +598,8 @@ pub fn candidates(sym: &Sym, levels: &[Level], cfg: &SigCfg, side: Side, out: &m
         let mut pend: Option<usize> = None;
         let mut forbidden = false;
         let mut pk_dead = false;
+        // TK-669 (`fg`): минута приостановки уровня
+        let mut susp: Option<usize> = None;
         for t in lv.born as usize..end {
             while seg + 1 < lv.segs.len() && lv.segs[seg + 1].0 as usize <= t {
                 seg += 1;
@@ -611,6 +636,20 @@ pub fn candidates(sym: &Sym, levels: &[Level], cfg: &SigCfg, side: Side, out: &m
                     }
                 }
             }
+            // TK-669 (`fg`): откат на X NATR за уровень на минуте после приостановки — уровень возвращается к сигналам со следующей минуты
+            if let Some(ts) = susp {
+                let nv = i64::from(natr[t - 1]);
+                if t > ts
+                    && nv >= 0
+                    && lo <= lp - mul_div(lp.abs(), nv * cfg.fg_m, SCALE * 1000) as i64
+                {
+                    susp = None;
+                    forbidden = false;
+                    pk_dead = false;
+                    pend = None;
+                    fgc[3] += 1;
+                }
+            }
             if let Some(tc) = pend {
                 if t - tc > cfg.r_min {
                     pend = None;
@@ -622,6 +661,10 @@ pub fn candidates(sym: &Sym, levels: &[Level], cfg: &SigCfg, side: Side, out: &m
             if cfg.ban && pend.is_some() {
                 let back = lp - mul_div(lp.abs(), cfg.f_pm, 100_000) as i64;
                 if s * sym.c[t] < back {
+                    if cfg.fg_m > 0 && susp.is_none() {
+                        susp = Some(t);
+                        fgc[2] += 1;
+                    }
                     forbidden = true;
                 }
             }
@@ -631,12 +674,20 @@ pub fn candidates(sym: &Sym, levels: &[Level], cfg: &SigCfg, side: Side, out: &m
                 if !forbidden {
                     PK_MINUTE_KILLED.fetch_add(1, Ordering::Relaxed);
                 }
+                if cfg.fg_m > 0 && susp.is_none() {
+                    susp = Some(t);
+                    fgc[0] += 1;
+                }
                 forbidden = true;
             }
             // §13.13 (`pb`): сделка минуты на уровне или за ним (high ≥ цены версии) убивает уровень со следующей минуты
             if cfg.pb && hi >= lp {
                 if !forbidden {
                     PB_KILLED.fetch_add(1, Ordering::Relaxed);
+                }
+                if cfg.fg_m > 0 && susp.is_none() {
+                    susp = Some(t);
+                    fgc[1] += 1;
                 }
                 forbidden = true;
             }
@@ -702,7 +753,7 @@ pub fn signals_for_coin(
             .entry((cfg.lv.clone(), *side))
             .or_insert_with(|| build_levels_far(sym, &cfg.lv, *side));
         let mut cs = Vec::new();
-        candidates(sym, levels, cfg, *side, &mut cs);
+        candidates_fg(sym, levels, cfg, *side, &mut cs, &mut ctrs[j].fg);
         ctrs[j].cands += cs.len() as u64;
         for c in cs {
             by_day.entry(c.t as usize / 1440).or_default().push((j, c));
@@ -992,6 +1043,8 @@ struct Pos {
     step: Option<StepLadder>,
     /// v22 (`tl`): лимитный приказ трейла стоит — тейки сняты, трейл заморожен, остаются рыночные стопы и выходы от уровня.
     lim: bool,
+    /// TK-669 (`trp`): трейл включается первым исполненным тейком (откат `r_dist` — уже в цене), а не ходом `+a` NATR.
+    trp: bool,
 }
 
 impl Pos {
@@ -1058,12 +1111,25 @@ impl Pos {
             mults: (0..n).map(|i| tp_mult_m(ex, i, n)).collect(),
             unit,
         });
+        // TK-669 (`tpp`, `trp`): тейки и откат трейла — в процентах цены входа, а не в NATR
+        let tp_at = |i: i64| {
+            if ex.tpp {
+                e + frac(ea, tp_mult_m(ex, i, n), 100_000)
+            } else {
+                e + nat(tp_mult_m(ex, i, n))
+            }
+        };
         Pos {
             e,
-            tps: (0..n).map(|i| e + nat(tp_mult_m(ex, i, n))).collect(),
+            tps: (0..n).map(tp_at).collect(),
             lots: tp_lots_n(ex, notional),
             a_dist: nat(ex.a_m),
-            r_dist: nat(ex.r_m),
+            r_dist: if ex.trp {
+                frac(ea, ex.r_m, 100_000)
+            } else {
+                nat(ex.r_m)
+            },
+            trp: ex.trp,
             be_cfg: ex.be,
             rem: notional,
             stop_base,
@@ -1173,8 +1239,17 @@ impl Pos {
             };
         }
         self.fill_takes(ms, p);
+        // TK-669 (`q = 100`): лестница закрыла позицию целиком — выход на сделке последнего тейка
+        if self.rem <= 0 {
+            return Some(ExitKind::Takes);
+        }
         self.maxp = self.maxp.max(p);
-        if !self.armed && self.maxp - self.e >= self.a_dist {
+        let arm = if self.trp {
+            self.next_tp > 0
+        } else {
+            self.maxp - self.e >= self.a_dist
+        };
+        if !self.armed && arm {
             self.armed = true;
         }
         if self.armed {
@@ -1469,7 +1544,8 @@ fn sim_tail_e(
                 tl_info = Some((ms, s * pos.trail));
                 continue;
             }
-            if ex.lat_exit_ms > 0 {
+            // TK-669: «всё взято» — лимитки уже исполнены, выхода (и его задержки) нет
+            if ex.lat_exit_ms > 0 && kind != ExitKind::Takes {
                 pending = Some((ms + ex.lat_exit_ms, kind));
                 continue;
             }
@@ -1485,12 +1561,14 @@ fn sim_tail_e(
         xp - frac(xp.abs(), ex.slip_bps, 10_000)
     };
     let mut legs = pos.legs;
-    legs.push(TLeg {
-        ms: xm,
-        px: s * px_frame,
-        u: pos.rem,
-        maker: maker_exit,
-    });
+    if kind != ExitKind::Takes {
+        legs.push(TLeg {
+            ms: xm,
+            px: s * px_frame,
+            u: pos.rem,
+            maker: maker_exit,
+        });
+    }
     TickOut {
         entry_ms,
         entry_px: s * e,
@@ -1632,6 +1710,21 @@ pub fn entry_at(
     lp: i64,
     ex: &ExitCfg,
 ) -> EntryDec {
+    entry_at_ex(src, sym, side, day, t, lp, ex, true)
+}
+
+/// `entry_at` с выключаемой проверкой «за уровнем — отказ» (`check_beyond = false` — вход за уровнем, TK-669 `xb`).
+#[allow(clippy::too_many_arguments)]
+pub fn entry_at_ex(
+    src: &dyn TradeSrc,
+    sym: &Sym,
+    side: Side,
+    day: usize,
+    t: i64,
+    lp: i64,
+    ex: &ExitCfg,
+    check_beyond: bool,
+) -> EntryDec {
     let Some(ticks) = src.day(&sym.name, day) else {
         return EntryDec::Reject(EntryRej::Stale);
     };
@@ -1647,7 +1740,8 @@ pub fn entry_at(
         return EntryDec::Reject(EntryRej::Stale);
     };
     let p = side.s() * px;
-    if i128::from(p - lp) * 10_000 > i128::from(ex.ent_x_bp) * i128::from(lp.abs()) {
+    if check_beyond && i128::from(p - lp) * 10_000 > i128::from(ex.ent_x_bp) * i128::from(lp.abs())
+    {
         return EntryDec::Reject(EntryRej::Beyond);
     }
     EntryDec::Fill { ms: t, p0: p }
@@ -1762,6 +1856,55 @@ pub fn ek_decision(
         }
         let t1 = ms + ex.lat_ms;
         let dec = entry_at(src, sym, side, (t1 / DAY_MS) as usize, t1, sig.lp, ex);
+        return (dec, Some(t1));
+    }
+    (EntryDec::Reject(EntryRej::Unfilled), Some(until))
+}
+
+/// TK-669 (`xb`): вход за уровнем, обе стороны в раме. Опора и срок — как у `ek`: вход по ленте §13.16 на `сигнал + lat` (`entry_decision`; её
+/// отказ — отказ сигнала, приказа нет, второй элемент `None`), приказ живёт `EK_EXPIRY_MS` с этого момента. Порог рамы
+/// `T = lp + |lp|·NATR·xb/10³` (`natr_e8` — NATR выхода на сигнале, `xb_m` — X в тысячных NATR): первая сделка ленты (любой стороны) позже
+/// момента опоры с ценой `p ≥ T` — срабатывание в `ms`; вход — рыночный по ленте §13.16 на `ms + lat` (`entry_at_ex` без проверки «за уровнем»;
+/// отказ — `Stale`). Не сработал за срок — `Unfilled`. Отмены «коснулась уровня» нет: цена пересекает уровень до порога по построению.
+/// Второй элемент — момент снятия / исполнения приказа (занятость монеты и места в портфеле до него, `run_tick_xb`).
+pub fn xb_decision(
+    src: &dyn TradeSrc,
+    sym: &Sym,
+    side: Side,
+    sig: &TSig,
+    ex: &ExitCfg,
+    natr_e8: i64,
+    xb_m: i64,
+) -> (EntryDec, Option<i64>) {
+    let t0 = match entry_decision(src, sym, side, sig, ex) {
+        EntryDec::Fill { ms, .. } => ms,
+        other => return (other, None),
+    };
+    let thr = sig.lp + mul_div(sig.lp.abs(), natr_e8 * xb_m, SCALE * 1000) as i64;
+    let until = t0 + EK_EXPIRY_MS;
+    let s = side.s();
+    let mut cur = Cursor::new(src, &sym.name, usize::from(sig.day), sig.idx as usize + 1);
+    while let Some((ms, px, _)) = cur.next_tick() {
+        if ms <= t0 {
+            continue;
+        }
+        if ms > until {
+            break;
+        }
+        if s * px < thr {
+            continue;
+        }
+        let t1 = ms + ex.lat_ms;
+        let dec = entry_at_ex(
+            src,
+            sym,
+            side,
+            (t1 / DAY_MS) as usize,
+            t1,
+            sig.lp,
+            ex,
+            false,
+        );
         return (dec, Some(t1));
     }
     (EntryDec::Reject(EntryRej::Unfilled), Some(until))
@@ -2194,6 +2337,8 @@ pub struct TickResult {
     /// TK-660 (`ek > 0`): приказы E(k) — исполнено, снято за 60 мин, снято уровнем, отказ входа после срабатывания (`stale` / `beyond`),
     /// не поставлено (порог за уровнем, `noroom`).
     pub ek: [u64; 5],
+    /// TK-669 (`xb > 0`): приказы на пробой — исполнено, снято за 60 мин, отказ входа после срабатывания (нет ленты стороны).
+    pub xb: [u64; 3],
 }
 
 impl TickResult {
@@ -2208,6 +2353,7 @@ impl TickResult {
             lot2: [0; 4],
             mk: [0; 3],
             ek: [0; 5],
+            xb: [0; 3],
         }
     }
 }
@@ -2258,6 +2404,22 @@ pub fn run_tick_ek(
     mk: u8,
     ek: i64,
 ) -> TickResult {
+    run_tick_xb(syms, sigs, side, ex, pc, src, mk, ek, 0)
+}
+
+/// `run_tick_ek` со входом за уровнем (TK-669, `xb`): `xb = 0` — прежний путь; `xb > 0` — X, тысячные NATR (требует `ew > 0`, без `mk`, `ek`, `e2`).
+#[allow(clippy::too_many_arguments)]
+pub fn run_tick_xb(
+    syms: &[Sym],
+    sigs: &[TSig],
+    side: Side,
+    ex: &ExitCfg,
+    pc: &PortCfg,
+    src: &dyn TradeSrc,
+    mk: u8,
+    ek: i64,
+    xb: i64,
+) -> TickResult {
     let ns = syms.len();
     let mut res = TickResult {
         trades: Vec::new(),
@@ -2268,6 +2430,7 @@ pub fn run_tick_ek(
         lot2: [0; 4],
         mk: [0; 3],
         ek: [0; 5],
+        xb: [0; 3],
     };
     let maker = mk > 0;
     let entry_slip = if maker { 0 } else { ex.slip_bps };
@@ -2348,6 +2511,7 @@ pub fn run_tick_ek(
         let split = ex.e2_pm > 0;
         let lot_n = if split { NOTIONAL_U / 2 } else { NOTIONAL_U };
         let mut ek_end: Option<i64> = None;
+        let mut xb_end: Option<i64> = None;
         let tr = if natr > 0 {
             dec = if maker {
                 let mut tick_of = |t: i64| tick_at(src, &sym.name, sg.sym, t, &mut tick_cache);
@@ -2355,6 +2519,10 @@ pub fn run_tick_ek(
             } else if ek > 0 {
                 let (d, end) = ek_decision(src, sym, side, sg, ex, ek);
                 ek_end = end;
+                d
+            } else if xb > 0 {
+                let (d, end) = xb_decision(src, sym, side, sg, ex, natr, xb);
+                xb_end = end;
                 d
             } else {
                 entry_decision(src, sym, side, sg, ex)
@@ -2380,6 +2548,9 @@ pub fn run_tick_ek(
                     }
                     if ek_end.is_some() {
                         res.ek[0] += 1;
+                    }
+                    if xb_end.is_some() {
+                        res.xb[0] += 1;
                     }
                     if split {
                         let l2 = if maker {
@@ -2441,13 +2612,18 @@ pub fn run_tick_ek(
                     if why == EntryRej::NoRoom {
                         res.ek[4] += 1;
                     }
-                    if let Some(end) = ek_end {
-                        // TK-660: живой приказ E(k) занимал монету и место в портфеле до снятия
-                        res.ek[match why {
-                            EntryRej::Unfilled => 1,
-                            EntryRej::Touched => 2,
-                            _ => 3,
-                        }] += 1;
+                    if xb_end.is_some() {
+                        res.xb[usize::from(why != EntryRej::Unfilled) + 1] += 1;
+                    }
+                    if let Some(end) = ek_end.or(xb_end) {
+                        // TK-660 / TK-669: живой приказ E(k) / на пробой занимал монету и место в портфеле до снятия
+                        if ek_end.is_some() {
+                            res.ek[match why {
+                                EntryRej::Unfilled => 1,
+                                EntryRej::Touched => 2,
+                                _ => 3,
+                            }] += 1;
+                        }
                         busy[si] = true;
                         open.push(Open {
                             exit_ms: end,
