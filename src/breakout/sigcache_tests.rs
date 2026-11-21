@@ -48,6 +48,29 @@ fn cfg_key_text_changes_with_every_field() {
     }
 }
 
+/// Текст ключа базовой конфигурации — дословно как в `master` (до TK-668): иначе промахнутся все записи `sig-cache` (В-213).
+#[test]
+fn base_key_text_matches_master() {
+    let want = "lv[tf_min=60,k=2,d_pm=500,n=2,tau_pm=200,l_days=7,pk=false],natr_p=30,natr_min_pm=400,t1h_u=50000000000,t24_u=0,\
+                track_pm=2000,e_pm=300,color=true,f_pm=100,r_min=15,ban=true,ap=0,pb=false,fr_h_min=0,fr_k=120,fr_share=0,fr_b_pm=500";
+    assert_eq!(cfg_key_text(&Params::base().sig), want);
+}
+
+#[test]
+fn lx_lw_nonzero_keys_differ_from_base_and_each_other() {
+    let base = Params::base().sig;
+    let k0 = cfg_key_text(&base);
+    let with = |lx: u8, lw: usize| {
+        let mut c = base.clone();
+        c.lv.lx = lx;
+        c.lv.lw = lw;
+        cfg_key_text(&c)
+    };
+    let keys = [k0, with(1, 0), with(2, 0), with(2, 3), with(0, 3)];
+    let distinct: std::collections::HashSet<&String> = keys.iter().collect();
+    assert_eq!(distinct.len(), keys.len(), "{keys:?}");
+}
+
 fn sig(i: u64) -> TSig {
     TSig {
         ms: i64::MAX - i as i64 * 7,
