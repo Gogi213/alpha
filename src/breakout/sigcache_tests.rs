@@ -19,6 +19,8 @@ fn cfg_key_text_changes_with_every_field() {
         ("tau_pm", Box::new(|c| c.lv.tau_pm += 1)),
         ("l_days", Box::new(|c| c.lv.l_days += 1)),
         ("pk", Box::new(|c| c.lv.pk = !c.lv.pk)),
+        ("lx", Box::new(|c| c.lv.lx += 1)),
+        ("lw", Box::new(|c| c.lv.lw += 1)),
         ("natr_p", Box::new(|c| c.natr_p += 1)),
         ("natr_min_pm", Box::new(|c| c.natr_min_pm += 1)),
         ("t1h_u", Box::new(|c| c.t1h_u += 1)),

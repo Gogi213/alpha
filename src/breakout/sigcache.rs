@@ -89,9 +89,11 @@ pub fn cfg_key_text(cfg: &SigCfg) -> String {
         tau_pm,
         l_days,
         pk,
+        lx,
+        lw,
     } = lv;
     format!(
-        "lv[tf_min={tf_min},k={k},d_pm={d_pm},n={n},tau_pm={tau_pm},l_days={l_days},pk={pk}],natr_p={natr_p},natr_min_pm={natr_min_pm},t1h_u={t1h_u},t24_u={t24_u},\
+        "lv[tf_min={tf_min},k={k},d_pm={d_pm},n={n},tau_pm={tau_pm},l_days={l_days},pk={pk},lx={lx},lw={lw}],natr_p={natr_p},natr_min_pm={natr_min_pm},t1h_u={t1h_u},t24_u={t24_u},\
          track_pm={track_pm},e_pm={e_pm},color={color},f_pm={f_pm},r_min={r_min},ban={ban},ap={ap},pb={pb},fr_h_min={fr_h_min},fr_k={fr_k},fr_share={fr_share},fr_b_pm={fr_b_pm}"
     )
 }
